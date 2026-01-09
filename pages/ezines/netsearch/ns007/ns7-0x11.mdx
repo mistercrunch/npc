@@ -1,0 +1,763 @@
+---
+title: "ns7-0x11"
+ezine: "netsearch"
+---
+
+# ns7-0x11
+
+**Ezine:** netsearch
+
+<div className="ascii-content">
+
+```
+=-[ 0x11 ]-==================================================================
+=-[ NetSearch Ezine #7 ]-====================================================
+=-[ Autentificacion PostgreSQL en apache y ProFTPd  ]-=======================
+=-[ por pbrufal ]-===========================================================
+
+
+  Autentificaci≤n mediante PostgreSQL en Apache y ProFTPd
+  Paco Brufal <2:346/3.68> pbrufal@kleenux.org
+  Versi≤n: 0.2r3-netsearch
+
+  Este peque±o documento explica de manera breve c≤mo usar los m≤dulos
+  de autentificaci≤n mediante base de datos PostgreSQL que vienen con
+  los servidores Apache (web) y ProFTPd (ftp). El Sistema Operativo
+  usado es Linux GNU/Debian Stable (aka Potato).  Este documento se dis¡
+  tribuye SIN NINGUNA GARANTIA bajo la licencia GPL
+  (http://www.gnu.org).  No me responsabilizo de los posibles da±os que
+  pueda causar la ejecuci≤n de los pasos descritos en este documento.
+  ______________________________________________________________________
+
+  ═ndice general
+
+
+  1. Introducci≤n
+  2. Apache: m≤dulo mod_auth_pgsql
+     2.1 Compilaci≤n del m≤dulo.
+     2.2 Creaci≤n de la base de datos.
+     2.3 Configuraci≤n bßsica.
+     2.4 Configuraci≤n avanzada.
+
+  3. ProFTPd: m≤dulo mod_pgsql
+     3.1 Compilaci≤n del m≤dulo
+     3.2 Creaci≤n de la base de datos
+     3.3 Configuraci≤n bßsica
+     3.4 Configuraci≤n avanzada
+
+  4. Interfaces de administraci≤n
+  5. Consideraciones finales
+
+
+  ______________________________________________________________________
+
+  1.  Introducci≤n
+
+  Si eres administrador de un servidor web, este documento te serß muy
+  util, ya que el trabajo rutinario de mantener al dia los usuarios,
+  grupos y contrase±as de la gente que accede a los recursos privados
+  del servidor web puede llegar a ser muy pesado, debido a que siempre
+  hay ficheros con contrase±as esparcidos por todo el directorio de
+  pßginas web.
+
+  En el caso de los servidores FTP, el crear un usuario que tenga acceso
+  por FTP implica crear un usuario de sistema, y esto tiene varios
+  inconvenientes:
+
+
+  ╖  Shell. Si no hemos configurado el fichero /etc/adduser.conf para
+     que cree los usuarios con una shell del tipo /bin/false, todos los
+     usuarios tendrßn la shell por defecto, que puede ser /bin/bash o
+     /bin/sh, con lo que el usuario tendrφa acceso por telnet o ssh sin
+     darnos cuenta.
+
+  ╖  Fichero /etc/passwd descontrolado. Un sistema con 20 cuentas se
+     administra de manera c≤moda, pero un sistema que tiene entre 500 ≤
+     1000 cuentas, se hace muy pesado.
+
+  ╖  Centralizaci≤n. Si tuviesemos mßs de un servidor FTP,
+     independientes, el administrar las cuentas de todos ellos serφa una
+     tarea infernal. Alguno pensarß que se podria mantener solo un
+     fichero de claves de usuarios, y que todos los servidores
+     compartiesen ese fichero mediante NFS o CODA, pero esto significa
+     que un usuario tendrφa acceso a todos los servidores, cosa que
+     posiblemente no queramos.
+  El uso de la autentificaci≤n mediante base de datos PostgreSQL
+  resuelve todos los inconvenientes anteriores de una manera eficaz,
+  c≤moda y elegante, haciendo la vida del administrador mucho mßs feliz
+  y productiva :D
+
+  Veamos c≤mo se evitan los puntos anteriores.
+
+
+  ╖  En primer lugar, al crear un usuario de web o ftp, no se crean en
+     el sistema, sino en una base de datos que se puede encontrar en
+     otro servidor, y dicho usuario no tendrß acceso mas que a los
+     servicios que usen la base de datos.
+
+  ╖  En segundo lugar, la administraci≤n de una base de datos siempre es
+     mßs fßcil que un fichero de sistema, si se disponen de las
+     herramientas adecuadas (lΘase interfaces web o X-Window para
+     administrar PostgreSQL).
+
+  ╖  Una base de datos la puedes crear y moldear a tu gusto, a±adiendo o
+     quitando campos a placer, y no te tienes que restringir a los
+     campos del fichero /etc/passwd o /etc/shadow.  Lo que me refiero es
+     que tanto Apache como ProFTPd permiten hacer b·squedas selectivas
+     dentro de la base de datos, con lo que podemos restringir las
+     b·squedas a campos tales como servidor (el usuario pepito solo
+     puede acceder a los servidores 1 y 3), horarios (el usuario
+     manolito solo tiene acceso al servidor 2 de 9 de la ma±ana a 4 de
+     la tarde), niveles de acceso, etc.
+
+  ╖  Y una ventaja mßs es la seguridad. La base de datos podrφa estar en
+     una mßquina distinta a la que ofrece los servicios de web o ftp, y
+     dedicarle una atenci≤n especial al procedimiento de securizaci≤n o
+     hardening del sistema (poner un firewall entre los servidores de
+     web/ftp y la base de datos, no ofrecer servicios de telnet, ssh,
+     rlogin, etc...).
+
+
+  2.  Apache: m≤dulo mod_auth_pgsql
+
+  En este apartado voy a explicar de manera rßpida c≤mo se configura el
+  Apache y la base de datos Postgres. PondrΘ las ordenes que hay que ir
+  ejecutando y un ejemplo de los ficheros de configuraci≤n. Ahφ va :)
+
+
+
+  2.1.  Compilaci≤n del m≤dulo.
+
+  Antes que nada, vemos si nuestro Apache viene de serie con el m≤dulo
+  mod_auth_pgsql. Siguiendo la estructura de ficheros de una Debian ,
+  miramos en el fichero /etc/apache/httpd.conf si existe una linea tal
+  que asφ:
+
+
+
+       LoadModule pgsql_auth_module /usr/lib/apache/1.3/mod_auth_pgsql.so
+
+
+
+  Esta linea debe estar descomentada, y el fichero debe existir.  En
+  caso que exista el fichero, pero la linea no, escrφbela en la secci≤n
+  de los m≤dulos y pasa al punto siguiente. Si la linea estß comentada,
+  pero el fichero no existe, entonces deberßs compilarlo aparte.
+
+  La compilaci≤n de un m≤dulo no reviste ninguna complicaci≤n. En primer
+  lugar debemos bajarnos la ·ltima versi≤n disponible del sitio
+  http://www.giuseppetanzilli.it/mod_auth_pgsql/dist/ . En el momento de
+  escribir este artφculo, la ·ltima versi≤n es la 0.9.10. Para instalar
+  el m≤dulo con Θxito, primero debemos asegurarnos que disponemos de los
+  siguientes paquetes (aqui los escribo con nomenclatura Debian)
+
+
+  ╖  apache
+
+  ╖  apache-dev
+
+  ╖  postgresql
+
+  ╖  postgresql-clients
+
+  ╖  postgresql-dev
+     Para compilar el m≤dulo en una distribuci≤n Debian, debemos retocar
+     un poco el c≤digo fuente. Un cambio consiste en cambiar en el
+     fichero mod_auth_pgsql.c la linea
+
+
+
+       #include &lt;libpq-fe.h>
+
+
+
+  por esta otra
+
+
+
+       #include &lt;postgresql/libpq-fe.h>
+
+
+
+  El otro cambio consiste en editar el fichero /usr/bin/apxs y cambiar
+  estas 2 lineas
+
+
+
+       my $CFG_LD_SHLIB      = q(); # substituted via Makefile.tmpl
+       my $CFG_LDFLAGS_SHLIB = q(); # substituted via Makefile.tmpl
+
+
+
+  por
+
+
+
+       my $CFG_LD_SHLIB      = q(ld); # substituted via Makefile.tmpl
+       my $CFG_LDFLAGS_SHLIB = q(-G); # substituted via Makefile.tmpl
+
+
+
+  Seguimos los pasos de fichero INSTALL que describen c≤mo compilar el
+  m≤dulo (APXS DSO Install). Ejecutaremos el comando
+
+
+
+       ./configure --with-apxs=/usr/bin/apxs --with-pgsql=/usr/include/postgresql
+
+
+
+  para generar el fichero Makefile. Para compilar el m≤dulo ejecutaremos
+  el comando
+
+
+
+       /usr/bin/apxs -I/usr/local/pgsql/include \
+       -L/usr/local/pgsql/lib -lpq \
+       -o mod_auth_pgsql.so -c mod_auth_pgsql.c auth_pgsql_shared_stub.c
+
+
+
+  y lo instalaremos con
+
+
+
+       /usr/bin/apxs -i -a -n auth_pgsql mod_auth_pgsql.so
+
+
+
+  Debemos verificar que en el fichero /etc/apache/httpd.conf existe la
+  linea que mencionamos al inicio de este apartado:
+
+
+
+       LoadModule pgsql_auth_module /usr/lib/apache/1.3/mod_auth_pgsql.so
+
+
+
+  Tan solo queda reiniciar el Apache y esperar que todo haya salido bien
+  ;)
+
+
+  2.2.  Creaci≤n de la base de datos.
+
+  Ahora vamos a crear la base de datos en PostgreSQL. Siendo root,
+  ejecutamos la orden
+
+
+
+       su - postgres
+
+
+
+  para crear el usuario y la bases de datos necesarias.  Debemos crear
+  un usuario, cuyo nombre serß igual que el usuario que ejecuta el
+  servidor Apache. En el caso de Debian, el usuario se llama "www-data":
+
+
+
+       postgres$ createuser www-data
+       Enter user's postgres ID -> 10000
+       Is user "www-data" allowed to create databases (y/n) n
+       Is user "www-data" a superuser? (y/n) y
+       WARNING: Any user who can add users can also modify the system catalog
+       createuser: www-data was successfully added
+       Shall I create a database for "www-data" (y/n) n
+       don't forget to create a database for www-data
+
+
+
+  Seguidamente, debemos crear el fichero wwwusers.sql, que contiene:
+
+
+
+       create table usuarios (
+               login varchar(255),
+               password varchar(255)
+       );
+       create table grupos (
+               login varchar(255),
+               grupo varchar(255)
+       );
+       grant all on usuarios to "www-data";
+       grant all on grupos to "www-data";
+
+
+
+  Creamos la base de datos y el esquema de las tablas:
+
+
+
+       postgres$ createdb wwwusers
+       postgres$ psql wwwusers < wwwusers.sql
+       create table usuarios ( login varchar(255), password varchar(255) );
+       CREATE
+       create table grupos ( login varchar(255), grupo varchar(255) );
+       CREATE
+       grant all on usuarios to "www-data";
+       CHANGE
+       grant all on grupos to "www-data";
+       CHANGE
+
+       EOF
+       postgres$
+
+
+
+  2.3.  Configuraci≤n bßsica.
+
+  Ahora ya tenemos la base de datos y el usuario "www-data".  El
+  siguiente paso es definir el fichero .htaccess que irß en cada
+  directorio que queramos proteger. Ademßs, debemos asegurarnos que
+  Apache estß bien configurado para que maneje correctamente estos
+  ficheros. En especial nos fijaremos en las directivas
+
+
+
+       AllowOverride none
+
+       AccessFileName .htaccess
+
+       &lt;Files ~ "^\.ht">
+           Order allow,deny
+           Deny from all
+       &lt;/Files>
+
+
+
+  El fichero .htaccess contiene la siguientes lineas:
+
+
+
+  # mßquina que contiene la base de datos
+  Auth_PG_host localhost
+  # puerto tcp de conexi≤n
+  Auth_PG_port 5432
+  # nombre de la base de datos
+  Auth_PG_database wwwusers
+  # nombre de la tabla de usuario
+  Auth_PG_pwd_table usuarios
+  # nombre del campo de login
+  Auth_PG_uid_field login
+  # nombre del campo de password
+  Auth_PG_pwd_field password
+  # nombre de la tabla de grupos
+  Auth_PG_grp_table grupos
+  # nombre del campo de grupo
+  Auth_PG_gid_field grupo
+  # descripci≤n de la zona protegida
+  AuthName "Autentificaci≤n de Usuario"
+  # tipo de autentificaci≤n
+  AuthType basic
+
+  # limitaciones del grupo administrador
+  &lt;LIMIT GET POST>
+  require group administrador
+  &lt;/LIMIT>
+
+
+
+  Explicaci≤n rßpida: en esa zona privada solo podrßn acceder las
+  personas que pertenezcan al grupo administrador. Es decir, aquellos
+  logins que tengan el grupo administrador en la tabla grupos.
+
+
+  Vamos a probar el invento. Copiamos el fichero .htaccess anterior al
+  raiz de nuestros documentos web (/var/www en Debian), y como usuario
+  postgres, ejecutamos las siguientes ordenes:
+
+
+
+       postgres$ psql wwwusers
+       Welcome to the POSTGRESQL interactive sql monitor:
+         Please read the file COPYRIGHT for copyright terms of POSTGRESQL
+         [PostgreSQL 6.5.3 on i686-pc-linux-gnu, compiled by gcc 2.95.2]
+
+         type \? for help on slash commands
+         type \q to quit
+         type \g or terminate with semicolon to execute query
+         You are currently connected to the database: wwwusers
+
+       wwwusers=> insert into usuarios values ( 'admin','w8Yv0sd2meW3Q' );
+       INSERT 22880 1
+       wwwusers=> insert into grupos values ( 'admin','administrador' );
+       INSERT 22881 1
+       wwwusers=> \q
+
+
+
+  La contrase±a 'w8Yv0sd2meW3Q' se genera con el comando mkpasswd, que
+  viene con cualquier distro.
+
+
+  Ha llegado el momento de reiniciar el Apache. DespuΘs de reiniciarlo
+  con el navegador visitaremos la direcci≤n de nuestro servidor, y nos
+  deberφa aparecer la ventana de autentificaci≤n. Ponemos como login
+  admin, y como password admin, y nos debe dejar entrar.
+
+
+  2.4.  Configuraci≤n avanzada.
+
+  En la introducci≤n vimos que la base de datos se puede moldear a
+  nuestro gusto. Vamos a ver c≤mo restringir los accesos por horas, es
+  decir, un usuario solo puede acceder a una zona restringida durante
+  unas horas determinadas.  Sobre la base del punto anterior, tan solo
+  debemos a±adir dos campos mßs a la tabla usuarios. Los campos serßn
+  hora_comienzo y hora_fin.
+
+  La tabla quedarφa de la siguiente manera
+
+
+
+       create table usuarios ( login varchar(255), password varchar(255), hora_comienzo time, hora_fin time);
+       create table grupos ( login varchar(255), grupo varchar(255) );
+       grant all on usuarios to "www-data";
+       grant all on grupos to "www-data";
+
+
+
+  En el fichero .htaccess es donde se define el horario permitido,
+  mediante la directiva Auth_PG_pwd_whereclause:
+
+
+
+       # mßquina que contiene la base de datos
+       Auth_PG_host localhost
+       # puerto tcp de conexi≤n
+       Auth_PG_port 5432
+       # nombre de la base de datos
+       Auth_PG_database wwwusers
+       # nombre de la tabla de usuario
+       Auth_PG_pwd_table usuarios
+       # nombre del campo de login
+       Auth_PG_uid_field login
+       # nombre del campo de password
+       Auth_PG_pwd_field password
+       # nombre de la tabla de grupos
+       Auth_PG_grp_table grupos
+       # nombre del campo de grupo
+       Auth_PG_gid_field grupo
+       # horario permitido
+       Auth_PG_pwd_whereclause " and hora_comienzo>=date(now()) and date(now())<=hora_fin "
+       # descripci≤n de la zona protegida
+       AuthName "Autentificaci≤n de Usuario"
+       # tipo de autentificaci≤n
+       AuthType basic
+
+       # limitaciones del grupo administrador
+       &lt;LIMIT GET POST>
+       require group administrador
+       &lt;/LIMIT>
+
+
+
+  Cuando creemos un usuario en esta tabla, la hora de comienzo y de fin
+  se introducen con el formato hh:mm:ss.
+
+
+
+  3.  ProFTPd: m≤dulo mod_pgsql
+
+
+  3.1.  Compilaci≤n del m≤dulo
+
+  Realmente, no existe tal m≤dulo en ProFTPd. Para que ProFTPd soporte
+  consultas a bases de datos PostgreSQL, debemos recompilar el programa
+  con la configuraci≤n deseada. Si nos bajamos el c≤digo fuente desde
+  www.proftpd.org, debemos ejecutar los siguientes comandos
+
+
+
+       # CFLAGS="-O2 -Wall -I ../ -I/usr/include/mysql \
+         -I/usr/include/postgresql" \
+         ./configure --prefix=/usr \
+         --sysconfdir=/etc --localstatedir=/var/run \
+         --enable-autoshadow \
+         --with-modules=mod_pgsql:mod_ratio:mod_quota:mod_pam:mod_readme
+
+       # make
+       # make install
+
+
+
+  Veremos ahora c≤mo hacerlo con paquetes Debian. En la versi≤n
+  inestable (aka Sid), ya existe el ProFTPd con soporte para Postgres,
+  que se llama, proftpd-pgsql. Veamos c≤mo hacer un paquete Debian para
+  la versi≤n estable (aka potato).  Suponiendo que nos bajemos el c≤digo
+  fuente de ProFTPd con el comando
+
+
+
+       apt-get source proftpd
+
+
+
+  entramos en el directorio que contiene el c≤digo fuente, y en el
+  fichero debian/rules editamos la linea
+
+
+
+       EXTRAMODS = mod_sqlpw:mod_mysql:mod_ratio:mod_quota:
+
+
+
+  para que ponga
+
+
+
+       EXTRAMODS = mod_pgsql:mod_ratio:mod_quota:
+
+
+
+  Lo guardamos, y como root, ejecutamos el comando
+
+
+
+       debian/rules binary
+
+
+
+  Esto nos deberφa construir un paquete Debian, que instalaremos con el
+  comando
+
+
+
+       dpkg -i proftpd-version.deb
+
+
+
+  Para probarlo, insertaremos esta orden en el fichero /etc/proftpd.conf
+
+
+
+       SQLAuthoritative               off
+
+
+
+  si al reiniciar el demonio no da ningun error, entonces es que la
+  compilaci≤n funcion≤ perfectamente. En caso contrario, repasa bien tus
+  pasos y lee los ficheros INSTALL que acompa±an al c≤digo fuente ;)
+
+
+  3.2.  Creaci≤n de la base de datos
+
+  La creaci≤n de la base de datos es muy similar a la que hicimos con
+  Apache, solo se diferencia en que esta vez el usuario que accede a la
+  base de datos puede ser cualquier que creemos, y no el que ejecuta el
+  servidor FTP.
+
+  La tabla que crearemos serß la siguiente:
+
+
+
+       CREATE TABLE "usertable" (
+               "userid" text,
+               "uid" int4,
+               "gid" int4,
+               "passwd" text,
+               "shell" text,
+               "homedir" text,
+               "count" int4
+       );
+
+
+
+  ╖  userid es el campo que define el login del usuario
+
+  ╖  uid es el identificador de usuario. Se puede hacer que todos los
+     usuarios tengan el mismo uid, o ir asignando distintos valores.
+
+  ╖  gid es el identificador de grupo al que pertenece el usuario.
+
+  ╖  passwd es la clave del usuario
+
+  ╖  shell es la shell que tiene el usuario. Puede ser /bin/false,
+     /bin/bash,...
+
+  ╖  homedir es el directorio donde el usuario estarß cuando entre por
+     FTP.
+
+  ╖  count es una variable que se va autoincrementando seg·n las veces
+     que entra el usuario.
+     Vamos a insertar un registro en la base de datos para hacer una
+     prueba
+
+
+
+       insert into usertable values ('pruebaftp',12000,100,'ZWdlLgehZOxr2','/bin/bash/','/tmp',0);
+
+
+
+  Acabamos de crear un usuario con login pruebaftp y password pruebaftp
+  (encriptado), cuyo uid es 12000 y pertenece al grupo 100. Este usuario
+  tiene /bin/bash como shell, y su $HOME es el directorio /tmp.
+
+
+  3.3.  Configuraci≤n bßsica
+
+  Teniendo como base el fichero de configuraci≤n de ProFTPd
+  (/etc/proftpd.conf), a±adiremos las siguientes lineas:
+
+
+
+       SQLAuthoritative        off
+       PostgresInfo            host usuario password database
+       SQLEncryptedPasswords   on
+       SQLUserTable            usertable
+       SQLUsernameField        userid
+       SQLUidField             uid
+       SQLGidField             gid
+       SQLPasswordField        passwd
+       # SQLShellField         shell
+       SQLHomedirField         homedir
+       SQLLoginCountField      count
+
+
+
+  Explico quΘ significa cada linea:
+
+
+  ╖  SQLAuthoritative es la directiva que le dice a ProFTPd que si falla
+     la autentificaci≤n por SQL, que se permita otro tipo de
+     autentificaci≤n, como podrφa ser PAM (Pluggable Authentication
+     Modules) o LDAP (Ligthweight Database Access Protocol). Si esta
+     variable estß a on y falla la autentificaci≤n, se le deniega el
+     paso al usuario, antes de probar con otros mΘtodos.
+
+  ╖  PostgresInfo es la directiva que le dice a ProFTPd donde estß la
+     base de datos de usuarios, y c≤mo tiene que conectarse a ella.
+
+  ╖  SQLEncryptedPasswords activada indica que las claves de la base de
+     datos estßn cifradas.
+
+  ╖  SQLUserTable especifica c≤mo se llama la tabla que contiene los
+     datos.
+
+  ╖  SQLUsernameField indica cual es el campo que contiene el nombre de
+     usuario.
+
+  ╖  SQLUidField es el campo que contiene el uid del usuario.
+
+  ╖  SQLGidField es el campo que contiene el gid del usuario.
+
+  ╖  SQLPasswordField indica c≤mo se llama el campo de la tabla que
+     contiene el password.
+
+  ╖  SQLHomedirField es la directiva que indica a ProFTPd el campo que
+     contiene el directorio en el cual el usuario se encontrarß cuando
+     entre al sistema.
+
+  ╖  SQLLoginCountField es un contador que se incrementa cada vez que el
+     usuario entra en el sistema.
+     Una vez reiniciado el demonio ProFTPd, haremos un ftp a la mßquina
+     con el usuario pruebaftp y password pruebaftp y nos debe dejar
+     entrar.
+
+
+  3.4.  Configuraci≤n avanzada
+
+  En este apartado haremos algo muy parecido a lo que hicimos con
+  Apache, pero en vez de restringir por horario, ahora lo haremos por
+  servidor.  Para ello, debemos crear otra tabla donde se indica a quΘ
+  servidores tiene acceso un usuario.
+
+
+
+       CREATE TABLE "usertable" (
+               "userid" varchar(255),
+               "uid" int4,
+               "gid" int4,
+               "passwd" varchar(255),
+               "shell" varchar(255),
+               "homedir" varchar(255),
+               "count" int4
+       );
+
+       CREATE TABLE "servidor" (
+               "userid" varchar(255),
+               "servidor" text
+       );
+
+
+
+  El campo que especifica el servidor al que tiene acceso cada usuario
+  debe ser una lista con los servidores permitidos, separados por comas
+  y sin espacios.
+
+  Insertaremos una entrada en la tabla de accesos para hacer las pruebas
+  necesarias:
+
+
+
+       insert into servidor values('pruebaftp','servidor1,servidor3');
+
+
+
+  Luego, en el fichero /etc/proftpd.conf de cada servidor debemos
+  especificar que solo se permite la entrada a los usuarios que tengan
+  definido ese servidor en su configuraci≤n.  Esto se hace con la
+  directiva SQLWhereClause. Veamos un ejemplo. Esta serφa la
+  configuraci≤n de un servidor llamado servidor1
+
+
+
+  SQLAuthoritative        off
+  PostgresInfo            host usuario password database
+  SQLEncryptedPasswords   on
+  SQLUserTable            usertable
+  SQLUsernameField        userid
+  SQLUidField             uid
+  SQLGidField             gid
+  SQLPasswordField        passwd
+  # SQLShellField         shell
+  SQLHomedirField         homedir
+  SQLLoginCountField      count
+  SQLWhereClause " userid=(select userid from servidor where servidor like '%servidor1%') "
+
+
+
+  Como vemos, este servidor solo permitirß la entrada a los usuarios que
+  tengan en el campo servidor el identificador del servidor1.
+
+  Si realizamos un ftp a la mßquina con el mismo login y password de
+  antes, nos debe dejar entrar. Ahora cambiaremos la linea
+  SQLWhereClause de la configuraci≤n, para comprobar que se nos deniega
+  el acceso.
+
+
+
+       SQLWhereClause " userid=(select userid from servidor where servidor like'%servidor2%') "
+
+
+
+  Haremos la misma prueba cambiando servidor2 por servidor3 y nos debe
+  dejar entrar. Con esto podemos asegurar que el sistema funciona
+  perfectamente.
+
+
+  4.  Interfaces de administraci≤n
+
+  Para que la administraci≤n de la base de datos sea mßs sencilla, se
+  deberia buscar alg·n interfaz grßfico que nos permitiese a±adir,
+  borrar o modificar las entradas en la base de datos. Si sabes
+  programar en PHP, no te costarß hacerte tu propio interfaz web, donde
+  podrßs administrar tus usuarios de manera c≤moda. Si prefieres usar
+  algo ya hecho, puedes elegir entre phpPgAdmin, un interfaz web
+  bastante completo, o PgAccess, un programa para X-Window que te
+  permitirß a±adir, borrar o modificar cualquier campo de la base de
+  datos. Yo particularmente me he hecho uno en PHP, ya que puedo
+  administrar los usuarios desde cualquier sitio.
+
+
+  5.  Consideraciones finales
+
+  Dentro del tema de autentificaci≤n por base de datos, existen muchas
+  mßs posibilidades de configuraci≤n de las que he escrito aqui. Os
+  animo a todos a que penseis un poco e investigueis sobre el tema :)
+
+
+
+
+```
+
+</div>

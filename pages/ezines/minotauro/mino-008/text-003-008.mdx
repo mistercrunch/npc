@@ -1,0 +1,223 @@
+---
+title: "TEXT_003"
+ezine: "minotauro"
+---
+
+# TEXT_003
+
+**Ezine:** minotauro
+
+<div className="ascii-content">
+
+```
+Minotauro Magazine #8:
+
+			Infección de Device Drivers
+			       Por Lapidario
+
+%QUE SON LOS DEVICE DRIVER%
+
+	La idea al usar device driver es que todas las dependencias que tenga
+el hardware no esten concentradas y dependientes del programa principal sino
+que estas dependencias sean administradas por pequeños modulos separados del
+programa principal. De esta manera se obtiene una modularidad que no requiere
+cambiar al codigo principal. Entonces un nuevo dispositivo, o una actualizacion
+de sofware puede ser cargado con solo cambiar el CONFIG.SYS y reinicializar el
+equipo.
+
+En DOS existen dos tipos de dispositivos:
+
+CHARACTER DEVICES:	Son aquellos que solo pueden tratar con un caracter a
+			la vez (ejemplo teclado, impresora el crt etc)
+BLOCK DEVICE: 	Pueden manejar un block de datos y por ejemplo trasladarlos de
+		lugar (ejemplo disqueteras)
+
+	Los driver que se encargaran de manejar estos dispositivos solo se
+distingen por un bit que se encuentran en el header (cabecera) del programa.
+Para nuestro uso solo nos dedicaremos a los character driver.
+ 
+El DOS ofrece la forma de encadenar device driver en un mismo archivo. Esto 
+quiere decir que se puede formar una cadena de devices drives. Dicho de otra 
+forma: Se ejecutara el primer device y este tendra un un puntero al proximo 
+device y asi hasta que en el ultimo de estos device el puntero sea FFFFh:FFFFh
+con lo cual indicara que se acabo la cadena.
+
+
+%ESTRUCTURA DEL DEVICE DRIVER%
+Consiste de tres bloques:
+
+HEADER:------------------------------> contiene datos y punteros
+RUTINA ESTRATEGICA:------------------> contiene codigo ejecutable
+RUTINA DE INTERRUPCCION:-------------> contiene codigo ejecutable
+
+
+%INTERACCION DEL DOS CON LOS DEVICE HEADERS%
+
+	El DOS interactua con el device driver enviandole comandos. Estos
+comandos son pasados por el DOS a el device driver en una estructura de datos
+que se encuentra en la direccion dada por el par de registros ES:BX. A la
+estructura que apunta este puntero se la denomina solicitud de header. Este
+puntero (ES:BX) es pasado por el DOS a la rutina estrategica la cual debera
+guardar este puntero pues lo usara la rutina de interrupcion. La rutina
+estrategica debe terminar con un retf. Inmediatamente despues de que el DOS 
+llama a la rutina estrategica, llama a la rutina de interrupccion la cual
+procesara el pedido, devolviendo en los offset adecuados (que se encuentran 
+dentro de la estructura apuntada por ES:BX) los resultados a la solicitud.
+Tanto la rutina estrategica como la de interrupcion son procedimientos lejanos
+(FAR). Nosotros para proceder a la infeccion procederemos a infectar todos los
+sys tipo character que sean unicos dispositivos, dicho de otra manera el
+offset 0h de su header debe contener el valor ffffh.
+
+
+%ESTRUCTURA DEL HEADER%
+ 
+offset		longitud	descripcion
+
+0h		  DW            Puntero al proximo header: SEG:OFFSET
+4h		  W             Atributo (si bit 15=1 tipo character)
+6h		  W             Puntero a la rutina estrategica. 
+8h		  W             Puntero a la rutina de interrupcion.
+0ah		  8 bytes       Nombre del dispositivo.
+
+Offset 0H:
+Si el device es unico o si es el final de una cadena este campo debe contener
+el valor ffffh:ffffh. En caso de haber un proximo eslavon el cadena este campo
+contiene la direccion del proximo device. Esta direccion apunta al comienzo del
+header del proximo device.
+
+Offset 4h:
+Contiene un word de atributo donde cada bit contiene informacion relativa al 
+tipo y capacidades del dispositivo. Para nuestro estudio solo interesa el bit 
+15 que debe estar en 1 para ser un character device. Cuando nosotros agregemos
+un dispositivo mas a la cadena el word de atributo de este device agregado sera
+8000h.
+
+Offset 6h y 8h:
+Contienen el offset a la rutina estrategica y a la rutina de interrupcion
+respectivamente. Este offset se calcula a partir del offset de inicio del 
+header. Inicialmente los device driver son cargados en offset cero. Supongamos
+que infectaremos al file A.SYS que originalmente es un unico dispositivo. 
+Si nosotros anexamos un nuevo eslavon al .SYS (seria el viri) tendremos que:
+El offset 0h del header de el file A.SYS lo demos actualizar.
+El segmento se deja en ffffh.
+El offset sera la longitud del file A.SYS original.
+
+offset 0h   word      offset
+offset 2h   word      segmento (se lo deja en ffffh)
+ 
+El offset 4h no se toca, lo mismo para el 6h y 8h.
+
+Con respecto al header del dispositivo agregado al file A.SYS tendremos:
+offset 0h     longitud:dword     contenido:ffffffffh
+offset 4h     longitud:word      contenido:8000h
+
+offset 6h y 8h deberan tener el offset de la rutina estrategica y de la rutina
+de interrupcion respectivamente. Estos offset se calculan desde el inicio del 
+file A.SYS. Por lo tanto si en nuestro codigo de viri el offset de la rutina
+estrategica es por ejemplo 0234h el valor que debemos poner en el offset 6h de
+header sera 0234h+longitud original del file A.SYS. Las mismas consideraciones
+para el offset 8h (rutina de interrupcion).
+
+%ESTRUCUTURA DE LA SOLICITUD DEL HEADER%
+
+Como mencionamos el DOS llama a la rutina estrategica con un puntero dado en
+ES:BX que indica la direccion de la estructura conocida como solicitud de
+header. La unica funcion de la rutina estrategica es la de almacenar en
+algun lugar seguro dicho puntero y devolver el control con un retf.
+
+offset      longitud	descripcion
+
+02h          byte       codigo de comando.
+03h          word       word de estado.
+0eh          dword      direccion final del codigo residente.
+
+Solo colocamos los offset cuyos contenidos son utiles para nuestra tarea. La
+informacion completa si es que hace falta, se puede hallar en alguna NG por
+ejemplo.
+
+OFFSET 02h:	En este byte el DOS pone un codigo, el cual sera usado por el
+	dispositivo para desempenar la tarea que se le pide. El unico codigo 
+	que nos interesa es 00 el cual es llamado codigo de inicializacion. Por
+	lo tanto nuestro viri debera detectar si el commando es init y por 
+	ejemplo instalarce en memoria el virii y rechazar cualquier otro tipo
+	de comando.
+
+El device responde al dos, una vez ejecutado el commando actualizando el 
+offset 03h (estado). Este offset es puesto a cero por el DOS al llamar el 
+device y es el device el que lo actualiza una vez ejecutado el comando. 
+Nosotros debemos colocar en el offset 03h una de tres respuestas posibles:
+
+0100h -------> si el evento es exitoso (se instalo el viri en memoria)
+8102h -------> dispositivo no listo
+8103h -------> evento fallado
+
+Este ultimo codigo hace que el DOS interprete que el dispositivo no ha 
+entendido el comando. Este valor 8103h lo pondremos si el comando recivido no 
+es 00h (init).
+
+El codigo 8102h lo debemos poner si el codigo ya esta instalado en memoria con
+anterioridad.
+
+El codigo 0100h lo pondremos cuando instalamos el codigo en memoria (esto lo 
+podremos hacer cuando el comando es 00h y no hemos instalado previamente el 
+device en memoria).
+
+Por ultimo nos falta saber que hacer con el offset 0eh. Este campo contiene la
+direccion final en formato segmento offset la direccion final del codigo que va
+a quedar instalado en memoria.
+
+ 0eh ---------> Offset
+ 10h ---------> Segmento
+
+El segmento sera el segmento en el cual se esta ejecutando la rutina de 
+interrupcion (CS).
+
+Con respecto al offset se nos presentan dos casos:
+
+Siguiendo con el ejemplo de que queremos instalar un device mas a la cadena 
+agregandonos al device driver A.SYS
+
+En el caso en que procedemos a instalarnos o sea que vamos a pasar el codigo
+0100h en el dword de estatus, el valor que debemos poner en el offset 0eh de la
+solicitud del header, sera el offset de el ultimo byte usado por el device a 
+agregar mas uno.
+
+Y en el caso en que el comando recibido sea init pero ya estamos instalados 
+(VER NOTA 1), y devolvamos el estatus 8102h, el valor que debemos poner en el
+offset 0eh sera el offset de comienzo de el device driver que estamos 
+agregando.
+
+NOTA 1:
+Esto se debe realizar asi pues en el momento de booteo puede ser que se 
+encuentren infectados mas de un .SYS Entoces si el primero a inicializarce ya 
+instala el virus, cuando se inicialize el segundo, tercero, etc, debemos 
+inicializar el primer device de la cadena (el device original).
+
+A modo de ejemplo envio un codigo funcional de infeccion:
+Este codigo se compila para hacer un .SYS:
+Para lanzar el viri se instala el .SYS en el CONFIG.SYS y se bootea.
+La infeccion se realiza al hacer un dir, infectandoce todos los SYS del 
+directorio actual.
+
+Luego se puede quitar el .SYS del config para verificar que los sys 
+infectados trabajan perfectamente. De ordinario una vez entendido el 
+procedimiento para la infeccion de SYS es relativamente sencillo agregar el 
+codigo a un virii infector de com/exe etc.
+
+===============================================================================
+Referencias y agradecimientos:
+A Dark Angel: 
+	Por su articulo en 40 HEX numero 9 Volumen 2 Issue 5
+A Drako:
+	por facilitarme:
+	Undocumented DOS: por Andrew Schulman, Ralf Brown, David Maxey,
+			  Raymond Michels, Jim Kyle.
+	DOS Internals   : por Geoff Chappell.
+A Trurl:
+	por facilitarme archivos SYS de mas de un device.
+===============================================================================
+Lapidario [DAN]
+
+```
+
+</div>

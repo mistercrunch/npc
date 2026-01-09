@@ -1,0 +1,199 @@
+---
+title: "0x005"
+ezine: "heh"
+---
+
+# 0x005
+
+**Ezine:** heh
+
+<div className="ascii-content">
+
+```
+         ____________
+        -UTMP a fondo-
+
+  Bienvenidos amigos nuevamente a otra funcion de este texto llamado "UTMP a
+fondo", con la participacion estelar de Zomba, como el escritor, C como el
+lenguaje de Programacion y finalmente Linux, como el sistema Operativo.
+  Este edicion trataremos las estructuras que tiene el archivo utmp,
+sabiendo esto, modificar el wtmp, es lo mismo.
+
+-*-  Para que sirve el archivo UTMP?
+  El archivo utmp contiene la informacion sobre los usuarios que estan
+logueados. Esto no incluye servicios como FTP, IMAP, etc. Ya que estos
+programas no usan el utmp para loguear. El servicio mas importante que uso
+el utmp como log es el Telnet.
+
+-*- Como puedo ver el UTMP?
+  Quizas alguna vez les paso, investigando archivos de logs que al intentar
+editar el archivo /var/log/utmp se encuentra con que no se entiende nada y
+esa todo por cualquier lado, eso es por que esta guardado con una
+estructura. Para poder verlo, necesitamos usar un programa que lee el
+archivo con esa estructura especifica, el programa es el who.
+$ who   
+root     tty1     Dec  1 08:48
+root     tty2     Dec  1 08:48
+SIDE     tty4     Dec  1 09:54
+zomba    tty5     Dec  1 10:48 
+
+  Este programa, lee el utmp, y nos devuelve el usuario conectado, sobre que
+tty esta conectado y la fecha en que se conecto.   
+
+-*- Basta de Chachara!! Como programo para acceder al UTMP
+  Supongo que el lector, ya sabe manejar archivos en C.
+  Para acceder a este archivo, se necesita conocer una estructura llamada
+utmp. Esta estructura, se encuentra en &lt;utmp.h>, asi que tenemos que incluir
+ese header. 
+  Vamos a verla:
+struct utmp {
+short ut_type;               // El ut_type define que tipo de login, si esta
+                             // logueada o esta muerta la conexion
+pid_t ut_pid;                // El pid del proceso de login
+char ut_line[UT_LINESIZE];   // el nombre de la tty que esta conectado
+char ut_id[4];               // el id del init o la abreviacion del tty
+char ut_user[UT_NAMESIZE];   // Nombre de usuario
+char ut_host[UT_HOSTSIZE];   // El Host del login remoto
+struct exit_status ut_exit;  // El estatus exit de un proceso
+long ut_session;             // ID de la sesion, usado por windows
+struct timeval ut_tv;        // Tiempo en el cual las entradas fueron hechas
+int32_t ut_addr_v6[4];       // IP del host remoto
+char pad[20]                 // Reservado para uso futuro.
+}
+  Bueno, ante todo cabe mencionar que.
+    UT_LINESIZE vale 12
+    UT_NAMESIZE vale 32
+    UT_HOSTSIZE vale 256
+
+Bueno, hemos visto estra estructura... Ya conoceran los campos escenciales,
+estos son:  ut_user y ut_host que nos dicen que usuario se logueo y de que
+host venimos.
+Vamos a ver un ejemplo practico sobre como abrir el archivo y cambiarle
+informacion. Este programa se compila asi (llamar al archivo eutmp):
+$ gcc eutmp.c -o eutmp
+$ ./eutmp
+
+<---------------------------------- CUT HERE --------------------------------->
+
+<++> eutmp.c
+#include &lt;stdio.h>
+#include &lt;string.h>
+#include &lt;utmp.h>
+
+int main(int argc, char *argv[])
+{
+  // Contador del Programa
+int count = 0;
+  //Aqui llamamos a la estructua ya vista, con el nombre utmp_entry
+struct utmp utmp_entry;
+// Variable donde alojaremos el archivo
+FILE *utmp_file;
+
+/* -= Testeo de Parametros =- */        	
+if (argc != 4) {
+	printf("Uso: %s &lt;user> &lt;User de mentirita> &lt;Host de mentirita>\n", argv[0]);
+	printf("Cambia la informacion del utmp\n");
+	exit(1);
+	  }
+      // Los parametros a ingresar son: Usuario, usuario falso y host falso
+
+// Testeo de Buffer Overflow
+
+if (strlen(argv[2])>32) 
+    {
+    printf("El User de Mentirita debe ser menor a 32 caracteres");
+    exit(1);
+    }
+if (strlen(argv[3])>256) 
+    {
+    printf("El Host de Mentirita debe ser menor a 256 caracteres");
+    exit(1);
+    }
+
+/* Abrimos el Archivo. La variable _PATH_UTMP nos dice donde esta
+guardado el archivo utmp, es decir apunta a /var/log/utmp */
+
+utmp_file = fopen(_PATH_UTMP, "r+");
+if (utmp_file == NULL) {
+		printf("Archivo UTMP vacio o erroneo\n");
+		exit(1);
+	  }
+// Lo abrimos y lo leemos, guardamos la informacion en la estructura utmp_entry
+
+while (fread((char *)&utmp_entry, sizeof(utmp_entry), 1, utmp_file) > 0) {
+
+/* Aqui le decimos que si, el nombre de usuario es igual, al nombre de
+usuario que ingresamos como parametro que haga lo que esta entre { } */
+
+    if (strcmp(utmp_entry.ut_name, argv[1]) == 0) {
+ 
+	 fseek(utmp_file, -sizeof(utmp_entry), 1);
+// Ponemos en la estructura el usuario y host falso.
+
+	 strcpy(utmp_entry.ut_name,argv[2]);
+	 strcpy(utmp_entry.ut_host,argv[3]);
+
+// Imprimimos toda la estructura utmp_entry, o algunas partes, para ver
+// como va quedando.
+
+	 printf("Nombre: %s \n", utmp_entry.ut_name);
+	 printf("Host: %s \n", utmp_entry.ut_host);
+	 printf("Pid: %d \n", utmp_entry.ut_pid);
+	 printf("tty: /dev/%s \n",utmp_entry.ut_line);
+// La guardamos en el archivo
+	 fwrite((char *)&utmp_entry, sizeof(utmp_entry), 1,utmp_file);
+	 count++;
+	 
+	      }
+	  }
+// Cerramos el archivo
+fclose(utmp_file);
+
+if (count == 0) {
+   printf("Error: %s: No existe el usuario\n", argv[1]);
+      return -1;
+  }
+}
+<-->
+
+<---------------------------------- CUT HERE --------------------------------->
+
+
+Lo voy a explicar, paso a paso.
+* Llamamos a la estructura utmp utmp_entry.
+* Abrimos el archivo /var/log/utmp.
+* Metemos la informacion del archivo, en utmp_entry
+* Comparamos el campo utmp_entry.ut_name (campo de usuario) con el parametro
+que nosotros ingresamos argv[1];
+* Si la comparacion es correcta, ponemos en los campos utmp_entry.ut_user y
+utmp_entry.ut_host el usuario y host falso (argv[2] y argv[3]).
+* Una vez hecho esto, lo guardamos en el archivo.
+
+  Eso es simplemente lo que hace el programa.
+  De la misma forma en la cual nosotros guardamos el user y host falso,
+podemos borrar todos los registros que esten a nombre de un usuario. 
+  Esto seria utilizando:
+bzero(&utmp_entry, -sizeof(utmp_entry),1);
+  Que es lo que hace el famoso Zap.
+
+  Adjuntos les dejo un ejemplo hecho por mi, con ncurses.
+  Pueden ver algunas de las cosas que se pueden hacer con la informacion que
+obtenemos del utmp. Para compilarlo:
+  $ gcc editor.c -o editor -lncurses
+  $ ./editor
+
+  Espero, que les haya interesado este articulo, de esta misma forma que
+editamos el utmp, podemos editar el wtmp, que tiene la misma estructura.
+  Se los dejo para la imaginacion, o la proxima... :)
+
+Saludos: Agradezco a fred_ | blasphemy que aunque no los conozco y tampoco
+         se si existieron alguna vez, su Zap fue de gran ayuda.
+ 
+ Eso es todo... 
+   -= Zomba =-
+ zomb4@yahoo.com
+
+    -EOF-
+```
+
+</div>

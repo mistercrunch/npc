@@ -1,0 +1,241 @@
+---
+title: "12"
+ezine: "kryptocrew"
+---
+
+# 12
+
+**Ezine:** kryptocrew
+
+<div className="ascii-content">
+
+```
+Network Working Group                                        S. Bellovin
+Request for Comments: 1948                                 AT&T Research
+Category: Informational                                         May 1996
+
+             Verteidigung gegen Sequence Number Attacks
+
+*****
+ Dies ist eine ▄bersetzung aus dem Englischen des Textes 
+ 'Sequenze Number Attacks' geschrieben von S.Bellovin,
+ ⁿbersetzt von SnakeByte (SnakeByte@KryptoCrew.de)
+ mit freundlicher Genehmigung von S. Bellovin (smb@research.att.com)
+ fⁿr das 'KryptoCrew E-Zine Special TCP/IP'
+
+ 
+▄ber diesen Bericht
+
+ Dieser Bericht ist fⁿr die Internet Gemeinschaft gedacht und
+ speziefiziert keine Standarts irgendeiner Art. Die Verbreitung
+ des Berichtes ist unbeschrΣnkt erlaubt.
+
+Zusammenfassung
+
+ IP spoofing Angriffe basieren auf dem Sequence Number Spoofing,
+ das ein wichtiger Sicherheitsfaktor im Internet wurde 
+ (CERT Advisory CA-95:01). WΣhrend allgegenwΣrtige kryptographische
+ Authentifizierung diese Angriffe fⁿr immer unterbinden wⁿrde,
+ schlagen wir eine geringe Modifikation des TCPs vor, die die
+ gegenwΣrtige Welle von Angriffen stoppen wⁿrde.
+
+▄berblick
+
+ 1985 wurde von Morris eine Angriffsart beschrieben, die darauf basierte,
+ was TCP fⁿr Sequence Nummern fⁿr die nΣchste Verbindung verwenden wⁿrde.
+ Kurzgefasst, der Angreifer sucht einen Host, dem das Ziel vertraut
+ spooft die IP des Hosts, wΣhrend er mit dem Ziel kommuniziert und
+ vollendet eine 3-Wege Verbindung, die auf seiner getippten nΣchsten
+ Sequence Nummer basiert. Eine normale Verbindung zum Ziel wird benutzt
+ um die Sequence Nummer Information zu erhalten. Diese Nummer mit einer
+ gespooften IP gekoppelt erlaubt dem Angreifer Kommandos auf dem Ziel
+ auszufⁿhren.
+
+ Sicherlich ist die richtige L÷sung kryptographische Authentifizierung.
+ Aber es wⁿrde zu lange dauern, bis ein solches System entwickelt ist.
+ Dadurch wird es fⁿr die mei▀ten Seiten notwendig sein auf Adressbezogene
+ Authentifizierung zu vertrauen, wie zum Beispiel rsh und rlogin.
+ Unglⁿcklicherweise hat die Beliebtheit der 'Sniffer' Angriffe auf
+ Netzwerke herausgestellt, das TELNET auch einen gro▀en Sicherheitsfaktor
+ darstellt. Dadurch fehlt dem Internet eine sicherer Mechanismus fⁿr
+ ein remote login.
+
+ Wir raten eine einfache ─nderung am TCP zu machen, die die meisten
+ dieser Angriffe stoppen wⁿrde. PrΣziser gesagt, diese Angriffe wⁿrden 
+ nur noch dann klappen, wenn der Angreifer die M÷glichkeit hat mehr
+ vehrheerende Angriffe zu starten.
+
+Bellovin                     Informationen                      
+----------------------------------------------------------------------------
+RFC 1948                Sequence Number Attacks                 May 1996
+
+
+Details des Angriffes
+
+ Um den Hauptteil des Sequence Number Guessings zu verstehen, muss man
+ sich die 3-Wege Verbindung in der TCP Er÷ffnungssequenz anschauen.
+ Nehmen wir an Client A m÷chte mit dem rsh Server B sprechen.
+ A schickt folgende Nachricht:
+
+        A->B: SYN, ISNa
+
+ A schickt ein Paket mit der SYN-Flagge und der Initial Sequenz Nummer
+ ISNa.
+
+ B antwortet mit
+
+        B->A: SYN, ISNb, ACK(ISNa)
+
+ Nicht nur das B seine Initial Sequenz Nummer schickt, B quittiert auch 
+ den Erhalt von A's Initial Sequenz Nummer. Man muss anmerken, das
+ die Initial Sequenz Nummer von A (ISNa) in dieser Nachricht auftauchen
+ muss. 
+
+ A beendet die Er÷ffnungssequenz indem A folgendes sendet:
+
+        A->B: ACK(ISNb)
+
+ Die Initial Sequenz Nummern sind mehr oder weniger ZufΣllig. Besser
+ gesagt, RFC 793 spezifiziert das der 32-bit ZΣhler alle 4 microsekunden
+ um eins erh÷ht werden muss. Stattdessen erh÷hen Berkeley Kernel die
+ Konstante jede Sekunde um eine andere Sekunde. Dadurch, wenn man eine
+ Verbindung zu einem Computer erstellt, wei▀ man mit hoher Sicherheit, 
+ welche Nummer er fⁿr die nΣchste Verbindung verwenden wird, und hier 
+ liegt der Angriffspunkt.
+
+ Der Angreifer X ÷ffnet zuerst eine echte Verbindung zu seinem Ziel B
+ (zum Beispiel zum mail oder TCP-echo Port). Dadurch erhΣlt er ISNb. 
+ Dann verhΣlt er sich wie A und schickt:
+
+        Ax->B: SYN, ISNx
+
+ wobei Ax ein Paket von X ist der vorgibt A zu sein.
+
+ B's Antort zu X's echter SYN:
+
+        B->A: SYN, ISNb, ACK(ISNx)
+
+ Dieses Paket wird zu A geschickt und erreicht den Angreifer nicht,
+ dennoch kann er mit folgendem antworten: 
+
+        Ax->B: ACK(ISNb')
+
+ wobei er den wahrscheinlichsten Wert fⁿr ISNb verwendet. Wenn dieser 
+ Wert richtig ist ,und normalerweise ist er das, wird B's rsh server
+ annehmen eine berechtigte Verbindung mit A zu haben obwohl X die 
+ Pakete schickt. X kann zwar keine Rⁿckmeldungen von B erhalten, aber
+ dennoch Eingaben machen, die ihm zum Sieg verhelfen.
+
+ Es gibt eine kleine Schwierigkeit bei dem Ganzen. Wenn A B's Nachricht
+ erhΣlt, wird A bemerken, das B etwas quittiert hat, das A niemals 
+ gesendet hat, und wird ein RST (RESET) Paket schicken, um die 
+ Verbindung zu beenden. Es gibt aber 2 Wege um dies zu verhindern.
+ Der einfachere Weg ist zu warten, bis A runtergefahren wird 
+ (zum Beispiel durch eine Attacke von X). Normalerweise wird X aber 
+ einen sehr hΣufigen Fehler ausbeuten, dies wird weiter unten
+ beschrieben. 
+
+Die L÷sung
+ 
+ Die Wahl der Initial Sequenz Nummer geschieht nicht zufΣllig.
+ Stattdessen mⁿssen die Nummern so gewΣhlt werden, das die Chance
+ minimalisiert wird, das alte Pakete als neue Inkarnation der gleichen
+ Verbindung akzeptiert werden. Andererseits gibt es TCP Versionen von 
+ 4.2BSD die speziellen Code beinhalten, der solche Inkarnationen 
+ verarbeitet, wenn der Server der original Verbindung noch im 
+ TIMEWAIT Status ist. Deswegen wⁿrde einfache ZufΣlligkeit dieser
+ Zahlen nicht allzugut funktionieren.
+
+ Aber zweifach vorhandene Pakete und die BeschrΣnkungen fⁿr die
+ Initial Sequenz Nummer fⁿr Reinkarnationen sind charakteristisch fⁿr
+ Einzelverbindungen. Wir k÷nnen Sequence Number Guessing also dadurch
+ unterbinden, das wir jeder Verbindung einen eigenen Sequenz Nummer
+ Speicher zuweisen. (Die Verbindung wird bestimmt durch ein Quadruple:
+ localhost, localport, remotehost, remoteport) In jedem Speicherplatz
+ kann die Sequenznummer wie normal erh÷ht werden. Wie auch immer, es gibt
+ keine Verbindung, zwischen den Nummern in den einzelnen Speicherzellen.
+
+ Die einleuchtenste L÷sung um dieses zu bewerkstelligen wΣre das
+ TCP Transmission Diagramm zu Σndern, das immer beide Enden im TIMEWAIT
+ Status verbringen. Das wⁿrde klappen, aber es wΣre nicht sehr elegant
+ und wⁿrde viel Speicherplatz verbrauchen. Stattdessen nehmen wir den
+ momentanen 4 Microsekunden ZΣhler M und setzen:
+
+    ISN = M + F(localhost, localport, remotehost, remoreport)
+
+ Es ist wichtig, das die Funktion F nicht von au▀en berechenbar ist, oder
+ ein Angreifer k÷nnte immernoch die Sequenz Nummern berechnen. Wir 
+ schlagen vor, das F eine kryptographische Funktion ist der Verbindungs
+ ID und einiger geheimer Daten ist. MD5 wΣre eine gute Wahl da der 
+ Code dafⁿr ⁿberall erhΣltlich ist. Die geheimen Daten k÷nnen entweder
+ wirkliche Zufallszahlen sein, oder eine Kombination aus einem Host-
+ Geheimnis und der Bootzeit der Maschine. Die Bootzeit ist wichtig um
+ sicherzustellen, das die geheimen Daten sich verΣndern. Andere Daten 
+ wie zum Beispiel die IP Adresse des Hosts und Hostname k÷nnen auch
+ in die Berechnung eingebunden werden. Dieses wⁿrde die Administration
+ eines Netzwerkes mit mehreren Workstations erleichtern, da die 
+ Workstations zwar die gleichen geheimen Daten haben, die sich aber 
+ durch die individuellen IP's voneinander unterscheiden. 
+ Unser Vorschlag wΣre eine Verbindung aus 3 Faktoren: 
+
+  1.) Eine 'wahre' Zufallsnummer die Hardware generiert wird
+  2.) Ein administrativ eingegebenes Passwort
+  3.) Und die IP-Adresse des Rechners.
+
+ Dies erlaubt eine eigene Wahl, wie sicher das Geheimnis und der Rechner
+ sind.
+
+ Man muss anmerken, das das Geheimnis nicht wΣhrend des Betriebes 
+ geΣndert werden kann. Mann muss dann sicherstellen, das keine 
+ Verbindungen am laufen sind, da sonst m÷glicherweise schon benutzte
+ Initial Sequenz Nummern wiederverwendet werden.
+
+Ein hΣufiger TCP Fehler
+
+ Wie schon vorher erwΣhnt, muss ein Angreifer der die Initial
+ Sequenz Nummern der Maschine ausspΣhen will, den Gegenpart (A) 
+ ersteinmal stilllegen, da er sonst die Verbindung schlie▀en wⁿrde.
+ Dies geschieht meistens ⁿber einen Implementierungsfehler.
+
+ When SYN Pakete fⁿr eine Verbindung angenommen werden, erstellt das
+ System ein neues TCB mit SYN-RCVD Status. Um zu vermeiden, das die
+ Ressourcen ⁿberbelastet werden, erlauben 4.2BSD gesteuerte Systeme
+ nur eine begrenzte Nummer von TCBs mit diesem Status pro Verbindung.
+ Wenn diese Grenze erreicht ist, werden weitere SYN Pakete fⁿr neue
+ Verbindungen ignoriert, da angenommen wird, das der Client sie
+ erneut sendet, wenn sie gebraucht werden.
+ 
+ Wenn ein Paket emfangen wird, ist die erste Aufgabe, die erledigt werden
+ muss, die Suche nach einem TCB fⁿr diese Verbindung. Wenn kein
+ TCB gefunden wurde sucht der Kernel nach einem freien Platz der fⁿr 
+ TCBs von allen Clienten benutzt werden kann. Leider ist in manchen 
+ Kernels dieser Code fⁿr alle Pakete vorgesehen und nicht nur fⁿr SYN
+ Pakete, so das wenn der SYN-RCVD Speicher voll ist alle neuen Pakete, 
+ die diesen Host und Port betreffen werden einfach gel÷scht auch wenn
+ es keine SYN Pakete sind. 
+
+ Um also den Host auszuschalten schickt der Angreifer ein paar
+ Dutzend SYN Pakete an den rlogin Port von verschiedenen Ports einer
+ nichtexistenten Maschine. Dadurch wird dieser Speicher ⁿberfⁿllt und
+ die Quittung der angegriffenen Maschine wird gel÷scht. Dieses kann 
+ umgangen werden, wenn der Speicher nach ACK Paketen ⁿberprⁿft wird, 
+ fⁿr die kein Antrag vorliegt um dann ein RST Paket zu antworten und
+ die 'fehlerhafte' Verbindung zu trennen.
+
+Sicherheits Aspekte
+
+ Gute Sequenz Nummern sind kein Ersatz fⁿr kryptographische
+ Authetifizierung. Sie sind h÷chstens ein miderwertiger Ersatz.
+
+ Ein ▄berwachungsprogramm das die Einleitungspakete einer Verbindung
+ ⁿberwacht kann seinen eigenen Sequenz Nummern Status ermitteln 
+ und mag immernoch fΣhig sein Sequenz Number Guessing Angriffe zu 
+ betreiben. Deshalb ist die Erh÷hung der Initial Sequenz Nummer nicht 
+ genug. Auch sollte man sicherstellen, das der Angreifer nie ein 
+ Anfangspaket seiner Zielverbindung erhΣlt, da die Inital Sequenz Nummer
+ immernoch einige Konstanten enthΣlt. 
+
+
+```
+
+</div>

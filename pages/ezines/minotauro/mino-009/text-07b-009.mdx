@@ -1,0 +1,490 @@
+---
+title: "TEXT_07B"
+ezine: "minotauro"
+---
+
+# TEXT_07B
+
+**Ezine:** minotauro
+
+<div className="ascii-content">
+
+```
+MINOTAURO MAGAZINE #9:
+                            Nuevo Header de Windows
+                              por Bill & friends
+
+     Este es el formato completo de los NE (Nuevo Ejecutable) de Windows. Gran
+parte de esto no es relevante para la infección (por ejemplo la resource table,
+que es la que indica donde están los recursos (iconos, bitmaps) que están
+puestos dentro del ejecutable) algunas partes si (la Segment Table) pero 
+preferimos ponerlo completo de todos modos. 
+     Y antes de entrar un par de notas. Los segmentos de memoria en Windows
+pueden ser moviles y descartables. Que sea movil significa que Windows puede
+mover el segmento de lugar dentro de la memoria para reorganizarla. Debido al
+mecanismo de segmentación en modo protegido, la aplicación jamas se da cuenta
+de esto; y por lo tanto la gran mayoría de los segmentos (incluso de código)
+son móviles. Los segmentos fijos existen para casos especiales como dispositi-
+vos de hard que necesitan usar alguna dirección de memoria (FISICA) especifica.
+Un segmento descartable significa que el segmento puede ser desalojado de
+memoria si hay que hacer lugar. (Y vuelto a cargar cuando se lo necesita de
+nuevo). Segmentos de código, por ejemplo, que no cambian jamas, pueden dese-
+charse si la aplicación esta en background y ser vueltos a cargar cuando
+recupera el foco, sin que sea aparente. Y ahora respecto a los nombres:
+"nombres importados" o "exportados" significan algo así como entry points que
+se necesitan de otros módulos, y entry points que se dan a disposición de otros
+módulos dentro de este modulo. Por ejemplo si una DLL contiene una función
+"PerformStuff", este nombre estará exportado dentro de la DLL, e importado
+dentro de todas las aplicaciones que lo usen. Este mecanismo de "importación y
+exportación de nombres" permite a Windows hacer todo el linkeo dinámico.
+                                                                          Trurl
+
+░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+ Windows New Header (NE)
+
+El bloque de informacion en el Header de Windows contiene el numero de ver-
+sion del linker, los largos de varias otras tablas que describen el file ejecu-
+table, los offsets desde el principio del header al comienzo de estas tablas,
+los tamaños de la heap y la stack, etc. La siguiente lista compendia el
+contenido del bloque de informacion del header (los offset son relativos al
+comienzo del bloque):
+
+Offset    Descripcion
+00h       Especifica la word de Signature. El byte mas bajo contiene 'N' (4Eh)
+          y el byte mas alto contiene 'E' (45h)
+02h       Especifica el numero de version del linker.
+03h       Especifica el numero de revision del linker.
+04h       Especifica el offset de la Entry Table (relativo al principio
+          del header).
+06h       Especifica el largo de la Entry Table, en bytes.
+08h       Reservado.
+0Ch       Especifica flags que describen el contenido del file ejecutable. 
+          Este valor puede contener uno o mas de los sgtes. bits:
+
+     Bit  Significado
+     0    El linker setea este bit si el formato del file ejecutable es 
+          SINGLEDATA. Un file ejecutable con este formato contiene un segmento
+          de datos. Este bit esta seteado si el file es una dynamic-link 
+          library (DLL).
+     1    El linker setea este bit si el formato del file ejecutable es 
+          MULTIPLEDATA. Un file ejecutable con este formato contiene
+          multiples segmentos de datos. Este bit esta seteado si el file es
+          una aplicacion Windows.
+          Si ni el bit 0 ni el 1 esta seteado, el formato del file ejecutable
+          es NOAUTODATA. Un file ejecutable con este formato no contiene un
+          segmento de datos automatico.
+     2    Reservado.
+     3    Reservado.
+     8    Reservado.
+     9    Reservado.
+     11   Si este bit esta seteado, el primer segmento del file ejecutable
+          contiene codigo que carga la aplicacion.
+     13   Si este bit esta seteado, el linker detecto errores en el momendo
+          del linkeo, pero creo el ejecutable de todos modos.
+     14   Reservado.
+     15   Si este bit esta seteado, el file ejecutable es modulo de libreria
+          (DLL). Si el bit 15 esta seteado, los registros correspondientes al
+          CS:IP inicial apuntan a la rutina de inicializacion llamada con el
+          valor de AX igual al handle del modulo. La rutina de inicializacion
+          debe devolver el control con un far return. Si la rutina termina exi-
+          tosamente, el valor en AX es no cero. Si no, es cero. El valor en el
+          registro DS es seteado al segmento de datos de la libreria si el file
+          es SINGLEDATA. Si esto no es asi, DS es seteado al segmento de datos
+          de la aplicacion que carga la libreria.
+
+0Eh       Especifica el numero de segmentos de datos automaticos. (0E es cero
+          si los bits SINGLEDATA y MULTIPLEDATA estan en cero).
+10h       Especifica el tamaño inicial en bytes de la heap local. Este valor
+          es cero si no hay alocacion local de memoria.
+12h       Especifica el tamaño inicial, en bytes, de la stack. Este valor es
+          cero si el valor inicial del registro SS no es igual al valor de DS.
+14h       Especifica el valor (segment:offset) del CS:IP inicial.
+18h       Especifica el valor (segment:offset) del SS:SP inicial.
+          El valor especificado en SS es un indice en la Segment Table. La
+          primera entrada en la Segment Table corresponde al segmento numero 1.
+          Si SS direcciona al segmento de datos automatico y SP es cero, SP es
+          seteado a la direccion obtenida sumando el tamaño de segmento de
+          datos automatico al tamaño de la stack.
+1Ch       Especifica el numero de entradas en la Segment Table.
+1Eh       Especifica el numero de entradas en la Module-Reference Table.
+20h       Especifica el numero de bytes en la Nonresident-Name Table.
+22h       Especifica el offset al principio de la Segment Table relativo al
+          principio del header de Windows.
+24h       Especifica el offset al principio de la Resource Table relativo al
+          principio del header de Windows.
+26h       Especifica el offset al principio de la Resident-Name Table relativo
+          al principio del header de Windows.
+28h       Especifica el offset al principio de la Module-Reference Table
+          relativo al principio del header de Windows.
+2Ah       Especifica el offset al principio de la Imported-Name Table relativo 
+          al principio del header de Windows.
+2Ch       Especifica el offset al principio de la Non-Resident Name Table,
+          relativo al principio del file. (Por eso es un dword).
+30h       Especifica el numero de entry-points movibles.
+32h       Especifica el shift count que se usa para alinear los sectores
+          logicos. Este valor es log2 del tamaño del sector segmento. 
+          Tipicamente es 4, aunque el default es 9. (Este valor corresponde
+          al switch del linker /alignment [/a]. Cuando la command line del 
+          linker contiene /a:16, la shift count es 4. Cuando la linea de 
+          comandos del linker contiene /a:512, la shift count es 9.)
+34h       Especifica el numero de segmentos de resources.
+36h       Especifica el sistema operativo a donde esta destinado a correrse.
+          Los bits son:
+
+     Bit  Meaning
+     0    Formato de sistema operativo desconocido.
+     1    Reservado.
+     2    Sistema operativo: Microsoft Windows.
+     3    Reservado.
+     4    Reservado.
+     
+37h       Especifica informacion adicional acerca del file ejecutable. Puede
+          ser uno o mas de los sgtes valores:
+
+     Bit  Meaning
+     1    Si este bit esta seteado, el file ejecutable contiene una aplicacion
+          de Windows 2.x que corre en modo protegido version 3.x 
+     2    Si este bit esta setead, el ejecutable contiene una aplicacion de
+          Windows 2.x que soporta Fonts proporcionales.
+     3    Si este bit esta seteado, el file ejecutable contiene un area de
+          "fast-load"
+
+38h       Especifica el offset, en sectores, al principio del area de 
+          "fast-load". (Solo Windows usa este valor).
+3Ah       Especifica el largo, en sectores, del area de fast-load. (Solo 
+          Windows usa este valor).
+3Ch       Reservado.
+3Eh       Especifica la version esperada de Windows. (Solo Windows usa este
+          valor).
+
+░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+ Segment Table
+
+La Segment Table contiene informacion que describe cada segmento dentro del
+file ejecutable. Esta informacion incluye el largo del segmento, el tipo de
+segmento, y los datos de realocacion de segmento. La siguiente lista es un
+sumario de los valores que se encuentran en la segment table. (los offsets son
+relativos al principio de cada entrada).
+
+Location  Description
+00h       Especifica el offset, en sectores, de los datos de este segmento
+          (relativo al principio del file). Un valor de cero significa que no
+          existen datos.
+02h       Especifica el largo, en bytes, del segmento, en el file. Un valor de
+          cero significa que el largo del segmento es 64k, a menos que el
+          offset del selector tambien sea cero.
+04h       Especifica flags que describen el contenido del file ejecutable. Este
+          valor puede ser una combinacion de uno o mas de los sgtes:
+     Bit  Meaning
+     0    Si este bit esta seteado, el segmento es un segmento de datos. Si no
+          lo esta, se trata de un segmento de codigo.
+     1    Si este bit esta seteado, el loader ha alocado memoria para el
+          segmento. 
+     2    Si este bit esta seteado, el segmento esta cargado. 
+     3    Reservado.
+     4    Si este bit esta seteado, el tipo de segmento es MOVEABLE (Movil). De
+          otro modo, el segmento es FIXED (Fijo).
+     5    Si este bit esta seteado, el tipo de segmento es PURE o SHAREABLE. De
+          otro modo, el segmento es IMPURE o NONSHEAREABLE.
+     6    Si este bit esta seteado, el typo de segmento es PRELOAD. De otro
+          modo, se trata de un segmento LOADONCALL.
+     7    Si este bit esta seteado y el segmento es un segmento de codigo, el
+          tipo de segmento es EXECUTEONLY. Si este bit esta seteado y el
+          segmento es un segmento de datos, el segmento es de tipo READONLY.
+     8    Si este bit esta seteado, el segmento contiene datos de realocacion.
+     9    Reservado.
+     10   Reservado.
+     11   Reservado.
+     12   Si este bit esta seteado, el segmento es descartable (discardable).
+     13   Reservado.
+     14   Reservado.
+     15   Reservado.
+
+06h       Especifica el tamaño minimo de alocacion del segmento, en bytes. Un
+          valor de cero indica que el minimo tamaño de alocacion es 64k.
+
+░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+ Resource Table
+
+La resource table describe e identifica la posicion de cada recurso dentro del
+file. La tabla tiene la siguiente forma:
+
+WORD     rscAlignShift;
+TYPEINFO rscTypes[];
+WORD     rscEndTypes;
+BYTE     rscResourceNames[];
+BYTE     rscEndNames;
+
+A continuacion los miembros de la resource table:
+
+     rscAlignShift
+          Especifica el alignment shift count para los datos del recurso.
+          Cuando el shift count es usado como un exponente de 2, el valor
+          resultante especifica el factor, en bytes, para computar la posicion
+          del recurso dentro del ejecutable.
+     rscTypes
+          Especifica un array de estructuras TYPEINFO que contienen informacion
+          acerca del tipo de recurso. Debe haber al menos una estructura
+          TYPEINFO para cada tipo de recurso en el file ejecutable.
+     rscEndTypes
+          Especifica el fin de las definiciones de tipo de recursos. Este
+          miembro debe ser cero.
+     rscResourceNames
+          Especifica los nombres (si los hay) asociados a los recursos en esta
+          tabla. Cada nombre esta guardado como bytes consecutivos; el primer
+          byte especifica el numero de caracteres en el nombre.
+     rscEndNames
+          Especifica el fin de los nombres de recursos y el fin de la Resource
+          Table. Este miembro debe ser cero.
+
+Type Information
+La estructura TYPEINFO tiene la siguiente forma:
+ 
+typedef struct _TYPEINFO {
+    WORD        rtTypeID;
+    WORD        rtResourceCount;
+    DWORD       rtReserved;
+    NAMEINFO    rtNameInfo[];
+} TYPEINFO;
+
+A continuacion los miembros de la estructura TYPEINFO:
+     rtTypeID
+          Especifica el identificador de tipo del recurso. Este valor entero es
+          o bien un valor de tipo de recurso, o un offset a un nombre de tipo
+          de recurso. Si el bit mas alto en este miembro esta seteado (0x8000),
+          el valor es uno de los siguientes valores de tipo de recursos:
+
+          Valor               Tipo de recurso
+          RT_ACCELERATOR      Accelerator table
+          RT_BITMAP           Bitmap
+          RT_CURSOR           Cursor
+          RT_DIALOG           Dialog box
+          RT_FONT             Font component
+          RT_FONTDIR          Font directory
+          RT_GROUP_CURSOR     Cursor directory
+          RT_GROUP_ICON       Icon directory
+          RT_ICON             Icon
+          RT_MENU             Menu
+          RT_RCDATA           Resource data
+          RT_STRING           String table
+
+          Si el bit mas alto del valor de este miembro no esta seteado, el
+          valor representa un offset, en bytes y relativo al principio de la
+          Resource Table, a un nombre en el miembro rscResourceNames.
+     rtResourceCount
+          Especifica el numero de recursos de este tipo en el file ejecutable.
+     rtReserved
+          Reservado.
+     rtNameInfo
+          Especifica un array de estructuras NAMEINFO que contienen informacion
+          acerca de cada recurso. El miembro rtResourceCount especifica el
+          numero de estructuras en este array.
+
+Name Information
+La estructura NAMEINFO tiene la siguiente forma:
+ 
+typedef struct _NAMEINFO {
+    WORD rnOffset;
+    WORD rnLength;
+    WORD rnFlags;
+    WORD rnID;
+    WORD rnHandle;
+    WORD rnUsage;
+} NAMEINFO;
+
+A continuacion los miembros en la estructura NAMEINFO:
+     rnOffset
+          Especifica un offset a los datos del recurso (relativo al principio
+          del file). El offset es en terminos de unidades de alineacion (a-
+          lignment units) especificadas por el miembros rscAlighShift al
+          principio de la Resource Table.
+     rnLength
+          Especifica el largo del recurso, en bytes.
+     rnFlags
+          Especifica si el recurso es fijo, preloaded, o shareable. Este
+          miembro puede ser uno o mas de los sgtes valores:
+          Valor     Significado
+          0x0010    El recurso es movil (MOVEABLE). Si no es fijo (FIXED)
+          0x0020    El recurso puede ser compartido (PURE)
+          0X0040    El recurso es precargado (PRELOAD). De otro modo, es carga-
+                    do cada vez que se pide.
+     rnID
+          Especifica o apunta al identificador del recurso. Si el identificador
+          es un entero, el bit mas alto esta seteado (8000h). De otro modo, es
+          un offset a una string de recurso, relativa al principio de la
+          Resource Table.
+     rnHandle
+          Reservado.
+     rnUsage
+          Reservado.
+
+░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+ Resident Name Table
+
+La Resident-Name Table contiene strings que identifican las funciones exporta-
+das en el file ejecutable. Como el nombre implica, estas strings residen en la
+memoria del sistema y nunca son descartadas. Las strings de resident-names son
+case-sensitive y no son terminadas en cero. La siguiente lista sumariza los
+valores que se encuentran en la Resident-Name Table (los offset son relativos
+al principio de cada entrada).
+
+Offset    Descripcion
+00h       Especifica el largo de la string. Si no hay mas strings en la tabla,
+          este valor es cero.
+01h * xxh Especifica el texto del resident-name. Esta string es case-sensitive
+          y no terminada en cero.
+xxh + 01h Especifica un numero ordinal que identifica a la string. Este numero
+          es un indice dentro de la Entry Table.
+
+La primera string en la Resident-Name Table es el nombre del modulo.
+ 
+░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+ Module Reference Table
+
+La Module-Reference Table contiene offsets para los nombres de modulos guarda-
+dos en la Imported-Name Table. Cada entrada en esta tabla es de 2 bytes.
+
+░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+ Imported Names Table
+
+La Imported-Name Table contiene los nombres de los modulos que el file ejecuta-
+bles importa. Cada entrada contiene dos partes; un byte que especifica el largo
+de la string, y la misma string. Las strings en esta tabla no son terminadas en
+cero.
+
+░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+ Entry Table
+
+La Entry Table contiene "paquetes" (bundles) de entry points al (from) el file
+ejecutable. (el linker genera cada paquete). El sistema de numeracion para
+estos valores ordinales es 1-baes, osea, el valor ordinal que corresponde al
+primer entry point es 1.
+El linker genera los paquetes mas densos posibles, dada la restriccion de que
+no puede reordenar los entry points. Esta restriccion es necesaria porque otros
+ejecutables pueden referirse a los entry points dentro de un paquete por su
+valor ordinal.
+La data de la Entry Table esta organizada por paquete, cada cual empezando con
+un header de 2 bytes. El primer byte del header especifica el numero de
+entradas en el paquete (un valor de 00 designa el fin de la tabl). El segundo
+byte especifica si el segmento correspondiente es movil o fijo. Si el valor de
+este byte es 0FFh, el segmento es movil. Si el valor en este byte es 0FEh, la
+entrada no se refiere a un segmento, sino a una constante definida dentro del
+modulo. Si el valor en este byte no es ni 0FFh ni 0FEh, es un indice de
+segmento.
+Para los segmentos moviles, cada entrada consiste de 6 bytes y tiene la
+siguiente forma:
+
+Offset    Descripcion
+00h       Especifica un valor de byte. Este valor puede ser uno o mas de los
+          siguientes bits:
+     Bit(s)    Significado
+     0         Si este bit esta seteado, la entrada esta exportado.
+     1         Si este bit esta seteado, el segmento usa un segmento de datos
+               global (shared).
+     3..7      Si el file ejecutable contiene codigo que hace transiciones de
+               anillo, este bit especifica el numero de words que componen la
+               stack. En el momento de la transicion de anillo, estas words
+               deben ser copiadas de la stack de un anillo a la stack del otro.
+
+01h       Especifica una instruccion int 3fh.
+03h       Especifica el numero de segmento.
+04h       Especifica el offset del segmento.
+
+Para segmentos fijos, cada entrada consiste de 3 bytes y tiene la siguiente
+forma:
+
+
+Offset    Descripcion
+00h       Especifica un valor de bytes que es una combinacion de los siguientes
+          bits:
+     Bit(s)    Significado
+     0         Si este bit esta seteado, la entrada es exportada.
+     1         Si este bit esta seteado, la entrada usa un segmento de datos
+               global (shared). (Este puede ser solo seteado para modulo de
+               libreria SINGLEDATA).
+     3..7      Si el file ejecutable contiene codigo que hace transiciones de
+               anillo, estos bits especifican el numero de words que constitu-
+               yen  la stack. En el momento de la transicion de anillo, estas
+               words deben ser copiadas de la stack de un anillo a la stack del
+               otro.
+01h       Especifica un offset.
+ 
+░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+ Nonresident Name Table
+
+La nonresidente-name Table contiene strings que identifican las funciones
+exportadas dentro del file ejecutable. Como el nombre implica, estas strings no
+siempre residen en la memoria del sistema, y son descartables. Las strings de
+los nonresident-names son case-sensitive; y no terminan en cero. La siguiente
+lista compendia los valores encontrados en la nonresident-name table (los
+offset son relativos al principio de cada entrada):
+
+Offset    Descripcion
+00h       Especifica el largo, en bytes, de la string. Si este byte es 00h, no
+          hay mas strings en la tabla.
+01h * xxh Especifica el texto del nonresident-name. Esta string es case-sensi-
+          tive y no null-terminated.
+xx + 01h  Especifica un valor ordinal que es el indice dentro de la Entry
+          Table.
+
+El primer nombre que aparece en la nonresident-name table es la string de
+descripcion del modulo (que fue especificada en el file de module-definition
+(.DEF))
+
+░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+ Segments
+
+Los segmentos de codigo y datos siguen al header de Windows. Algunos de los
+segmentos de codigo pueden contener llamadas a funciones en otros segmentos y
+pueden, por lo tanto, requerir datos de realocacion para resolver esas referen-
+cias. Estos datos de realocacion estan guardados en una tabla de realocacion
+que aparece inmediatamente despues del codigo o data en el segmento. Los
+primeros 2 bytes en esta tabla especifican el numero de relocation items que
+contiene la tabla. Un relocation item es una colecciond de bytes que especifi-
+can la siguiente informacion:
+
+     o    Tipo de direccion (segment only, offset only, segment and offset)
+     o    Tipo de realocacion (internal reference, imported ordinal, imported
+          name)
+     o    Numero de segmento o identificador ordinal (para referencias inter-
+     nas)
+     o    Reference-table index or function ordinal number (for imported
+          ordinals)
+     o    Reference-table index or name-table offset (for imported names)
+
+Cada relocation item contiene 8 bytes de datos, y el primer especifica uno de
+los siguientes tipos de relocation-address.
+
+Value     Meaning
+0         Low byte at the specified offset
+2         16-bit selector
+3         32-bit pointer
+5         16-bit offset
+11        48-bit pointer
+13        32-bit offset
+
+El segundo byte especifica uno de los siguientes tipos de realocacion:
+
+Valor     Significado
+0         Referencia interna.
+1         Ordinal importado.
+2         Nombre importado.
+3         OSFIXUP.
+El tercer y cuarto byte especifican el offset de la realocacion dentro del
+segmento.
+Si el tipo de realocacion es un imported ordinal, el quinto y sexto byte
+especifican un indice a una tabla de module reference, y el septimo y octavo
+byte especifican el valor ordinal de la funcion.
+Si el tipo de realocacion es un imported name, el quinto y sexto byte especifi-
+can un indice a una tabla de module reference, y el septimo y octavo byte
+especifican un offset a una Imported Name Table.
+Si el tipo de realocacion es internal reference, y el segmento es fijo, el
+quinto byte especifica el numero de segmento, el sexto byte es cero, y el
+septimo y octavo byte especifican un offset dentro del segmento. Si el tipo de
+realocacion es internal reference y el segmento es movil, el quinto byte
+contiene 0FFh, el sexto byte es cero; y el septimo y octavo byte especifican un
+valor ordinal dentro de la Entry Table del segmento.
+
+```
+
+</div>

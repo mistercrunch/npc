@@ -1,0 +1,556 @@
+---
+title: "heh4"
+ezine: "heh"
+---
+
+# heh4
+
+**Ezine:** heh
+
+<div className="ascii-content">
+
+```
+                     [ Funny Code?? ]
+	
+	
+	                  by Zomba
+		   &lt;zombaq@ciudad.com.ar>
+		   
+ /* Disclaimer (o atajada): Este txt no tienen nada de elite, nada que ver
+con el hack, y no pretende iluminar a nadie. Solo se me ocurrio escribir
+esto, y como soy amigo del editor (line0 MAZITAAAA) me lo publico. Este
+txt fue sacado de mi cabeza y de algunas pruebas que hice, igualmente, al
+final del txt, hay algunas referencias para los que quieran leer mas del
+tema... ya que, al principio iba a centrarse este txt en ioctl pero
+termino siendo una fea guia de como armar un CD player. */
+
+  Cierta noche que no vale recordar o si, un personaje sombrio supo
+decirme que mi codigo fuente era aburrido. 
+  Codigo Fuente Aburrido?????? Pero... acaso el codigo C puede ser
+divertido o aburrido? Un puntero puede ser un elemento de diversion? Puede
+una funcion alegrar una reunion de amigos? No lo se, pero les dejo la
+interrogante. 
+  Este txt esta dirigido para vos, purrete, que miras tu codigo fuente y
+no te produce ni una sola sonrisa pero queres cambiar tu situacion.
+
+  En fin, let's play with our code
+
+
+  ioctl
+  =====
+  Se pueden hacer cosas muy locas, con la funcion ioctl, su estructura es
+mas o menos, asi:
+
+# man 2 ioctl
+
+SYNOPSIS
+	#include &lt;sys/ioctl.h>
+	
+	int ioctl(int d, int request, ...)
+
+DESCRIPTION
+	La funcion ioctl manipula los parametros de algunos archivos
+	especiales. En particular, muchas caracteristicas de operacion de
+	archivos especiales de tipo 'character'.
+
+  Termino, aca el man por que no tiene sentido, si queren leerlo, hagan en
+sus casas # man 2 ioctl. 
+  En criollo, se podria decir que el ioctl, nos deja 'comunicarnos' de
+cierta forma con los dispositivos del tipo character y tambien del tipo
+block. A simple vista, mediante ioctl, se le puede mandar cierta info al
+device, y puede llegar a devolvernos o no algo, lo que si nos va a devolver
+es alguna accion. Pero, tambien, podemos obtener info, pasarle un puntero
+a una estructura determinada y que nos devuelva esa estructura con
+info. Ahora, con los ejemplos, lo cazan al vuelo...
+
+
+No voy a explicar lo que es un device o 'dispositivo' pero veamos los
+tipos de dispositivos que existen en linux.
+
+# cat lkmp.txt
+
+  Los dispositivos estan divididos en dos tipos: character device y block
+device. La diferencia es que el block device tiene un buffer para
+peticions. Comunmente, el block device se usa para dispositivos de
+almacenamiento (HD, CDROM, etc). Los dispositivos que mas abundan nuestro
+linux, son los del tipo character, ya que la mayoria no necesita de este
+'buffer'.
+
+  No me quiero, ir demasiado basico, pero si queren diferenciarlos con un
+simple # ls -l se van a dar cuenta...
+  Aca les muestro alguno:
+   
+# ls -l /dev/hda1   
+
+brw-r-----   1 root     disk       3,   1 Apr 27  1995 /dev/hda1
+|
+|
+ahi ven la b de 'block'
+
+
+# ls -l /dev/tty1
+
+crwx-w----   1 root     tty        4,   1 Aug  8 11:20 /dev/tty1
+|
+|
+la c de 'character'
+
+[Mas Info en el Linux Kernel Module Programming Guide]
+
+ En fin, esto ya empezo a aburrirlos a ustedes y a mi, y ya no le veo
+sentido.
+
+Vamos al meoyo:
+
+Jugando con nuestro CDROM
+=========================
+ Si amiguito, ahora tenemos la posibilidad, de armar nuestro propio Netbus
+para LINUX!!!! A vos... que usabas linux por compromiso, pero que en el
+fondo de tu corazoncito, extraniabas abrirle el CD-ROM a tus amigos! Lee
+esto con atencion.
+
+ Ante todo, tienen que tener el /usr/include/linux/cdrom.h
+ Puede ser que este en otro PATH o con un nombre similar, todo depende de
+la distribucion de linux que posean (Busquenlo!).
+ Primero de todo, tenemos que abrir el dispositivo del cdrom de forma no
+bloqueante:
+
+cd = open("/dev/cdrom", O_RDONLY | O_NONBLOCK);
+
+ En donde, /dev/cdrom es nuestro dispositivo del cdrom o un link a
+el. 
+ 
+ Entonces, lo que hacemos es llamar a la funcion ioctl
+
+ioctl(cd, CDROMEJECT, NULL);
+
+ Con esto, lo que hacemos en comunicarnos con el device /dev/cdrom, y
+decirle que simplemente haga un 'eject' es decir, abrir el CD-Rom.
+
+
+ Habran visto que cuando se monta el cd-rom se traba la puerta y es
+imposible por mas que apretemos el 'botonito' ejectarlo.
+ Bueno, para poder bloquear la bandeja del cd, tenemos que poner:
+
+ioctl(drive, CDROM_LOCKDOOR, 1);
+
+Aqui le decimos que 'trabe' la bandeja. Noten, que esta vez no le pasamos
+un NULL, si no que le pasamos un '1', esto quiere decir que trabe la
+puerta. Ahora, si nosotros pasamos un 0.
+
+ioctl(drive, CDROM_LOCKDOOR, 0);
+
+Tenemos nuestra puerta destrabada.
+
+Aqui tienen un programa, simple que muestra estas 3 funciones que acabo
+de explicar (no se olviden de usar el extract de la phrack, para
+facilitarles la sustraccion del codigo fuente>
+
+<++> locuras-cd.c
+
+/********************************
+ * Jugando con el CD-ROM        *
+ *		  by Zomba      *	        
+ ********************************/
+#include &lt;stdio.h>
+#include &lt;stdlib.h>
+#include &lt;fcntl.h>
+#include &lt;sys/types.h>
+#include &lt;linux/cdrom.h>
+#include &lt;sys/ioctl.h>
+#include &lt;unistd.h>
+
+main() {
+int drive;
+//char blink[7]="\033[0;34";
+char *blink = "\033[5;32m";
+char *clear = "\033[0;37m";
+
+// Lo abro obviamente para LECTURA, y de forma No bloqueante.
+
+drive= open("/dev/cdrom", O_RDONLY | O_NONBLOCK);
+system("clear");
+
+printf("Intenta Abrir tu CD-ROM [Enter para continuar]\n");
+ioctl(drive, CDROM_LOCKDOOR, 1);
+getchar();
+
+printf("No te asustes chiquilin... \n");
+ioctl(drive, CDROM_LOCKDOOR, 0);
+
+getchar();
+system("clear");
+printf("Oops!! ESTAS INFECTADO!!%s\n\t[NetBus] has been found!!!%s\n",blink,clear);
+ioctl(drive, CDROMEJECT, NULL);
+sleep(1);
+close(drive);
+
+}
+<-->
+
+ Bueno, ya que estamos jugando tanto con el CD, vamos a armar un Player de
+CD mas o menos, basico para consola. Obviamente, usando ioctl, que es el
+PUNTO G, en nuestro txt.
+
+PLAY
+====
+ Hay muchas formas de 'tocar' un track con la instruccion ioctl, yo la que
+uso, es la que me parece mas comoda, vamos a verla.
+ Como ya sabemos, a esta altura, al ioctl se le puede mandar informacion o
+recibir informacion del mismo (obviamente, esa informacion no se la
+pedimos al ioctl, si no al dispositivo que esta atras de el). 
+ En este caso, para hacer un play, necesitamos enviarle
+informacion... para ello necesitamos la estructura: cdrom_ti (definido el
+el cdrom.h) esta estructura consta de los siguientes elementos:
+
+struct cdrom_ti
+{ 
+ unsigned char cdti_trk0;
+ unsigned char cdti_ind0;
+ unsigned char cdti_trk1;
+ unsigned char cdti_ind1; 
+}
+ Hay muy poca informacion sobre esto, por no decir que no hay nada, o por
+lo menos, no consegui nada, todo lo que averigue lo saque probando y
+probando. 
+ Los elementos cdti_trk0 y cdti_trk1 seria algo asi como el 'desde' y
+'hasta'. Es decir, si yo pusiera:
+
+struct cdrom_ti cd;
+
+cd.cdti_trk0=1;
+cd.cdti_trk1=10;
+
+ Cuando mande esta estructura por el ioctl, se escucharia desde el track 1
+hasta el 10. 
+ El cdti_ind0 y cdti_ind1 la verdad, que no se bien para que funcionen, no
+he tenido el tiempo suficiente para investigarlo, pero por lo menos, para
+lo que necesitamos nosotros (precariamente) no nos sirve.
+
+ Ahora.. no solo con llenar la estructura ya empezamos a escuchar
+musica. Una vez llenada la estructura tenemos que pasarsela al device, con
+nuestro amigo ioctl:
+
+ioctl(drive, CDROMPLAYTRKIND, &cd);
+
+en donde
+
+ drive es: drive= open("/dev/cdrom", O_RDONLY | O_NONBLOCK); 
+ y cd es nuestra estructura: cdrom_ti
+
+ Con esto, y si tenemos configurado el sonido en linux, parlantes
+enchufados y un CD en nuestra lectora, empezamos a escuchar sonido.
+
+ Despues, podemos ver un ejemplo practico en la funcion play(); que arme
+para nuestro player.
+
+
+STOP, PAUSE y RESUME
+===== ===== = ======
+
+ Esto es muy sencillo y funciona muy similar al CDROMEJECT, es decir sin
+necesidad de pasarle una estructura al ioctl.
+
+ Para hacer un STOP ponemos:
+ioctl(drive, CDROMSTOP, NULL);
+
+ Pause:
+ioctl(drive, CDROMPAUSE, NULL);
+
+ Resume: 
+ioctl(drive, CDROMRESUME, NULL);
+// Nota: Resume, es para volver a escuchar la cancion despues de la pausa 	
+
+
+VOLUMEN
+=======
+
+ Algo que no puede faltar en nuestro player para consola, es un control
+del volumen.
+ Para ello usamos la estructura:
+struct cdrom_volctrl {
+  unsigned char channel0;
+  unsigned char channel1;
+  unsigned char channel2;
+  unsigned chat channel3;
+}
+
+ A nosotros, solo nos interesa en este caso el channel0 y
+channel1. Simplemente, con llenar a los 2 con un valor que ronda entre 0 y
+255 (formato del unsigned char) tendremos un control del volumen.
+
+ Entonces, esto quedaria asi:
+
+struct cdrom_volctrl volumen;
+
+volumen.channel0=255;
+volumen.channel1=255;
+
+ioctl(drive, CDROMVOLCTRL, &volumen);
+
+ Y a hacer saltar a los vecinos, con nuestra elit3 wh1te H4ck music.
+
+ Aca hay un pequenio Player que arme, con algunos controles de errores, y
+modularizado: 
+
+<++> heh-player.c
+
+/****************************
+ * HEH CD Player            *
+ * === == ======            *
+ * Coded por Zomba          *
+ *    (zombaq@ciudad.com.ar)*
+ ****************************/
+#include &lt;stdio.h>
+#include &lt;errno.h>
+#include &lt;stdlib.h>
+#include &lt;fcntl.h>
+#include &lt;sys/types.h>
+#include &lt;linux/cdrom.h>
+#include &lt;sys/ioctl.h>
+#include &lt;unistd.h>
+#define CDPATH "/dev/cdrom"
+
+main(int argc, char *argv[]) {
+int drive,max;
+char selec;
+unsigned char hola;
+char *blink= "\033[5;32m";
+char *rojo= "\033[1;31m";
+char *blanco= "\033[3;37m";
+char *sub= "\033[1;36m";
+char *neg= "\033[1;30m";
+char *clean= "\033[0;37m";
+
+// Es divertido este codigo?
+
+drive= open(CDPATH, O_RDONLY | O_NONBLOCK);
+
+// Quizas, si hago el control de errores en 2 partes:
+
+if(drive== -1) {
+    printf("Error al abrir el dispositivo %s\n", CDPATH);
+    exit(-1);
+    }
+    
+// mnnn... sigue igual
+
+system("clear");
+while(1) {
+    system("clear");
+// Vamos a ponerle, colores, blink y esas cosas:
+
+    printf("\t%sWelcome to %sHEH%s CD-Player\n", clean, blink, clean);
+    printf("%s        ======= == === =========\n",sub);
+    if((max=info(drive))==-1) {
+	printf("Error en la obtencion de la cantidad de Tracks\n");
+	exit(-1);
+    }
+    
+    printf("\t      [Tracks = %d]\n\n", max); 
+    printf("%s	[%s1%s]%s Play\n",neg,rojo, neg, blanco);
+    printf("%s	[%s2%s]%s Stop\n",neg,rojo, neg, blanco);
+    printf("%s	[%s3%s]%s Pausa\n",neg,rojo, neg, blanco);
+    printf("%s	[%s4%s]%s Resume\n",neg,rojo, neg, blanco);
+    printf("%s	[%s5%s]%s Eject\n", neg, rojo, neg, blanco);
+    printf("%s	[%s6%s]%s Control de Volumen\n",neg,rojo, neg, blanco);    
+    printf("%s	[%s7%s]%s Quit\n",neg,rojo, neg, blanco);
+    selec=getchar();
+    selec=tolower(selec);
+    max=info(drive);
+// No se fue divertido, pero quedo lindo, no?...
+
+// AH!! El switch siempre es entretenido:
+
+    switch(selec) {
+	case '1': if(play(drive, max)==-1) {
+		    printf("Error, tratando de escuchar un Track\n");
+		    exit(-1);
+		    }
+	                 // mn... armarme mi propio control de errores
+			 // para las funciones... eso no es divertido
+			 // es elit0 (wh1t3 h3ck)
+  
+	          break;
+	case '2': if(stop(drive)==-1) {
+		    printf("Error en el ioctl del stop\n");
+		    exit(-1);
+		    }
+		  
+	          break;
+	case '3': if(pausa(drive)==-1){
+		    printf("Error en el ioctl de la pausa\n");
+		    exit(-1);
+		    }
+	          break;
+	case '4': if(resume(drive)==-1) {
+		    printf("Error en el ioctl del resume\n");
+		    exit(-1);
+		    }
+	          break;
+	case '5': if(eject(drive)==-1) {
+		    printf("Error en el ioctl del eject\n");
+		    exit(-1);
+		    }
+		    close(drive);
+		    printf("%s", clean);
+		    exit(0);
+		    break;
+    	case '6': if(volumen(drive)==-1) {
+		    printf("Error en el volumen\n");
+		    exit(-1);
+		    }
+    	          break;
+	case '7': close(drive);
+		  printf("%s", clean);
+		  exit(0);
+	          break;
+	
+    system("clear");
+    }    
+}
+
+}
+/********
+ * STOP *
+ ********/
+
+int stop(int drive) {
+
+if ( (ioctl(drive, CDROMSTOP, NULL)) == -1) return -1;
+}
+
+/***********
+ * RESUMIR *
+ ***********/
+
+int resume(int drive) {
+
+if ( (ioctl(drive, CDROMRESUME, NULL)) == -1) return -1;
+    
+}
+
+/*********
+ * PAUSA *
+ *********/
+
+int pausa(int drive) {
+
+if ( (ioctl(drive, CDROMPAUSE, NULL)) == -1) return -1;
+}
+
+
+/********
+ * PLAY *
+ ********/
+
+int play(int drive, int max) {
+
+struct cdrom_ti cd;
+int inicio, fin;
+
+printf("Ingrese el tema que desea escuchar (Numero de Track)\n");
+printf("Track= ");
+scanf("%d", &inicio);
+
+//printf("Hasta: ");
+//scanf("%d", &fin);
+
+if (inicio > max || inicio < 0) {
+    printf("Error en el ingreso de track!!\n");
+    return -1;
+} else {
+
+cd.cdti_trk0=inicio;
+cd.cdti_trk1=max;
+
+if ( (ioctl(drive, CDROMPLAYTRKIND, &cd)) == -1) return -1;    
+
+//printf("%d - %d \n", cd.cdti_trk0, cd.cdti_trk1); 
+}
+
+}
+
+/**********************
+ * Control de Volumen *
+ **********************/
+
+int volumen(int drive) {
+int volo;
+struct cdrom_volctrl volume;
+
+if ( (ioctl(drive, CDROMVOLREAD, &volume)) == -1) return -1;
+
+printf("Volumen Actual= %d\n", volume.channel0);
+printf("Ingresa el Volumen [Varia de 0 a 255]: ");
+scanf("%d", &volo);
+
+
+volume.channel0=volo;
+volume.channel1=volo;
+
+
+if ( (ioctl(drive, CDROMVOLCTRL, &volume)) == -1) return -1;
+
+}
+
+/*********
+ * EJECT *
+ *********/
+
+int eject(int drive) {
+
+if ( (ioctl(drive, CDROMEJECT, NULL)) == -1) return -1;
+}
+/********
+ * INFO *
+ ********/
+
+
+int info(int drive) {
+struct cdrom_tochdr cd;
+
+if ( (ioctl(drive, CDROMREADTOCHDR, &cd)) == -1) return -1;    
+return cd.cdth_trk1;
+
+}
+/* Espero que se hayan divertido como lo hice yo, leyendo mi propio
+codigo... (sic) */
+
+<-->
+
+No se olviden de hacerle un 
+# indent heh-player.c 
+para entender mi codigo fuente :)
+
+
+ Bueno, en realidad este txt iba a seguir, por que hay muchas pero muchas
+cosas que hacer con ioctl, en especial cosas muy 'funny code' para hacer
+con las tty, mover los led del teclado y esas cosas, pero la verdad, me
+canse de escribir... y no tiene sentido escribir cuando uno se cansa. 
+
+ Recomendaciones de Lectura:
+
+*) man ioctl
+*) cat /usr/include/linux/* (recomiendo un |less)
+*) Console IOCTL Under Linux - Shok (Matt Conover) 
+    creo que lo pueden conseguir en http://www.w00w00.org es muy interesante
+    se puede decir, que mi txt 'ayudaria' a complementar un poquito mas a ese 
+    txt. Pero hay muchas cosas que hacer con ioctl y tantas cosas 
+    indocumentadas.
+*) Mi Mind and your mind.
+
+
+Eso es todo... Si no escriben codigo fuente divertido, una vez leido
+esto... lo siento! Programen en otro lenguaje :)
+
+Salud e' buena fortuna bambinos
+
+---[line] zomba... tus sources son un bodrio....no tienen soporte para mouse ;)
+
+ 
+   
+
+```
+
+</div>

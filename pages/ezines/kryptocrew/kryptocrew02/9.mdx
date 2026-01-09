@@ -1,0 +1,131 @@
+---
+title: "9"
+ezine: "kryptocrew"
+---
+
+# 9
+
+**Ezine:** kryptocrew
+
+<div className="ascii-content">
+
+```
+
+ Kompressionsalgorithmus
+ by SnakeByte [ SnakeByte@kryptocrew.de ]
+
+
+ Hier eine kleine Einfⁿhrung in Datenkompression, da man seine Daten
+ generell komprimieren sollte bevor man sie verschlⁿsselt, da damit
+ Plain- oder Known-Text Attacken erschwert werden. Bei Komprimierung
+ geht es, falls jemand es nicht wei▀ darum aus einer gro▀en Datei / Text
+ eine kleinere zu machen, damit sie nicht zu viel Platz belegt.
+ Dafⁿr fasst man gleichbleibende Bereiche zusammen. Dies ist bei reinem
+ Text schwer, aber dafⁿr umso effektiver bei Programmen, in denen hΣufig Bereiche
+ mit Nullen oder -1 gefⁿllt sind.
+
+ Hier ein paar Beispiele, wie so etwas aussehen k÷nnte:
+ ( Die Zahlen stehen fⁿr die ASCII Code Equivalente )
+
+ vorher : 55 55 55 55 55 55
+ nachher: 00 06 55
+
+ Das Erste Byte gibt an was folgt, in diesem Fall steht 00 fⁿr eine sich wiederholende
+ Zeichenkette. Das Zweite Byte gibt die LΣnge und das Dritte Byte das Zeichen an
+
+ vorher : 45 45 45 45 45 45 45
+ nachher: 00 07 45
+
+ Was ist wenn nun unterschiedliche Zeichen folgen ? Wⁿrden wir diese einzeln ⁿber
+ obige Methode Σndern, wⁿrde die Datei um das dreifache anschwellen. Deshalb benutzen
+ wir dafⁿr eine neue Marke:
+
+ vorher : 12 43 24 34 45
+ nachher: 01 05 12 43 24 34 45
+
+ Das erste Byte gibt an, das ein neuer String anfΣngt. Das zweite Byte gibt die LΣnge
+ an und danach folgt der String. Dadurch wird der String zwar auch um 2 Byte lΣnger,
+ aber diese spart man bei einem Block von nur fⁿnf gleichen Zeichen spΣter wieder ein.
+ Wenn wir wie oben nur 3 gleiche Zeichen haben und dies direkt nach einem Block,
+ der verschidene Zeichen beinhaltet, schreiben wir diese natⁿrlich nach der 01 Methode,
+ da diese kⁿrzer ist. Bei Zeichenketten von ⁿber 255 Bytes fangen wir einen neuen Block an,
+ da ansonsten das LΣnge Feld nicht ausreicht.
+ Ein weiteres Beispiel dafⁿr um es nochmal deutlich zu machen:
+ ( Der Anfang einer neuen Sequenz ist mit einem ^ markiert )
+
+  vorher : 32 36 62 12 12 12 31
+
+  Methode 01 : 01 07 32 36 62 12 12 12 31
+               ^
+  Methode 00 : 01 03 32 36 62 00 03 12 01 01 31 
+               ^              ^        ^
+ Doch damit noch nicht genug. Wir spinnen diesen Gedanken noch etwas weiter.
+ Wenn nun eine Zeichenkette folgt, bei der jeder Wert um eins gr÷▀er ist, 
+ als der vorhergehende, benutzen wir eine neue Marke : 02
+
+ vorher : 01 02 03 04 05 06 07
+ nachher: 02 07 01
+
+ Das Erste Byte ist unsere Marke, das zweite wieder die LΣnge und das Dritte die
+ Zahl mit der die Sequenz beginnt. Auch hier lohnt sich der Einsatz nach einem
+ 01-er Block nur wenn mehr als drei Zeichen aufeinanderfolgen.
+ Dies k÷nnen wir natⁿrlich auch fⁿr abwΣrtslaufende Zahlen einbinden.
+
+ vorher : 45 44 43 42 41 40 39
+ nachher: 03 07 45
+
+ Fⁿr zweier Schritte sollte man keine Marke einfⁿhren, da diese zu selten vorkommen,
+ und dies dadurch unn÷tigen Aufwand bedeuten wⁿrden. Eine Andere Sache, die man beachten
+ sollte sind Zeichenfolgen im Wide Format. Dies bedeutet, das nach jedem Buchstaben
+ eine Null folgt. Manche API-Aufrufe verlangen das ihnen die Parameter in dieser Art
+ ⁿbergeben werden.
+
+ vorher : 70 00 64 00 89 00 32 00 45 00
+ nachher: 04 05 70 64 89 32 45
+
+ Dadurch lassen sich solche Zeichenfolgen auf ( LΣnge / 2 ) + 2 Bytes reduzieren.
+ Was in Textdateien auch hΣufig auftaucht ist die Zeichenfolge 0D0A ( 13 10 )
+ Was soviel bewirkt wie ein Zeilenumbruch ( Carriage Return, Line Feed )
+ Diese sollten wir durch ein 05 auf die HΣlfte verkⁿrzen.
+
+ vorher : 13 10
+ nachher: 05
+
+ Oftmals kommen in Texten auch mehrere Leerzeichen hintereinander vor, dies sollten
+ wir berⁿcksichtigen. ( 20 ist der ASCII Code fⁿr ein Leerzeichen )
+
+ vorher : 20 20 20 20 20 20 20 20 
+ nachher: 06 08
+
+ Das gleiche machen wir auch mit dem Wert 0 und 255 ( -1 )
+
+ vorher : 00 00 00 00 00 00
+ nachher: 07 06
+
+ und
+
+ vorher : 255 255 255 255 255 255 255
+ nachher: 08 07
+
+ Natⁿrlich haben wir noch 247 andere M÷glichkeiten um Strings zu verkleinern,
+ aber diese sollten erstmal reichen, damit das Ganze nicht zu komplex wird.
+ Ich hoffe ich konnte euch damit ein GrundverstΣndnis geben, wie Compressionsprogramme
+ arbeiten.
+ Der Huffmann Algorithmus arbeitet zwar etwas anders, indem er den Text ( die Datei )
+ analysiert und HΣufigkeitstabellen aufstellt, wodurch man ein Byte auch durch
+ wenige Bits ersetzen kann. ( Lord Julus hat da nen netten englischen Artikel drⁿber
+ geschrieben )
+
+ Zusammenfassung:
+  00 - Gleiche Zeichenfolge
+  01 - Ungeordnete Zeichen
+  02 - Aufsteigend
+  03 - Absteigend
+  04 - Wide Zeichenfolge ( jedes zweite Byte ist eine 0 )
+  05 - Zeilenumbruch ( 13 10 )
+  06 - Leerzeichen
+  07 - Nullenfolge
+  08 - Folge von 255 (-1)
+```
+
+</div>

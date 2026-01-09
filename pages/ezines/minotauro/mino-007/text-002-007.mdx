@@ -1,0 +1,275 @@
+---
+title: "TEXT_002"
+ezine: "minotauro"
+---
+
+# TEXT_002
+
+**Ezine:** minotauro
+
+<div className="ascii-content">
+
+```
+Minotauro Magazine #7:
+
+                   System File Tables y Job File Tables
+                                 Por Trurl
+
+     
+     La SFT (Sistem File Table) es una estructura indocumentada que el DOS
+utiliza para hacer todo el manejo de files (ya sea por handles o por FCB),
+y la JFT (Job File Table, o también File Handle Table) es otra estructura
+del DOS, utilizada para asociar handles y SFTs. En este articulo les voy a
+explicar el Donde, Como, Cuando y Porque de las SFT y JFT, para que ustedes
+puedan divertirse con ellas en sus virus.
+
+JFT - JOB FILE TABLES (O FILE HANDLE TABLES)
+     La Job File Table, o File Handle Table, se encuentra la mayoría de las
+veces en el offset 18h del PSP. (quizá en sus tablas lo encuentren como una
+zona indocumentada). En el offset 34h esta el llamado "Handle Table
+Address" que no es mas que un puntero far a la JFT. Y en el offset 32h van
+a encontrar un word, llamado "Handle Count" que es el máximo posible de
+entradas dentro de la JFT. (20 por defecto, pero puede variar).
+     El Handle Table Address y el Handle Count no son de demasiada impor-
+tancia. Están para que uno pueda, si quiere, cambiar la JFT de lugar, y
+agregarle mas handles (mas de los que el sistema en principio podría
+aguantar: esto no quiere decir que uno puede abrir mas files que los del
+FILES= del CONFIG, sino que puede abrirlos mas VECES. El FILES= determina
+el número máximo de SFTs del sistema, que no varia). A partir de DOS 3.3 no
+es necesario siquiera hacerlo a mano, pues existe una función especifica
+para cambiar la JFT de lugar (AH=67h/INT 21h). 
+     Ahora bien, la JFT es una tabla de (por default) 20 bytes. Cada byte,
+es una entrada. Un "handle" común y corriente, de un file abierto, sirve
+como índice en esta tabla. Y de ella extraemos un número, que no es mas que
+un índice dentro de las System File Tables del DOS, para encontrar la SFT
+de nuestro file. (llamado a veces "System File Number", SFN).
+     Veamos un ejemplo. Yo abro dos veces el file "ABRIME.TXT", obteniendo
+2 handles: 0005, y 0006. Luego abro un segundo file "ABRIME2.TXT", y
+obtengo un handle 0007. Luego me fijo en el PSP:
+
+     PSP:34 -> nos da un address, que es por lo general PSP:18
+    
+     offset handle contenido  descripción
+     PSP:18 0000   ┌────<01   STDIN
+     PSP:19 0001   ├────<01   STDOUT
+     PSP:1A 0002   ├────<01   STDERR
+     PSP:1B 0003   │┌───<00   AUX I/O
+     PSP:1C 0004   ││┌──<02   LSTOUT
+     PSP:1D 0005   │││┌─<03   FILE "ABRIME.TXT", primer handle
+     PSP:1E 0006   │││├─<03   FILE "ABRIME.TXT", segundo handle
+     PSP:1F 0007   ││││┌<04   FILE "ABRIME2.TXT", primer handle
+     PSP:20 0008   │││││ FF   handle invalido
+     PSP:.. ....   │││││ FF   ...
+     PSP:2C 0014   │││││ FF   handle invalido
+                   │││││
+                   │││││ SFTs
+                   │└┼┼┼>0    AUX
+                   └─┼┼┼>1    CON
+                     └┼┼>2    PRN
+                      └┼>3    ABRIME.TXT
+                       └>4    ABRIME2.TXT
+
+     Como vemos, STDIN, STDOUT, Y STDERR están los tres direccionados hacia
+la misma SFT, que es la 1, y corresponde al device CON. A su vez, el handle
+3 (AUX I/O) esta direccionado al device AUX, y el LSTOUT, al device PRN. Y
+LOS DOS HANDLES que el DOS me dio por las dos veces que abrí ABRIME.TXT
+están direccionados a la misma SFT: la 3, mientras que la 4 corresponde al
+file ABRIME.TXT. Además, esto nos permite entender que es lo que pasa
+cuando hacemos una redirección en línea de comandos: si yo pongo PROGRAMA
+>SALIDA.TXT, en el offset 1 de la JFT en vez de haber un 1, habrá algún
+otro número, lo cual significa que STDOUT estará redireccionado a alguna
+SFT correspondiente al file SALIDA.TXT, en lugar de estar direccionado a
+CON. 
+     En definitiva la JFT no tiene ningún uso por si misma: sirve para
+encontrar la SFT de un file :-). 
+
+SFT - SYSTEM FILE TABLES
+     El DOS mantiene todos los datos relevantes al manejo de files y
+devices en estas dos tablas. La primera es para device drivers y files
+abiertos vía handle, y la segunda para FCB. Las tablas no tienen diferen-
+cias entre si, excepto en un par de detalles. La increíble variedad y
+abundancia de datos de todos tipo que hay en este tabla hace que en
+realidad tenga un amplio espectro de aplicación, que se la pueda usar para
+infinidad de cosas. El único aspecto negativo es que es indocumentada, y
+por lo tanto no se sabe que pasara con ella en el futuro.
+     La dirección de las dos listas de tablas (la de handle y la de FCB) se
+encuentra en la list of lists, en los offset 4 y 22h respectivamente.
+
+SFT - FORMATO (Sacado de la NG de Ralph Brown obviamente)
+Format of DOS 4.0-6.0 system file tables and FCB tables
+Offset Size    Description
+ 00h   DWORD   pointer to next file table (offset FFFFh if last)
+ 04h   WORD    number of files in this table
+ 06h  3Bh bytes per file
+   Offset  Size    Description
+    00h    WORD    number of file handles referring to this file
+                   FFFF if in use but not referenced
+    02h    WORD    file open mode (see AH=3Dh)
+             bit 15 set if this file opened vía FCB
+    04h    BYTE    file attribute (see AX=4301h)
+    05h    WORD    device info word (see also AX=4400)
+        bit 15 set if remote file
+        bit 14 set means do not set file time/date on closing
+        bit 13 set if named pipe
+        bit 12 set if no inherit
+        bit 11 set if network spooler
+        bit 7  set if device, clear if file (only if local)
+        bits 6-0 as for AX=4400h
+    07h    DWORD   pointer to device driver header if character device
+        else pointer to DOS Drive Parameter Block (see AH=32h)
+        or REDIR data
+    0Bh    WORD    starting cluster of file (local files only)
+    0Dh    WORD    file time in packed format (see AX=5700h)
+    0Fh    WORD    file date in packed format (see AX=5700h)
+    11h    DWORD   file size
+    15h    DWORD   current offset in file (SFT)
+           LRU counters (FCB tables, two WORDs)
+   ---local file--- 
+    19h    WORD    relative cluster within file of last cluster accesed
+    1Bh    DWORD   number of sector containing directory entry
+    1Fh    BYTE    number of dir entry within sector (byte offset/32)
+   ---network redirector---
+    19h    DWORD   pointer to REDIRIFS record
+    1Dh  3 BYTEs   ???
+   ------
+    20h 11 BYTEs   filename in FCB format (no path/period, blank-padded)
+    2Bh    DWORD   (SHARE.EXE) pointer to previous SFT sharing same file
+    2Fh    WORD    (SHARE.EXE) network machine number wich opened file
+           (Windows Enhanced mode DOSMGR uses the virtual machine
+        ID as the machine number, see INT 2F/AX=1683h)
+    31h    WORD    PSP segment of file's owner (see AH=26) (first three
+        entries for AUX/CON/PRN contain segment of IO.SYS
+        startup code)
+    33h    WORD    offset within SHARE.EXE segment of
+        sharing record (see above)  0000h = none
+    35h    WORD    (local) absolute cluster number of last clustr accessed
+        (redirector) ???
+    37h    DWORD   pointer to IFS driver for file, 0000000h if native DOS
+
+Note:  the OS/2 2.0 DOS Boot Session does not properly fill in the filename
+     field due to incomplete support for SFTs; the OS/2 2.0 DOS Window
+     does not appear to support SFTs at all
+
+SFT - ENCONTRANDOLAS
+     Hay una sola forma de encontrar la SFT de un file: Primero conseguir
+el SFN y luego usarlo dentro de las SFT del DOS para encontrar la que
+queremos. Esto a su vez puede hacerse de dos maneras. 
+     La primera es a mano: Obteniendo el segmento del PSP (mediante
+AH=62/INT 21, o directamente en DS, depende), y dentro de él buscar la JFT
+y de ahí sacar el SFN del file. Luego conseguir la dirección de las SFT
+(mediante la "List of Lists", AH=52/INT 21) e ir recorriéndolas hasta
+llegar al número de tabla deseado. Las SFT están organizadas en bloques:
+cada bloque puede contener varias tablas y puede haber varios bloques. El
+puntero presente en la "List of Lists" nos lleva al primer bloque. Cada
+bloque tiene un header de 6 bytes, donde los 4 primeros son un puntero far
+al siguiente bloque (siendo -1 el offset en el caso de que sea el último),
+y la ultima word contiene el número de tablas en el bloque. Ver el siguien-
+te código:
+
+findsft: ; encontrando la SFT de un handle "a mano"
+; entrada: bx=handle
+; salida: carry=1, invalid handle, si carry=0, ES:BX->SFT
+     mov di, bx
+     mov ah, 62h
+     int 21h
+     mov es, bx
+     les bx, es:[34h]
+     mov al, es:[bx+di]
+     cbw
+     cmp ax, -1
+     jz invalidhandle
+     push ax
+     mov ah, 52h
+     int 21h
+     pop ax
+     cwd
+     les bx, es:[bx+4] ; handle SFT
+goon:
+     add dx, word ptr es:[bx+4]
+     cmp dx, ax
+     jng nextblock
+     sub dx, word ptr es:[bx+4]
+     sub ax, dx
+     mov cx, ax
+     add bx, 6
+     jcxz noloop
+addit:
+     add bx, 3bh
+     loop addit
+noloop:
+     clc
+     ret
+     ; es:bx -> SFT
+nextblock:
+     les bx, es:[bx]
+     jmp goon
+invalidhandle:
+     stc
+     ret
+
+     La otra forma es la fácil: usando funciones no documentadas que hagan
+todo por nosotros. La función AX=1220 de INT 2F retorna, a partir de un
+handle dado, el address absoluto de la entrada de la JFT particular para
+ese handle. A partir de ahí, con una instrucción, obtenemos el SFN. Luego
+hay otra función, AX=1216h también de INT 2F, que retorna el address de la
+SFT para un SFN particular. Todo hecho. Ver el siguiente código:
+
+findsft: ; finding it the easy way
+     ; bx=handle
+     mov ax, 1220h  ; obtenemos la entrada particular dentro de 
+     int 2fh        ; la JFT para el file en ES:BX
+     xor bx, bx
+     mov bl, es:[bx] ; cargamos en BX el SFN
+     mov ax, 1216h  ; obtenemos el address de la SFT del file 
+     int 2fh
+     ; ES:DI->SFT
+
+     La desventaja de buscar la SFT a mano es que es mucho código en
+comparación al otro. En cambio, lo malo de la INT 2F es que es indocumenta-
+da, y no muy confiable (es que el código ha sido usado tanto que, por
+ejemplo, el TBAV 6.24 detectaba el código mas arriba de INT 2F como el
+Darth Vader. Osea, el código mas arriba constituía la STRING DEL DARTH
+VADER para el TBAV 6.24. En el 6.30 me consta que lo han solucionado, pero
+personalmente me da mala espina :-)). Por otro lado, en todo otro aspecto
+las dos vías son totalmente similares. Queda en cada uno usar la que mas le
+convenga.
+
+SFT - USOS
+     Como se puede ver en la tabla, hay tantos datos distintos que la SFT
+puede ser útil para muchas cosas. Por ejemplo, un uso practico de todos los
+días en virus, puede ser la cuestión de infectar Read Only o evitar la
+modificación de la fecha de un file al infectar. En lugar de usar AH=57 y
+AH=43, puede abrirse el file solo para lectura, y luego cambiarse el modo
+de apertura en la SFT a r/w (con esto se puede infectar Read Only sin
+cambiarle los atributos, con la ventaja de que algunos AV residentes no se
+mosquean si uno abre un ejecutable solo para lectura), y luego cambiar el
+bit 14 del word en el offset 5, haciendo que no se actualice la fecha/hora
+del file.
+     Otros usos mucho mas complicados e interesantes son posibles. Por
+ejemplo, el amigo Bugs Bunny en su virus mas reciente, el Oktubre, que
+incluiríamos en este número, utiliza la SFT para hacer un stealth del tipo
+disinfect-on-the-fly. Lo que hace Bugs es abrir el file cuando se lo piden,
+pero restarle el largo del virus al size reportado en la SFT: de esta
+forma, la ultima parte del file (que contiene al virus) no existe para el
+sistema; no se la puede acceder. Eso, y una sencilla intercepción para
+evitar que lean el principio del file (donde hay un JMP o un Header
+modificado), y hacer que lean en su lugar lo que originalmente allí había,
+hace que efectivamente, el virus sea full stealth. Y ahora, a mirar la
+tabla y usar la imaginación!
+                                                           Trurl, tgc [DAN]
+
+Nota: Quisiera agradecer a Fernando Bonsembiante por la amable nota de mi
+virus EMMA aparecida en un reciente número de su revista Virus Report.
+Procuraremos seguir publicando virus experimentales para seguir dándote
+material para un par de notas mas, y para que nos sigas promocionando y
+haciendo famosos, cosa que nos merecemos, por cierto. :-). (sarcasm is my
+middle name)
+
+-------------------------------------------------------------------------------
+Nota2: La nota 1 fue escrita antes de que se oficialize la muerte de VR, que
+por cierto lamentamos profundamente (?) ;) ahora fuera de joda, una cagada
+que no salga mas, pero bueno, no todo se puede en la vida: ser amigo de Fabian
+Garcia y robar con la VR, que mas podias pedir ? :-)
+```
+
+</div>

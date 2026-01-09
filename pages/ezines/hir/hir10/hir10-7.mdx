@@ -1,0 +1,612 @@
+---
+title: "hir10-7"
+ezine: "hir"
+---
+
+# hir10-7
+
+**Ezine:** hir
+
+<div className="ascii-content">
+
+```
+-------------------------------------------------------------------------------
+
+				HiR Issue #10
+			  Setting up your home-net
+
+ 				   by Axon
+
+-------------------------------------------------------------------------------
+
+I.	Introduction
+II.	Hardware Requirements
+III.	Software Requirements
+IV.	Intra-Net host setup (getting your server onto the 'net securely)
+V.	Intra-Net workstations setup (getting your computers to talk)
+VI.	Testing
+VII.	Advanced Firewalling
+IIX.	Closing
+
+-------------------------------------------------------------------------------
+
+I.	Introduction:
+
+	This is going to be a general tutorial on how to be *REALLY*
+connected at home.  This article is mostly geared toward the people with
+2-10 (or more) computers at home, or for small businesses with a
+relatively tiny private network.  This isn't guaranteed to work, and is
+based totally from my experience setting this system up in my own home.
+This includes cross-platform ability (We have Win95/98/Linux at my house).
+
+
+----------------------------------------------------------------------------
+
+
+II.	Hardware Requirements:
+
+	You'll need:
+
+* At least 2 computers
+
+* A network card for each computer to be connected together (try to
+     make them the same brand, and make sure they're all the same media.
+     I prefer 10BaseT, but choose your own here)  
+
+* Cables to hook the computers together, and a hub (or a crossover cable
+     if just using 2 computers)
+
+* Maybe a crimping tool and hardware to crimp your own cables
+
+* The Host Machine should be a 486/33 or faster with at least 32 megs of
+     RAM.  It should probably have at least 200 megs of hard drive space,
+     but since it can also be used as the Intra-Net server and a
+     workstation at the same time, it would be to your benefit to make
+     this a more powerful machine.  This will be running Linux. (This example 
+     will be done using Red Hat 5.2, but I've successfully done this with
+     Other UNIX-like OS's such as FreeBSD, which is what I am currently 
+     using.)
+
+* The workstations need to be able to run an OS capable of recognizing the
+     network card and using a TCP/IP stack (Windows/Linux/MAC-OS all work)
+
+
+----------------------------------------------------------------------------
+
+
+III.	Software Requirements
+
+* The Workstations need an OS that can get a tcp/IP stack over a Network 
+     Card.
+
+* The Host machine must be using some version of Linux (Redhat 5.2 works,
+     and I'll be making reference to some tools that only RedHat has, but
+     an experienced Linux user should be able to figure out how to get any
+     other Linux Distro to get this to work.  RedHat was chosen for this
+     article because of it's ease of setup (with GUI tools) and the fact
+     that the kernel was built with the proper options for masquerading.
+     This would just be the "friendliest" way to set things up. I do not
+     support any one distribution over the other as far as which one is
+     "best", as it's all personal preference.  I'm actually using FreeBSD
+     right now (I know, it's not Linux), but it is a little more
+     difficult to configure for this purpose, and requires a kernel
+     recompile among starting and configuring natd (Network Address
+     Translation) services.  It's a different approach, but the results
+     are even better.  E-mail me if you want a copy of my FreeBSD kernel
+     Configuration file.
+
+
+----------------------------------------------------------------------------
+
+
+IV.	Intra-net host setup.
+
+	The goals of our intra-net host will be the following:
+
+* Act as a network management workstation
+
+* Act as a network print server (if desired)
+
+* Act as a network file server (if desired/needed)
+
+* Access the Internet (through a modem/ppp in this example.  Doing this
+     through a cable-modem or DSL can be done, as well, but almost always
+     requires a second Network Card)
+
+* Act as a packet-filtering firewall to isolate intranet from the Internet.
+
+* Act as a gateway, so that all intra-net computers have shared, secure 
+     Internet access when the Host system is online.  Workstations should
+     reside behind this machine as a firewall to prevent network attacks.
+
+* Be as secure as possible, as the Host system will be your only line of
+     defense.  Once someone's compromised your Host, that's pretty much
+     it, and they can do more damage once inside your intra-net.
+
+In order to act as a network management workstation, the Host needs to
+have a few programs installed:
+
+* ipfwadm (if you're using kernel 2.0.x.  This comes with RedHat 5.x and
+     most other kernel 2.0.x based linux distributions)
+
+* ipchains (if you're using kernel 2.2.x.  This comes with RedHat 6.0, and
+     most other 2.2.x based linux distributions.  As a side note, I would 
+     strongly recommend compiling a fairly new version of kernel 2.2.x,
+     even on your RedHat 5.2 installation.  If you don't know how to do
+     this, just stick with RedHat's default kernel.)
+
+* tcp-wrappers (also known as inetd.  This allows us to restrict incoming
+     access from remote networks).  Comes with most distributions.  You
+     may take a serious look at a package called xinetd, as well.  It has quite
+     a few very tasty features (ident lookups on all connections, etc)
+
+* Secure Shell 2.x, which will allow you to make secure connections to the
+     host system from outside, if you must do so.  If you're somewhere
+     else on the Internet (I.E. at work) and you want access to to your
+     home network, You will have to make a connection to the host system
+     before you have access to any other system on your network.
+
+* Some sniffers and analysis tools are nice to have, for troubleshooting
+     the network.  I recommend tcpdump (comes with many distributions) and 
+     iptraf (available all over the web, check around)
+
+* Kernel must be compiled with IP Forwarding enabled, masquerade enabled,
+     etc.  I'm not going to quite get into setting up masquerading in the 
+     kernel. Read the IP-Masquerade mini-HOWTO, which is flawless at
+     describing the basics of setting up masquerade stuff.  We'll get
+     around to some changes you'll make to the examples in a bit.
+
+* "setip" is optional.  It will upload a file called ".ip" to the ftp location
+     of your choice.  This is good if you want to be able to remotely
+     access your network at home from a remote location, but have dynamic
+     IP or DHCP,and therefore have no clue what IP you might have at any
+     given moment.
+
+* I also use the "Deception Finger Daemon" on my firewall/host at home.
+     it can generate false user reports to people who attempt to use
+     finger to determine what users are logged on or exist on your
+     network.  "dfingerd" also can make syslog entries, so that you know
+     when you're someone's taking a peek at you.  It's fairly easy to
+     install, and the documentation that it comes with is very detailed.
+
+	The first thing we want to do is to get the host machine to be
+     able to connect to the Internet.  This can be done with RedHat's
+     "netcfg" utility, used in the X-Window environment, or by manually
+     setting up the chat script and ppp options for your ppp interface
+     (these files are located differently between distributions)  You
+     will need to supply a phone number, user name, password, and you will
+     probably want to make it so "Any user can control this interface",
+     which is a checkbox in netcfg.  This will be so that anyone on your
+     network will be able to get the host system onto the Internet (and
+     when we're done, this fact will mean that your entire network has
+     'Net access).  Test out your Internet Connection.  Telnet to
+     something, or type "lynx hir.chewies.net" and surf the HiR Distro
+     Site.  =]  Once that's working, you may want to add a user account 
+     for all people to use the home-server, or just a single account for
+     the users, that is shared and can bring up and take down the I-Net
+     connection.  After that, you should be ready for the next step: 
+
+	Setting up your ethernet card... Hopefully it's already installed,
+     but if it isn't, halt your Host machine, install it, and power back
+     up.  We need to go back into X and use netcfg again (or whatever it
+     is your distribution uses for setting up Network Cards).  Add an
+     "ethernet" interface (eth0), and set it up like this:
+
+	IP-Address: 	192.168.1.1		(fake IP used for Intra-Nets)
+	Netmask:	255.255.255.0
+	gateway:				(leave blank)
+
+        In netcfg's "routing" tab, select "Network Packet Forwarding"
+     and don't worry about a route, as the ppp interface will become
+     the default route once it's connected.
+
+        You should now have created a class C intranet.  Now to secure the
+     server... The server is your golden goose.  The rest of your machines
+     are hidden from view from the outside world, and your server is the
+     only machine that can be seen both by your side of the network and
+     the rest of the world (Via the Internet connection).  Once your
+     server has been compromised, anyone who knows what they are doing,
+     will see all your other machines, and potentially attack them, using
+     your own server's recources!  Potentially, they could figure out all
+     the passwords that your users use, they could possibly erase all the
+     files on open file shares, and maybe even abuse your paper and
+     toner/ink supply on connected network printers. That's an insult.
+
+	The first thing we're going to do is lock down your open ports
+     with tcp-wrappers.  inetd is the tcp-wrapper program that checks for
+     authorization to use a service.  Not all of your services run through
+     inetd (mostly sendmail, httpd, and secure shell).  Inetd protects
+     services such as telnet, finger,  shell, login, auth, etc.  When
+     someone attempts to use any of these services, inetd checks 
+     /etc/hosts.allow and /etc/hosts.deny (respectively) for a line
+     containing an inclusion for the service name (either the daemon
+     executable name such as "in.telnetd", or "in.fingerd".  "ALL" 
+     includes all service names).
+
+        My home server's hosts.allow file allows all the workstations
+     behind the masquerade to access my hosts full potential, but locks
+     the rest of the internet out, except for dfingerd, that fake finger
+     daemon I was talking about earlier.
+
+	ALL : 192.168.1.0/255.255.255.0
+	dfingerd : ALL
+
+        As soon as anyone connects to my machine, say with telnet, it
+     checks hosts.allow to see if they have been granted access.  If
+     they're on the Internet (not on my intra-net), they aren't on this
+     list, so it checks to see if they have been disallowed in hosts.deny.
+     My hosts.deny file is simple:
+
+	ALL : ALL
+
+        This makes sure that only things granted in hosts.allow will make
+     it to my system.  Note that the deny ALL doesn't cover ssh, so I can
+     still get back in over an encrypted connection if I know my IP
+     address and have a user/password.  Also notice if any remote machine
+     tries to use dfingerd, they will be allowed, because inetd doesn't
+     check hosts.deny if there is a rule in hosts.allow that applies to
+     that connection.
+
+        If you're really in for security, I would advise trying to setup
+     xinetd, which will attempt to find the username of the person who is
+     connecting to the port my making use of their local machine's ident
+     service (if available, which it is on most UNIXes and if they have
+     mIRC running at the time, too).  It's a little more difficult to set
+     up, but it still uses the hosts.[allow|deny] convention.
+
+        Remember, anything that starts up outside of "inetd" is not
+     protected by this modification, so don't rely specifically on it.
+     Some daemons will try to read the hosts.allow/deny files as well, so
+     there are a few exceptions.  In general, you will want to keep things
+     as closed up as possible, allowing telnet and ftp from machines on
+     your private Intra-Net.  Also, TCP-Wrappers are all considerably 
+     more open to attacks involving spoofed packets, and it may be
+     possible for someone to make a packet with a source address of one of
+     your trusted machines, but coming from the outside world.  Since TCP
+     Wrappers only has support for IP Address restrictions, they can't
+     tell if the traffic is coming in from your network card on the
+     trusted side of the firewall, or from a machine on the other end of
+     the ppp connection through the modem link.  This is where packet
+     filters (such as ipfwadm and ipchains) come in.  
+
+        Ipchains and ipfwadm are not the actual filters; but they are
+     programs that control parts of the running kernel.  They tell the
+     kernel what kinds of packets you wish to let through, and what
+     kinds of packets you wish to deny.  Since filtering takes place at
+     the kernel level, the filtering can potentially use any aspect of
+     the networking structure to describe what packets to look for.  
+     This means that you can specify not only what addresses to allow
+     or deny, but also what individual protocols, network interfaces, 
+     and many more things.  This also means that you can manipulate
+     the kernel into "repeating" or "routing" traffic between interfaces,
+     allowing you to force the kernel into being a makeshift router for
+     your home or small business' network.  It looks for traffic that's
+     not meant for any of the local machines, and tries to push it out
+     over the modem link.  If the connection is successful, one of your
+     networked machines suddenly can access stuff THROUGH the server.
+     Then, even more machines can do it at the same time, too.  You
+     could have as many connections as you wanted over one modem link
+     (of course after 3 or 4 connections going at once, the link would
+     become very slow).  The Linux community calls this routing procedure
+     "Masquerading".  The *BSD community calls this "Network Address
+     Translation", but like I said before, NAT is a little more than
+     just kernel work.
+
+	Now, we need to use either ipfwadm or ipchains (Depending on your
+     kernel) to add masqerade rules.  Some people say to add a general
+     policy to masquerade, and that's bad, because it would allow all
+     sorts of evil stuff to happen, including maybe someone being able to
+     hide themselves behind your masqerade and access all of your network
+     resources without authorization.  This is also known as "The Bad
+     Thing".  Also, I prefer to add masqerade rules on a per-machine
+     basis (as in, one ipfwadm/ipchains line that tells the kernel to
+     forward packets from workstation 1, workstation 2, etc... instead of
+     telling it to forward from all hosts in 192.168.1.x.  That's kind of
+     my personal preference, but it's how I would suggest doing things.
+     Ipfwadm or IPChains rules may be typed in at any time, but I would
+     suggest putting the commands into your /etc/rc.d/rc.local file, which
+     is the closest equivalent to an "autoexec.bat" for Linux.
+
+     If you're using IPChains on your Host Machine (with RedHat 6 or any
+     other kernel 2.2.x based Linux system), this example should
+     give your machines with IP Addresses 192.168.1.2 and 192.168.1.8
+     access to the internet when you're connected.  Just add more
+     "ipchains -A forward -s ..." lines to /etc/rc.d/rc.local and change
+     the IP Addresses for each machine you need on the Internet.  (These
+     examples taken right from the IP-Masquerade mini HOWTO, by Ambrose Au
+     and David Ranch)
+
+       ipchains -P forward DENY
+       ipchains -A forward -s 192.168.1.2/32 -j MASQ
+       ipchains -A forward -s 192.168.1.8/32 -j MASQ
+
+     If using ipfwadm (as in with RedHat 5.x, or any kernel 2.0.x based
+     linux), the equivalent to the above ipchains commands, using ipfwadm
+     is:
+
+       ipfwadm -F -p deny
+       ipfwadm -F -a m -S 192.168.1.2/32 -D 0.0.0.0/0
+       ipfwadm -F -a m -S 192.168.1.8/32 -D 0.0.0.0/0
+
+     Again, these should just go at the end of /etc/rc.d/rc.local, and you
+     can just add another "ipfwadm -F -a m -S ..." line for each ip you
+     want to forward.
+
+	You'll also want to add modules for forwarding "interesting"
+     traffic, where applicable.  Strange protocols such as irc, cuseeme,
+     and ftp do not like masquerading very much.  A few kernel modules
+     make the masquerade a little more friendly for these protocols.  I
+     just placed lines in rc.local again, using modprobe for the various
+     modules.  These are masq modules from the 2.2.5 kernel.  I did not
+     actually insert all of these modules.  The title of them is fairly
+     self-explanatory:
+
+	modprobe ip_masq_autofw.o
+	modprobe ip_masq_cuseeme.o
+	modprobe ip_masq_ftp.o
+	modprobe ip_masq_irc.o
+	modprobe ip_masq_mfw.o
+	modprobe ip_masq_portfw.o
+	modprobe ip_masq_quake.o
+	modprobe ip_masq_raudio.o
+	modprobe ip_masq_user.o
+	modprobe ip_masq_vdolive.o
+
+        I'll go over advanced packet filtering toward the end of this
+     article.  There, I'll cover some real firewalling stuff.
+
+
+Setting up a File Server using Session Message Block (SMB) Protocol.
+
+        SMB is the file sharing method used by Windows NT and the old
+     LAN Manager.  It is a fairly resilient protocol, and some advances
+     have taken place in the recent past, that make it a little better
+     (Specifically, the ability to go over TCP/IP instead of NetBEUI).
+     If you use samba on your host, and configure it properly, you will
+     have a nice framework for cross platform file sharing with Windows
+     and many UNIXes.  Also, using some third party software from Thursby 
+     software (www.thursby.com) called "DAVE", you can even use SMB shares
+     from MacOS.
+
+	There's a lot of help docs out there that can help you set up Samba
+     for print/file sharing.  The default /etc/smb.conf file is so
+     bloated and unnecessary, that I can't believe it got put in as an
+     example of what it should look like.  I'm actually running printer
+     sharing off of the Windows 95/Linux dual boot workstation, for the
+     rest of the family's convenience.  This is what the smb.conf file 
+     looks like for my laptop (which shares all users' home dirs, a "public"
+     world-writeable share, and the CD-ROM Drive):
+
+[global]
+    workgroup = WORKGROUP
+    netbios name = ESCAPE_POD
+    server string = NEC Versa 4050C (Red Hat 6.0)
+    log file = /var/log/samba/log.%I
+    max log size = 50
+    security = share
+    socket options = TCP_NODELAY
+    dns proxy = no
+    local master = no
+    lm announce = yes
+    lm interval = 60
+[homes]
+    comment = Home Directories
+    browseable = yes
+    public = no
+    writable = yes
+    create mask = 0755
+    follow symlinks = no
+    wide links = no
+    preserve case = yes
+[public]
+    path = /usr/public
+    public = yes
+    only guest = yes
+    writable = yes
+    printable = no
+    available = yes
+    guest only = no
+    browseable = yes
+    only user = no
+[cdrom]
+    path = /mnt/cdrom
+    public = yes
+    only guest = yes
+    writable = no
+    printable = no
+    available = yes
+    guest only = no
+    browseable = yes
+    only user = no
+
+
+	From this, you should be able to see how shares are made up.
+     Refer to the manpage for "smb.conf", and it will help a lot from
+     here, specifically with setting up a printer, if desired.
+
+	Now would be a great time to install the Ethernet Hub somewhere
+     and plug the cable from your server into it.
+
+
+IV.	Intra-net workstation setup.
+
+	The goals are simple:  Use the resources of your home-server,
+     and use it as a gateway to the 'net when it's connected.  Also, you
+     may want a something that makes it connect.  If you used masqdial on
+     the host machine, then you will need the masqdial client for the
+     workstations.  There's a Java one, one specifically for UNIXes, one
+     for mac, Windows, and whatever else, pretty much.  This is a good 
+     solution, in my opinion.  It's difficult to set up though.
+     Otherwise, you may want a script that telnets over, and launches
+     the ppp connection.
+
+	Make sure that the Ethernet card is installed properly and that
+     you have the drivers installed if necessary.
+
+	We need to set up IP connectivity first.  This is platform
+     dependant, and I don't have the time to tell you how to do it on
+     every platform.  Under RedHat, use netcfg, and Windows, use the
+     "network" item in the control panel.  I sequentially numbered my
+     machines.  The Windows/Linux dual boot machine is 192.168.1.2,
+     my laptop is 192.168.1.3, and the list goes on and on.  While
+     you're setting up the IP over the ethernet card, make sure to include
+     the IP of your host machine (in the example above, Setting up the
+     host machine, we called it 192.168.1.1) as the "Gateway" or "default
+     route", as our server will be functioning as the Internet connection
+     point for all the workstations.
+
+	If you have any additional file sharing needs from the
+     workstations, set them up, as well.  Again, as the workstations can
+     be almost any platform, I can't really help a lot here.
+
+	Network security on each of the workstations
+
+	Now run Ethernet cable from the network cards of each workstation
+     back to the hub, as well.
+
+VI.	Testing.
+
+	Now it's time to test everything.  First, go to your home-server 
+     and try to ping the IP addresses of the workstations.  You should see
+     a response listed in "milliseconds".  IF you see no response, make
+     sure your IP's are correct, and you have solid cable connections.
+     Also, make sure the hub and the remote computer are turned on.
+
+	Next, go to each workstation and ping another workstation (if
+     available) and the server's IP address.  Then try to telnet to your
+     home-server.  IF you can do this, you're good so far.  Start the
+     Internet connection (usually "/sbin/ifup ppp0").  Wait for the
+     home-server to connect.  IF it does not, re-check your dialup
+     settings.  If it DOES connect, try pinging the outside world from the
+     workstation.  ping www.yahoo.com, or some other server out there.  If
+     you get a response, then your home-net works great for sharing an
+     internet connection!  If you can't ping the outside world from a
+     workstation, try it from your home-server.  If you can't, then
+     re-check the internet dialup settings.  If you can see the outside
+     world from the home-server, but you can't see it from workstations,
+     then it's a problem with your forwading rules.  Make sure you're
+     using ipchains if you're running kernels 2.2.x, and make sure you're
+     using ipfwadm for kernels 2.0.xx.
+
+
+VII.	Advanced firewalling
+
+	Sometimes hosts.allow and hosts.deny just don't cut it.  For
+     instance, you already know it usually only covers stuff that runs
+     through tcp-wrappers.  Also, if someone port-scans your home server,
+     or any linux machine you're running, even though hosts.deny says not
+     to allow them a connection, they still see an open port.  ipchains
+     and ipfwadm can eliminate the "look" of open ports on your machine,
+     as well as locking it down even further, as it just blocks ports.
+     This means that any other ports left un-protected by tcp-wrappers
+     (such as SSH and Sendmail), can be protected as well.  Here is a
+     little quick-help guide to ipchains and ipfwadm I put together a
+     while back.  While yer messin with these rules, I suggest you
+     port-scan the machine you're enforcing the rules on, to see how they
+     would look from an outside attacker.  The example that describes
+     denying port to all hosts except the local network will probably be
+     the most useful for you, just put multiple instances of ipchains or
+     ipfwadm into rc.local, and change "23" to some other port that you
+     want to lock down.  My laptop is protected with ipchains.  This is 
+     how I did it:
+
+	First I portscanned my box with nmap (from my other workstation)
+	and I saw that ports 21, 22, 23, 79, 113, and 139 were open.
+
+	Then I went to my laptop, logged in, su'd to root, and began...
+	These are the ipchains rules I entered:
+
+  ipchains -A input -p tcp -d 0/0 21 -s ! 192.168.1.0/255.255.255.0 -j DENY
+  ipchains -A input -p tcp -d 0/0 23 -s ! 192.168.1.0/255.255.255.0 -j DENY
+  ipchains -A input -p tcp -d 0/0 79 -s ! 192.168.1.0/255.255.255.0 -j DENY
+  ipchains -A input -p tcp -d 0/0 113 -s ! 192.168.1.0/255.255.255.0 -j DENY
+  ipchains -A input -p tcp -d 0/0 139 -s ! 192.168.1.0/255.255.255.0 -j DENY
+ 
+-----------------------------------------------------------------------
+Add firewall rules:
+
+  ipchains -A &lt;input|output|all> -p &lt;icmp|udp|tcp|all>
+           -i [!] &lt;Interface-name> 
+	   -s [!] &lt;src-ip/mask> [!] <(low)port:highport>
+	   -d [!] &lt;dest-ip/mask> [!] <(low)port:highport>
+	   -j &lt;DENY|ACCEPT|REJECT|MASQ|REDIRECT|RETURN>
+
+	* Note: when using icmp protocol, ports are replaced with icmp
+		types.  If no port or icmp type is specified, it assumes
+		that you meant "All ports or icmp types".  If no source is
+		specified, it assumes "all", and if no destination is
+		specified, it assumes "all".  Also, if ! is used before an
+                ip or port rule, it means "anything except" the given
+                port/ip. 
+
+   ipfwadm -A &lt;in|out|both> -P &lt;udp|tcp|icmp|all>
+           -W [!] &lt;Interface-name>
+	   -S [!] &lt;src-ip/mask> [!] &lt;port [port] ...>
+	   -D [!] &lt;dest-ip/mask> [!] &lt;port [port] ...>
+	   -a &lt;deny|reject|accept>
+
+Examples:
+ Deny port 23 (telnet) from all hosts not on the 192.168.1.xxx network:
+
+    ipchains -A input -p tcp -d 0/0 23 -s ! 192.168.1.0/255.255.255.0 -j DENY
+    ipfwadm -A in -P tcp -D 0/0 23 -S ! 192.168.1.0/255.255.255.0 -a deny
+
+ Make machine stop responding to ping packets:
+
+    ipchains -A input -p icmp -s 0/0 echo-request -j DENY
+    ipchains -A input -P icmp -S 0/0 echo-request -a deny
+
+ Deny ports 19-23 from the entire 198.248.53.xxx subnet:
+
+    ipchains -A input -p tcp -s 198.248.53.0/255.255.255.0 -d 0/0 19:23 -j DENY
+    ipfwadm -A in -P tcp -S 198.248.53.0/255.255.255.0 -D 0/0 19:23 -a deny
+
+
+ Deny any outgoing icmp packets from your machine (I don't know why, it's
+ just an example):
+
+    ipchains -A input -p icmp -d 0/0 -j DENY
+    ipfwadm -A in -P icmp -D 0/0 -a deny
+	
+ Deny all incoming tcp to port 23 if it's coming over interface "ppp0"
+
+    ipchains -A input -p tcp -D 0/0 23 -I ppp0 -j DENY
+    ipfwadm -A in -P tcp -D 0/0 23 -W ppp0 -a deny
+
+Delete firewall rules:
+
+    ipchains -D &lt;input|output|all> [rulenum]    (deletes one rule)
+    ipchains -F   				(flushes all rules)
+    ipfwadm -A -d [policy]            (deletes the matching policy)
+    ipfwadm -A -f			        (flushes all rules)
+
+------------------------------------------------------------------------------
+
+IIX.	Closing
+
+	Well, I guess that about covers it, as far as I can tell.  If
+nothing else, a quickie lesson about firewall rules for ya all.  Having a
+home network for myself has been a great experience, and has allowed me to
+play with hacking in a new way: in my own home, as much as I want.  I
+control the environment, and I don't have to worry about messing other
+people's connections up when doing it.  I've done a lot of experimentation
+with firewalling rules since I've gotten my home-net up.  Once mastered,
+these skills will aid you in being a very valuable asset to major
+corporations, and will help you understand network security a little more.
+This was by no means a "full attempt" to make people understand
+networking, but is only a primer, to get you guys thinking.  I've found
+that very few things can be as rewarding to a hacker as having their own
+network to play around on as much as they like.  I'd hope that many of you
+will take this information and use it to help you learn a little more.
+Then you might be able to help people with their own security problems.
+
+These are just some basic networking implementations, and they're more
+than enough for the average person, but then again, most hackers aren't
+average... There's plenty more info on this topic, all out there on the
+'net.  If you're interested in this sort of thing, then go out and do it!
+
+--Axon
+
+```
+
+</div>

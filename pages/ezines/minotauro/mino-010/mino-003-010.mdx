@@ -1,0 +1,135 @@
+---
+title: "MINO_003"
+ezine: "minotauro"
+---
+
+# MINO_003
+
+**Ezine:** minotauro
+
+<div className="ascii-content">
+
+```
+MINOTAURO MAGAZINE #10
+
+                               Prefectch Queue
+			    Use & Desuse by Drako
+
+% LA INTRODUCCION %
+
+	hi. como siempre primero tengo que agradecer a trurl tgc por haberme 
+roto las pelotas durante meses para que de una vez por todas termine el dichoso
+articulo de usos y desusos de la prefetch queue... Ok, aqui estamos de nuevo
+Que es esto de la prefetch? No creo que nadie que se precie de tal *eh?*
+no haya escuchado alguna vez el termino de "prefetch queue de mierda"
+Como su nombre lo indica es una Cola Pre-Llenada si se puede decir asi, esto es
+una zona del procesador donde se almacenan las proximas instrucciones a
+ejecutarse... La cantidad de instrucciones o el tamaño de la queue varian segun
+el diseño del micro y es dificil por no decir imposible conseguir informacion
+especifica sobre su tamaño por parte de los fabricantes... Igualmente hay
+maneras de poder determinarlo pero los resultados pueden verse afectados por
+el factor sorpresa, lease algun dispositivo instalado especialmente para que
+no se pueda medir hehe, etc
+
+	La idea de esto es acelerar un poco el sistema. Si por cada vez
+que el micro trae informacion de la memoria para ejecutarla pudiera traer un
+poco mas y mantenerla en algun lado para no tener que acceder a ram de nuevo, 
+se ganaria algo de velocidad. Este procedimiento es transparente para el 
+usuario comun o para el programador convencional, pero seguramente si alguno de
+ustedes trabajo con polimorficos o codigo que se modifica en memoria tuvo 
+problemas con la prefetch. Esto no quiere decir que sea algo del otro mundo, 
+que sea algo que nos va a hacer la vida imposible ni mucho menos, vamos a ver 
+hasta para que se puede llegar a usar para sacarle algun provecho.
+
+el tema es asi: Cuando se esta ejecutando una serie de instrucciones, como
+ya dijimos, en el momento de ejecutarse la instruccion del offset X, ya estan
+cargadas las instrucciones hasta el offset X+Tamaño_de_la_prefetch en la pref.
+Imaginense tener el siguiente codigo:
+
+;========= Cut here ===========================================================
+; medidor en pfetch.arj
+;======= Cut here =============================================================
+
+Ok? todo lo que no esta prefetcheado termina siendo nops no transformados en
+incs ... mientras menos termina valiendo bx, mas grande es la prefetch
+
+por la mitad del source vieron que se flushea el prefetch...
+esto sirve por si no te diste cuenta para volver a cargarlo, osea que estoy
+asegurandome que el primer byte de la queue sea el primer byte que se esta
+por ejecutar (en otras palabras donde cae el salto)
+
+esto tiene bastante sentido... un jump incondicional y se recarga el queue. 
+es una medida de seguridad ... imaginense el siguiente codigo y que pasaria 
+con el pfetch:
+
+	xor ax, ax
+	jmp salir
+	inc ax
+salir:	ret
+
+es bastante evidente lo que pasaria no? ax antes de salir (si no se reacomodara
+el pfetch) terminaria en 1 cuando en realidad tendria que terminar en 0.
+el micro entonces recarga el pfetch a partir de la direccion que indica el
+salto.
+
+% UN CASO ESPECIAL: EL PENTIUM %
+
+si probaran el codigo anterior en un pentium, notarian que no pueden medir
+correctamente el size del prefetch. esto se debe a que este micro toma una 
+medida de seguridad extra, chequea, en las escrituras a memoria, si la 
+informacion a modificar se encuentra dentro del alcance del prefetch y si asi 
+fuese lo modifica. lo que redunda en la imposibilidad de medir el tamaño de la 
+prefetch de la manera tradicional... no se me ocurre ninguna otra manera, 
+salvando que haya algun registro interno que indique su tamaño o que se pueda 
+hacer algun artilugio para transferir informacion de memoria a memoria por dma,
+y el micro no se entere, no se, pero no me gusta usar el termino "imposible" ;)
+... ejercicio que dejamos para vostros, nuestros estimados lectores
+
+% APLICACIONES %
+
+es evidente que la mejor aplicacion de esto son trucos anti-debugging, y cosas
+por el estilo. por ejemplo en la VLAD #1 - otra muy buena revista de virus por
+si no la conocen - publicaron una combinacion de uso de pfetch y stack, pero 
+solamente nos es relevante a modo de ejemplo el manejo del pfetch para detectar
+si nuestro virus fue TBCleaneado... la idea era algo asi:
+
+	mov byte ptr check+1, 01h
+check:	mov ax, 00h
+	cmp ax, 01h
+	je tbcleaned_or_pentium
+ok:	[...]
+tbcleaned_or_pentium:
+	call fuck_hd (or not)
+
+lo que aca pasa es lo siguiente: si se ejecuta el programa normalmente,
+el mov byte ptr check+1, 01h unicamente modificaria en la imagen de memoria
+al mov ax, 00h por un mov ax, 01h. la pfetch por mas que se modifique la 
+imagen, ya tiene en su cola un mov ax, 00h y es lo que va a ejecutar.
+mas adelante se compara ax contra 1. si fue igual, puede significar dos cosas:
+
+caso 1) el programa que se esta corriendo es una TBCleaneada:
+si se le pasara el TBClean, cuando éste quisiera grabar la copia "limpia"
+a disco, grabaria la IMAGEN, por lo tanto grabaria a disco un mov ax, 01h.
+la proxima vez que se ejecute normalmente la copia "limpiada", efectivamente
+la comparacion de ax contra 1 va a dar Ok y procederemos a hacer mierda el
+disco.
+
+caso 2) el pobre boludo ni siquiera tiene el TBClean, pero se le hizo mierda
+el disco igual. que paso? seguramente el pobre boludo tiene un Pentium.
+Cuando con el primer mov quizo escribir en memoria que ya estaba prefetcheada,
+el micro actualizo el contenido del pfetch, reemplazando el mov ax, 00h por
+un mov ax, 01h. que problema eh?
+
+a esto le veo dos soluciones posibles (seguro hay mas, pero dos es un numero
+ideal): caso a) que el programa determine si el micro es un pentium y si asi 
+fuese no haga uso de ningun truco por pfetch.
+caso b) defecarme en el hecho de que tenga un pentium y utilizar este metodo
+como playload dedicandole un "mala leche por haberte comprado un super intel
+pentium, boludo" :-)
+
+see you,
+drako, digital anarchy
+
+```
+
+</div>

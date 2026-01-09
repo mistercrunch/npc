@@ -1,0 +1,188 @@
+---
+title: "TEXT_002"
+ezine: "minotauro"
+---
+
+# TEXT_002
+
+**Ezine:** minotauro
+
+<div className="ascii-content">
+
+```
+Minotauro Magazine #8:
+
+			      Boot Sector Viruses
+			        Por Bugs Bunny
+
+	En este artículo vamos a describir los virus de BOOT sector y Tabla de
+Particiones, pero para esto debemos comenzar por explicar qué es y cómo 
+funciona el BOOT y la Tabla de Particiones (TP).
+
+	Como sabemos el BIOS, luego de hacer todos los chequeos necesarios para
+arrancar la máquina, carga de la primera unidad de disco (Algunas versiones
+de BIOS permiten configurar el arranque A:,C: o C:,A:) el primer sector de
+este (Lado 0; Sector 1; Cilindro 0), o sea el sector de BOOT si se trata de
+un diskette ubicado en la undidad A: o la TP en el caso de tratarse del disco
+rígido ubicado en C:. 
+
+	La idea de un Virus de BOOT es que éste reemplace al sector de BOOT 
+orig., por un código con las características de un Virus, más adelante veremos 
+cómo hacer ésto, por ahora nos dedicaremos a describir al BOOT y la TP. En el 
+sector de BOOT se encuentra un pequeño programita encargado de cargar los 
+archivos del sistema (en DOS: Io.sys y Dos.sys) o, si el disco no tiene el 
+sistema operativo, nos pone el famoso mensajito "No system Disk, remplace....."
+o algo así.
+
+	El Boot tiene en sus primeros 62 bytes una tabla de datos llamada BPB 
+(Bios Parameters Block), que contiene los datos de la configuración del disco. 
+La estructura del BPB es la siguiente:
+             
+             Offset - Cantidad - Descripción
+             03(03) - 08 Bytes - OEM ID
+             0B(11) - 02 Bytes - Bytes per sector
+             0D(13) - 01 Byte  - Sectors per cluster
+             0E(14) - 02 Bytes - Reserved sectors at beginning
+             10(16) - 01 Byte  - FAT Copies
+             11(17) - 02 Bytes - Root directory entries
+             13(19) - 02 Bytes - Total sectors on disk
+             15(21) - 01 Byte  - Media descriptor byte
+             16(22) - 02 Bytes - Sectors per FAT
+             18(24) - 02 Bytes - Sectors per track
+             1A(26) - 02 Bytes - Sides
+             1C(28) - 04 Bytes - Special hidden sectors
+             20(32) - 04 Bytes - Big total number of sectors
+             24(36) - 02 Bytes - Physical Drive number
+             26(38) - 01 Byte  - Extended Boot Record Signature
+             27(39) - 04 Bytes - Volume Serial Number
+             2B(43) - 11 Bytes - Volume Label
+             36(54) - 08 Bytes - File system ID
+
+NOTA: Los tres primeros Bytes no son parte de la tabla, sino que se usan para 
+hacer el salto incondicional al principio del codigo ejecutable.
+   
+	-Esta zona de datos no es escencial para el funcionamiento del virus, 
+es más, si queremos podemos no incluirla en el principio del Virus, aunque yo 
+lo recomiendo para que si alguien mira el Boot infectado, no sea tan fácil
+darse cuenta de que esta infectado-.
+
+	El Boot sector termina con los bytes 55AA en el offset 1FE Hex que le 
+indican al BIOS que es un boot válido.
+
+	En la Tabla de Particiones, o también llamada Master Boot Record hay un
+codigo ejecutable junto con una tabla de datos que contiene información sobre 
+las particiones del Hard Disk (Long de cada partición, Particion Booteable,
+etc), ésta tabla está ubicada en los últimos 66 Bytes de este sector, 
+comenzando en el offest 446 (1BE Hex) con la siguiente estructura de datos:
+
+        Partición N°1: offset 1BEh ≈ 1CDh
+        Partición N°2: offset 1CEh ≈ 1DDh
+        Partición N°3: offset 1DEh ≈ 1EDh
+        Partición N°4: offset 1EEh ≈ 1FDh
+
+Ejemplo para la Partición N°1:
+             Offset - Cantidad - Descripción
+              1BEh  -  1 Byte  - Boot
+              1BFh  -  1 Byte  - Side     \
+              1C0h  -  1 Byte  - Sector    > Start Location
+              1C1h  -  1 Byte  - Cylinder /
+              1C2h  -  1 Byte  - System
+              1C3h  -  1 Byte  - Side     \
+              1C4h  -  1 Byte  - Sector    > End Location
+              1C5h  -  1 Byte  - Cylinder /
+              1C6h  -  4 Bytes - Relative Sectors
+              1CAh  -  4 Bytes - Number of Sectors
+
+	La tabla de datos termina con los bytes 55AA en el offset 1FEh al igual
+que el Boot Sector y tiene el mismo fin.
+
+	A diferencia de la tabla de datos que tiene el Boot Sector, ésta si es
+esencial para el correcto funcionamiento del DOS, si ésta tabla no está 
+presente en el primer sector de HD, el DOS no podrá reconocerlo y no podrá
+usarlo. Por lo tanto debemos tener una copia de esta tabla al final del virus
+para que no haya ningun tipo de problemas con el DOS. El codigo ejecutable se 
+encarga de interpretar ésta tabla de datos para poder cargar del HD el BOOT de 
+la partición booteable activa en ese momento. El BOOT que está en ésta 
+partición es exactamente igual al que está en un diskette.
+
+	Este programita (tanto el codigo ejecutable del BOOT como el de la TP) 
+es cargado por el BIOS en la dirección 0:7C00 Hex y se le pasa el control a 
+éste. Ahora ¿Qué pasaría si en lugar de este prog., lo que se cargara fuera 
+nuestro Virus?. Facil!, tendríamos el control de la máquina desde el primer 
+momento.
+
+% Funcionamiento del Virus %
+
+	Ahora nos dedicaremos a ver que es lo que tenemos que hacer para 
+reemplazar el Boot o la TP original por nuestro Virus. Lo primero es copiar el 
+Boot o la TP original a un lugar seguro (por ej. en el caso del Boot, al ultimo
+sector del directorio, y en el caso de la TP, a un lugar del HD que no se 
+utiliza que puede ser cualquier sector del lado 0 del primer cilindro) y 
+sobreescrivirlo con nuestro virus, colocando al principio de este la tabla de 
+datos del Boot, o al final la tabla de datos de la TP según sea el caso. Lo 
+siguiente trata de ser un diagrama de flujo de nuestro Virus ejemplo, para 
+entender como funcionan los virus de Boot:
+
+Start:                                     
+
+   ┌───────────────────┐
+   │  Resta 1K de mem. │
+   │ y se instala allí │
+   └─────────┬─────────┘
+             │                             Handler INT 13h:
+    ┌────────┴────────┐                    
+    │ Tomo la INT 13h │                        ┌────────┐      ┌───────────┐
+    └────────┬────────┘                        │ R/W de │No    │  INT 13h  │
+             │                                 │   A:?  ├─────►┤ original. │
+   ┌─────────┴──────────┐                      └───┬────┘      └─────┬─────┘
+   │  Cargo la TP o el  │                          │Sí               ▲
+   │ Boot en 0000:7C00h │                      ┌───┴────┐            │
+   └─────────┬──────────┘                      │ estaba │Sí          │
+             │                                 │ infec? ├───────────►┤
+   ┌─────────┴────────┐                        └───┬────┘            │
+   │  Me fijo si se   │HD                          │No               │
+   │ cargo de flopy o ├─────►┐             ┌───────┴────────┐        │
+   │    del HD.       │      │             │ Salva el Boot  │        │
+   └─────────┬────────┘      │             │ orig. en disco │        │
+             │Flopy          │             └───────┬────────┘        │
+    ┌────────┴──────┐        │                     │                 │
+    │ Me fijo si el │Sí      │            ┌────────┴──────────┐      │
+    │  HD ya estaba ├───────►┤            │ Copia la tabla de │      │
+    │   infectado   │        │            │ datos al principio│      │
+    └────────┬──────┘        │            │ del Virus.        │      │
+             │No             │            └────────┬──────────┘      │
+    ┌────────┴───────┐       │                     │                 │
+    │  Salva la TP   │       │             ┌───────┴─────────┐       │
+    │ orig. en disco │       │             │ Escribe el Virus│       │
+    └────────┬───────┘       │             │    en el Boot.  ├──────►┘
+             │               │             └─────────────────┘
+   ┌─────────┴─────────┐     │
+   │ Copia la tabla de │     │
+   │   datos al final  │     │
+   │     del Virus.    │     │
+   └─────────┬─────────┘     │
+             │               │
+   ┌─────────┴────────┐      │
+   │ Escribo el Virus │      │
+   │     en la TP     │      │
+   └─────────┬────────┘      │
+             │               │
+  ┌──────────┴─────────┐     │
+  │ Salto a 0000:7C00h ├◄────┘
+  └────────────────────┘
+
+	El Boot tiene una longitud de 512 Bytes (200 Hex), por lo tanto el 
+cuerpo principal del Virus no puede superar esta long. (si se necesita más 
+Bytes se pueden usar más sectores del disco), como restamos 1K (1024 Bytes) de 
+mem. base, nos quedan justo 512 Bytes libres para usar como buffer de lectura y
+allí leeremos el Boot para copiarlo o compararlo con alguna etiqueta que le 
+hallamos puesto, para poder saber si un disco ya estaba infectado o no. Una vez
+que el virus ya está en activo memoria, tenemos que leer el Boot original en la
+posición 0:7C00 Hex y transferirle el control a éste, para que la instalación 
+del DOS siga con toda normalidad, como si no hubiera pasado absolutamente nada!
+
+			Bugs Bunny [DAN]
+
+```
+
+</div>

@@ -1,0 +1,264 @@
+---
+title: "13"
+ezine: "kryptocrew"
+---
+
+# 13
+
+**Ezine:** kryptocrew
+
+<div className="ascii-content">
+
+```
+/* 
+ * ascan.c - anthraxx's scanner
+ * Version 0.9
+ *
+ * Ein Port und Hostscanner fⁿr Linux 
+ *
+ * Linux version: www.datacomm.ch/prutishauser/other/ascan.c
+ * FreeBSD ver: www.datacomm.ch/prutishauser/other/bsdascan.c (noch nicht lauffΣhig)
+ *
+ *
+ * Grrⁿ▀e an: Netnative, Oracle, Sacrelege
+ *            #brain5t0rm, #tsf, #kryptocrew, einige in #bsdger :)
+ *
+ * Dank an:   PSS, Attrition, Securityfocus, HNN, Security Bugware, Anticode 
+ *	      Neworder and Technotronic (fⁿr exploits, anderes und Quellcodes)
+ *
+ *
+ * Benutzung: 
+ *   Um einen Host zu scannen:    ascan -h hostname maxport
+ *   Um ein Netzwerk zu scannen:  ascan -n von-ip bis-ip -m maxport -o nurdieserport -p
+ *                      (-p um nur zu sehen, welche Hosts laufen)
+ * 
+ *
+ * von Anthraxx, 2.12.1999
+ * wenn du einen bug findest, oder Kommentare hast, mail mir unter anthraxx@KryptoCrew.de..
+*/
+
+
+#include &lt;stdio.h>
+#include &lt;netinet/in.h>
+#include &lt;sys/types.h>
+#include &lt;sys/socket.h>
+#include &lt;netdb.h>
+#include &lt;errno.h>
+
+struct sockaddr_in addr;   /* Addresse */
+struct hostent *hp;        /* IP vom Hostnamen */
+int maxport=1024;          /* Port bis zu dem gescannt werden soll */
+
+
+void phelp(void)
+{
+  printf("Usage: \n");
+  printf("  to scan a host:    ascan -h hostname maxport\n");
+  printf("  to scan a network: ascan -n from-ip to-ip -m maxport -o onlytheseport -p\n");
+  printf("                      (-p is only to see what for hosts are up)\n\n");
+   
+  printf("Examples:\n");
+  printf("  ascan -h localhost 1024\n");
+  printf("  ascan -n 192.168.1.1 192.168.1.255 -m 1024\n");
+}
+
+
+int hostup(char ip[20])
+{
+int r;                /* fⁿr die connect() */
+int s;                /* Socket */
+
+  s=socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+  if(s<0) {
+    printf("Socket error");
+    exit(0);
+  }
+  bzero(&addr,sizeof(addr));
+  addr.sin_family=PF_INET;
+  addr.sin_port=0;
+  addr.sin_addr.s_addr=inet_addr(ip);
+
+  r=connect(s,(struct sockaddr *) &addr, sizeof(addr));
+
+  if(r < 0) {
+    if(errno==113) {     /* Host ist ausgeschaltet */
+      return(0);
+    }
+  }
+return(1);
+}
+
+
+/* scan a network */
+int scan_net(int args, char *sip, char *eip)
+{
+unsigned long start;	 /* start ip */
+unsigned long end;    /* end ip */
+unsigned long n;      /* aktuelle ip */
+unsigned long tmp;    /* Temp :) */
+char *temp;           /* Temp, fⁿr Hostame und Co.. */
+int nn;               /* fⁿr die Ports */
+
+  start=inet_addr(sip);
+  end=inet_addr(eip);
+
+  for(n=ntohl(start); n<=ntohl(end); n++)	
+  {
+     tmp=htonl(n);
+     *temp=inet_ntoa(n);
+
+     switch(args)
+     {
+       case 0: /* Scan up to maxports */
+               printf("Scan %s, from port 1 to %i \n", temp, maxport);
+
+               if(!(hostup(temp)))
+                 continue;
+
+               for(nn=1;nn&lt;maxport;nn++)
+                 scan(temp, nn);
+
+               printf("\n");
+               break;
+
+       case 1: /* scan only "maxport" */
+               printf("Scan %s, port %i \n", temp, maxport);
+
+               if(!(hostup(temp)))
+                 continue;
+
+               scan(temp, maxport);
+
+               printf("\n");
+               break;
+
+       case 2: /* see only if the host up */
+               printf("Host %s is ", temp);
+               
+               if(hostup(temp))
+                 printf("up\n");
+               else
+                 printf("down\n");
+
+               break;
+     } 
+
+  }
+}
+
+
+/* Testen ob der Port offen ist */
+int scan(char ip[20], int port)
+{
+int r;			
+struct servent *service;   /* fⁿr den Service Namen */
+int s;                     /* Socket */
+
+  /* ÷ffnen einer Socket-Verbindung */
+  s=socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+  if(s<0) {
+    printf("Socket error");
+    exit(0);
+  }
+
+  /* AufrΣumen.. */
+  bzero(&addr,sizeof(addr));
+
+  /* Ausfⁿllen mit den Daten */
+  addr.sin_family=PF_INET;
+  addr.sin_port=htons(port);
+
+  /* Wenn ip[], dann benutze diese, ansonsten, benutze IP vom Hostent */
+  if(ip) 
+    addr.sin_addr.s_addr=inet_addr(ip);
+  else
+    bcopy(hp->h_addr,(char *)&addr.sin_addr,hp->h_length);
+
+  /* Verbinden */
+  r=connect(s,(struct sockaddr *) &addr, sizeof(addr));
+
+  close(s);
+
+
+  /* ok, genug gescannt, zeig die Ergebnisse... */
+
+  service=getservbyport(htons(port), "tcp");
+
+  if(r>=0)
+    printf("open port: %i (%s)\n",port,service==NULL?"UNKNOWN":service->s_name);
+
+return(1);
+}
+
+
+/* Main */
+int main(int argc, char **argv)
+{
+char opt;         /* Fⁿr Optionen */
+int n;            /* Mehrmals verwendet :) */
+int snetargs=5;   /* 0 = Scan bis zu maxports auf allen Hosts */
+                	/* 1 = Scanne nur einen einzigen Port ("maxport") */
+                	/* 2 = Nur testen ob die Hosts laufen */
+                  /* 5 = dummy */
+
+  if(argc<2) {
+    phelp();
+    exit(1);
+  }
+
+  opt=getopt(argc, argv, "hn");
+
+  switch(opt)
+  {
+    case 'h': if(argv[3])
+                maxport=atoi(argv[3]);
+
+              hp=gethostbyname(argv[2]);
+              printf("Scan %s, from port 1 to %i \n", hp->h_name, maxport);
+
+              for(n=1;n&lt;maxport;n++)
+                scan(0, n);
+
+              break;
+
+    case 'n': printf("A network will be scanned\n\n");
+
+              while((opt=getopt(argc, argv, "m;o;p"))!=EOF) {
+                switch(opt)
+                {
+                  case 'm': maxport=atoi(argv[5]);
+                            snetargs=0;
+                            break;
+
+                  case 'o': maxport=atoi(argv[5]);
+                            snetargs=1;
+                            break;
+                            
+                  case 'p': snetargs=2;
+                            break;
+                }
+              }
+
+              /* hm, getargs verΣndert die Sequenz von argv, argh.. */
+              if(snetargs==5) {
+                snetargs=0;
+                scan_net(snetargs, argv[2], argv[3]); 
+              }
+              else {
+                scan_net(snetargs, argv[3], argv[4]); 
+              }
+
+              break;
+
+    default: printf("Bad option. Aborting...\n");
+             phelp();
+             exit(0);
+  }
+
+
+return(1);
+}
+
+```
+
+</div>

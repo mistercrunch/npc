@@ -1,0 +1,268 @@
+---
+title: "heh2-02"
+ezine: "heh"
+---
+
+# heh2-02
+
+**Ezine:** heh
+
+<div className="ascii-content">
+
+```
+      =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=                  
+      =- Compresion de Datos - Segunda Parte -=
+      =-=-=-=-=-=-=-=-=-=-=-=-         -=-=-=-= 
+                              =- Joe -=
+                                -=-=-
+                                                
+Esta es la parte final del articulo sobre compresion, donde se vera la forma de
+encarar el problema de implementacion del algoritmo de Huffman, crear tipos de 
+datos para poder lograr una buena codificacion.
+Recordando un poco la parte anterior, se podran dar cuenta que la seccion mas
+dificil de pensar a la hora de codificar es la creacion del arbol binario para
+lograr el codigo de prefijos.
+Pasemos a la accion, en primer lugar voy a definir un tipo que estructurado que
+implementara la parte del nodo en el arbol.
+
+
+typedef struct datos_nodo 
+  {          
+    int               numero;                                
+    int               total;                               
+    double            frecuencia;                   
+    struct datos_nodo *raiz, *izq, *der;  
+  };
+
+
+Por razones de espacio no voy a escribir todo el codigo para que se pueda
+compilar directamente, voy a escribir partes fundamentales para que el que este
+interesado las pueda usar en una version final, ya que si desarrollara todo
+como si fuera un programa compresor al estilo gzip llevaria mas de 1000 lineas
+solo en linas de programacion.
+
+Necesitaremos un array de 256 lugares, uno para cada caracter ascii, donde cada
+lugar del array sera del tipo estructurado que ya definimos.
+Esto lo pueden manejar como variable global o local, para una mejor programa-
+cion no recomiendo el uso de variables globales, pero el lugar de la 
+definicion, se lo dejo a gusto del lector.
+
+struct datos_nodo * tabla[256]
+
+A continuacion debemos inicializar esta tabla, para lo cual usamos el siguiente
+codigo:
+
+for ( i = 0 ; i < 256; i++ )                    
+{
+if((tabla[i]=(struct datos_nodo *)malloc(sizeof (struct datos_nodo))) == NULL)
+  {
+  printf("No hay memoria suficiente, ┐ En que porqueria estas programando ?");
+  exit(0); // alguna forma de abortar el programa, o un return con algun valor 
+           // sentinela , dependiendo de como se este programando estaparte.
+        }
+        tabla[i]->numero     = i;          
+        tabla[i]->total      = 0;
+        tabla[i]->frecuencia = 0;
+        tabla[i]->raiz       = NULL;
+        tabla[i]->izq        = NULL;
+        tabla[i]->der        = NULL;
+    }
+
+
+A modo de ejemplo, podrφamos haber definido una variable para poder abrir un
+archivo con el cual trabajaremos
+
+FILE *archivo; 
+
+
+Luego lo abriremos , y extraeremos sus datos para la compresi≤n del mismo.
+(Esto se podrφa haber hecho con un parametro en el programa principal, para
+mayor claridad se abrira "archivo.txt" )
+
+if ((archivo=fopen("archivo.txt", "rb")) == NULL)  
+   {
+     printf("No se puede abrir archivo.txt");
+     exit(0);
+   }
+
+// int total,i; antes definidas
+
+while (!feof(archivo))                // hasta el final del archivo          
+   {
+     i = fgetc(archivo);
+
+     total++;                         // total de caracteres leidos
+     ++tabla[i]->total;               // total de caracteres "i" leidos
+   }
+
+if ( total == 0 )                               
+   {
+     printf("Archivo vacio");
+     exit(0);
+   }
+
+fclose(archivo);        // Cierro archivo
+
+
+Ahora pasaremos a la parte fundamental, que es la creacion del arbol para la
+creacion de los codigos.
+Codificaremos una funcion que devolvera el arbol para la tabla inicializada al
+principio.
+          
+
+datos_nodo * creararbol( datos_nodo * tabla[256])
+{
+    struct datos_nodo *minimo1, *minimo2;  
+
+void buscar_frec_min(datos_nodo *minimo1, datos_nodo *minimo2, 
+                     datos_nodo *tabla[256] );     
+
+    
+    double maxfrecuencia    = 0 ;    //Maxima frecuencia del arbol      
+    struct datos_nodo *node = NULL;  //Nodo auxiliar para la creacion del arbol
+
+    while (maxfrecuencia < 0.99999 )     
+    {
+        buscar_frec_min( minimo1, minimo2, tabla );
+        
+
+if((nodo=(struct datos_nodo *)malloc(sizeof (struct datos_nodo)) ) == NULL )
+        {
+            printf("No tenes memoria!!!, anda pensando en tirar esta batata ");
+            exit(0);
+        }
+                                
+        nodo->raiz   = NULL;     // Creo nuevo nodo
+        nodo->izq    = minimo2;
+        nodo->der    = minimo1;
+        nodo->numero = -1;       // Suma de dos caracteres, no posee valor ascii
+                                 // -1 valor sentinela
+        minimo1->raiz = nodo;
+        minimo2->raiz = nodo;
+
+/* Las anteriores asignaciones son para crear una estructura igual al 
+siguiente esquema
+      
+
+                                     ------- NODO ---------
+                                     - Raiz   ---> NULL   -
+                                     - Numero ---> -1     -
+                                     - 
+                                     - Izq            Der -
+                                      /------------------ \
+                                     /                     \           
+                                    /                       \            
+                                   /                         \       
+                        ----- MINIMO 2 -----            ---- MINIMO 1 -----    
+                        - Segundo elemento -            - Primer elemento -    
+                        - con minima       -            - con minima      - 
+                        - frecuencia       -            - frecuencia      -   
+                        --------------------            -------------------    
+         
+        */
+                                  
+nodo->frecuencia = minimo1->frecuencia + minimo2->frecuencia; 
+                        // suma de las dos 
+
+        maxfrecuencia = nodo->frecuencia; 
+
+    }
+
+    return nodo;            
+
+}
+
+La funcion de creado del arbol necesita otra funcion que se encarga de recorrer
+la tabla y los arboles que se van creando buscando los dos elementos con menos
+frecuencia.
+
+void buscar_frec_min( datos_nodo *minimo1, datos_nodo *minimo2, 
+                     datos_nodo * tabla[256] );   
+{
+
+    struct datos_nodo *minimo, *primero, *segundo;
+    struct datos_nodo celda;
+    int    ultimo = 255;
+
+    celda.frecuencia = 2.0;       // siempre mayor que 1
+    primero = &celda;             // la inicializo mayor a 1
+
+    while( ultimo != -1)          
+       {
+        minimo = tabla[ ultimo ];
+
+        if ( minimo->total == 0 )  // No esta el caracter en la tabla 
+           {                         
+             ultimo--;
+           }
+        else
+           {
+               while ( minimo->raiz != NULL)  // busco la raiz del arbol
+                                              //que tiene frec. mas chica
+               minimo = minimo->raiz;
+
+            if (minimo->frecuencia < primero->frecuencia)  // comparo si hay 
+                                                           //una mas chica      
+               primero = minimo;                       
+
+            ultimo--;                 
+           }
+       }
+
+    
+    // Repito el proceso para encontrar el segundo
+
+    ultimo  = 255;                   
+    segundo = &celda;             // la inicializo mayor a 1
+
+    while( ultimo != -1)          
+       {
+        minimo = tabla[ ultimo ];
+
+        if ( minimo->total == 0 )  // No esta el caracter en la tabla 
+           {                         
+             ultimo--;
+           }
+        else
+           {
+            while ( minimo->raiz != NULL)    // busco la raiz del arbol que 
+                                             // tiene frec. mas chica
+               minimo = minimo->raiz;
+
+  if ( (minimo->frecuencia < segundo->frecuencia) && (minimo != primero))   
+               // comparo si hay una mas chica, ahora sin repetir con la 
+               // anterior
+               segundo = minimo;                       
+
+            ultimo--;                 
+           }
+       }
+
+
+    minimo1 = primero;     // Le paso los valores a los parametros
+    minimo2 = segundo;
+
+}
+
+
+Invito a la gente que le interesa este apacionante tema a que intente hacer en
+base a esta codificacion o alguna que se les haya ocurrido, hacer su propio
+compresor, ya que la mejor manera de ser un gran programador es leyendo el
+codigo de otros entenderlos y luego crear los suyos propios.
+Como sugerencia seria interesante modificar el tipo de datos "datos_nodo" y
+agregarle un campo mas para la etiquetacion con su valor binario segun su lugar
+en el arbol. Tambien hay que tener cuidado con los casos limites, como por
+ejemplo cuando el archivo tiene 1 byte , etc, etc.
+Tambien me disculpo con los lectores experimentados, por no usar primitivas para
+mayor claridad en la codificaci≤n usando arboles, sucede que tendria que
+crearlas con lo que el articulo se extenderia mucho.
+Espero que les gustara este tema tanto como a mi. Me despido hasta la proxima.
+
+
+Joe
+joe_joe@i.com.uy
+
+
+```
+
+</div>

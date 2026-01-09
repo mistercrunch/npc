@@ -1,0 +1,1073 @@
+---
+title: "10"
+ezine: "kryptocrew"
+---
+
+# 10
+
+**Ezine:** kryptocrew
+
+<div className="ascii-content">
+
+```
+******** Frei ▄bersetzt von PacmaN ein Member der Kryptocrew ********
+******** www.kryptocrew.de                 www.kryptocrew.de ********
+
+
+Einfacher aktiver Angriff gegen TCP
+
+         Laurent Joncheray
+
+                        Merit Network, Inc.
+                        4251 Plymouth Road, Suite C
+                        Ann Arbor, MI 48105, USA
+                        Phone: +1 (313) 936 2065
+                        Fax: +1 (313) 747 3185
+                        E-mail: lpj@merit.edu
+
+                        Zusammenfassung
+	
+	Dieses Papier beschreibt einen aktiven Angriff gegen das Transport
+Control Protocol(TCP) welches einem Cracker erlaubt den TCP-strom  durch
+seine Maschine umzuleiten. Dadurch wird ihm gestattet den Schutz der von 
+einem System, das ein One-Time Passwort [skey] oder eine Ticketing 
+Authentisierung[kerberos] anbietet,  zu umgehen. Die TCP Verbindung  ist
+fⁿr jeden mit einem TCP Paket sniffer(Schnⁿffler) angreifbar. 
+Einige Schemen um diesen Angriff zu entdecken sind vorhanden. 
+Genau wie einige Methoden  der Verhinderung und einige
+ interessante Details des Verhalten des TCP Protokolls.
+
+1. Einfⁿhrung 
+
+	Passive Angriffe werden immer ÷fter mit Sniffern durchgefⁿhrt. 
+Der Angreifer eignet sich eine User ID und das dazugeh÷rige Passwort 
+An so, dass er als dieser User sich einloggen kann. Um so etwas zu 
+verhindern haben Leute Identifikations-Schemen, wie z.B. das 
+One-Time Passwort [skey] oder die Ticketing Identifikation [kerberos],
+benutzt. Das verhindert das sniffen(schnⁿffeln) in einem unsicheren 
+Netzwerk, aber diese Methoden sind immer noch durch einen aktiven 
+Angriff verwundbar. Jedenfalls wenn nichts verschlⁿsselt ist und der
+Datenstrom nicht verfolgt wird. [Au▀erdem unterstⁿtzt kerberos 
+auch eine Verschlⁿsselte TCP-Strom Option ] Viele Leute glauben 
+immer noch, dass aktive Angriffe sehr schwer sind und daher nicht 
+eine so gro▀e Gefahr sind.
+
+	Der folgende Text beschreibt einen extrem leichten, aktiven 
+Angriff, der bereits erfolgreich eingesetzt wurde um in Unixsysteme
+einzubrechen, den man mit den selben Ressourcen durchfⁿhren kann
+die man auch fⁿr einen passiven Angriff braucht.  [Die Angriffe 
+wurden mit einem Testprogramm durchgefⁿhrt und die User wussten 
+ⁿber den Angriff bescheid. Obwohl wir nicht wissen ob solche Angriffe
+im Internet benutzt werden, k÷nnte es m÷glich sein.] Einige besondere 
+Verhaltensformen des TCP Protokolls, einige echte Beispiele und 
+einige statistische Studien ⁿber die EinschlΣge der Angriffe im Internet
+werden folgen. Letztendlich werden ein paar Schemen zum Verhindern
+und Entdecken erklΣrt. Um jeden, der sich nicht mit dem TCP Protokoll
+nicht auskennt, zu helfen fange ich gleich mit einer kurzen ErklΣrung 
+des Protokolls an.
+
+	Der Leser kann auch eine andere Attacke, die von R. Morris 
+erklΣrt wird[in morris85], lesen. Der folgende Angriff hat sehr viel
+─hnlichkeit mit dem von Morris, aber diesen kann man mit jeder TCP
+Verbindung benutzen. In Sektion 7 werden wir beide Arten vorfⁿhren
+und vergleichen. 
+
+	Die PrΣsentation des Angriffs wird in 3 Teile unterteilt sein:
+Der ``Established State'' der Zeitpunkt an dem man eine offene Sitzung 
+hat und Daten ausgetauscht hat; das er÷ffnen (openning) einer solchen
+Sitzung; und ein paar echte Beispiele.
+2. Established State
+
+2.1 Das TCP Protokoll
+
+	Diese Sektion bietet eine kurze Beschreibung des TCP 
+Protokolls. Um mehr Details zu erhalten empfehle ich dem Leser
+[rfc793]. TCP bietet eine stabile full duplex Verbindung zwischen
+2 Endpunkten. Eine Verbindung hat eine einzigartige Bezeichnung 
+die aus vier Dreierpaketen besteht (IP Adresse des Sender, 
+TCP Port Nummer des Sender, IP Adresse des EmpfΣnger, TCP
+Port Nummer des EmpfΣngers). Jedes Byte das geschickt wird
+wird durch eine Sequenznummer (32 bits Integer) 
+gekennzeichnet und wird von dem EmpfΣnger der diese
+Sequenznummer benutzt bestΣtigt. Die Sequenznummer,
+fⁿr das erste geschickte Byte, wird wΣhrend dem Verbindungs-
+vorgang errechnet. Sie Σndert sich bei jeder neuen Verbindung, nach
+bestimmten Parametern, die verhindern das zwei Sitzungen 
+die Selbe Sequenznummer haben.
+
+	Wir sollten in diesem Dokument erwΣhnen das einer der
+Endpunkte der Verbindung als Server handelt(z.B. ein Telnet Server)
+Und der andere ist ein Client. Die folgende Begriffe werden benutzt:
+
+        SVR_SEQ: Sequenznummer von dem nΣchsten Byte das von dem 
+        Server verschickt werden soll; 
+        SVR_ACK: nΣchstes Byte das vom Server empfangen werden soll;        
+        (die Sequenznummer vom letzten empfangenen Byte plus eins);
+        SVR_WIND: das Empfangsfenster des Server;
+        CLT_SEQ: Sequenznummer von dem nΣchsten Byte das vom
+        Clienten geschickt werden soll;
+        CLT_ACK: nΣchstes Byte das vom Client empfangen werden soll;
+        CLT_WIND: Empfangsfenster des Clienten;
+
+	Wenn am Anfang noch keine Daten ausgetauscht wurden haben
+wir SVR_SEQ = CLT_ACK and CLT_SEQ = SVR_ACK. Diese Gleichsetzungen
+sind auch dann wahr, wenn die Verbindung in einem "quite"(ruhig) Modus ist
+(beide Seiten verschicken keine Daten). Sie sind aber nicht wahr wenn 
+▄bertragungen im Gange sind und Daten verschickt werden. Die 
+Gleichsetzungen die ÷fter zutreffen sind:
+
+        CLT_ACK <= SVR_SEQ <= CLT_ACK + CLT_WIND
+        SVR_ACK <= CLT_SEQ <= SVR_ACK + SVR_WIND
+
+Die Kopfzeile vom TCP Paket sind :
+
+        Source Port:            Die Portnummer der Quelle;
+        Destination Port:       Die Portnummer des Ziels;
+        Sequence number:        Die Sequenznummer von dem
+                                ersten Byte in diesem Paket;
+BestΣtigungsnummer : Die erwartete Sequenznummer 
+			von dem nΣchsten Byte das empfangen 
+wird;
+Data Offset:            Ausgleich von den Daten in dem Paket;
+        Control Bits:
+
+                URG:  Dringlichkeitsanzeiger ;
+                ACK:  BestΣtigung;
+                PSH:  Push Funktion;
+                RST:  Neustart der Verbindung;
+                SYN:  Synchronisiere die Sequenzernummern;
+                FIN:  Keine weitere Daten vom Sender;
+
+        Window:         Fenstergr÷▀e des Sender;
+        Checksum:       TCP Checksum von der Kopfzeile und der Daten;
+        Urgent Pointer: TCP Dringlichkeitsanzeiger;
+        Options:                TCP Optionen;
+
+ - SEG_SEQ wird sich auf die Sequenznummer des Paketes beziehen(wie
+man in der Kopfzeile sieht).
+ - SEG_ACK wird sich auf die BestΣtigung des Paketes beziehen.
+ - SEG_FLAG wird auf die Kontroll-Bits beziehen.
+
+Bei einem typischen Paket, dass vom Klienten geschickt worden ist,
+ist SEG_SEQ gleich CLT_SEQ, SEG_ACK gleich CLT_ACK gesetzt.
+
+	TCP benutzt einen "three-way handshake"("drei-wege Handschlag")
+um eine neue Verbindung zu etablieren. Wenn wir vermuten das der Klient 
+die Verbindung zum Server initiiert und das keine Daten ausgetauscht worden
+sind, ist das normale Paketaustausch(siehe Figur 1):
+
+- Die Verbindung, auf der Seite des Klienten, ist im CLOSED(Geschlossenen)
+Zustand.
+Die Verbindung, auf der Seite des Server, ist im LISTEN(Zuh÷ren) Zustand.
+- Der Klient schick zuerst seine anfangs Sequenznummer und 
+setzt das SYN Bit:
+
+        SEG_SEQ  =  CLT_SEQ_0,
+        SEG_FLAG  =  SYN
+
+Sein Status ist jetzt SYN-SENT (SYN-GESENDET)
+Bei dem Empfang dieses Paketes bestΣtigt der Server die Sequenznummer
+des Klienten und schickt seine eigene anfangs Sequenznummer und
+setzt das SYN Bit:
+
+        SEG_SEQ  =  SVR_SEQ_0,
+        SEQ_ACK  =  CLT_SEQ_0+1,
+        SEG_FLAG  =  SYN
+
+und setzt
+
+        SVR_ACK=CLT_SEQ_0+1
+
+Sein Status ist jetzt SYN-RECEIVED(SYN-EMPFANGEN)
+- Bei dem Empfang von diesem Paket bestΣtigt der Klient
+die Sequenznummer des Server:
+
+        SEG_SEQ  =  CLT_SEQ_0+1,
+        SEQ_ACK  =  SVR_SEQ_0+1
+
+und setzt CLT_ACK=SVR_SEQ_0+1
+Sein Status ist jetzt ESTABLISHED(Bestehend)
+- Bei dem Empfang von diesem Paket geht der Server
+in den ESTABLISHED Status ⁿber. Jetzt haben wir:
+
+        CLT_SEQ  =  CLT_SEQ_0+1
+        CLT_ACK  =  SVR_SEQ_0+1
+        SVR_SEQ  =  SVR_SEQ_0+1
+        SVR_ACK  =  CLT_SEQ_0+1
+
+Server                                          Client
+LISTEN                                          CLOSED
+
+                    <-  SYN,
+                        CLT_SEQ_0
+
+LISTEN                                          SYN-SENT
+
+                        SYN,        ->
+                        SVR_SEQ_0,
+                        CLT_SEQ_0+1
+
+SYN-RECEIVED                                    ESTABLISHED
+
+                                                SVR_SEQ = CLT_SEQ_0 + 1
+                                                CLT_ACK = SVR_SEQ_0 + 1
+
+                    <-  ACK,
+                        CLT_SEQ_0 + 1
+                        SVR_SEQ_0+1
+
+ESTABLISHED
+
+SVR_SEQ = SVR_SEQ_0 + 1
+SVR_ACK = CLT_SEQ_0 + 1
+
+
+                Figur 1: Beispiel von der ╓ffnung einer Verbindung
+
+	Eine Verbindung kann man durch das benutzen von der FIN
+oder der RST flag erriechen. Wenn die RST flag in einem Paket gesetzt
+wurde, wird der Server der dieses Paket empfΣngt in den CLOSED Status
+(Geschlossener Status) ⁿbergehen und alle Ressourcen die mit dieser
+Verbindung zusammenhingen wieder frei machen. Das Paket ist nicht 
+bestΣtigt. Jedes Paket das fⁿr diese Verbindung ankommt wird nicht
+vom Server angenommen.
+
+Wenn die FIN flag in einem Paket gesetzt wurde, wird der Server der 
+dieses Paket empfΣngt in den CLOSE-WAIT Status(Schlie▀en-Warte)
+ⁿbergehen und startet den Prozess des wⁿrdevollen Trennen der 
+Verbindung. Die Details von diesem Prozess sind zu umfassend fⁿr
+dieses Dokument. Der Leser kann sich auf [rfc793] beziehen um 
+weitere Details zu erhalten.
+
+	Im vorigen Beispiel haben wir extra auf ungew÷hnliche
+FΣlle wie z.B. OUT-OF-BAND Pakete, retransmission, das Verlieren
+von Paketen, usw. ... Das kann bei der dieser einfachen  Studie, der 
+Attacke, ignoriert werden.
+
+	Wenn man im ESTABLISHED Status ist, ist ein Paket 
+annehmbar, wenn die Sequenznummer mit dem erwarteten Wert
+ⁿbereinstimmt.
+
+        [SVR_ACK, SVR_ACK + SVR_WIND]
+
+(fⁿr den Server) oder
+
+        [CLT_ACK, CLT_ACK + CLT_WIND]
+
+(fⁿr den Klienten) Wenn die Sequenznummer die Grenzen ⁿberschreitet,
+dann wird es nicht vom Server akzeptiert und ein bestΣtigtes Paket 
+wird geschickt das die erwartete Sequenznummer benutzt.
+Zum Beispiel wenn
+
+        SEG_SEQ  =  200,
+        SVR_ACK  =  100,
+        SVR_WIND  =  50
+
+Dann SEG_SEQ > SVR_ACK + SVR_WIND. Der Server
+erstellt  ein ACK Packet mit
+
+        SEG_SEQ  =  SVR_SEQ
+        SEG_ACK  =  SVR_ACK
+
+was genau das ist was der Server in dem Paket erwartet. 
+
+2.2 Ein desynchronised (d÷ssynchroner ) Status 
+
+	Der Begriff  "desynchronized state" wird auf die Verbindung
+bezogen, wenn beide Seiten im ESTABLISHED Status sind, keine 
+Daten geschickt werden(stabiler Status), und
+
+        SVR_SEQ  !=  CLT_ACK
+        CLT_SEQ  !=  SVR_ACK
+
+	So lange keine Daten geschickt werde nist dieser Status 
+stabil. Wenn Daten geschickt werden k÷nnen zwei FΣlle eintreten:
+
+- Wenn CLT_SEQ < SVR_ACK + SVR_WIND und
+CLT_SEQ > SVR_ACK sind ist das Paket akzeptable, die Daten k÷nnen
+fⁿr spΣteren Gebrauch gespeichert werden(hΣngt von der 
+Durchfⁿhrung ab), aber werden, seitdem der Anfang des Stream(Fluss) 
+(die Sequenznummer SVR_ACK) fehlt, nicht zu dem User geschickt.
+- Wenn CLT_SEQ > SVR_ACK + SVR_WIND or CLT_SEQ <
+SVR_ACK ist, ist das Paket nicht akzeptable und wird von Server
+nicht angenommen. Die Daten sind dann verloren.
+
+	In beiden FΣllen ist der Datenaustausch nicht m÷glich.
+
+2.3 Der Angriff
+
+	Der vorgeschlagene Angriff besteht darin einen
+"desynchronized state" an beiden Enden der TCP Verbindung 
+zu erstellen so, dass keine Daten mehr ausgetauscht werden k÷nnen.
+Ein dritter Host wird dann akzeptable Pakete fⁿr beide Seiten erstellen,
+die von den echten Paketen nachgeahmt sind.
+
+	Angenommen die TCP Sitzung ist in einem "desynchronized state"
+und das der Klient ein Paket mit folgendem schickt 
+
+        SEG_SEQ  =  CLT_SEQ
+        SEG_ACK  =  CLT_ACK
+
+Seitdem CLT_SEQ != SVR_ACK ist werden keine Daten mehr 
+akzeptiert und gehen verloren. Der Dritte schickt dann das selbe Paket, aber
+Σndert SEG_SEQ und SEG_ACK (und die "checksum") so, dass
+ 
+        SEG_SEQ  =  SVR_ACK,
+        SEG_ACK  =  SVR_SEQ
+
+ist und von dem Server akzeptiert wird. Die Daten werden von dem 
+Server verarbeitet.
+
+Wenn CLT_TO_SVR_OFFSET auf SVR_ACK - CLT_SEQ verweist und
+SVR_TO_CLT_OFFSET auf  CLT_ACK - SVR_SEQ verweist, dann
+muss der Angreifer der ersten Verbindung ein TCP Paket vom Klienten
+umschreiben und zum Server als folgendes schicken:
+
+        SEG_SEQ <- SEG_SEQ + CLT_TO_SVR_OFFSET
+        SEG_ACK <- SEG_ACK - SVR_TO_CLT_OFFSET
+
+Wenn man mal darⁿber nachdenkt das der Angreifer jedes IP Paket, das 
+zwischen dem Server und dem Klienten ausgetauscht wird, lesen 
+und auch fΣlschen kann(dafⁿr muss man sich entweder als Klient oder
+als Server ausgeben), dann verhΣlt sich die Verbindung eigentlich so
+als ob die Verdingung durch den PC des Angreifer lΣuft. Der kann
+alle Daten von dem Datenfluss entfernen oder auch neue Daten einfⁿgen.
+Wenn in diesem Fall die Verbindung auch noch ein "remote login" ist,
+dann kann der Angreifer per Telnet jede Art von Befehlen zugunsten 
+des User ausfⁿhren
+("echo merit.edu lpj > ~/.rhosts" ist ein Beispiel fⁿr so einen Befehl)
+und auch jedes ungewollte echo herausfiltern so, dass der User 
+ⁿberhaupt nichts von dem Angreifer mitbekommt.
+Natⁿrlich mⁿssen sich in diesem Fall CLT_TO_SVR_OFFSET und 
+SVR_TO_CLT_OFFSET Σndern. Die neuen Werte werden zur 
+▄bung fⁿr den Leser.[Man kann das echo in Telnet abstellen, um
+die Last des filtern von dem Output zu verhindern. Bei den Tests
+die wir gemacht haben, haben wir gesehen das ein Fehler in dem
+aktuellen Telnet ist (oder vielleicht in dem Telnet Protokoll selber).
+Wenn ein TCP Paket 
+IAC DONT ECHO und IAC DO ECHO enthΣlt wird Telnet mit
+IAC WONT ECHO und IAC WILL ECHO antworten. Der andere Endpunkt wird
+IAC DONT ECHO und IAC DO ECHO bestΣtigen usw.  ... dadurch
+entsteht eine Endlosschleife.]
+
+2.4 "TCP Ack storm" (BestΣtigungssturm)
+
+	Eine Schwachstelle des Angriffes ist das erstellen von vielen TCP ACK
+Paketen. Wenn ein Host ein unakzeptables Paket empfΣngt bestΣtigt er es
+indem er die erwartete Sequenznummer schickt( Als die BestΣtigungsnummer.
+siehe Einfⁿhrung in das TCP)
+und seine eigene Sequenznummer verwendet. Dieses Paket ist selber nicht
+akzeptable und wird ein BestΣtigungspaket erstellen welches ein
+BestΣtigungspaket erstellt usw. ... so wird fⁿr jedes Paket, dass so geschickt wurde,
+eine Endlosschleife erzeugen.
+
+	Wenn ein Paket keine Daten trΣgt wird es nicht bei Paketverlust
+erneut geschickt. Das bedeutet: wenn ein Paket aus der Endlosschleife 
+verloren geht wird die Schleife beendet. Glⁿcklicherweise( oder 
+unglⁿcklicherweise) verwendet TCP in einem unzuverlΣssigen 
+Netzwerken IP, dass eine "non null packet loss rate" hat und deshalb
+Endlosschleifen beendet. Um so mehr Pakete ein Netzwerk verliert,
+um so kⁿrzer ist der ACK Storm(die Endlosschleife). Au▀erdem haben 
+wir bemerkt das sich diese Schleifen selber regulieren: um so mehr
+Schleifen wir kreieren, um so mehr Traffic(Datenverkehr) kommt auf.
+Um so mehr Datenstau und Paketverluste vorkommen, um so mehr
+Schleifen werden beendet.
+
+	Die Schleife wird jedes mal erstellt wenn der Klient oder 
+der Server Daten schickt. Wenn keine Daten geschickt werden entsteht
+auch keine Schleife. Wenn Daten geschickt werden und kein Angreifer
+da ist, um sie zu bestΣtigen, dann werden die Daten zurⁿckgeschickt,
+bei jedem Zurⁿckschicken wird ein Sturm erschaffen, und eventuell 
+wird die Verbindung unterbrochen, wenn keine ACK Daten geschickt
+werden. Nur wenn der Angreifer die Daten bestΣtigt wird ein Sturm
+ausgel÷st(der Angreifer verpasst, in der Praktik, oft das Datenpaket
+,das beim einlogen in das Netzwerk geschickt wird und bestΣtigt
+erst die spΣteren Zurⁿckgeschickten Pakete).
+
+	Der Angriff verwendet den zweiten Pakettyp der in Sektion
+2.2 beschrieben wird. Der erste Fall ,in dem Daten bei dem EmpfΣnger 
+gespeichert werden, wurde noch nicht getestet. Es hat den Vorteil, dass
+es nicht den ACK Sturm erschafft , aber es kann gefΣhrlich sein, sogar 
+wenn die Daten verarbeitet werden. Au▀erdem ist es schwierig, es mit 
+einer Verbindung die nur ein kleines Fenster hat, durchzufⁿhren.
+
+3. Setup (Einstellung) der Sitzung
+
+	Dieses Dokument stellt zwei Methoden vor, mit denen  man
+eine TCP Verbindung desynchronisieren kann. Andere kann man sich
+vorstellen, aber werden hier nicht erwΣhnt. Wir nehmen an, dass
+der Angreifer jedes Paket ,dass zwischen zwei Punkten ausgetauscht wird,
+abfangen kann.
+
+3.1 Frⁿhe Desynchronisierung
+
+Der Sinn dieser Methode ist eine Verbindung, auf der Seite des Servers,  in 
+den frⁿhen Einwahlstatus zu bringen  und einen Server mit einer anderen 
+Sequenznummer zu erstellen. Und so geht es (Figur 2 fast diesen Vorgang 
+zusammen)
+
+	- Der Angreifer fΣngt ein  SYN/ACK Paket, dass vom Server an den 
+Klienten geschickt wurde, ab (Stufe 2 in dem Setup der Verbindung ).
+
+	- Wenn das Paket entdeckt wird, schickt  der Angreifer dem Server
+ein RST und ein SYN Paket mit den selben Parametern (TCP Port) , aber
+mit einer anderen Sequenznummer (bezogen auf ATK_ACK_0, was im
+Rest dieses Dokumentes behandelt wird).
+
+	- Wenn der Server das RST Paket empfΣngt, wird er die erste 
+Verbindung schlie▀en und eine neue Verbindung, die den selben Port, aber 
+eine andere Sequenznummer(SVR_SEQ_0) hat, erstellen, wenn er das 
+SYN Paket empfΣngt. Dann schickt er ein SYN/ACK Paket zum Klienten.
+
+- Wenn der Angreifer das Paket sieht, dann muss er dem Server 
+ACK Paket schicken. Der Server wechselte dann in den ESTABLISHED Status.
+
+	- Der Klient ist schon nach dem empfang von dem SYN/ACK Paket
+in den ESTABLISHED Status gegangen.
+
+
+Server                                          Klient
+                                                                
+LISTEN                                          CLOSED
+
+                    <-  SYN,
+                        CLT_SEQ_0
+
+SYN-RECEIVED                                    SYN-SENT
+
+                        SYN,         ->
+                        SVR_SEQ_0,
+                        CLT_SEQ_0+1
+                
+
+                                                ESTABLISHED
+                                        
+                                                SVR_SEQ = CLT_SEQ_0 + 1
+                                                CLT_ACK = SVR_SEQ_0 + 1
+                                        
+                    <=  RST,
+                        CLT_SEQ_0 + 1
+                
+CLOSED
+
+                    <=  SYN,
+                        ATK_SEQ_0
+                
+
+                        SYN,           ->
+                        SVR_SEQ_0',
+                        ATK_SEQ_0 + 1
+
+SYN-RECEIVED
+
+                    <=  SYN,
+                        ATK_SEQ_0 + 1,
+                        SVR_SEQ_0' + 1
+                
+
+ESTABLISHED
+
+SVR_SEQ = SVR_SEQ_0' + 1
+SVR_ACK = ATK_SEQ_0 + 1
+
+
+	Figur 2: Ist ein Angriffsschema. Die Pakete des Angreifers sind mit <=
+	gekennzeichnet.
+
+	Dieses Diagramm zeigt nicht den Austausch von unakzeptablen Paketen.
+Beide Enden der Verbindung sind jetzt im desynchronisierten ESTABLISHED 
+Status.
+
+        SVR_TO_CLT_OFFSET = SVR_SEQ_0 - SVR_SEQ_0'
+
+ist vom Server gefixed. 
+        CLT_TO_SVR_OFFSET = ATK_SEQ_0 - CLT_SEQ_0
+
+ist vom Angreifer gefixed.
+ 
+	Der Erfolg fⁿr diesen Angriff hΣngt davon ab ob man fⁿr 
+CLT_TO_SVR_OFFSET den richtigen Wert wΣhlt. Ein falscher 
+Wert kann das Paket des Klienten akzeptabel machen und einen
+unerwⁿnschten Effekt erzeugen.
+
+3.2 Null Data Desynchronization
+
+	Fⁿr diese Methode geht es darum, dass der Angreifer sehr viele Daten 
+zu dem Server und dem Klienten schickt. Die Daten werden nicht fⁿr den 
+Server oder den Klienten sichtbar sein, aber werden die beiden Enden der 
+Verbindung in den "desynchronized state" bringen.
+
+	Das folgende Schemen k÷nnen unter Telnet verwendet werden:
+
+- Der Angreifer beobachtet die Sitzung ohne einzugreifen.
+- Wenn der Angreifer eine gro▀e Anzahl von "null data" zum Server schickt.
+"Null data" wird nur den Server dazu veranlassen die TCP BestΣtigungsnummer zu 
+Σndern. [z.B. Der Angreifer schickt in einer Telnetsitzung ATK_SVR_OFFSET
+Bytes, die aus der Sequenz IAC NOP IAC NOP......... bestehen. Die Bytes 
+IAC NOP werden von dem Telnet Daemon interpretiert und aus dem Datenstrom  
+entfernt so, dass nichts bewirkt wurde. Das Telnet Protokoll [telnet] definiert den 
+NOP Befehl als "NO OPERATION". Anders ausgedrⁿckt : mach nichts .. ignorier 
+einfach diese Bytes.] Jetzt hat der Server 
+
+        SVR_ACK = CLT_SEQ + ATK_SVR_OFFSET
+
+was natⁿrlich desynchronised ist.
+	- Der Angreifer macht das selbe auch mit dem Klienten.
+
+	Diese Methode ist sinnvoll wen eine Sitzung "null data" unterstⁿtzt. Wenn
+der Angreifer diese Daten schickt kann es zu ein paar unerwarteten Nebenwirkungen
+kommen.
+
+4. Beispiele 
+
+	Die folgenden logs sind von einer gehackten tcpdump [tcpdump] Version 
+in einem lokalen Ethernet erstellt. Kommentare sind mit "##" gekennzeichnet.
+
+	Das erste Beispiel ist eine normale Telnetsitzung zwischen 35.42.1.56
+(der Klient) und 198.108.3.13 (der Server).
+
+	## Der Klient schickt ein SYN Paket, 1496960000 ist die Sequenznummer
+## am Anfang.
+11:07:14.934093 35.42.1.56.1374 > 198.108.3.13.23: S 1496960000:1496960000(0) w
+in 4096
+	## Der Server antwortet mit der anfΣnglichen Sequenznummer und dem SYN flag.
+
+11:07:14.936345 198.108.3.13.23 > 35.42.1.56.1374: S 1402880000:1402880000(0) a
+ck 1496960001 win 4096
+	## Der Klient bestΣtigt das SYN Paket.
+11:07:14.937068 35.42.1.56.1374 > 198.108.3.13.23: . 1496960001:1496960001(0) a
+ck 1402880001 win 4096
+	## Jetzt sind die beiden Endpunkte im ESTABLISHED Status.
+	## Der Klient sendet 6 Bytes.
+11:07:15.021817 35.42.1.56.1374 > 198.108.3.13.23: P 1496960001:1496960007(6)
+        ack 1402880001 win 4096 255 253 /C 255 251 /X
+[...
+	## Der Rest des Logs handelt von dem schlie▀en der Verbindung.
+11:07:18.111596 198.108.3.13.23 > 35.42.1.56.1374: F 1402880059:1402880059(0) a
+ck 1496960025 win 4096
+11:07:18.112304 35.42.1.56.1374 > 198.108.3.13.23: . 1496960025:1496960025(0) a
+ck 1402880060 win 4096
+11:07:18.130610 35.42.1.56.1374 > 198.108.3.13.23: F 1496960025:1496960025(0) a
+ck 1402880060 win 4096
+11:07:18.132935 198.108.3.13.23 > 35.42.1.56.1374: . 1402880060:1402880060(0) a
+ck 1496960026 win 4095
+
+	Das nΣchste Beispiel ist die selbe Sitzung nur mit einer St÷rung vom Angreifer.
+Der desynchronised Status wird sehr frⁿh in der Sitzung erzeugt. (siehe Punkt 3.1).
+Der Angreifer wird den Befehl "ls;" dem Datenstrom hinzufⁿgen. Der User benutzt 
+skey um sich bei dem Server zu identifizieren. Aus der Sicht des User sieht die 
+Sitzung folgenderma▀en aus:
+
+&lt;lpj@homefries: 1> telnet 198.108.3.13
+Trying 198.108.3.13 ...
+Connected to 198.108.3.13.
+Escape character is '^'.
+
+SunOS UNIX (_host)
+
+login: lpj
+s/key 70 cn33287
+(s/key required)
+Password:
+Last login: Wed Nov 30 11:28:21 from homefries.merit.edu
+SunOS Release 4.1.3_U1 (GENERIC) #2: Thu Jan 20 15:58:03 PST 1994
+(lpj@_host: 1) pwd
+Mail/           mbox            src/
+elm*            resize*         traceroute*
+/usr/users/lpj
+(lpj@_host: 2) history
+     1  13:18   ls ; pwd
+     2  13:18   history
+(lpj@_host: 3) logoutConnection closed by foreign host.
+&lt;lpj@homefries: 2>
+
+Der User gibt nur den Befehl "pwd" ein und fragt dann die History der
+Sitzung ab. Die Geschichte zeigt das ein ls benutzt wurde. Der ls Befehl
+erzeugt ein Output, welcher nicht gefiltert ist. Das folgende Log zeigt 
+wie der Server und der Klient Daten austauschen. Unglⁿcklicherweise 
+fehlen ein paar Pakete, weil sie durch den sniffer's ethernet interface driver
+verworfen wurden. Man muss das Log wie einen Schnappschuss und nicht 
+wie das komplette Log ansehen. Das Fenster des Angreifer wurde auf die 
+ungew÷hnlichen Werte (400, 500, 1000) gesetzt, um die Pakete einfacher
+aufzuspⁿren. Der Angreifer ist auf 35.42.1, nur 3 Schritte vom Server entfernt,
+ auf dem Weg  vom Klienten zum Server. Die Namen und Adressen, des Hosts,
+wurden aus Sicherheitsgrⁿnden geΣndert.
+
+	## Der Klient schickt ein SYN Paket, 896896000 ist seine anfΣngliche 
+## Sequenznummer.
+11:25:38.946119 35.42.1.146.1098 > 198.108.3.13.23: S 896896000:896896000(0) wi
+n 4096
+	## Der Server antwortet mit seiner anfΣnglichen Sequenznummer (1544576000)
+## und dem SYN flag.
+11:25:38.948408 198.108.3.13.23 > 35.42.1.146.1098: S 1544576000:1544576000(0)
+ack 896896001 win 4096
+	## Der Klient bestΣtigt das SYN Paket. Jetzt ist er im ESTABLISHED Status. 
+11:25:38.948705 35.42.1.146.1098 > 198.108.3.13.23: . 896896001:896896001(0) ac
+k 1544576001 win 4096
+	## Der Klient schick einige Daten 
+11:25:38.962069 35.42.1.146.1098 > 198.108.3.13.23: P 896896001:896896007(6)
+        ack 1544576001 win 4096 255 253 /C 255 251 /X
+	## Der Angreifer Reseted die Verbindung auf der Seite des Server.
+11:25:39.015717 35.42.1.146.1098 > 198.108.3.13.23: R 896896101:896896101(0) wi
+n 0
+	## Der Angreifer ÷ffnet die Verbindung neu mit einer Sequenznummer
+## von 601928704
+11:25:39.019402 35.42.1.146.1098 > 198.108.3.13.23: S 601928704:601928704(0) wi
+n 500
+	## Der Server antwortet mit einer neuen, anfΣnglichen Sequenznummer (1544640000)
+## und einer SYN flag.
+11:25:39.022078 198.108.3.13.23 > 35.42.1.146.1098: S 1544640000:1544640000(0)
+ack 601928705 win 4096
+	## Seitdem das letzte Paket fⁿr den Klienten unakzeptabel ist, bestΣtigt es, es 
+	## mit der erwarteten Sequenznummer (1544576001)
+11:25:39.022313 35.42.1.146.1098 > 198.108.3.13.23: . 896896007:896896007(0) ac
+k 1544576001 win 4096
+	## Die Retransmission des SYN Paketes  wird durch das letzte, unakzeptable
+## Paket ausgel÷st.
+11:25:39.023780 198.108.3.13.23 > 35.42.1.146.1098: S 1544640000:1544640000(0)
+ack 601928705 win 4096
+	## Die ACK storm Schleife 
+11:25:39.024009 35.42.1.146.1098 > 198.108.3.13.23: . 896896007:896896007(0) ac
+k 1544576001 win 4096
+11:25:39.025713 198.108.3.13.23 > 35.42.1.146.1098: S 1544640000:1544640000(0)
+ack 601928705 win 4096
+11:25:39.026022 35.42.1.146.1098 > 198.108.3.13.23: . 896896007:896896007(0) ac
+k 1544576001 win 4096
+[...
+11:25:39.118789 198.108.3.13.23 > 35.42.1.146.1098: S 1544640000:1544640000(0)
+ack 601928705 win 4096
+11:25:39.119102 35.42.1.146.1098 > 198.108.3.13.23: . 896896007:896896007(0) ac
+k 1544576001 win 4096
+11:25:39.120812 198.108.3.13.23 > 35.42.1.146.1098: S 1544640000:1544640000(0)
+ack 601928705 win 4096
+11:25:39.121056 35.42.1.146.1098 > 198.108.3.13.23: . 896896007:896896007(0) ac
+k 1544576001 win 4096
+	## Eventuell bestΣtigt der Server das SYN Paket mit der neuen Sequenznummer
+	## des Angreifer (601928705). Die Daten in diesem Paket sind vorher 
+	## abgeschickt worden, aber werden nie empfangen.
+11:25:39.122371 35.42.1.146.1098 > 198.108.3.13.23: . 601928705:601928711(6)
+        ack 1544640001 win 400 255 253 /C 255 251 /X
+	## ACK storm
+11:25:39.124254 198.108.3.13.23 > 35.42.1.146.1098: . 1544640001:1544640001(0)
+ack 601928711 win 4090
+11:25:39.124631 35.42.1.146.1098 > 198.108.3.13.23: . 896896007:896896007(0) ac
+k 1544576001 win 4096
+11:25:39.126217 198.108.3.13.23 > 35.42.1.146.1098: . 1544640001:1544640001(0)
+ack 601928711 win 4090
+11:25:39.126632 35.42.1.146.1098 > 198.108.3.13.23: . 896896007:896896007(0) ac
+k 1544576001 win 4096
+[...
+11:25:41.261885 35.42.1.146.1098 > 198.108.3.13.23: . 601928728:601928728(0) ac
+k 1544640056 win 1000
+	## Eine Retransmission von dem Klienten
+11:25:41.422727 35.42.1.146.1098 > 198.108.3.13.23: P 896896018:896896024(6)
+        ack 1544576056 win 4096 255 253 /A 255 252 /A
+11:25:41.424108 198.108.3.13.23 > 35.42.1.146.1098: . 1544640059:1544640059(0)
+ack 601928728 win 4096
+[...
+11:25:42.323262 35.42.1.146.1098 > 198.108.3.13.23: . 896896025:896896025(0) ac
+k 1544576059 win 4096
+11:25:42.324609 198.108.3.13.23 > 35.42.1.146.1098: . 1544640059:1544640059(0)
+ack 601928728 win 4096
+	## Das 2. Zeichen der ID des User
+11:25:42.325019 35.42.1.146.1098 > 198.108.3.13.23: P 896896025:896896026(1)
+        ack 1544576059 win 4096 p
+11:25:42.326313 198.108.3.13.23 > 35.42.1.146.1098: . 1544640059:1544640059(0)
+ack 601928728 win 4096
+[...
+11:25:43.241191 35.42.1.146.1098 > 198.108.3.13.23: . 601928731:601928731(0) ac
+k 1544640060 win 1000
+	## Retransmission
+11:25:43.261287 198.108.3.13.23 > 35.42.1.146.1098: P 1544640059:1544640061(2)
+        ack 601928730 win 4096 l p
+11:25:43.261598 35.42.1.146.1098 > 198.108.3.13.23: . 896896027:896896027(0) ac
+k 1544576061 win 4096
+[...
+11:25:43.294192 198.108.3.13.23 > 35.42.1.146.1098: . 1544640061:1544640061(0)
+ack 601928730 win 4096
+11:25:43.922438 35.42.1.146.1098 > 198.108.3.13.23: P 896896026:896896029(3)
+        ack 1544576061 win 4096 j /M /@
+11:25:43.923964 198.108.3.13.23 > 35.42.1.146.1098: . 1544640061:1544640061(0)
+ack 601928730 win 4096
+[...
+11:25:43.957528 198.108.3.13.23 > 35.42.1.146.1098: . 1544640061:1544640061(0)
+ack 601928730 win 4096
+	## Der Angreifer schreibt das Paket, dass vom Server kommt, um so, dass 
+	## es die skey Forderung beinhaltet.
+11:25:44.495629 198.108.3.13.23 > 35.42.1.146.1098: P 1544576064:1544576082(18)
+
+        ack 896896029 win 1000 s / k e y   7 0   c n 3 3 2 8 7 /M /J
+11:25:44.502533 198.108.3.13.23 > 35.42.1.146.1098: P 1544576082:1544576109(27)
+
+        ack 896896029 win 1000 ( s / k e y   r e q u i r e d ) /M /J P a s s w
+o r d :
+11:25:44.522500 35.42.1.146.1098 > 198.108.3.13.23: . 896896029:896896029(0) ac
+k 1544576109 win 4096
+[...
+11:25:44.558320 198.108.3.13.23 > 35.42.1.146.1098: . 1544640109:1544640109(0)
+ack 601928733 win 4096
+	## Der Anfang des skey Passwort, dass vom User (Klienten) geschickt wurde
+11:25:57.356323 35.42.1.146.1098 > 198.108.3.13.23: P 896896029:896896030(1)
+        ack 1544576109 win 4096 T
+11:25:57.358220 198.108.3.13.23 > 35.42.1.146.1098: . 1544640109:1544640109(0)
+ack 601928733 win 4096
+[...
+11:25:57.412103 198.108.3.13.23 > 35.42.1.146.1098: . 1544640109:1544640109(0)
+ack 601928733 win 4096
+	## Echo von dem Anfang des skey Passwort, dass vom Server geschickt wurde
+11:25:57.412456 35.42.1.146.1098 > 198.108.3.13.23: P 601928733:601928734(1)
+        ack 1544640109 win 1000 T
+11:25:57.412681 35.42.1.146.1098 > 198.108.3.13.23: . 896896030:896896030(0) ac
+k 1544576109 win 4096
+[...
+11:25:57.800953 198.108.3.13.23 > 35.42.1.146.1098: . 1544640109:1544640109(0)
+ack 601928734 win 4096
+	## Der Angreifer schreibt das skey Passwortpaket um
+11:25:57.801254 35.42.1.146.1098 > 198.108.3.13.23: P 601928734:601928762(28)
+        ack 1544640109 win 1000 A U T   S H I M   L O F T   V A S E   M O O   R
+ I D /M /@
+11:25:57.801486 35.42.1.146.1098 > 198.108.3.13.23: . 896896058:896896058(0) ac
+k 1544576109 win 4096
+[...
+11:25:58.358275 35.42.1.146.1098 > 198.108.3.13.23: . 896896058:896896058(0) ac
+k 1544576109 win 4096
+11:25:58.360109 198.108.3.13.23 > 35.42.1.146.1098: P 1544640263:1544640278(15)
+
+        ack 601928762 win 4096 ( l p j @ _ r a d b :   1 )
+11:25:58.360418 35.42.1.146.1098 > 198.108.3.13.23: . 896896058:896896058(0) ac
+k 1544576109 win 4096
+[...
+11:26:00.919976 35.42.1.146.1098 > 198.108.3.13.23: . 896896058:896896058(0) ac
+k 1544576278 win 4096
+	## Das "p" von dem "pwd" Befehl, der vom User eingegeben wurde.
+11:26:01.637187 35.42.1.146.1098 > 198.108.3.13.23: P 896896058:896896059(1)
+        ack 1544576278 win 4096 p
+11:26:01.638832 198.108.3.13.23 > 35.42.1.146.1098: . 1544640278:1544640278(0)
+ack 601928762 win 4096
+[...
+11:26:03.183200 35.42.1.146.1098 > 198.108.3.13.23: . 896896063:896896063(0) ac
+k 1544576280 win 4096
+11:26:03.921272 35.42.1.146.1098 > 198.108.3.13.23: P 896896060:896896063(3)
+        ack 1544576280 win 4096 d /M /@
+11:26:03.922886 198.108.3.13.23 > 35.42.1.146.1098: . 1544640283:1544640283(0)
+ack 601928767 win 4096
+[...
+11:26:04.339186 35.42.1.146.1098 > 198.108.3.13.23: . 896896063:896896063(0) ac
+k 1544576280 win 4096
+11:26:04.340635 198.108.3.13.23 > 35.42.1.146.1098: P 1544640288:1544640307(19)
+
+        ack 601928770 win 4096 M a i l / /I /I m b o x /I /I s r c / /M /J
+11:26:04.342872 198.108.3.13.23 > 35.42.1.146.1098: P 1544640307:1544640335(28)
+
+        ack 601928770 win 4096 e l m * /I /I r e s i z e * /I /I t r a c e r o
+u t e * /M
+ /J
+11:26:04.345480 35.42.1.146.1098 > 198.108.3.13.23: . 896896063:896896063(0) ac
+k 1544576280 win 4096
+11:26:04.346791 198.108.3.13.23 > 35.42.1.146.1098: P 1544640335:1544640351(16)
+
+        ack 601928770 win 4096 / u s r / u s e r s / l p j /M /J
+11:26:04.347094 35.42.1.146.1098 > 198.108.3.13.23: . 896896063:896896063(0) ac
+k 1544576280 win 4096
+11:26:04.348402 198.108.3.13.23 > 35.42.1.146.1098: P 1544640351:1544640366(15)
+
+        ack 601928770 win 4096 ( l p j @ _ r a d b :   2 )
+11:26:04.378571 35.42.1.146.1098 > 198.108.3.13.23: . 896896063:896896063(0) ac
+k 1544576280 win 4096
+[...
+11:26:09.791045 35.42.1.146.1098 > 198.108.3.13.23: P 601928773:601928775(2)
+        ack 1544640369 win 1000 t o
+11:26:09.794653 198.108.3.13.23 > 35.42.1.146.1098: P 1544640369:1544640371(2)
+        ack 601928775 win 4096 t o
+11:26:09.794885 35.42.1.146.1098 > 198.108.3.13.23: . 896896068:896896068(0) ac
+k 1544576366 win 4096
+[...
+11:26:12.420397 35.42.1.146.1098 > 198.108.3.13.23: P 896896068:896896072(4)
+        ack 1544576368 win 4096 r y /M /@
+11:26:12.422242 198.108.3.13.23 > 35.42.1.146.1098: . 1544640371:1544640371(0)
+ack 601928775 win 4096
+[...
+11:26:12.440765 35.42.1.146.1098 > 198.108.3.13.23: . 896896072:896896072(0) ac
+k 1544576368 win 4096
+	## Das "ry" von dem "history" Befehl, der vom User geschickt wurde.
+11:26:16.420287 35.42.1.146.1098 > 198.108.3.13.23: P 896896068:896896072(4)
+        ack 1544576368 win 4096 r y /M /@
+11:26:16.421801 198.108.3.13.23 > 35.42.1.146.1098: . 1544640371:1544640371(0)
+ack 601928775 win 4096
+[...
+11:26:16.483943 35.42.1.146.1098 > 198.108.3.13.23: . 896896072:896896072(0) ac
+k 1544576368 win 4096
+	## Das selbe Paket, aber vom Angreifer umgeschrieben.
+11:26:16.505773 35.42.1.146.1098 > 198.108.3.13.23: P 601928775:601928779(4)
+        ack 1544640371 win 1000 r y /M /@
+	## Antwort auf den history Befehl, die vom Server geschickt wurde. Hier
+	## kann man den Einschluss von "ls;" vor dem "pwd" sehen.
+11:26:16.514225 198.108.3.13.23 > 35.42.1.146.1098: P 1544640371:1544640437(66)
+
+        ack 601928779 win 4096 r y /M /@ /M /J           1 /I 1 1 : 2 8 /I l s
+  ;   p w
+        d /M /J           2 /I 1 1 : 2 8 /I /@ /@ /@ L /@ /@ /@ T . 220 167 168
+ /@ /G
+       /@ /@ /@ /X /@ /H 137 148 /@ /@
+11:26:16.514465 35.42.1.146.1098 > 198.108.3.13.23: . 896896072:896896072(0) ac
+k 1544576368 win 4096
+[...
+11:26:16.575344 35.42.1.146.1098 > 198.108.3.13.23: . 896896072:896896072(0) ac
+k 1544576368 win 4096
+	## Das selbe Paket, aber vom Angreifer umgeschrieben.
+11:26:16.577183 198.108.3.13.23 > 35.42.1.146.1098: P 1544576368:1544576434(66)
+
+        ack 896896072 win 1000 r y /M /@ /M /J           1 /I 1 1 : 2 8 /I l s
+  ;   p w
+d /M /J           2 /I 1 1 : 2 8 /I /@ /@ /@ L /@ /@ /@ T . 220 167 168 /@ /H /
+@ /@ /@
+        /X /@ /H 137 148 /@ /@
+11:26:16.577490 198.108.3.13.23 > 35.42.1.146.1098: . 1544640437:1544640437(0)
+ack 601928779 win 4096
+[...
+	## Der User logt aus.
+11:26:20.236907 35.42.1.146.1098 > 198.108.3.13.23: P 601928781:601928782(1) ac
+k 1544640437 win 1000 g
+11:26:20.247288 198.108.3.13.23 > 35.42.1.146.1098: . 1544576438:1544576438(0)
+ack 896896074 win 1000
+11:26:20.253500 198.108.3.13.23 > 35.42.1.146.1098: P 1544576435:1544576436(1)
+ack 896896074 win 1000 o
+11:26:20.287513 198.108.3.13.23 > 35.42.1.146.1098: P 1544640439:1544640440(1)
+ack 601928782 win 4096 g
+11:26:20.287942 35.42.1.146.1098 > 198.108.3.13.23: P 896896075:896896076(1) ac
+k 1544576436 win 4096 o
+11:26:20.289312 198.108.3.13.23 > 35.42.1.146.1098: . 1544640440:1544640440(0)
+ack 601928782 win 4096
+11:26:20.289620 35.42.1.146.1098 > 198.108.3.13.23: . 896896076:896896076(0) ac
+k 1544576436 win 4096
+
+	Fast alle Pakete mit der ACK flag, aber ohne Daten, sind unakzeptable Pakete.
+Es kommen viele Retransmissionen auf, wenn man sich in das Netzwerk lΣdt und wenn
+der Angreifer einen ACK storm erstellt. Das echte Log (mit allen ACK Paketen) ist
+ⁿber 3000 Zeilen lang. Wir haben dies auf 100 gekⁿrzt. Au▀erdem sind auch viele 
+Pakete verloren gegangen und werden in diesem Log nicht aufgefⁿhrt. Die gesammelten
+Daten, der Tests, haben gezeigt das, dass senden von einem echten Paket zwischen 
+10 und 300 leeren ACK Paketen erstellen kann. Diese Zahlen sind natⁿrlich sehr 
+variable.
+
+5. Entdeckung und Nebenwirkungen
+
+	Es gibt viele Schwachstellen, bei dem Angriff, die dazu verwendet werden
+k÷nnen ihn zu entdecken. Hier werden einige beschrieben, aber man kann sich
+denken, dass es noch andere Wege gibt.
+
+- Entdeckung des Desynchronized Status. Indem man die Sequenznummern von beiden
+Enden der Verbindung vergleicht, kann man herausfinden ob die Verbindung sich im
+Desynchronized Status befindet. Diese Methode ist machbar wenn man annimmt, dass
+die Sequenznummern durch den TCP Strom geschickt werden kann ohne das der 
+Angreifer sie Σndert.
+
+                        Lokales Ethernet                  Transit Ethernet
+Totale TCP/s             80-100   (60-80)              1400  (87)
+Totale Ack                25-75     (25-45)               500   (35)
+Totale Telnet             10-20    (10-25)                140   (10)
+Totale Telnet Ack       5-10     (45-55)                45    (33)
+
+	Tabelle 1: Prozentanteil von ACK Paketen ohne einen Angriff
+
+- ACK storm Entdeckung.
+	Die totale Anzahl der TCP Pakete schwankt genau so stark, wie die totale
+Anzahl der ACK und Telnet Pakete, in einem lokalen Ethernet. Die Tabelle zeigt die
+Grenzen. Der Prozentsatz der ACK Telnetpakete liegt stabile bei 45%. Das kann 
+dadurch erklΣrt werden, dass eine Telnetsitzung eine Interaktive Sitzung ist und
+das jedes Zeichen das getippt wurde geechoed und bestΣtigt werden muss. Das 
+Volumen der ausgetauschten Daten ist sehr klein und jedes Paket beinhaltet 
+normalerweise ein Zeichen oder eine Textzeile.
+
+	Die Daten fⁿr das Transit Ethernet sind sehr konstant. Hierbei k÷nnen
+wΣhrend dem "high load" auf diesem Teil ein paar Pakete verloren gehen.
+
+	Wenn der Angriff durchgefⁿhrt wird, Σndern sich einige dieser Figuren.
+Die nΣchste Tabelle zeigt die Resultate von 2 verschiedenen Sitzungstypen. Diese
+Daten wurden nur im lokalen Ethernet gesammelt.
+
+	In der Tabelle 2 die "Lokale Verbindung" ist eine Sitzung mit einem 
+Host dessen IP fast genau die selbe, wie die des Klienten ist(sie ist nur einige Hops
+entfernt). Die Round Trip Delay (RTD) ist ungefΣhr 3ms und die Anzahl der Hops
+betrΣgt 4. Die "Remote Connection" ist eine Sitzung mit einem RTD von ⁿber 40ms
+und 9 Hops weg. In dem ersten Fall ist der Angriff ganz klar sichtbar. Selbst wenn
+es sehr stark am fluktuieren ist, ist der Prozentsatz der TCP ACK fast bei 100%.
+Fast der ganze Verkehr besteht aus BestΣtigungspaketen.
+
+	In dem 2. Fall wird die Entdeckung schwieriger. Die Daten mⁿssen
+mit der ersten Spalte der Tabelle 1 verglichen werden  (lokaler Verkehr). Der
+Prozentsatz von TCP ACK steigt, aber er steigt nicht auffΣllig stark. Man kann
+dieses Ergebnis dadurch erklΣren, dass die RTD sehr hoch ist, was die Rate von
+verschickten ACK Paketen senkt. Das zugrundeliegende Netzwerk verzeichnet
+einen Paketverlust von 5% - 10%, was dabei behilflich ist eine ACK Schleife zu
+brechen.
+
+                            Lokale Verbindung        Remote Verbindung
+Totales Telnet            80-400  (60-85)          30-40  (30-35)
+Totale Telnet Ack      75-400  (90-99)          20-25  (60-65)
+
+	Prozentsatz der ACK Pakete wΣhrend einem Angriff.
+
+	- Steigerung des Paketverlustes und der Retransmissionen fⁿr diese
+besondere Sitzung. Trotzdem werden wΣhrend dem Angriff sehr viele Pakete
+verloren(es gibt keine Daten die uns ⁿber das Verhalten der Logoprozedur, 
+wΣhrend des Angriffes, belehren k÷nnten ). Dafⁿr erklΣrt dies die Verschlechterung
+der Antwortzeit fⁿr den User. Die Steigerung des Paketverlusts resultiert aus:
+
+	- Dem extra load des Netzwerkes wΣhrend des ACK storms.
+	- Dem Paket das der Sniffer des Angreifers fallen lies. Die "drops"
+	tendieren dazu zu steigen, weil der load des Netzwerkes steigt.
+
+- Einige unerwartete Verbindungsunterbrechungen (Reseted) 
+Das folgende Verhalten wurde noch nicht, seitdem das Angriffsprogramm
+entwickelt wurde, um die Gⁿltigkeit des Konzeptes genauer zu verstehen zu
+k÷nnen, vollkommen untersucht.(Der Angriff wird fⁿr den Klient und Server sichtbar)
+Das wird nicht mit einem h÷her entwickelten Programm vorkommen. Der User kann
+einen "Verbindungsreset" im frⁿhen Status der Verbindung sehen, wenn das Protokoll
+des Angriffs nicht richtig ausgefⁿhrt wurde. Das verlieren von dem RST oder dem SYN
+Paket des Angreifers, kann die Seite des Server in einem undefinierten Status bringen
+(normalerweise CLOSED oder SYN-RECEIVED(SYN-Empfangen)) und k÷nnte die 
+Pakete des Klienten akzeptable machen. ▄ber 10% der Angriffe sind fehlgeschlagen.
+Entweder endeten sie dadurch das die Verbindung geschlossen wurde (sehr einfach zu sehen)
+oder durch eine NON- desynchronized Verbindung (Der Angreifer hat es nicht geschafft 
+den Strom neu auszurichten).
+
+Einige Nebenwirkungen und Hinweise ⁿber das TCP und den Angriff.
+
+	-TCP Ausfⁿhrung.
+	Der desynchronization Prozess, der hier beschrieben ist, schlug sicherlich 
+wegen der TCP Ausfⁿhrung fehl. Laut [rfc793] ist ein RST Paket nicht bestΣtigt und
+zerst÷rt einfach den TCB. Einige TCP Ausfⁿhrungen bestΣtigen ein RST Paket mit 
+dem zurⁿckschicken eines RST Paketes, wenn sie im sicheren Status sind. Wenn der 
+Angreifer das RST Paket zum Server schickt, dann schickt der Server ein RST Paket 
+zum Klienten und dessen Verbindung ist getrennt. Es k÷nnten noch andere 
+Desynchronizations-weisen entdeck werden, die den Klienten nicht disconnecten.
+	- Der Klient und der Angreifer waren immer in dem selben Ethernet Segment,
+als wir die Tests durchgefⁿhrt haben. Das macht den Angriff noch schwieriger, weil 
+man sich erst noch in dieses Segment hochladen muss.  Die Kollisionsrate steigt und
+der Snifferbuffer des Angreifer wird vom Verkehr ⁿberflutet.
+- Man k÷nnte denken das es reicht die Verbindung nur zu beobachten und 
+ein paar Daten zum Server zu schicken, ohne sich um die Erschaffung eines desynchronized
+Status und das bef÷rdern von TCP Paketen Gedanken zu machen. Obwohl es gelingt 
+den Host zu korrumpieren, wird dies von User schnell entdeckt. TatsΣchlich wird die 
+TCP Sitzung nicht mehr in der Lage sein Daten auszutauschen. 
+
+6. Vorbeugung 
+	Der einzigste Weg der Vorbeugung, der dem Schreiber bei so einer 
+Telnetsitzung  bekannt ist, ist das enkryptete Kerberos Schema (Applikations-layer)
+oder die TCP krypt Ausfⁿhrung [TCPcrypt] (TCP layer). Enkryptete Daten k÷nnen
+nicht so einfach geΣndert werden. Die Signatur der Daten kann auch verwendet werden.
+[pgp] ist ein Beispiel fⁿr einen vorhandenen Weg elektronische Mail-Transmissionen 
+zu schⁿtzen.
+
+7. Morris' Angriff im ▄berblick
+
+	Wenn  man bei Morris' Angriff [beschrieben in morris85] annimmt, dass
+der Angreifer die nΣchste Sequenznummer, die vom Server benutzt wird, voraussagen 
+kann(notiert unter SVR_SEQ_0 in dieser Datei) und das, das Identifikationsschema 
+auf "Trusted Hosts"(Vertraute Hosts) basiert (das bedeutet, dass nur sichere Hosts 
+einige Befehle auf dem Server ausfⁿhren dⁿrfen, ohne irgendwelche weitere ben÷tigte 
+Identifikationsprozesse).
+
+	In diesem Angriff initiiert der Cracker eine Sitzung, indem er ein SYN Paket
+zum Server schickt und benutzt den Klient (trusted host), als Quelladresse.  Der 
+Server bestΣtigt das SYN mit einem SYN/ACK Paket mit SEG_SEQ = SVR_SEQ_0.
+Der Angreifer bestΣtigt dann das Paket, indem er SVR_SEQ_0 errΣt. Der Cracker
+muss, so lange er SVR_SEQ_0 vorhersagen kann, die Pakete des Klienten nicht zu
+sniffen. Diese Attacke hat zwei hauptsΣchliche Schwachstellen:
+
+- Der Klient, der die Tarnung des Angreifer ist, wird ein SYN/ACK Paket vom 
+Server empfangen und kann dann ein RST Paket generieren und zum Server schicken,
+wΣhrend der Klient noch keine Sitzung sieht. Morris vermutet, dass man die RST 
+Generierung Stoppen kann, indem man den Angriff dann durchfⁿhrt wenn der Klient 
+"down" ist oder indem man den TCP des Klienten ⁿberflutet, damit das SYN/ACK
+Packet verloren geht.
+- Der Angreifer kann keine Daten vom Server empfangen, aber er kann Daten schicken,
+was manchmal schon reichen kann, um einen Host zu kompromittieren.
+
+	Es gibt vier prinzipielle Unterschiede zwischen Morris' Angriff und diesem Angriff:
+
+- Morris' Angriff bezieht sich auf das "trusted hosts" Identifikationsschema, aber dieser 
+Angriff lΣsst den User den Identifikationsteil der Verbindung fⁿhren.
+- Dieser Angriff ist aber ein full duplex TCP Fluss. Der Angreifer kann Daten verschicken
+und empfangen.
+- Dieser Angriff benutzt den Ethernet Sniffer, um SVR_SEQ_0 hervorzusagen (oder 
+einfach zu holen).
+- Dieser Angriff  kann gegen jede Art von Host au▀er Unix Hosts verwendet werden.
+
+	Morris' Angriff kann einfach zu diesem Angriff modifiziert werden:
+
+- Der Sniffer wird dazu verwendet die anfΣngliche Sequenznummer zu bekommen.
+Morris' Angriff kann dann gegen den Server angewandt werden. Der Angreifer 
+brauch nicht auf das einloggen von einem Klienten warten.
+- In anbetracht der Sache, dass der Klient kein RST Paket schicken wird (z.B. er
+ist down) , kann der Angreifer eine full Duplex Verbindung mit dem Server 
+aufbauen. Er kann im Namen des Klienten Daten empfangen und verschicken.
+Natⁿrlich muss der Cracker noch die Identifikationsbarriere umgehen. Wenn 
+die Identifikation auf dem trusted host basiert(wie NFS oder rlogin), kann der 
+Cracker vollen Zugriff auf den Hostservice. 
+
+8. Schlussfolgerung 
+
+	Obwohl er in einem Lokalen Netzwerk leicht zu entdecken ist, ist 
+dieser Angriff bei gro▀en Distanzen ,niedrige Bandbreiten und Netzwerken mit
+hoher Verz÷gerung (normalerweise WAN) sehr effektiv. Es kann mit den selben
+Ressourcen, die auch das passive Sniffen nutzt, die sehr oft im Web vorkommen, 
+getragen werden.
+
+Dieser Angriff au▀erdem den gefΣhrlichen Vorteil, dass der User ihn nicht sieht.
+Da das cracken von Hosts im Internet immer seltener wird, ist es sehr wichtig 
+geworden unsichtbar zu sein. Dies sind sehr wichtige Parameter fⁿr einen 
+erfolgreichen Angriff.
+
+	Wenn die Aufmerksamkeit von jedem auf das neue Ipv6 Protokoll,
+dass das Ipv4 ersetzen soll, und das steigen von Angriffen konzentriert ist, dann
+sieht man das die Internetgemeinschaft sichere Systeme und Transportm÷glichkeiten
+braucht. Es sollte Optionen geben, die es m÷glich machen signierte und 
+eventuell enkryptete Daten zu verschicken  so ,dass man PrivatsphΣre erhΣlt.
+Und seitdem die Signatur der Daten verlΣsslich ist, kann die Signatur 
+die jetzige TCP checksum ersetzen.
+
+Dieses Dokument versucht nicht alle Einzelheiten eines aktiven
+Angriff, der einen Sniffer verwendet, zu erklΣren. Es ist vielmehr eine 
+Warnung an all die Leute, die s/key oder Kerberos gegen die Gefahr des Ethernet 
+Sniffen verwenden. Es versorgt dich mit ein paar Ideen und Anhaltepunkte, die
+fⁿr tiefere Studien benutzt werden k÷nnen. Die hier vorgestellte Methode 
+wurde erfolgreich in unseren Test, selbst mit sehr simpler Angriffssoftware, 
+durchgefⁿhrt. 
+ 
+[Bellovin89] "Security Problems in the TCP/IP
+        Protocol Suite", Bellovin, S., Computer Communications Review,
+        April 1989.
+
+[Kerberos] "Kerberos: An Authentication Service for
+        Open Network Systems", Steiner, J., Neuman, C., Schiller, J.,
+        USENIX Conference Proceeding, Dallas, Texas, February 1989.
+
+[Morris85] "A Weakness in the 4.2BSD UNIX TCP/IP
+        Software", Morris, R., Computing Science Technical Report No 117,
+        ATT Bell Laboratories, Murray Hill, New Jersey, 1985.
+
+[PGP] Pretty Good Privacy Version 2.6.1, Philip
+        Zimmermann, August 1994.
+
+[RFC 793] Request For Comment 793,
+        ``Transmission Control Protocol'', September 1981, J. Postel.
+
+[RFC 854] Request For Comment 854,
+        ``Telnet Protocol Specification'', May 1983, J. Postel,
+        J. Reynolds
+
+[SKEY] "The S/Key One-time Password System", Haller, N.,
+        Proceeding of the Symposium on Network Distributed Systems,
+        Security, Internet Society, San Diego, CA, February 1994.
+
+[TCPcrypt] "Public Key Encryption Support for TCP",
+        Joncheray, L., Work in progress, May 1995.
+
+[TCPDUMP] tcpdump(8) Version 2.2.1, Van Jacobson,
+        Craig Leres, Steven Berkeley, University of California, Berkeley, CA
+
+```
+
+</div>

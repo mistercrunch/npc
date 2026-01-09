@@ -1,0 +1,273 @@
+---
+title: "n2f2"
+ezine: "mojodo"
+---
+
+# n2f2
+
+**Ezine:** mojodo
+
+<div className="ascii-content">
+
+```
+
+          +--------------------------------+
+          | Autore: ValK                   |
+          | Titolo: DNS: Named(8.x) How TO |
+          | Mail: valk@mojodo.it           |
+          | Http://www.mojodo.it           |
+          +--------------------------------+
+
++----------------------------------------------------------------------------------+
+| Salve a tutti, come dedurrete dal titolo vi spieghero' come configurare un  DNS  |
+| parlero' di una rete privata non avendo a disposizione una rete internet.        |
+|                                                                                  |
++---(Installazione del Named)------------------------------------------------------+
+|                                                                                  |
+| Al momento della stesura di questo documento la versione piu' affidabile di Bind |
+| e' la 8.3.1 in quanto sia la 8.2.x che la 9.2.x sono exploittabili .             |
+|                                                                                  |
+| ftp://ftp.bind.com/pub/bind/src/8.3.1/bind-src.tar.gz                            |
+|                                                                                  |
+| Dal link sopra indicato e' possibile prendere i sorgenti.                        |
+|                                                                                  |
+| per installarli e' necessario eseguire la seguente serie di comandi              |
+|                                                                                  |
+| bash# tar xvfz bind-src.tar.gz                                                   |
+| bash# cd src                                                                     |
+| bash# make                                                                       |
+| bash# make install                                                               |
+|                                                                                  |
+| e il vostro bind e' installato =D                                                |
+|                                                                                  |
++---(how It Work)------------------------------------------------------------------+
+|                                                                                  |
+| Per Ogni range di ip da configurare col named si hanno 2 file uno per il reverse |
+| da ip a dn e uno da dn a ip nella mia rete di casa ho:                           |
+|                                                                                  |
+|       192.168.0.1 ---> Gateway                                                   |
+|       192.168.0.2 ---> Mia Sorella =D                                            |
+|        192.168.0.3 ---> Io                                                       |
+|                                                                                  |
+| per la configurazione del loro dn ho usato i seguenti file:                      |
+|                                                                                  |
+| named.zonevalk.net  --->  Per il reverse da DN a IP                              |
+| named.net           --->  Per il reverse da IP a DN                              |
+|                                                                                  |
+| N.B. zonevalk.net e' un dominio fittizio e inesistente.                          |
+|                                                                                  |
++---(/etc/named.conf)--------------------------------------------------------------+
+|                                                                                  |
+| Ecco il mio named.conf =D                                                        |
+|-------Begin-------                                                               |
+|     options {                                                                    |
+|       directory "/var/named";                                                    |
+|     	forward first;                                                             |
+|             forwarders {                                                         |
+|     		&lt;ip DNS1>;                                                         |
+|     		&lt;ip DNS2>;                                                         |
+|             };                                                                   |
+|     };                                                                           |
+|                                                                                  |
+|     zone "." IN {                                                                |
+|             type hint;                                                           |
+|             file "conf/named.cachingonly";                                       |
+|     };                                                                           |
+|     # Local Host                                                                 |
+|     zone "localhost" IN {                                                        |
+|             type master;                                                         |
+|             file "conf/named.localhost";                                         |
+|     };                                                                           |
+|                                                                                  |
+|     zone "0.0.127.in-addr.arpa" IN {                                             |
+|             type master;                                                         |
+|             file "conf/named.local";                                             |
+|     };                                                                           |
+|                                                                                  |
+|     # Mia Rete Privata                                                           |
+|     zone "zonevalk.net" IN {                                                     |
+|             type master;                                                         |
+|             file "conf/named.zonevalk.net";                                      |
+|     };                                                                           |
+|                                                                                  |
+|     zone "0.168.192.in-addr.arpa" IN {                                           |
+|             type master;                                                         |
+|             file "conf/named.net";                                               |
+|     };                                                                           |
+|-------END-------                                                                 |
+|     options {                                                                    |
+|       directory "/var/named";                                                    |
+|     	forward first;                                                             |
+|             forwarders {                                                         |
+|     		&lt;ip DNS1>;                                                         |
+|     		&lt;ip DNS2>;                                                         |
+|             };                                                                   |
+|     };                                                                           |
+|                                                                                  |
+| Queste sono le opzioni la sintassi di Option e'                                  |
+|       options {                                                                  |
+|            opzione1;                                                             |
+|            opzione2;                                                             |
+|            opzione3;                                                             |
+|            opzione(n);                                                           |
+|	};                                                                         |
+|                                                                                  |
+|  > directory "/var/named"; <                                                     |
+|                                                                                  |
+| Determina la directory default per i file di configurazione del named            |
+|                                                                                  |
+|  > forward first; <                                                              |
+|                                                                                  |
+| Segnala  al  named  di  inviare  prima  la  richiesta  ai  forwards  indicati  e |
+| successivamente di tentare di risolverli                                         |
+|                                                                                  |
+|  > forwarders { dns1; dns; }; <                                                  |
+|                                                                                  |
+| Settato  con i  dns della  vostra connessione  a internet  indica i  dns su  cui |
+| eseguire i forwards.                                                             |
+|                                                                                  |
++---(Caching Only)-----------------------------------------------------------------+
+|                                                                                  |
+| Il caching only fa' solo una  cache degli ip che richiedete quindi  la risposta  |
+| che riceverete a una query non sara' autoritaria.                                |
+|                                                                                  |
+| per ottenere il file per il caching only basta fare:                             |
+| bash# dig @192.203.230.10 . ns > cachingonly.file                                |
+|                                                                                  |
+| Dove cachingonly.file e' il file di configurazione scelto per il cachingonly     |
+|                                                                                  |
++---(named.localhost)--------------------------------------------------------------+
+|                                                                                  |
+|---[Begin]---                                                                     |
+| @       IN      SOA     kronoszone.it. hostmaster.kronoszone.it.  (              |
+|                        200108311                                                 |
+|                        3H                                                        |
+|                        15M                                                       |
+|                        1W                                                        |
+|                        1D)                                                       |
+|                                                                                  |
+|                 NS     gateway.kronoszone.it.                                    |
+| 1                PTR    localhost.                                               |
+|---[End]---                                                                       |
+|                                                                                  |
+| @        IN       SOA     [DOMINIO]. [HOST].[DOMINIO]. (                         |
+|                         200108311 = Numero Di Serie (fittizio)                   |
+|                         3H = Refresh espresso in secondi                         |
+|                         1W = Expire espresso in Secondi                          |
+|                         1D = Minimum espresso in secondi                         |
+|                         )                                                        |
+|                  NS     [HOST].[DOMINIO].                                        |
+| 1                 PTR    localhost.                                              |
+|                                                                                  |
+| Gestisce la risoluzione del localhost                                            |
+| Notare il punto dopo il nome di dominio!                                         |
+|                                                                                  |
++---(named.local)------------------------------------------------------------------+
+|                                                                                  |
+|---[Begin]---                                                                     |
+|$TTL    86400                                                                     |
+|@       IN      SOA     localhost. root.localhost.  (                             |
+|                                      1997022700 ; Serial                         |
+|                                      28800      ; Refresh                        |
+|                                      14400      ; Retry                          |
+|                                      3600000    ; Expire                         |
+|                                      86400 )    ; Minimum                        |
+|              IN      NS      localhost.                                          |
+|                                                                                  |
+|1       IN      PTR     localhost.                                                |
+|---[End]---                                                                       |
+|                                                                                  |
+| $TTL	86400 = TIME TO LIVE                                                       |
+| @        IN       SOA     [DOMINIO]. [HOST].[DOMINIO]. (                         |
+|                         200108311 ; Numero Di Serie (fittizio)                   |
+|                         3H ; Refresh espresso in secondi                         |
+|                         1W ; Expire espresso in Secondi                          |
+|                         1D ; Minimum espresso in secondi                         |
+|                         )                                                        |
+|           IN      NS      localhost. ;NS del localhost                           |
+|   1       IN      PTR     localhost. ;ip del loopback 127.0.0.1                  |
+|                                                                                  |
+|                                                                                  |
++---(named.zonevalk.net)-----------------------------------------------------------+
+|                                                                                  |
+|---[Begin]---                                                                     |
+| @       IN      SOA     zonevalk.net. hostmaster.zonevalk.net.  (                |
+|                         200308311 ; uguali a quelli sopra =/                     |
+|                         2H                                                       |
+|                         1W                                                       |
+|                         1D)                                                      |
+|                                                                                  |
+|         NS      zonevalk.net.                                                    |
+|                                                                                  |
+| localhost       A       127.0.0.1                                                |
+| gateway         A       192.168.0.1                                              |
+| valk            A       192.168.0.3                                              |
+| sorellina       A       192.168.0.2                                              |
+|--[End]---                                                                        |
+|                                                                                  |
+| @       IN      SOA     zonevalk.net. hostmaster.zonevalk.net.  (                |
+|                         200308311 ; uguali a quelli sopra =/                     |
+|                         2H                                                       |
+|                         1W                                                       |
+|                         1D)                                                      |
+|                                                                                  |
+|         NS      zonevalk.net. ; NS [dominio].                                    |
+|                                                                                  |
+| localhost       A       127.0.0.1   ; [nome] A [ip]                              |
+| gateway         A       192.168.0.1                                              |
+| valk            A       192.168.0.3                                              |
+| sorellina       A       192.168.0.2                                              |
+|                                                                                  |
+| notare "NS zonevalk.net." <- IL PUNTO!                                           |
+| notare "localhost    A    127.0.0.1" dove  localhost e' senza punto ,  xche' non |
+| mettendo il punto e' sotto inteso [nome host].[dominio]                          |
+|                                                                                  |
++---(named.net)--------------------------------------------------------------------+
+|                                                                                  |
+|---[Begin]---                                                                     |
+| $TTL    86400                                                                    |
+| @       IN      SOA     zonevalk.net. root.zonevalk.net.  (                      |
+|                                       1997022700 ; Serial                        |
+|                                       28800      ; Refresh                       |
+|                                       14400      ; Retry                         |
+|                                       3600000    ; Expire                        |
+|                                       86400 )    ; Minimum                       |
+|               IN      NS     zonevalk.net.                                       |
+|                                                                                  |
+| 1       IN      PTR     gateway.zonevalk.net.                                    |
+| 2       IN      PTR     valentina.zonevalk.net.                                  |
+| 3       IN      PTR     valk.zonevalk.net.                                       |
+|---[End]---                                                                       |
+|                                                                                  |
+| $TTL    86400                                                                    |
+| @       IN      SOA     zonevalk.net. root.zonevalk.net.  (                      |
+|                                       1997022700 ; Serial                        |
+|                                       28800      ; Refresh                       |
+|                                       14400      ; Retry                         |
+|                                       3600000    ; Expire                        |
+|                                       86400 )    ; Minimum                       |
+|               IN      NS     zonevalk.net. ; IN    NS   [dominio].               |
+|                                                                                  |
+| 1   IN      PTR     gateway.zonevalk.net. ; [ip]  IN  PTR  [nome host].[dominio].|
+| 2   IN      PTR     valentina.zonevalk.net.                                      |
+| 3   IN      PTR     valk.zonevalk.net.                                           |
+|                                                                                  |
+| [IP] al  posto dell'ip  ho messo  solo la  parte finale  dello stesso xche' nel  |
+| named.conf ho detto che per la classe ip 0.168.192.in-addr.arpa (192.168.0.x)    |
+| notare che il nome degli host e' seguito dal dominio seguito a sua volta da "."  |
+|                                                                                  |
++---(Conclusioni)------------------------------------------------------------------+
+|                                                                                  |
+| Prendete questa guida come la guida di uno smanettone che ha letto il DNS-HowTo  |
+| ha letto  un po'  di man  , si  e' messo  a smanettare  sul named e dopo ore di  |
+| smadonnamenti e non pochi errori nelle propria conf, scoperti scrivendo  questa  |
+| guida, si e' messo di buona lena a scrivere quello che secondo lui puo'  essere  |
+| utile... come  avete visto  non ho  messo parte  sulla teoria  lascio questo  a  |
+| documenti migliori di questi e sicuramente + approfonditi, rimando ogni persona  |
+| che legge questo documento a leggere sia il DNS-HOWTO che il NETWORKING-HOWTO.   |
+|                                                                                  |
+|                                                                             ValK |
++----------------------------------------------------------------------------------+
+```
+
+</div>

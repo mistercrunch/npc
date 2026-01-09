@@ -1,0 +1,5033 @@
+---
+title: "llave"
+ezine: "heh"
+---
+
+# llave
+
+**Ezine:** heh
+
+<div className="ascii-content">
+
+```
+(DOS)
+			COMO ROMPER LLAVES DE HARDWARE
+			~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+ACLARACION:
+~~~~~~~~~~~
+   Las empresas y los productos mencionados en el presente texto NO EXISTEN.
+
+            Todo lo publicado en esta nota es absolutamente FALSO.
+
+   Lo que Ud. estß a punto de leer es resultado de la decadente y absurda
+         imaginaci≤n del autor, que al no tener otra cosa mejor hacer,
+                            se puso a escribir esto.
+
+	CUALQUIER PARECIDO CON LA REALIDAD ES PURA COINCIDENCIA
+
+
+    Muchos desarrolladores de software utilizan, para proteger sus productos
+de eventuales copias, distintos tipos de llaves de hardware. Esto no es muy
+l≤gico en este paφs ya que el software argentino, principalmente aquellos
+programas orientados a gesti≤n de empresas, son algo que dejan mucho que
+desear, pero bueno, la mayorφa de la gente no sabe nada de computaci≤n y es
+bastante fßcil enga±arla y cobrarle sumas de dinero completamente absurdas.
+Con esto no quiero decir que todos los programas de gesti≤n son truchos,
+aunque sφ la gran mayorφa (digamos un 99%) de los que corren en DOS y/o
+WINDOORS.
+
+    Todo el material que sigue es pura y exclusivamente para uso educativo.
+El autor no se hace responsable de los perjuicios que alguien pueda causar
+haciendo mal uso de las herramientas y mΘtodos que aquφ se dan.
+La informaci≤n no es mala, mala es la gente que la usa mal.
+
+
+
+INTRODUCCION:
+~~~~~~~~~~~~~
+    Pasemos a una descripci≤n etΘrea sobre el funcionamiento del tipo de llave
+de la que habla el presente texto (no todas se comportan de la manera
+indicada):
+    Lo primero que hace un programa protegido cuando empieza a correr es
+cargar y ejecutar a otro programa de 'protecci≤n', el cußl se encarga de
+desencriptar al programa original (con datos que lee de la llave) y luego
+le devuelve el control.
+Seguramente, el programa de protecci≤n debe tener bastantes vueltas como
+para confundir a cualquiera que se anime a querer abrirlo, si estß medianamente
+bien hecho tendrß muchos artilugios para tratar de evitar su vulnerabilidad,
+pero tarde o temprano tiene que leer y/o escribir datos en la llave y es
+justamente Θse momento el que nosotros aprovecharemos.
+Lo que se propone es, simple y sencillamente, emular la llave.
+
+    Los temas que se tratan con mayor profundidad son los que hacen a la
+emulaci≤n de la llave. Si el lector desea profundizar sobre otros aspectos
+puede consultar la bibliografφa que se presenta al final del texto.
+
+
+
+NUESTRO ALIADO: EL MICROPROCESADOR
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+FLAGS:
+    
+    Al estar en DOS, el microprocesador se encuentra en lo que se llama
+'modo real': estß funcionando como un 8088 muy rßpido (este micro es el que
+tenφan las viejas XT), por lo tanto, el desarrollo que sigue se va a basar
+en el funcionamiento de ese micro.
+
+    Como es sabido, el microprocesador posee varios registros, uno de ellos
+es el 'Flag Register' (tambien llamado 'Status Register') que posee 16 bits
+y se detallan a continuaci≤n:
+
+     15  14  13  12  11  10   9   8   7   6   5   4   3   2   1   0
+    +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+    |   |   |   |   | O | D | I | T | S | Z |   | A |   | P |   | C |
+    +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+
+bit  0: C: Carry
+bit  2: P: Parity
+bit  4: A: Auxiliar Carry
+bit  6: Z: Zero
+bit  7: S: Sign
+bit  8: T: Trap
+bit  9: I: Interrupt Enable
+bit 10: D: Direction
+bit 11: O: Overflow
+
+Nos centraremos en solo dos de estos bits: el Interrupt Enable y el Trap.
+
+
+INTERRUPCIONES:
+    
+     Daremos una rßpida mirada al concepto de interrupciones:
+Las interrupciones se usan, generalmente, en la comunicaci≤n con dispositivos
+perifΘricos, por ejemplo: el teclado genera una interrupci≤n cada vez que se
+pulsa una tecla, en este caso, el uso de interrupciones permite al
+microprocesador hacer otras tareas mientras uno piensa si va o no a escribir
+algo y, solamente cuando se presiona una tecla, procesarla.
+A este tipo de interrupciones se las llama de 'HARDWARE' ya que es un
+dispositivo externo el que las produce, pero tambien existen las de 'SOFTWARE'
+que se generan por programa (utilizando la instrucci≤n INT).
+Todas las interrupciones se catalogan por tipos. Un tipo es un n·mero entre 0
+y 255 (Ej.: Para poder utilizar las rutinas del DOS hay que generar una
+interrupci≤n de software tipo 21h -INT 21h-).
+Hay tipos que son de uso exclusivo del microprocesador, a saber:
+
+Tipo 0: 'Divide Error': Se produce cada vez que aparece una divisi≤n por 0.
+Tipo 1: 'Single-Step' o 'Trace': Se produce cada vez que se ejecuta una
+        instrucci≤n (solamente cuando el Trap bit del flag register estß
+	activo).
+Tipo 2: 'Nonmaskable Hardware Interrupt': Se genera cuando el pin NMI del
+        microprocesador se pone en 1. Esta interrupci≤n no puede obviarse ni
+	desactivarse, por lo tanto se procesa sφ o sφ.
+Tipo 3: 'Byte Interrupt Instruction': La provoca una instrucci≤n especial.
+Tipo 4: 'Overflow': Se genera cuando se ejecuta la instrucci≤n INTO y ademßs,
+        el bit O del flag register estß activo.
+
+Cada vez que ocurre una interrupci≤n se suspende la ejecuci≤n normal de un
+programa y el micro pasa a ejecutar el c≤digo de la misma; cuando termina, se
+vuelve al punto exacto donde estaba antes de producirse Θsta.
+Para saber d≤nde se encuentra el c≤digo asociado a una interrupci≤n existe el
+'Vector de Interrupciones' que consta de una zona de 1K byte que contiene las
+direcciones de memoria a las que el micro debe saltar cada vez que se produce
+una de alg·n tipo. Este vector se comienza en el offset 0 del segmento 0
+(0000:0000). Hay 4 bytes por cada tipo de interrupci≤n (dos indican el offset y
+los otros dos el segmento donde se encuentra el c≤digo a ejecutar).
+Por ejmplo, el vector que indica la direcci≤n de la interrupci≤n tipo 21h se
+encuentra en 0000:4 * 21h = 0000:0084h.
+
+
+OPERACION DE UNA INTERRUPCION:
+
+    Cuando el 8088 termina la ejecuci≤n de una instrucci≤n se fija si debe o
+no procesar alguna interrupci≤n observando, entre otras cosas, algunos bits
+del flag register en el siguiente orden:
+1) Trap y error de divisi≤n por 0 
+2) Interrupciones de software
+3) Interrupciones de hardware
+
+Si debe procesar alguna interrupci≤n realiza los siguientes pasos:
+1) Pone en la pila el contenido del flag register
+2) Limpia los bits I y T del flag register (de esta manera cancela
+   interrupciones de harware y/o 'trap' durante el procesamiento de otra)
+3) Pone en la pila el contenido del 'code segment' CS y del 'instrucion
+   pointer' IP (mßs fßcil: salva la direcci≤n actual del programa interrumpido)
+4) Pone en CS e IP el contenido de 0000:4 * X (donde X es el tipo de
+   interrupci≤n generado).
+ 
+Una implementaci≤n de estos pasos podrφa ser:
+paso 1:		pushf
+paso 2:		push ax
+		pushf
+		pop  ax
+		and  ax, ( 65535 - ( bit I | bit T ) )
+		push ax
+		popf
+		pop  ax
+pasos 3 y 4:	call far [ 0000 : 4*X ]
+
+Cabe aclarar que el micro no los realiza de esta manera.
+
+    Cuando el bit I estß activo estßn permitidas las interrupciones de
+hardware y se deshabilitan apagando este bit. Para encenderlo podemos usar la
+instrucci≤n STI y para apagarlo CLI.
+    Cuando el bit T estß activo se produce una interrupci≤n tipo 1 cada vez
+que se ejecuta una instrucci≤n (siempre y cuando no se estΘ ejecutando el
+c≤digo de una interrupci≤n -ver paso 2-), de aquφ el nombre de 'single-step'
+(paso simple). A diferencia del bit I, no existen instrucciones para activar o
+desactivar el bit T, por lo tanto debemos rebuscarnoslß de otra manera.
+
+    Seguramente, el lector ya se habrß dado cuenta de que la ni±a bonita es
+la interrupci≤n SINGLE-STEP o TRAP.
+
+
+
+RASTREO DE INSTRUCCIONES:
+~~~~~~~~~~~~~~~~~~~~~~~~~
+    El programa TRAP.ASM muestra como se puede utilizar la interrupci≤n TRAP
+para rastrear las instrucciones que se van ejecutando (este es el principio
+bßsico de funcionamiento de un debugger).
+
+--------------------BEGIN TRAP.ASM-------------------------------------
+;
+;TRAP.ASM - (c) 1998 - Maruja
+;
+;Ejemplo de funcionamiento de la interrupcion TRAP
+;
+
+.model tiny
+.code
+org 100h
+
+inicio:		jmp  Arranque
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+settrap_msg	db	'TRAP ON', 13, 10, '$'
+untrap_msg	db	'TRAP OFF', 13, 10, '$'
+trap_msg	db	'TRAP!', 13, 10, '$'
+
+vieja90		dd	?
+vieja91		dd	?
+vieja01		dd	?
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+SetTrap:	push ax
+		push bp
+		mov  bp, sp
+		mov  ax, [bp+8]		;Obtener flags de la pila
+		or   ah, 1		;Activar bit T
+		mov  [bp+8], ax		;Colocar nuevos flags en la pila
+
+		push dx			;Imprimir mensaje 'TRAP ON'
+		push ds
+		push cs
+		pop  ds
+		lea  dx, settrap_msg
+		mov  ah, 9
+		int  21h
+		pop  ds
+		pop  dx
+
+		pop  bp
+		pop  ax
+		iret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+UnTrap:		push ax
+		push bp
+		mov  bp, sp
+		mov  ax, [bp+8]		;Obtener flags de la pila
+		and  ah, 0FEh		;Desactivar bit T
+		mov  [bp+8], ax		;Colocar nuevos flags en la pila
+
+		push dx			;Imprimir mensaje 'TRAP OFF'
+		push ds
+		push cs
+		pop  ds
+		lea  dx, untrap_msg
+		mov  ah, 9
+		int  21h
+		pop  ds
+		pop  dx
+
+		pop  bp
+		pop  ax
+		iret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+Trap:		push dx			;Imprimir mensaje 'TRAP!'
+		push ds
+		push ax
+		push cs
+		pop  ds
+		lea  dx, trap_msg
+		mov  ah, 9
+		int  21h
+		pop  ax
+		pop  ds
+		pop  dx
+		iret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+SetearVectores:	mov  ax, 3501h		;Obtener vector de interrupcion TRAP
+		int  21h		;(tipo 1) y guardarlo
+		mov  word ptr vieja01, bx
+		mov  bx, es
+		mov  word ptr vieja01+2, bx
+		
+		mov  ax, 3590h		;Obtener vector de interrupcion 90h
+		int  21h		;y guardarlo
+		mov  word ptr vieja90, bx
+		mov  bx, es
+		mov  word ptr vieja90+2, bx
+		
+		mov  ax, 3591h		;Obtener vector de interrupcion 91h
+		int  21h		;y guardarlo
+		mov  word ptr vieja91, bx
+		mov  bx, es
+		mov  word ptr vieja91+2, bx
+		
+		mov  ax, 2590h		;Hacer que una INT 90h ejecute el
+		lea  dx, SetTrap	;codigo 'SetTrap'
+		int  21h
+
+		mov  ax, 2591h		;Hacer que una INT 91h ejecute el
+		lea  dx, UnTrap		;codigo 'UnTrap'
+		int  21h
+
+		mov  ax, 2501h		;Hacer que la interrupcion TRAP
+		lea  dx, Trap		;provoque la ejecucion del codigo
+		int  21h		;'Trap'
+		ret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+RestaurarVectores:
+		mov  ax, 2501h			;Restaurar vector anterior
+		lds  dx, dword ptr vieja01	;interrupcion TRAP
+		int  21h
+
+		mov  ax, 2590h			;Restaurar vector anterior
+		lds  dx, dword ptr cs:vieja90	;interrupcion 90h
+		int  21h
+
+		mov  ax, 2591h			;Restaurar vector anterior
+		lds  dx, dword ptr cs:vieja91	;interrupcion 91h
+		ret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+Arranque:	call SetearVectores
+
+		int  90h			;Activar Trap
+		mov  ax, 1
+		mov  dx, 2
+		nop
+		int  91h			;Desactivar Trap
+
+		Call RestaurarVectores
+
+		mov  ax, 4C00h			;Terminar programa
+		int  21h
+
+end inicio
+--------------------END TRAP.ASM---------------------------------------
+
+Este programa se compila (usando el Turbette Assembler) y se ejecuta de la
+siguiente manera:
+
+C:\>TASM TRAP.ASM
+...
+C:\>TLINK /t TRAP
+...
+C:\>TRAP.COM
+TRAP ON
+TRAP!
+TRAP!
+TRAP!
+TRAP OFF
+
+C:\>
+
+No voy a entrar en detalles sobre la inicializaci≤n del programa ya que se
+asume que el lector tiene los conocimientos necesarios de assembler como
+para entenderlo por sφ mismo (solo se recuerda que cuando comienza la
+ejecuci≤n de un archivo .COM es: CS = DS = ES). 
+
+En la rutina 'Arranque', la instrucci≤n 'INT 90h' provoca la ejecuci≤n de
+'SetTrap' que, luego de activar el bit T de los flags que se encuentran en la
+pila (ver 'Operaci≤n de una Interrrupci≤n'), muestra el mensaje 'TRAP ON'
+utilizando la funci≤n 9 del DOS. Cuando esta rutina termina, el micro
+recupera los flags 'cambiados' de la pila quedando activo el bit T.
+Luego aparecen 3 instrucciones cualquiera. Como el bit T estß activo, la
+ejecuci≤n de cada una de estas instrucciones genera una interrupci≤n tipo 1
+que provoca ejecuci≤n de la rutina 'Trap', Θsta muestra el mensaje 'TRAP!'
+y termina.
+Finalmente, la instrucci≤n 'INT 91h' llama a la rutina 'UnTrap' que desactiva
+el bit T y muestra el mensaje correspondiente.
+Observar que los tres mensajes 'TRAP!' que se visualizan en la pantalla se
+corresponden con cada una de las tres instrucciones que se encuentran entre
+las dos INTs.
+
+
+
+RASTREO DE LAS OPERACIONES EN LOS PUERTOS DE E/S:
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    Las llaves de hardware se conectan, por lo general, en el puerto paralelo,
+principalmente en LPT1 y tienen dos conectores: uno para la PC y otro para la
+impresora.
+Cuando el programa protegido accede a la llave lo hace a travΘs de dicho
+puerto, esto se logra con las instrucciones IN y OUT (la primera se utiliza
+para leer datos y la segunda para escribirlos). Lo que debemos hacer es
+rastrear la ejecuci≤n de estas instrucciones para poder capturar los datos que
+se leen y/o escriben en el puerto.
+
+    Para llevar a cabo nuestro cometido nos aprovecharemos de la forma en que
+se procesan las interrupciones:
+Como ya se coment≤, antes de pasarle el control al c≤digo de una interrupci≤n,
+el microprocesador coloca en la pila los flags y la direcci≤n actual de
+ejecuci≤n del programa principal (direcci≤n de la instrucci≤n que todavφa no
+fuΘ ejecutada), por lo tanto, la instrucci≤n trapeada es la anterior a la que
+apunta el CS:IP que se encuentra en la pila.
+Ejemplo: (Se considera bit T activo)
+
+	0960:0001: xor  ax, ax
+	0960:0002: inc  ax
+	    
+Luego de ejecutarse el 'XOR' el CS:IP contiene 0960:0002, como el bit T
+estß activo, en vez de ejecutarse el 'INC' se genera una interrupci≤n TRAP.
+El estado de la pila dentro de la rutina Trap es el siguiente:
+
+	+------+------+-------+-------------...--------------------+
+        | 0002 | 0960 | FLAGS | XXXX XXXX XX...XXXX XXXX XXXX XXXX |
+	+------+------+-------+-------------...--------------------+
+	  SP
+
+El SP (stack pointer) estß apuntando al ·ltimo elemento guardado en la pila
+(al IP del programa original). En SP+2 se encuentra el CS y en SP+4 estan
+los flags (no olvidar que en la pila se guardan elementos de 16 bits).
+Lo que debemos hacer es obtener de la pila la direcci≤n del c≤digo interrumpido
+y restarle a su IP el valor necesario para ubicarlo en la instrucci≤n anterior
+(para que apunte al 'XOR'). Una vez hecho esto podemos leer el c≤digo de
+operaci≤n (opcode) de la instrucci≤n trapeada y saber si es o no un IN o un
+OUT.
+Ahora tenemos un nuevo problema: ┐ Cußles son los opcodes de IN y de OUT ?
+Todas sus posibles combinaciones son:
+
+1)	    in  al, puerto
+2)	    in  ax, puerto
+3)	    out puerto, al
+4)	    out puerto, ax
+5)	    in  al, dx
+6)	    in  ax, dx
+7)	    out dx, al
+8)	    out dx, ax
+
+La 1 y 5 leen un byte de un puerto;
+La 3 y 7 escriben un byte en un puerto;	    
+La 2 y 6 leen un word (2 bytes);
+La 4 y 8 escriben un word;
+La 1, 2, 3, y 4 direccionan directamente al puerto (solamente se puede utilizar
+esta forma si el puerto es uno entre 0 y 0FFh);
+La 5, 6, 7, y 8 acceden al puerto en forma indirecta a travΘs del registro DX
+(el puerto en DX puede ser uno entre 0 y 0FFFFh).
+
+Los puertos paralelos se encuentran en direcciones mayores a 0FFh, por lo
+tanto, la ·nica manera de acceder a los mismos es por medio de alguna de las
+formas indicadas en 5, 6, 7, u 8.
+Son entonces 4 opcodes los que debemos conocer, para lo cußl utilizamos el
+programa OPCODES.ASM.
+
+--------------------BEGIN OPCODES.ASM----------------------------------
+;
+;OPCODES.ASM - (c) 1998 - Maruja
+;
+;Programa para conocer los codigos de operacion de las
+;instrucciones que permiten el acceso a los puertos de E/S
+;
+
+.model tiny
+.code
+org 100h
+
+inicio:		in   al, dx
+		in   ax, dx
+		out  dx, al
+		out  dx, ax
+
+		nop
+		nop
+		nop
+		nop
+		nop
+		nop
+					
+		mov  ax, 4C00h
+		int  21h
+
+end inicio
+--------------------END OPCODES.ASM------------------------------------
+
+Compilando y usando el debug del DOS:
+
+C:\>TASM OPCODES.ASM
+...
+C:\>TLINK /t OPCODES
+...
+C:\>DEBUG OPCODES.COM
+-d
+144F:0100  EC ED EE EF 90 90 90 90-90 90 B8 00 4C CD 21 00   ............L.!.
+144F:0110  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................
+144F:0120  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................
+144F:0130  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................
+144F:0140  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................
+144F:0150  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................
+144F:0160  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................
+144F:0170  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................
+-q
+
+C:\>
+
+Aquφ se observan claramente los c≤digos (en hexadecimal) de cada una de las
+instrucciones:
+
+		IN  AL, DX     =  EC
+		IN  AX, DX     =  ED
+		OUT DX, AL     =  EE
+		OUT DX, AX     =  EF
+		NOP            =  90
+		MOV AX, 4C00h  =  B8 00 4C
+		INT 21h        =  CD 21
+		
+
+BasandosΘ en los datos reciΘn obtenidos, el programa IOTRAP.ASM se encarga de
+rastrear cada una de las operaciones de E/S que puedan ocurrir.
+Las diferencias entre este programa y el programa TRAP.ASM se encuentran en
+las rutinas 'Trap' y  'Arraque', es por esto que solamente se muestran estas
+dos:
+
+--------------------BEGIN IOTRAP.ASM - TRAP & ARRANQUE-----------------
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+Trap:
+	SP_INICIAL	EQU	$
+
+		push dx			;Salvar registros utilizados
+		push ds
+		push ax
+		push si
+		push bp
+
+	SP_FINAL	EQU	$
+
+		mov  bp, sp		;Obtener CS:IP Interrumpido
+		mov  si, [bp + (SP_FINAL-SP_INICIAL)*2 + 2 ]
+		mov  ds, si
+		mov  si, [bp + (SP_FINAL-SP_INICIAL)*2 ]
+		dec  si			;DS:SI = CS:IP Instruccion previa
+
+		mov  al, byte ptr [si]	;Obtener opcode instruccion previa
+
+		cmp  al, 0ECh		;El opcode es 0ECh ? 
+		jb   Trap_salir		;Si es menor salir
+		cmp  al, 0EFh		;El opcode es 0EFh ?
+		ja   Trap_salir		;Si es mayor salir
+
+		push cs			;Como el opcode es uno entre
+		pop  ds			;0ECh y 0EFh imprimir mensaje TRAP!
+		lea  dx, trap_msg
+		mov  ah, 9
+		int  21h
+
+Trap_salir:	pop  bp			;Recuperar registros y salir
+		pop  si
+		pop  ax
+		pop  ds
+		pop  dx
+		iret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+Arranque:	call SetearVectores
+
+		int  90h			;Activar Trap
+
+		mov  ax, 1
+		mov  dx, 60h
+		nop
+		in   al, 60h
+		in   al, dx
+		in   ax, dx
+		in   ax, 60h
+
+		int  91h			;Desactivar Trap
+
+		Call RestaurarVectores
+
+		mov  ax, 4C00h			;Terminar programa
+		int  21h
+
+end inicio
+--------------------END IOTRAP.ASM - TRAP & ARRANQUE-------------------
+
+Compilando y ejecutando el programa se obtiene:
+
+C:\>TASM IOTRAP.ASM
+...
+C:\>TLINK /t IOTRAP
+...
+C:\>IOTRAP.COM
+TRAP ON
+TRAP!
+TRAP!
+TRAP OFF
+
+C:\>
+
+Explicaci≤n de las rutinas:
+Trap:
+    Lo primero que llama la atenci≤n son las definiciones 'SP_INICIAL' y
+    'SP_FINAL', estßn solamente para no tener que calcular el espacio que
+    ocupan los registros en la pila cada vez que se agrega o quita alg·n
+    'PUSH' durante alguna etapa de desarrollo de esta rutina.
+    Luego de esto, obtiene de la pila el CS:IP de la instrucci≤n que se debe
+    ejecutar cuando la interrupci≤n TRAP termina, decrementa el IP en uno
+    para otener el CS:IP de la instrucci≤n anterior (mßs adelante se demuestra
+    que esto estß mal) y compara el opcode que se encuentra en esa direcci≤n
+    con los c≤digos de OUT e IN que se obtuvieron con anterioridad. Si esta
+    instrucci≤n previa posee alguno de estos c≤digos se imprime el mensaje
+    'TRAP!'.
+    
+Arranque:
+    La diferencia con la que se encuentra en TRAP.ASM es que aquφ se agregaron
+    cuatro instrucciones IN.
+    
+Si uno observa la salida de este programa luego de la ejecuci≤n del mismo se
+vΘ que el mensaje 'TRAP!' aprece solo dos veces, esto estß bien ya que son dos
+las instrucciones IN que acceden al puerto en forma indirecta (a travΘs del
+registro DX): 'IN AL,DX' e 'IN AX,DX'.
+    
+Durante la explicaci≤n de la rutina Trap se ha adelantado que en realidad el
+hecho de decrementar el IP en uno no necesariamente lo coloca sobre la
+instrucci≤n anterior, por ejemplo, si trapeamos la siguiente secci≤n de
+c≤digo:
+		mov ax, 0EE00h  
+		xor dx, dx
+		
+Luego del 'MOV' se ejecuta la Trap con el CS:IP del 'XOR' en la pila, cuando
+nuestra rutina decrementa en uno el IP va a parar sobre la ·ltima parte del
+dato que se carga en 'AX', osea sobre 0EEh, con lo cußl la Trap asumirß,
+erroneamente, que la instrucci≤n reciente fuΘ un 'OUT DX,AL' en vez de un
+'MOV'. Lo verificamos en el programa IOTRAP2.ASM:
+
+--------------------BEGIN IOTRAP2.ASM - ARRANQUE-----------------------
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+Arranque:	call SetearVectores
+
+		int  90h			;Activar Trap
+
+		mov  ax, 1
+		mov  dx, 60h
+		nop
+		in   al, 60h
+		in   al, dx
+		in   ax, dx
+		in   ax, 60h
+		mov  ax, 0EE00h
+		xor  dx, dx
+
+		int  91h			;Desactivar Trap
+
+		Call RestaurarVectores
+
+		mov  ax, 4C00h			;Terminar programa
+		int  21h
+
+end inicio
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+--------------------END IOTRAP2.ASM - ARRANQUE-------------------------
+
+Las diferencias con IOTRAP.ASM estßn solamente en la rutina 'Arranque'.
+Compilando y ejecutando obtenemos:
+
+C:\>TASM IOTRAP2.ASM
+...
+C:\>TLINK /t IOTRAP2
+...
+C:\>IOTRAP2.COM
+TRAP ON
+TRAP!
+TRAP!
+TRAP!
+TRAP OFF
+
+C:\>
+
+íUn mensaje mßs que en el ejemplo anterior! Esto significa que la Trap
+confundi≤ el 'MOV AX,0EE00h' con un 'OUT DX,AL' ya que no calcul≤ correctamente
+la direcci≤n exacta de esa instrucci≤n.
+Una posible soluci≤n a este problema puede ser:
+
+Antes que nada:
+1. Crear dos variables (una para CS y otra para IP) e inicializarlas con una
+   direcci≤n err≤nea.
+
+En la Trap:
+2. Si las variables tienen una direcci≤n err≤nea es porque Θsta es la primera
+   vez que se ejecuta la Trap, por lo tanto hay que pasar al punto 4.
+   
+3. Obtener el opcode de la instrucci≤n que se encuentra en la direcci≤n
+   indicada por las variables y seguir con el rastreo normal.
+   
+4. Actualizar las variables con la direcci≤n de la instrucci≤n que se
+   ejecutarß al salir de Trap.
+      
+
+Esto parece funcionar lindo pero pagamos un precio: la primera instrucci≤n
+que se ejecuta luego de activar el 'traping' no serß rastreada (punto 2).
+El precio es irrisorio ya que lo podemos solucionar poniendo un 'NOP' luego
+de activar el 'traping' con 'INT 90h'.
+(NOTA: Para evitar el punto 2 se puede hacer que la rutina de 'INT 90h' se
+encargue de setear el CS:IP de la siguiente instrucci≤n en las variables.
+Se deja este trabajo al lector).
+
+Las modificaciones que hay que hacerle al programa anterior (IOTRAP2.ASM)
+estßn solamente en la rutina Trap. Tenemos entonces el programa IOTRAP3.ASM:
+
+--------------------BEGIN IOTRAP3.ASM - TRAP---------------------------
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+IPanterior	dw	0
+CSanterior	dw	0
+
+Trap:
+	SP_INICIAL	EQU	$
+
+		push dx			;Salvar registros utilizados
+		push ds
+		push ax
+		push si
+		push bp
+
+	SP_FINAL	EQU	$
+
+		cmp  cs:CSanterior, 0	;CSanterior tiene un valor incorrecto ?
+		jz   Trap_salir		;Si: salir
+		
+		mov  si, cs:CSanterior
+		mov  ds, si
+		mov  si, cs:IPanterior	;DS:SI = CS:IP instruccion anterior
+		mov  al, byte ptr [si]	;Obtener opcode 
+
+		cmp  al, 0ECh		;El opcode es 0ECh ? 
+		jb   Trap_salir		;Si es menor salir
+		cmp  al, 0EFh		;El opcode es 0EFh ?
+		ja   Trap_salir		;Si es mayor salir
+
+		push cs			;Como el opcode es uno entre
+		pop  ds			;0ECh y 0EFh imprimir mensaje TRAP!
+		lea  dx, trap_msg
+		mov  ah, 9
+		int  21h
+
+Trap_salir:	mov  bp, sp		;Guardar CS:IP de proxima instruccion
+		mov  si, [bp + (SP_FINAL-SP_INICIAL)*2 + 2 ]
+		mov  cs:CSanterior, si
+		mov  si, [bp + (SP_FINAL-SP_INICIAL)*2 ]
+		mov  cs:IPanterior, si
+
+		pop  bp			;Recuperar registros y salir
+		pop  si
+		pop  ax
+		pop  ds
+		pop  dx
+		iret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+--------------------END IOTRAP3.ASM - TRAP-----------------------------
+
+Al compilar y ejecutar se tiene:
+
+C:\>TASM IOTRAP3.ASM
+...
+C:\>TLINK /t IOTRAP3
+...
+C:\>IOTRAP3.COM
+TRAP ON
+TRAP!
+TRAP!
+TRAP OFF
+
+C:\>
+
+íPerfecto! Solamente hay 2 instrucciones IN vßlidas.
+
+
+
+EL PUERTO PARALELO:
+~~~~~~~~~~~~~~~~~~~
+    Para poder capturar los datos que vienen o que van al puerto paralelo
+debemos conocer las direcciones donde estß mapeado, por lo general, la
+direcci≤n base del puerto LPT1 se encuentra en 278h, pero esto no siempre es
+asφ ya que la mayorφa de los mothers permiten cambiarla.
+El BIOS escribe las direcciones base de cada LPTx en una zona particular de
+memoria:
+
+	    Direcci≤n		Contenido
+	-------------------------------------------
+	    0040:0008h	  Direcci≤n base de LPT1
+	    0040:000Ah	  Direcci≤n base de LPT2
+	    0040:000Ch	  Direcci≤n base de LPT3
+	    0040:000Eh    Direcci≤n base de LPT4
+
+Si bien existe la posibilidad de tener un cuarto puerto paralelo, el DOS
+no lo reconoce.
+Cada LPTx estß formado por tres registros mapeados en tres puertos
+consecutivos a partir de la direcci≤n base (por ejemplo: si la direcci≤n base
+de LPT1 es 278h entonces tenemos al primer registro en 278h, al segundo en
+279h, y al tercero en 27Ah). Esto significa que si queremos rastrear los
+accesos a LPT1 nuestra rutina Trap debe capturar las lecturas y/o escrituras
+que se produzcan en cualquiera de estos tres puertos.
+
+
+
+CAPTURANDO LOS ACCESOS A LPT1:
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    El programa LPT1CAP1.ASM captura las operaciones en LPT1 y las baja al
+archivo 'C:\LPT.DAT'.
+Cada acceso al puerto genera una estructura de 8 bytes que contiene:
+1) CS de la instrucci≤n	(2 bytes)
+2) IP de la instrucci≤n (2 bytes)
+3) Flags		(2 bytes)
+4) Dato			(2 bytes)
+
+Descripci≤n de los flags:
+bit 15 (32768):
+    Si estß activo indica que la operaci≤n es un OUT (caso contrario un IN).
+    Osea que 'Dato' contiene el dato que se escribe en el puerto.
+
+bit 14 (16384):
+    Si estß activo indica que el 'Dato' leφdo o escrito en el puerto es un
+    word (caso contrario un byte).
+
+bits 13 a 11 (8192 a 2048):
+    No se utilizan.
+
+bits 10 a 0 (1024 a 1):
+    Aquφ se almacena el puerto accedido.
+
+--------------------BEGIN LPT1CAP1.ASM---------------------------------
+;
+;LPT1CAP1.ASM - (c) 1998 - Maruja
+;
+;Ejemplo de rastreo de operaciones en el puerto LPT1
+;
+
+.model tiny
+.code
+org 100h
+
+inicio:		jmp  Arranque
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+IN_BYTE		EQU	0ECh		;IN  AL, DX
+IN_WORD		EQU	0EDh		;IN  AX, DX
+OUT_BYTE	EQU	0EEh		;OUT DX, AL
+OUT_WORD	EQU	0EFh		;OUT DX, AX
+
+ES_OUT		EQU	32768		;Bit 15 flags
+ES_WORD		EQU	16384		;Bit 14 flags
+
+vieja90		dd	?		;Direccion original INT 90h
+vieja91		dd	?		;Direccion original INT 91h
+vieja01		dd	?		;Direccion original TRAP
+
+IPanterior	dw	0		;CS:IP Instruccion anterior
+CSanterior	dw	0
+
+lpt11		dw	?		;Direccion base (1er registro) de LPT1
+lpt13		dw	?		;Direccion 3er registro de LPT1
+
+TAMBUF		EQU	256*8		;Longitud buffer
+buffer		db	TAMBUF	dup (0)	;Buffer temporal para datos capturados
+index		dw	0		;Posicion en buffer
+
+filename	db	'C:\LPT.DAT', 0	;Archivo con datos capturados
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+SetTrap:	push ax
+		push bp
+
+		mov  bp, sp
+		mov  ax, [bp+8]		;Obtener flags de la pila
+		or   ah, 1		;Activar bit T
+		mov  [bp+8], ax		;Colocar nuevos flags en la pila
+
+		pop  bp
+		pop  ax
+		iret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+UnTrap:		push ax
+		push bp
+
+		mov  bp, sp
+		mov  ax, [bp+8]		;Obtener flags de la pila
+		and  ah, 0FEh		;Desactivar bit T
+		mov  [bp+8], ax		;Colocar nuevos flags en la pila
+
+		cmp  cs:index, 0	;El buffer esta vacio ?
+		jz   UnTrap_salir	;Si: salir
+
+		push bx
+		push cx
+		push dx
+		push ds
+		call GrabarBuffer	;Forzar la grabacion del buffer
+		pop  ds
+		pop  dx
+		pop  cx
+		pop  bx
+
+UnTrap_salir:	pop  bp
+		pop  ax
+		iret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+Trap:
+	SP_INICIAL	EQU	$
+
+		push ax			;Salvar registros utilizados
+		push bx
+		push cx
+		push dx
+		push si
+		push ds
+		push bp
+
+	SP_FINAL	EQU	$
+
+		cmp  cs:CSanterior, 0	;CSanterior tiene un valor incorrecto ?
+		jz   Trap_salir		;Si: salir
+		
+		mov  si, cs:CSanterior
+		mov  ds, si
+		mov  si, cs:IPanterior	;DS:SI = CS:IP instruccion anterior
+		mov  cl, byte ptr [si]	;Obtener opcode 
+
+		cmp  cl, IN_BYTE	;El opcode es alguno entre
+		jb   Trap_salir		;IN_BYTE u OUT_WORD ?
+		cmp  cl, OUT_WORD
+		ja   Trap_salir		;No: salir
+
+		push cs
+		pop  ds
+		cmp  dx, lpt11		;Acceso a alguno de los puertos LPT1 ?
+		jb   Trap_salir
+		cmp  dx, lpt13
+		ja   Trap_salir		;No: salir
+
+		call CapturarAcceso
+
+Trap_salir:	mov  bp, sp		;Guardar CS:IP de proxima instruccion
+		mov  si, [bp + (SP_FINAL-SP_INICIAL)*2 + 2 ]
+		mov  cs:CSanterior, si
+		mov  si, [bp + (SP_FINAL-SP_INICIAL)*2 ]
+		mov  cs:IPanterior, si
+
+		pop  bp			;Recuperar registros y salir
+		pop  ds
+		pop  si
+		pop  dx
+		pop  cx
+		pop  bx
+		pop  ax
+		iret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+CapturarAcceso:	;AX = Dato; DX = Puerto; CL = Opcode
+
+		cmp  cl, OUT_WORD	;Es un OUT ?
+		je   CA_setout
+		cmp  cl, OUT_BYTE
+		jne  CA_verdata
+CA_setout:	or   dx, ES_OUT		;Si: setear bit 15
+
+CA_verdata:	cmp  cl, IN_WORD	;El dato es word ?
+		je   CA_setword
+		cmp  cl, OUT_WORD
+		jne  CA_push
+CA_setword:	or   dx, ES_WORD	;Si: setear bit 14
+
+CA_push:	lea  si, buffer		;Guardar estructura en buffer
+		add  si, index
+		mov  cx, CSanterior
+		mov  [si], cx		;Guardar CS
+		mov  cx, IPanterior
+		mov  [si+2], cx		;Guardar IP
+		mov  [si+4], dx		;Guardar Flags
+		mov  [si+6], ax		;Guardar Dato
+		add  index, 8		;Actualizar indice
+
+		cmp  index, TAMBUF	;El buffer esta lleno ?
+		je   GrabarBuffer	;Si: grabar buffer en disco
+
+		ret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+GrabarBuffer:	mov  ax, 3D02h			;Abrir archivo para L/E
+		lea  dx, filename
+		int  21h
+		jnc  GB_append
+		mov  ah, 3Ch			;Si no existe crearlo
+		xor  cx, cx
+		int  21h
+		jc   GB_salir			;Si hubo error salir
+
+GB_append:	mov  bx, ax			;Poner archivo en modo append
+		mov  ax, 4202h
+		xor  dx, dx
+		xor  cx, cx
+		int  21h
+
+		mov  ah, 40h			;Grabar buffer
+		mov  cx, index
+		lea  dx, buffer
+		int  21h
+
+		mov  ah, 3Eh			;Cerrar archivo
+		int  21h
+		mov  index, 0			;Resetear indice
+
+GB_salir:	ret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+SetearVectores:	mov  ax, 3501h		;Obtener vector de interrupcion TRAP
+		int  21h		;(tipo 1) y guardarlo
+		mov  word ptr vieja01, bx
+		mov  bx, es
+		mov  word ptr vieja01+2, bx
+		
+		mov  ax, 3590h		;Obtener vector de interrupcion 90h
+		int  21h		;y guardarlo
+		mov  word ptr vieja90, bx
+		mov  bx, es
+		mov  word ptr vieja90+2, bx
+		
+		mov  ax, 3591h		;Obtener vector de interrupcion 91h
+		int  21h		;y guardarlo
+		mov  word ptr vieja91, bx
+		mov  bx, es
+		mov  word ptr vieja91+2, bx
+		
+		mov  ax, 2590h		;Hacer que una INT 90h ejecute el
+		lea  dx, SetTrap	;codigo 'SetTrap'
+		int  21h
+
+		mov  ax, 2591h		;Hacer que una INT 91h ejecute el
+		lea  dx, UnTrap		;codigo 'UnTrap'
+		int  21h
+
+		mov  ax, 2501h		;Hacer que la interrupcion TRAP
+		lea  dx, Trap		;provoque la ejecucion del codigo
+		int  21h		;'Trap'
+		ret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+RestaurarVectores:
+		mov  ax, 2501h			;Restaurar vector anterior
+		lds  dx, dword ptr vieja01	;interrupcion TRAP
+		int  21h
+
+		mov  ax, 2590h			;Restaurar vector anterior
+		lds  dx, dword ptr cs:vieja90	;interrupcion 90h
+		int  21h
+
+		mov  ax, 2591h			;Restaurar vector anterior
+		lds  dx, dword ptr cs:vieja91	;interrupcion 91h
+		ret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+GetLPT1:	mov  di, 40h
+		mov  es, di
+		mov  di, 8			;ES:DI = 0040:0008h
+		mov  ax, word ptr es:[di]
+		mov  lpt11, ax
+		add  ax, 2
+		mov  lpt13, ax
+		ret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+Arranque:	call GetLPT1			;Obtener direcciones de LPT1
+
+		call SetearVectores
+
+		int  90h			;Activar Trap
+
+		xor  ax, ax
+		mov  dx, lpt11			;DX = LPT1 registro 1
+		out  dx, al
+		inc  dx				;DX = LPT1 registro 2	
+		in   ax, dx
+		out  dx, ax
+		inc  dx				;DX = LPT1 registro 3
+		in   al, dx
+
+		inc  dx				;DX = LPT1Base+4: NO es LPT1
+		in   ax, dx
+
+		int  91h			;Desactivar Trap
+
+		Call RestaurarVectores
+
+		mov  ax, 4C00h			;Terminar programa
+		int  21h
+
+end inicio
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+--------------------END LPT1CAP1.ASM-----------------------------------
+    
+Compilando y ejecutando:
+
+C:\>TASM LPT1CAP1.ASM
+...
+C:\>TLINK /t LPT1CAP1
+...
+C:\>LPT1CAP1.COM
+
+C:\>DIR *.DAT
+
+ Volumen en unidad C es PINDONGA
+ N·mero de serie de volumen es 2D4B-1CD6
+ Directorio de C:\
+
+LPT      DAT        32 01/09/98   23:44
+        1 archivo(s)         32 bytes
+                   804421632 bytes libres
+
+C:\>
+
+Se ha creado un archivo de 32 bytes de longitud, esto significa que se
+capturaron 4 accesos al puerto LPT1.
+Antes de examinar este archivo se comentarß el programa ya que hubo
+algunos cambios importantes con respecto a los anteriores:
+
+Variables:
+    Se han colocado todas las variables y definiciones al comienzo.
+    Las que merecen explicaci≤n son:
+    'lpt11' y 'lpt13': aquφ se guardan los registros 1 y 3 del LPT1;
+    'buffer': es un buffer donde se guardan momentaneamente los datos 
+    capturados, se utiliza para no tener que hacer un acceso a disco cada vez
+    que se encuentra una operaci≤n en el puerto (de lo contrario se alentarφa
+    mucho la ejecuci≤n normal del programa trapeado);
+    'index': se utiliza para indicar en quΘ posici≤n del buffer hay que poner
+    los datos.
+
+SetTrap y UnTrap:
+    Cumplen la misma funci≤n que en los programas anteriores salvo que ahora
+    no imprimen ning·n mensaje.
+    Observar que UnTrap fuerza la grabaci≤n del buffer en el archivo en caso
+    que este no se haya llenado por completo.
+
+Trap:
+    Se elimin≤ el mensaje 'TRAP!' que mostraban los programas anteriores.
+    En caso de accederse a alguno de los registros de LPT1 se ejecuta la
+    rutina 'CapturarAcceso'.
+    Como Trap se ejecuta cada vez que se termina una instrucci≤n, entonces,
+    luego de una operaci≤n de E/S (Ej.: OUT AX,DX) el registro AX contiene
+    el dato y DX el puerto.
+
+CapturarAcceso:
+    Esta rutina necesita tres parßmetros en los registros AX, DX, y CL.
+    AX debe contener el dato escrito o leφdo del puerto;
+    DX debe contener el puerto al que se tuvo acceso;
+    CL debe contener el opcode de la instrucci≤n ejecutada;
+    Con esta informaci≤n 'CapturarAcceso' genera los flags y pone CS, IP,
+    Flags, y Dato en el buffer. Si el buffer estß lleno llama a 'GrabarBuffer'.
+
+GrabarBuffer:
+    Abre el archivo 'C:\LPT.DAT' para lectura/escritura (si no existe lo crea)
+    y lo pone en modo 'append', luego graba el buffer y cierra el archivo.
+    
+GetLPT1:
+    Obtiene la direcci≤n base del puerto LPT1 y coloca en las variables 'lpt11'
+    y 'lpt13' las direcciones de los registros 1 y 3.
+    
+Arranque:
+    A diferencia con el programa anterior ahora se llama a 'GetLPT1' y, entre
+    las 'INT 90h' e 'INT 91h', se provocan 5 accesos a varios puertos (los
+    cuatro primeros son en LPT1).
+    
+Como se dijo antes, se capturaron 4 accesos y, justamente, son 4 las
+operaciones que hace nuestro programa en LPT1.
+
+
+
+ANALISIS DE LOS DATOS CAPTURADOS:
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    Para poder analizar sφn problemas la informaci≤n capturada debemos
+convertir los datos del archivo en algo que se entienda a simple vista.
+Este es el objetivo del programa IOVIEW.C:
+
+--------------------BEGIN IOVIEW.C-------------------------------------
+/*
+** IOVIEW.C - (c) 1998 - Maruja
+** Muestra (en forma entendible) los datos capturados en operaciones de E/S
+**
+** Modo de uso:  IOVIEW &lt;file>
+** Donde &lt;file> es el nombre del archivo con los datos capturados
+*/
+
+
+#include &lt;stdio.h>
+#include &lt;stdlib.h>
+
+
+/* Teseteo de Flags */
+#define TEST_OUT(flag)		(flag & 32768)		/* bit 15 = OUT */
+#define TEST_WORD(flag)		(flag & 16384)		/* bit 14 = WORD */
+#define GET_PORT(flag)		(flag & 2047)
+
+
+/* Estructura basica */
+typedef struct {
+
+    unsigned int	cs, 
+			ip, 
+			flags, 
+			data;
+
+    } TRAP;
+
+
+
+int main (int can, char *arg[])
+{
+FILE	*f;
+TRAP	i;
+
+
+/* Verificar que se encuentre el nombre del file */
+if (can < 2) {
+
+	fprintf (stderr, 
+		 "%s: Falta el nombre del archivo con los datos capturados\n\r",
+		 arg[0]);
+
+	exit (-1);
+
+	}
+
+
+/* Abrir archivo de datos */
+if (! (f = fopen (arg[1], "rb")) ) {
+
+	fprintf (stderr, "%s: ", arg[0]);
+	perror (arg[1]);
+	exit (-1);
+
+	}
+
+
+/* Mostrar informacion */
+printf ("\nArchivo: '%s'", arg[1]);
+for (;;) {
+
+	/* Leer estructura */
+	if (!fread (&i, sizeof (TRAP), 1, f)) break;
+
+	/* Mostrar en forma humana */
+	printf ("\n%04X:%04X\t%s\t%03X, ", i.cs, i.ip,
+			TEST_OUT(i.flags) ? "OUT" : "IN", GET_PORT(i.flags));
+
+	if (TEST_WORD(i.flags))
+
+		printf ("%04X\t(WORD)", i.data);
+
+	else printf ("%02X  \t(BYTE)", i.data & 255);
+
+	}
+
+printf ("\n");
+return 0;
+}
+--------------------END IOVIEW.C---------------------------------------
+
+Compilando con cualquier compilador de C y luego ejecutando...
+
+C:\>CC IOVIEW.C
+...
+C:\>IOVIEW LPT.DAT
+
+Archivo: 'LPT.DAT'
+0E61:0AA5	OUT	278, 00		(BYTE)
+0E61:0AA7	IN	279, CC87	(WORD)
+0E61:0AA8	OUT	279, CC87	(WORD)
+0E61:0AAA	IN	27A, CC		(BYTE)
+
+C:\>
+
+Esto se lee asφ:
+En la direcci≤n 0E61:0AA5h se ejecut≤ un 'OUT DX, AL': se escribi≤ el byte 00
+en el puerto 278h;
+En la direcci≤n 0E61:0AA7h se ejecut≤ un 'IN  AX, DX': se ley≤ el word 0CC87h
+del puerto 279h;
+En la direcci≤n 0E61:0AA8h se ejecut≤ un 'OUT DX, AX': se escribi≤ el word
+0CC87h en el puerto 279h;
+En la direcci≤n 0E61:0AAAh se ejecut≤ un 'IN  AL, DX': se ley≤ el byte 0CCh
+del puerto 27Ah;
+
+Comparar con la rutina 'Arranque' de LPT1CAP1.ASM.
+
+
+
+ADVERTENCIA:
+~~~~~~~~~~~~
+    A partir de este momento el lector podrß observar un cambio mas o menos
+abrupto del vocabulario utilizado, motivado Θste, por el pΘsimo nivel de los
+'programadores/analistas/ingenieros' que hicieron el soft y la llave aquφ
+analizados (tanto el programa protegido como el protector).
+
+
+
+CAPTURANDO LOS ACCESOS A LPT1 DE UN PROGRAMA PROTEGIDO CON LLAVE DE HARDWARE:
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    El primer paso fuΘ gastar unos $600 por un programa de facturaci≤n berreta
+que no valφa (ni vale) para nada esa plata. Este coso fuΘ 'creado' por la
+empresa VeniQueTeCagoBien Software (un pΘsimo y mal dise±ado programa originado
+en clipper y portado a clarion), estaba protegido con una llave de fabricaci≤n
+argentina marca 'SOStuare Look'.
+(A diferencia de lo que piensan algunos asquerosos e inmundos cerdos, el autor
+considera cualquier suma de dinero destinada a la educaci≤n y aprendizaje como
+inversi≤n y no como gasto -se pide disculpas al reino porcino por haber llamdo
+cerdos a estos repugnantes entes-).
+
+    Para poder emular la llave primero hay que obtener los datos que estßn
+grabados en esta, como no conocemos los chips raros que puede tener dejaremos
+que el programa que la utiliza haga lo suyo mientras que nosotros capturamos
+todos los accesos al puerto paralelo. 
+Si bien todo lo que se ha dicho hasta ahora se puede aplicar para esto, no
+hay que subestimar a los fabricantes de la llave que, seguramente, habrßn
+tomado alg·n tipo de recaudo para evitar nuestra forma de ataque, por lo tanto
+hay que analizar cada caso en particular (Aquφ es donde el cracking pasa a ser
+mßs un arte que una ciencia).
+
+    Luego de colocar la llave en LPT1 y, con alg·n buen debugger en mano
+(como ser el debugger freeware de GNU), iniciamos la ejecuci≤n del programa:
+
+C:\>LDR GESTION.EXE
+
+Loading C:\GESTION.EXE
+...
+...
+:bpio 278				;Breakpoint on I/O access
+:bpio 279
+:bpio 27a
+
+[ Suspender ejecuci≤n si hay alg·n acceso al puerto LPT1 ]
+
+:bpint 21 ah=4b				;Breakpoint on Interrupt
+
+[ Suspender ejecuci≤n cuando se carga y/o ejecuta un programa ]
+
+:bpint 21 ah=4c
+
+[ Suspender ejecuci≤n cuando finaliza un programa ]
+
+:x					;Run
+Break Point at 0E1B:03BB
+    0E1B:03B8	B8004B		MOV AX, 4B00
+>   0E1B:03BB	CD21		INT 21		;Load and execute program
+    0E1B:03BD	7236		JB  03F5 
+    ...
+
+[ El programa protegido (gestion.exe) carga y ejecuta al programa de
+protecci≤n (protect.exe) ]
+
+:t					;One Step
+>   0123:109E	90		NOP
+    0123:109F	90		NOP
+    0123:10A0	E8CC00		CALL 116F
+    ...
+
+[ Inicio del c≤digo de la interrupci≤n tipo 21h ]
+
+:p ret					;Run until return
+>   FDC9:423C	CF		IRET
+    ...
+    
+[ Punto final de la funcion 4Bh del DOS ]
+
+:t
+>   1AE3:0000	BA3E1C		MOV DX, 1C3E
+    1AE3:0003	8EDA		MOV DS, DX
+    1AE3:0005	8C066801	MOV [0168], ES
+    1AE3:0009	33ED		XOR BP, BP
+    1AE3:000B	8BC4		MOV AX, BP
+    ...
+    
+[ Punto de entrada del programa de protecci≤n ]
+
+:x
+Break Point at 18B4:0855
+    18B4:0854	EC		IN AL, DX
+>   18B4:0855	EB01		JMP 0858
+    18B4:0857	28		.
+    18B4:0858	2EA20200	MOV CS:[0002], AL
+    18B4:085C	BB0100		MOV BX, 0001
+    18B4:085F	B055		MOV AL, 55
+    18B4:0861	EE		OUT DX, AL
+    ...
+
+[ Rutina que accede a la llave ]
+
+Luego de observar durante un buen rato el comportamiento de este muchachφn
+se obtuvieron ciertas conclusiones que nos permitirßn actuar en forma:
+El programa de facturaci≤n (que se encuentra parcialmente encriptado) carga y
+ejecuta a otro programa de protecci≤n.
+El programa de protecci≤n realiza unas cuantas interesantes, pero abusrdas
+payasadas, para tratar de evitar, in·tilmente, su debugging:
+Por ejemplo, durante un tiempo cambia el stack segment y el stack pointer
+(SS:SP) a la zona que contiene los vectores de interrupci≤n tipos 1, 2, y 3
+(Trap, NMI, y BII), luego genera unos cuantos calls sφn sentido para que se
+modifique el contenido de esta zona (con esto se puede colgar fßcilmente
+cualquier debugger viejo, cosa que no pasa con un debugger moderno);
+hacer esto con la Trap y la BII podrφa resultar ·til, pero hacerlo con la NMI
+es una animalada, es algo que no tiene nombre y no es digno de programador
+alguno que se jacte de serlo, menos a·n de un analista y menos a·n todavφa de
+un ingeniero (el nivel de las facultades argentinas -tanto privadas como
+estatales- es lamentable, por lo tanto no hay que sorprenderse si algunos de
+los idiotas que hicieron esta cagada tienen alg·n tφtulo por el estilo), la
+NMI es una interrupci≤n que se reserva para fallas fatales del sistema y no
+debe tocarse... salvo que haya alg·n tipo de hardware especial (como ser alguna
+hipotΘtica UPS) que tambiΘn la utilice.
+Se han observado ciertas rutininas que calculan el tiempo que tardan en
+ejecutarse otras rutinitas: si el tiempo calculado es muy grande (cracker
+utilizando el comando ONE STEP de un debugger que no se cuelga), el programa
+de protecci≤n entra en un bucle infinito de calls.
+Otra de las estupideces que se manda este particular programita es setear sus
+propios vectores para esa zona utilizando la funci≤n 25h del DOS. La pegunta
+es: ┐Para quΘ carajo hizo el quilombo que hizo cambiando el stack a la zona
+de los vectores de interrupci≤n si ahora utiliza una simple funci≤n del DOS
+recontra re visible y super re debugueable?... Aparentemente los creadores del
+coso este pensaron que sus est·pidos mΘtodos son infalibles para detener a
+cualquiera... Bue.. sigamos...
+
+Una de las cosas mßs interesantes de este programilla es que el c≤digo que
+accede a la llave (la secci≤n de c≤digo que realiza los INs y OUTs) estß
+encriptada. Este se±orito desencripta este c≤digo para, en alg·n momento,
+ejecutarlo y asφ poder acceder a los puertos de LPT1 y leer de la llave los
+datos escritos en Θsta para desencriptar el c≤digo del programa protegido y
+pasarle, finalmente, el control.
+
+    Lo que vamos a hacer es desviar la ejecuci≤n normal del programa y activar
+nuestro sistema, esto se puede lograr generando una interrupci≤n en alguna
+parte despuΘs de los desastres hechos sobre el vector de interrupciones.
+Ademßs de inicializar el sistema de captura de datos, nuestra rutina debe
+encargarse de ejecutar la instrucci≤n que fuΘ cambiada por nuestra modificaci≤n
+del c≤digo original.
+Lo ideal serφa hacer esto en la zona de c≤digo que realiza los INs y OUTs,
+lamentablemente no puede hacerse porque, como ya se dijo, esta parte se
+encuentra encriptada, lo haremos entonces sobre la rutina que desencripta este
+c≤digo. Para encontrarla tenemos que realizar unos pasos bastantes simples:
+Gracias a los breakpoints de accesos a los puertos conocemos la direcci≤n de
+memoria que realiza los accesos a LPT1, con este dato colocamos otro breakpoint
+para que se suspenda la ejecuci≤n cuando algo (o alguien) intenta escribir en
+esta zona (osea, ponemos un breakpoint que paraliza la ejecuci≤n normal en el
+momento en que la rutina de desencripci≤n desencripta el c≤digo que accede a la
+llave), en nuestro caso la direcci≤n es 18B4:0854:
+
+C:\>LDR GESTION.EXE
+
+Loading C:\GESTION.EXE
+...
+...
+:bc *					;Clear all breakpoints
+:bpm 18b4:0854				;Breakpoint on memory access
+:x
+...
+:x
+Break Point at 179D:021C
+>   179D:021C	C47E8F	 	LES DI, [BP-08]
+    179D:021F	03F8	 	ADD DI, AX
+    179D:0221	268B15	 	MOV DX, ES:[DI]
+    179D:0224	8B46FE	 	MOV AX, [BP-02]
+    179D:0227	D1E0	 	SHL AX, 1
+    179D:0229	C47E8F	 	LES DI, [BP-08]
+    179D:022C	03F8	 	ADD DI, AX
+    179D:022E	268B05	 	MOV AX, ES:[DI]
+    179D:0231	33C2	 	XOR AX, DX
+    179D:0233	8BD0	 	MOV DX, AX
+    179D:0235	8B46FE	 	MOV AX, [BP-02]
+    179D:0238	D1E0	 	SHL AX, 1
+    179D:023A	C47E8F	 	LES DI, [BP-08]
+    179D:023D	03F8	 	ADD DI, AX
+    179D:023F	268915	 	MOV ES:[DI], DX
+    179D:0242	837EFE01 	CMP WORD PTR [BP-02], 1
+    179D:0246	75CB		JNZ 0213
+    ...
+
+[ Rutina que desencripta el codigo que accede a la llave ]
+
+Pondremos nuestro desvφo en la direcci≤n 179D:023Dh y quedarß con la siguiente
+forma:
+		...
+		C47EF8	 LES DI, [BP-08]
+    179D:023D	CD90	 INT 90
+		268915	 MOV ES:[DI], DX
+		...
+
+Podemos hacerlo desde el debugger pero para un cambio permanente tenemos que
+modificar directamente al ejecutable, esto lo podemos hacer con alg·n tipo de
+editor de archivos como ser el 'disquetitor' del 'MarronOrton Utilitis':
+
+C:\>COPY PROTECT.EXE ORIGINAL.EXE
+
+C:\>DISQUETITOR PROTECT.EXE /W
+
+Pedimos a este utilitario que busque la secuencia:
+
+    	C4 7E 8F 03 F8 26 8B 15 8B 46 FE D1 E0 C4 7E 8F 03 F8 26
+	8B 05 33 C2 8B D0 8B 46 FE D1 E0 C4 7E 8F 03 F8 26 89 15
+
+y cambiamos la ·ltima ocurrencia del '03 F8' con un 'CD 90' de tal manera que
+quede asφ:
+
+    	C4 7E 8F 03 F8 26 8B 15 8B 46 FE D1 E0 C4 7E 8F 03 F8 26
+	8B 05 33 C2 8B D0 8B 46 FE D1 E0 C4 7E 8F CD 90 26 89 15
+
+El 'CD' es el c≤digo de operaci≤n de la instrucci≤n INT, el siguiente byte es
+el tipo de interrupci≤n a generar, por eso 'CD 90' es el c≤digo de mßquina de
+la instrucci≤n 'INT 90h'.
+(Observar la salida generada por el debug del DOS cuando se lo utiliz≤ para
+obtener los c≤digos de operaci≤n de los INs y OUTs).
+Si ejecutamos el programa luego de grabar los cambios, el sistema se va a
+colgar ya que no hay ning·n vector vßlido para la INT 90h.
+Este problemita lo solucionamos con el programa residente LPT1CAP.ASM:
+
+--------------------BEGIN LPT1CAP.ASM----------------------------------
+;
+;LPT1CAP.ASM - (c) 1998 - Maruja
+;
+;Programa residente que captura todos los accesos al puerto LPT1
+;Se activa con 'INT 90h' y se desactiva con 'INT 91h'
+;
+
+.model tiny
+.code
+org 100h
+
+inicio:		jmp  Arranque
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+IN_BYTE		EQU	0ECh		;IN  AL, DX
+IN_WORD		EQU	0EDh		;IN  AX, DX
+OUT_BYTE	EQU	0EEh		;OUT DX, AL
+OUT_WORD	EQU	0EFh		;OUT DX, AX
+
+ES_OUT		EQU	32768		;Bit 15 flags
+ES_WORD		EQU	16384		;Bit 14 flags
+
+IPanterior	dw	0		;CS:IP Instruccion anterior
+CSanterior	dw	0
+
+lpt11		dw	?		;Direccion base (1er registro) de LPT1
+lpt13		dw	?		;Direccion 3er registro de LPT1
+
+TAMBUF		EQU	4096*8		;Longitud buffer (grande)
+buffer		db	TAMBUF	dup (0)	;Buffer temporal para datos capturados
+index		dw	0		;Posicion en buffer
+
+filename	db	'C:\LPT.DAT', 0	;Archivo con datos capturados
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+SetTrap:	push ax
+		push bp
+
+		mov  bp, sp
+		mov  ax, [bp+8]		;Obtener flags de la pila
+		or   ah, 1		;Activar bit T
+		mov  [bp+8], ax		;Colocar nuevos flags en la pila
+
+		push dx
+		push ds
+		push cs
+		pop  ds
+		mov  ax, 2501h		;Setear nuestro vector de int TRAP
+		lea  dx, Trap
+		int  21h
+		pop  ds
+		pop  dx
+
+		pop  bp
+		pop  ax
+
+
+	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+	; INSTRUCCION ORIGINAL EN EL ARCHIVO DE PROTECCION
+	; QUE FUE CAMBIADA POR EL 'INT 90h' (CD 90)
+	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+		ADD  DI, AX
+	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+		iret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+UnTrap:		push ax
+		push bp
+
+		mov  bp, sp
+		mov  ax, [bp+8]		;Obtener flags de la pila
+		and  ah, 0FEh		;Desactivar bit T
+		mov  [bp+8], ax		;Colocar nuevos flags en la pila
+
+		cmp  cs:index, 0	;El buffer está vacío ?
+		jz   UnTrap_salir	;Si: salir
+
+		push bx
+		push cx
+		push dx
+		push ds
+		push cs
+		pop  ds
+		call GrabarBuffer	;Forzar la grabacion del buffer
+		pop  ds
+		pop  dx
+		pop  cx
+		pop  bx
+
+UnTrap_salir:	pop  bp
+		pop  ax
+		iret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+Trap:
+	SP_INICIAL	EQU	$
+
+		push ax			;Salvar registros utilizados
+		push bx
+		push cx
+		push dx
+		push si
+		push ds
+		push bp
+
+	SP_FINAL	EQU	$
+
+		cmp  cs:CSanterior, 0	;CSanterior tiene un valor incorrecto ?
+		jz   Trap_salir		;Si: salir
+		
+		mov  si, cs:CSanterior
+		mov  ds, si
+		mov  si, cs:IPanterior	;DS:SI = CS:IP instrucción anterior
+		mov  cl, byte ptr [si]	;Obtener opcode 
+
+		cmp  cl, IN_BYTE	;El opcode es alguno entre
+		jb   Trap_salir		;IN_BYTE u OUT_WORD ?
+		cmp  cl, OUT_WORD
+		ja   Trap_salir		;No: salir
+
+		push cs
+		pop  ds
+		cmp  dx, lpt11		;Acceso a alguno de los puertos LPT1 ?
+		jb   Trap_salir
+		cmp  dx, lpt13
+		ja   Trap_salir		;No: salir
+
+		call CapturarAcceso
+
+Trap_salir:	mov  bp, sp		;Guardar CS:IP de proxima instruccion
+		mov  si, [bp + (SP_FINAL-SP_INICIAL)*2 + 2 ]
+		mov  cs:CSanterior, si
+		mov  si, [bp + (SP_FINAL-SP_INICIAL)*2 ]
+		mov  cs:IPanterior, si
+
+		pop  bp			;Recuperar registros y salir
+		pop  ds
+		pop  si
+		pop  dx
+		pop  cx
+		pop  bx
+		pop  ax
+		iret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+CapturarAcceso:	;AX = Dato; DX = Puerto; CL = Opcode
+
+		cmp  cl, OUT_WORD	;Es un OUT ?
+		je   CA_setout
+		cmp  cl, OUT_BYTE
+		jne  CA_verdata
+CA_setout:	or   dx, ES_OUT		;Si: setear bit 15
+
+CA_verdata:	cmp  cl, IN_WORD	;El dato es word ?
+		je   CA_setword
+		cmp  cl, OUT_WORD
+		jne  CA_push
+CA_setword:	or   dx, ES_WORD	;Si: setear bit 14
+
+CA_push:	lea  si, buffer		;Guardar estructura en buffer
+		add  si, index
+		mov  cx, CSanterior
+		mov  [si], cx		;Guardar CS
+		mov  cx, IPanterior
+		mov  [si+2], cx		;Guardar IP
+		mov  [si+4], dx		;Guardar Flags
+		mov  [si+6], ax		;Guardar Dato
+		add  index, 8		;Actualizar indice
+
+		cmp  index, TAMBUF	;El buffer esta lleno ?
+		je   GrabarBuffer	;Si: grabar buffer en disco
+
+		ret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+GrabarBuffer:	mov  ax, 3D02h		;Abrir archivo para L/E
+		lea  dx, filename
+		int  21h
+		jnc  GB_append
+		mov  ah, 3Ch		;Si no existe crearlo
+		xor  cx, cx
+		int  21h
+		jc   GB_salir		;Si hubo error salir
+
+GB_append:	mov  bx, ax		;Poner archivo en modo append
+		mov  ax, 4202h
+		xor  dx, dx
+		xor  cx, cx
+		int  21h
+
+		mov  ah, 40h		;Grabar buffer
+		mov  cx, index
+		lea  dx, buffer
+		int  21h
+
+		mov  ah, 3Eh		;Cerrar archivo
+		int  21h
+		mov  index, 0		;Resetear indice
+
+GB_salir:	ret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+FINRESID	EQU	$		;Aca termina el residente
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+SetearVectores:	mov  ax, 2590h		;Hacer que una INT 90h ejecute el
+		lea  dx, SetTrap	;codigo 'SetTrap'
+		int  21h
+
+		mov  ax, 2591h		;Hacer que una INT 91h ejecute el
+		lea  dx, UnTrap		;codigo 'UnTrap'
+		int  21h
+
+		mov  ax, 2501h		;Hacer que la interrupcion TRAP
+		lea  dx, Trap		;provoque la ejecucion del codigo
+		int  21h		;'Trap'
+
+		ret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+GetLPT1:	push es				;Obtener registros de LPT1
+		mov  di, 40h
+		mov  es, di
+		mov  di, 8			;ES:DI = 0040:0008h
+		mov  ax, word ptr es:[di]
+		mov  lpt11, ax			;lpt11 = Registro 1 LPT1
+		add  ax, 2
+		mov  lpt13, ax			;lpt13 = Registro 3 LPT1
+		pop  es
+		ret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+mok		db	13, 10, 'OK', 13, 10, '$'
+myaestoy	db	13, 10, 'Ya estaba residente', 13, 10, '$'
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+Arranque:	push ds				;El offset del vector de
+		xor  si, si			;interrupcion 90h es igual
+		mov  ds, si			;al offset de la SetTrap ?
+		mov  si, 240h
+		mov  ax, word ptr [si]
+		pop  ds
+		cmp  ax, offset SetTrap
+		jne  A_instalar			;No: instalar residente
+
+		lea  dx, myaestoy		;Como el residente ya estaba
+		mov  ah, 9			;instalado mostrar mensaje
+		int  21h			;y salir
+		mov  ax, 4C00h
+		int  21h
+
+A_instalar:	call GetLPT1			;Obtener direcciones de LPT1
+		call SetearVectores		;Setear nuevos vectores de ints
+		lea  dx, mok			;Mostrar mensaje 'OK'
+		mov  ah, 9
+		int  21h
+		mov  ax, 3100h			;Terminar y quedar residente
+		lea  dx, FINRESID
+		shr  dx, 4
+		inc  dx
+		int  21h
+
+end inicio
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+--------------------END LPT1CAP.ASM------------------------------------
+
+Operamos:
+
+C:\>TASM LPT1CAP.ASM
+...
+C:\>TLINK /t LPT1CAP
+...
+C:\>DEL LPT.DAT
+
+C:\>LPT1CAP
+
+OK
+
+C:\>LPT1CAP
+
+Ya estaba residente
+
+C:\>GESTION.EXE
+...
+...
+
+C:\>DIR *.DAT
+ Volumen en unidad C es PINDONGA
+ N·mero de serie de volumen es 2D4B-1CD6
+ Directorio de C:\
+
+Archivo no se encontr≤
+
+C:\>
+
+┐QuΘ pas≤ que no apareci≤ el archivo con los datos capturados? Nada malo: el
+nuevo buffer del residente tiene capacidad para 4096 accesos y el programa de
+protecci≤n no realiz≤ tantos, para vaciarlo usamos al programa FLUSH.ASM:
+
+--------------------BEGIN FLUSH.ASM------------------------------------
+;
+;FLUSH.ASM - (c) 1998 - Maruja
+;
+;Baja el contenido del buffer de la rutina TRAP residente a disco
+;
+
+.model tiny
+.code
+
+org 100h
+
+inicio:	int 91h
+	mov ax, 4C00h
+	int 21h
+
+end inicio
+--------------------END FLUSH.ASM--------------------------------------
+
+Luego:
+
+C:\>TASM FLUSH.ASM
+...
+C:\>TLINK /t FLUSH
+...
+C:\>FLUSH.COM
+
+C:\>DIR *.DAT
+
+ Volumen en unidad C es PINDONGA
+ N·mero de serie de volumen es 2D4B-1CD6
+ Directorio de C:\
+
+LPT      DAT     14032 06/09/98   23:10
+
+        1 archivo(s)       2048 bytes
+                   804409628 bytes libres
+		   
+C:\>
+
+íMuejejee! Se han hecho 1754 accesos en LPT1.
+
+Explicaci≤n de las rutinas de LPT1CAP.ASM:
+SetTrap:
+    Activa el TRAP bit, setea el propio vector para la interrupci≤n Trap y
+    ejecuta el c≤digo original del programa de protecci≤n que fuΘ alterado
+    por el 'INT 90h' en la rutina de desencripci≤n ('ADD DI, AX').
+    
+Arranque:
+    Se fija si el vector de la interrupci≤n 90h tiene el mismo offset que el
+    de la rutina 'SetTrap', si es asφ, asume que el residente ya estß instalado
+    y termina la ejecuci≤n del programa. En caso contrario, obtiene los puertos
+    de LPT1, cambia los vectores de las interrupciones utilizadas y sale al DOS
+    quedando residente.
+
+
+NOTA: Una forma mßs sencilla de provocar la interrupci≤n 90h puede hacerse en
+el momento en que el programa de protecci≤n setea los vectores de las
+interrupciones TRAP, NMI, y BII luego de producir esa 'colitis' utilizando la
+pila: íBasta solamente con cambiar el INT 21h por un INT 90h modificando
+solamente 1 byte del c≤digo original! Se opt≤ por ponerla en otra parte
+ya que este tipo de estupidismos por parte de los creadores de ese archivo no
+deberφa ser com·n, ademßs se demuestra que cualquier lugar estratΘgico es
+bueno, incluso dentro de un bucle.
+
+
+
+EMULANDO LA LLAVE DE HARDWARE:
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    NIVEL 1: ENGA╤ANDO AL PROGRAMA DE 'PROTECCION':
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    En este momento disponemos de las herramientas necesarias para capturar
+varios accesos a LPT1 y hacer un anßlisis mas o menos profundo del contenido
+de la llave y de la forma con la que el programa de protecci≤n accede a ella:
+
+C:\>REN LPT.DAT 1.DAT
+
+C:\>GESTION.EXE
+...
+C:\>FLUSH.COM
+
+C:\>REN LPT.DAT 2.DAT
+
+C:\>GESTION.EXE
+...
+C:\>FLUSH.COM
+
+C:\>REN LPT.DAT 3.DAT
+
+C:\>GESTION.EXE
+...
+C:\>FLUSH.COM
+
+C:\>REN LPT.DAT 4.DAT
+
+C:\>GESTION.EXE
+...
+C:\>FLUSH.COM
+
+C:\>REN LPT.DAT 5.DAT
+
+C:\>DIR C:\*.DAT
+
+ Volumen en unidad C es PINDONGA
+ N·mero de serie de volumen es 2D4B-1CD6
+ Directorio de C:\
+ 
+1        DAT     14032 10/09/98   18:09
+2        DAT     14912 10/09/98   18:10
+3        DAT     15488 10/09/98   18:10
+4        DAT     14048 10/09/98   18:11
+5        DAT     15792 10/09/98   18:11
+        5 archivo(s)      74272 bytes
+                   757170176 bytes libres
+
+C:\>
+
+íOoohh! íParece que los muchachos quieren guerra! 
+Por cada ejecuci≤n se hicieron 1754, 1864, 1936, 1756, y 1974 accesos
+respectivamente, veamos el contenido del primero:
+
+C:\>IOVIEW 1.DAT
+
+Archivo: '1.DAT'
+1BCB:0854	IN	278, 00  	(BYTE)
+1BCB:0861	OUT	278, 55  	(BYTE)
+1BCB:0865	IN	278, 55  	(BYTE)
+1BCB:0874	OUT	278, AA  	(BYTE)
+1BCB:0878	IN	278, AA  	(BYTE)
+1BCB:0887	OUT	278, 00  	(BYTE)
+1BCB:00E2	IN	278, 00  	(BYTE)
+1BCB:00F9	IN	27A, CC  	(BYTE)
+1BCB:00FF	OUT	27A, CC  	(BYTE)
+1BCB:010D	OUT	278, 92  	(BYTE)
+1BCB:011D	OUT	278, B2  	(BYTE)
+1BCB:014A	IN	279, 96  	(BYTE)
+1BCB:0195	OUT	278, 40  	(BYTE)
+1BCB:01B8	OUT	278, 00  	(BYTE)
+1BCB:0195	OUT	278, FA  	(BYTE)
+1BCB:01B8	OUT	278, BA  	(BYTE)
+1BCB:0195	OUT	278, F8  	(BYTE)
+1BCB:01B8	OUT	278, B8  	(BYTE)
+1BCB:0195	OUT	278, F2  	(BYTE)
+1BCB:01B8	OUT	278, B2  	(BYTE)
+1BCB:0195	OUT	278, F0  	(BYTE)
+1BCB:01B8	OUT	278, B0  	(BYTE)
+1BCB:0195	OUT	278, EA  	(BYTE)
+1BCB:01B8	OUT	278, AA  	(BYTE)
+1BCB:0195	OUT	278, E8  	(BYTE)
+1BCB:01B8	OUT	278, A8  	(BYTE)
+1BCB:0195	OUT	278, E2  	(BYTE)
+1BCB:01B8	OUT	278, A2  	(BYTE)
+1BCB:0195	OUT	278, E0  	(BYTE)
+1BCB:01B8	OUT	278, A0  	(BYTE)
+1BCB:0195	OUT	278, DA  	(BYTE)
+1BCB:01B8	OUT	278, 9A  	(BYTE)
+1BCB:0195	OUT	278, D8  	(BYTE)
+1BCB:01B8	OUT	278, 98  	(BYTE)
+1BCB:0195	OUT	278, D2  	(BYTE)
+1BCB:01B8	OUT	278, 92  	(BYTE)
+1BCB:0195	OUT	278, D0  	(BYTE)
+1BCB:01B8	OUT	278, 90  	(BYTE)
+1BCB:0195	OUT	278, CA  	(BYTE)
+1BCB:01B8	OUT	278, 8A  	(BYTE)
+1BCB:0195	OUT	278, C8  	(BYTE)
+1BCB:01B8	OUT	278, 88  	(BYTE)
+1BCB:0195	OUT	278, C2  	(BYTE)
+1BCB:01B8	OUT	278, 82  	(BYTE)
+1BCB:0195	OUT	278, C0  	(BYTE)
+1BCB:01B8	OUT	278, 80  	(BYTE)
+1BCB:0195	OUT	278, 7A  	(BYTE)
+1BCB:01B8	OUT	278, 3A  	(BYTE)
+1BCB:0195	OUT	278, 78  	(BYTE)
+1BCB:01B8	OUT	278, 38  	(BYTE)
+1BCB:0195	OUT	278, 72  	(BYTE)
+1BCB:01B8	OUT	278, 32  	(BYTE)
+1BCB:0195	OUT	278, 70  	(BYTE)
+1BCB:01B8	OUT	278, 30  	(BYTE)
+1BCB:0195	OUT	278, 6A  	(BYTE)
+1BCB:01B8	OUT	278, 2A  	(BYTE)
+1BCB:0195	OUT	278, 68  	(BYTE)
+1BCB:01B8	OUT	278, 28  	(BYTE)
+1BCB:0195	OUT	278, 62  	(BYTE)
+1BCB:01B8	OUT	278, 22  	(BYTE)
+1BCB:0195	OUT	278, 60  	(BYTE)
+1BCB:01B8	OUT	278, 20  	(BYTE)
+1BCB:0195	OUT	278, 5A  	(BYTE)
+1BCB:01B8	OUT	278, 1A  	(BYTE)
+1BCB:01C5	OUT	278, A2  	(BYTE)
+1BCB:01EC	OUT	278, E2  	(BYTE)
+1BCB:020F	OUT	278, A2  	(BYTE)
+1BCB:0219	OUT	278, B2  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:0244	OUT	278, F2  	(BYTE)
+1BCB:0267	OUT	278, B2  	(BYTE)
+1BCB:0272	IN	279, 96  	(BYTE)
+1BCB:02FD	OUT	278, 40  	(BYTE)
+1BCB:0320	OUT	278, 00  	(BYTE)
+1BCB:02FD	OUT	278, FA  	(BYTE)
+1BCB:0320	OUT	278, BA  	(BYTE)
+1BCB:02FD	OUT	278, F8  	(BYTE)
+1BCB:0320	OUT	278, B8  	(BYTE)
+1BCB:02FD	OUT	278, F2  	(BYTE)
+1BCB:0320	OUT	278, B2  	(BYTE)
+1BCB:02FD	OUT	278, F0  	(BYTE)
+1BCB:0320	OUT	278, B0  	(BYTE)
+1BCB:02FD	OUT	278, EA  	(BYTE)
+1BCB:0320	OUT	278, AA  	(BYTE)
+1BCB:02FD	OUT	278, E8  	(BYTE)
+1BCB:0320	OUT	278, A8  	(BYTE)
+1BCB:02FD	OUT	278, E2  	(BYTE)
+1BCB:0320	OUT	278, A2  	(BYTE)
+1BCB:02FD	OUT	278, E0  	(BYTE)
+1BCB:0320	OUT	278, A0  	(BYTE)
+1BCB:02FD	OUT	278, DA  	(BYTE)
+1BCB:0320	OUT	278, 9A  	(BYTE)
+1BCB:02FD	OUT	278, D8  	(BYTE)
+1BCB:0320	OUT	278, 98  	(BYTE)
+1BCB:02FD	OUT	278, D2  	(BYTE)
+1BCB:0320	OUT	278, 92  	(BYTE)
+1BCB:02FD	OUT	278, D0  	(BYTE)
+1BCB:0320	OUT	278, 90  	(BYTE)
+1BCB:02FD	OUT	278, CA  	(BYTE)
+1BCB:0320	OUT	278, 8A  	(BYTE)
+1BCB:02FD	OUT	278, C8  	(BYTE)
+1BCB:0320	OUT	278, 88  	(BYTE)
+1BCB:02FD	OUT	278, C2  	(BYTE)
+1BCB:0320	OUT	278, 82  	(BYTE)
+1BCB:02FD	OUT	278, C0  	(BYTE)
+1BCB:0320	OUT	278, 80  	(BYTE)
+1BCB:02FD	OUT	278, 7A  	(BYTE)
+1BCB:0320	OUT	278, 3A  	(BYTE)
+1BCB:02FD	OUT	278, 78  	(BYTE)
+1BCB:0320	OUT	278, 38  	(BYTE)
+1BCB:02FD	OUT	278, 72  	(BYTE)
+1BCB:0320	OUT	278, 32  	(BYTE)
+1BCB:02FD	OUT	278, 70  	(BYTE)
+1BCB:0320	OUT	278, 30  	(BYTE)
+1BCB:02FD	OUT	278, 6A  	(BYTE)
+1BCB:0320	OUT	278, 2A  	(BYTE)
+1BCB:02FD	OUT	278, 68  	(BYTE)
+1BCB:0320	OUT	278, 28  	(BYTE)
+1BCB:02FD	OUT	278, 62  	(BYTE)
+1BCB:0320	OUT	278, 22  	(BYTE)
+1BCB:02FD	OUT	278, 60  	(BYTE)
+1BCB:0320	OUT	278, 20  	(BYTE)
+1BCB:02FD	OUT	278, 5A  	(BYTE)
+1BCB:0320	OUT	278, 1A  	(BYTE)
+1BCB:02FD	OUT	278, 58  	(BYTE)
+1BCB:0320	OUT	278, 18  	(BYTE)
+1BCB:02FD	OUT	278, 52  	(BYTE)
+1BCB:0320	OUT	278, 12  	(BYTE)
+1BCB:02FD	OUT	278, 50  	(BYTE)
+1BCB:0320	OUT	278, 10  	(BYTE)
+1BCB:02FD	OUT	278, 4A  	(BYTE)
+1BCB:0320	OUT	278, 0A  	(BYTE)
+1BCB:02FD	OUT	278, 48  	(BYTE)
+1BCB:0320	OUT	278, 08  	(BYTE)
+1BCB:02FD	OUT	278, 42  	(BYTE)
+1BCB:0320	OUT	278, 02  	(BYTE)
+1BCB:02FD	OUT	278, 40  	(BYTE)
+1BCB:0320	OUT	278, 00  	(BYTE)
+1BCB:02FD	OUT	278, FA  	(BYTE)
+1BCB:0320	OUT	278, BA  	(BYTE)
+1BCB:02FD	OUT	278, F8  	(BYTE)
+1BCB:0320	OUT	278, B8  	(BYTE)
+1BCB:02FD	OUT	278, F2  	(BYTE)
+1BCB:0320	OUT	278, B2  	(BYTE)
+1BCB:032D	OUT	278, 92  	(BYTE)
+1BCB:0338	IN	279, 96  	(BYTE)
+1BCB:0357	OUT	27A, 0C  	(BYTE)
+1BCB:07CD	OUT	278, 00  	(BYTE)
+1BCB:00E2	IN	278, 00  	(BYTE)
+1BCB:040B	IN	278, 00  	(BYTE)
+1BCB:0423	OUT	278, 73  	(BYTE)
+1BCB:0435	OUT	27A, 0C  	(BYTE)
+1BCB:043F	IN	27A, CC  	(BYTE)
+1BCB:0474	OUT	278, 05  	(BYTE)
+1BCB:0484	OUT	278, 85  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 85  	(BYTE)
+1BCB:04F8	OUT	278, A5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:0498	OUT	278, 85  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0398	OUT	278, 85  	(BYTE)
+1BCB:03AA	OUT	27A, 04  	(BYTE)
+1BCB:03B8	OUT	278, C5  	(BYTE)
+1BCB:03C4	OUT	278, 85  	(BYTE)
+1BCB:03D6	OUT	27A, 0C  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 85  	(BYTE)
+1BCB:04F8	OUT	278, A5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:0498	OUT	278, 85  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 86  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 86  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 86  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 86  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 86  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 86  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 86  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 86  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0474	OUT	278, 05  	(BYTE)
+1BCB:0484	OUT	278, 85  	(BYTE)
+1BCB:0398	OUT	278, 85  	(BYTE)
+1BCB:03AA	OUT	27A, 04  	(BYTE)
+1BCB:03B8	OUT	278, C5  	(BYTE)
+1BCB:03C4	OUT	278, 85  	(BYTE)
+1BCB:03D6	OUT	27A, 0C  	(BYTE)
+1BCB:04E8	OUT	278, 97  	(BYTE)
+1BCB:04F8	OUT	278, B7  	(BYTE)
+1BCB:04E8	OUT	278, 97  	(BYTE)
+1BCB:04F8	OUT	278, B7  	(BYTE)
+1BCB:04E8	OUT	278, 87  	(BYTE)
+1BCB:04F8	OUT	278, A7  	(BYTE)
+1BCB:04E8	OUT	278, 87  	(BYTE)
+1BCB:04F8	OUT	278, A7  	(BYTE)
+1BCB:04E8	OUT	278, 87  	(BYTE)
+1BCB:04F8	OUT	278, A7  	(BYTE)
+1BCB:04E8	OUT	278, 87  	(BYTE)
+1BCB:04F8	OUT	278, A7  	(BYTE)
+1BCB:04E8	OUT	278, 87  	(BYTE)
+1BCB:04F8	OUT	278, A7  	(BYTE)
+1BCB:04E8	OUT	278, 87  	(BYTE)
+1BCB:04F8	OUT	278, A7  	(BYTE)
+1BCB:04E8	OUT	278, 87  	(BYTE)
+1BCB:04F8	OUT	278, A7  	(BYTE)
+1BCB:05A5	OUT	278, 85  	(BYTE)
+1BCB:05B1	OUT	278, 95  	(BYTE)
+1BCB:05C4	IN	279, 86  	(BYTE)
+1BCB:05F7	OUT	278, A5  	(BYTE)
+1BCB:0602	IN	279, 86  	(BYTE)
+1BCB:0616	OUT	278, 95  	(BYTE)
+1BCB:0638	IN	279, 96  	(BYTE)
+1BCB:05F7	OUT	278, A5  	(BYTE)
+1BCB:0602	IN	279, 96  	(BYTE)
+1BCB:0616	OUT	278, 95  	(BYTE)
+1BCB:0638	IN	279, 96  	(BYTE)
+1BCB:05F7	OUT	278, A5  	(BYTE)
+1BCB:0602	IN	279, 96  	(BYTE)
+1BCB:0616	OUT	278, 95  	(BYTE)
+1BCB:0638	IN	279, 96  	(BYTE)
+1BCB:05F7	OUT	278, A5  	(BYTE)
+1BCB:0602	IN	279, 96  	(BYTE)
+1BCB:0616	OUT	278, 95  	(BYTE)
+1BCB:0638	IN	279, 96  	(BYTE)
+1BCB:05F7	OUT	278, A5  	(BYTE)
+1BCB:0602	IN	279, 96  	(BYTE)
+1BCB:0616	OUT	278, 95  	(BYTE)
+1BCB:0638	IN	279, 96  	(BYTE)
+1BCB:05F7	OUT	278, A5  	(BYTE)
+1BCB:0602	IN	279, 96  	(BYTE)
+1BCB:0616	OUT	278, 95  	(BYTE)
+1BCB:0638	IN	279, 86  	(BYTE)
+1BCB:05F7	OUT	278, A5  	(BYTE)
+1BCB:0602	IN	279, 86  	(BYTE)
+1BCB:0616	OUT	278, 95  	(BYTE)
+1BCB:0638	IN	279, 86  	(BYTE)
+1BCB:0474	OUT	278, 05  	(BYTE)
+1BCB:0484	OUT	278, 85  	(BYTE)
+1BCB:0398	OUT	278, 85  	(BYTE)
+1BCB:03AA	OUT	27A, 04  	(BYTE)
+1BCB:03B8	OUT	278, C5  	(BYTE)
+1BCB:03C4	OUT	278, 85  	(BYTE)
+1BCB:03D6	OUT	27A, 0C  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 85  	(BYTE)
+1BCB:04F8	OUT	278, A5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 85  	(BYTE)
+1BCB:04F8	OUT	278, A5  	(BYTE)
+1BCB:04E8	OUT	278, 85  	(BYTE)
+1BCB:04F8	OUT	278, A5  	(BYTE)
+1BCB:0498	OUT	278, 85  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 86  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 86  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 86  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 86  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 86  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 86  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 86  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 86  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 86  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 86  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 86  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 86  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 86  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 86  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 86  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 86  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 86  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 86  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 86  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0474	OUT	278, 05  	(BYTE)
+1BCB:0484	OUT	278, 85  	(BYTE)
+1BCB:040B	IN	278, 85  	(BYTE)
+1BCB:0423	OUT	278, 73  	(BYTE)
+1BCB:0435	OUT	27A, 0C  	(BYTE)
+1BCB:043F	IN	27A, CC  	(BYTE)
+1BCB:0474	OUT	278, 05  	(BYTE)
+1BCB:0484	OUT	278, 85  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 85  	(BYTE)
+1BCB:04F8	OUT	278, A5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:0498	OUT	278, 85  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0398	OUT	278, 85  	(BYTE)
+1BCB:03AA	OUT	27A, 04  	(BYTE)
+1BCB:03B8	OUT	278, C5  	(BYTE)
+1BCB:03C4	OUT	278, 85  	(BYTE)
+1BCB:03D6	OUT	27A, 0C  	(BYTE)
+1BCB:03EE	OUT	278, C5  	(BYTE)
+1BCB:03FA	OUT	278, 85  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 85  	(BYTE)
+1BCB:04F8	OUT	278, A5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:0498	OUT	278, 85  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:040B	IN	278, 95  	(BYTE)
+1BCB:0423	OUT	278, 73  	(BYTE)
+1BCB:0435	OUT	27A, 0C  	(BYTE)
+1BCB:043F	IN	27A, CC  	(BYTE)
+1BCB:0474	OUT	278, 05  	(BYTE)
+1BCB:0484	OUT	278, 85  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 85  	(BYTE)
+1BCB:04F8	OUT	278, A5  	(BYTE)
+1BCB:04E8	OUT	278, 85  	(BYTE)
+1BCB:04F8	OUT	278, A5  	(BYTE)
+1BCB:04E8	OUT	278, 85  	(BYTE)
+1BCB:04F8	OUT	278, A5  	(BYTE)
+1BCB:04E8	OUT	278, 85  	(BYTE)
+1BCB:04F8	OUT	278, A5  	(BYTE)
+1BCB:04E8	OUT	278, 85  	(BYTE)
+1BCB:04F8	OUT	278, A5  	(BYTE)
+1BCB:04E8	OUT	278, 85  	(BYTE)
+1BCB:04F8	OUT	278, A5  	(BYTE)
+1BCB:04E8	OUT	278, 85  	(BYTE)
+1BCB:04F8	OUT	278, A5  	(BYTE)
+1BCB:0498	OUT	278, 85  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0398	OUT	278, 85  	(BYTE)
+1BCB:03AA	OUT	27A, 04  	(BYTE)
+1BCB:03B8	OUT	278, C5  	(BYTE)
+1BCB:03C4	OUT	278, 85  	(BYTE)
+1BCB:03D6	OUT	27A, 0C  	(BYTE)
+1BCB:03EE	OUT	278, C5  	(BYTE)
+1BCB:03FA	OUT	278, 85  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 95  	(BYTE)
+1BCB:04F8	OUT	278, B5  	(BYTE)
+1BCB:04E8	OUT	278, 85  	(BYTE)
+1BCB:04F8	OUT	278, A5  	(BYTE)
+1BCB:04E8	OUT	278, 85  	(BYTE)
+1BCB:04F8	OUT	278, A5  	(BYTE)
+1BCB:04E8	OUT	278, 85  	(BYTE)
+1BCB:04F8	OUT	278, A5  	(BYTE)
+1BCB:04E8	OUT	278, 85  	(BYTE)
+1BCB:04F8	OUT	278, A5  	(BYTE)
+1BCB:04E8	OUT	278, 85  	(BYTE)
+1BCB:04F8	OUT	278, A5  	(BYTE)
+1BCB:04E8	OUT	278, 85  	(BYTE)
+1BCB:04F8	OUT	278, A5  	(BYTE)
+1BCB:04E8	OUT	278, 85  	(BYTE)
+1BCB:04F8	OUT	278, A5  	(BYTE)
+1BCB:0498	OUT	278, 85  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:0515	OUT	278, A5  	(BYTE)
+1BCB:0521	OUT	278, 95  	(BYTE)
+1BCB:0537	OUT	278, 85  	(BYTE)
+1BCB:0543	OUT	278, 95  	(BYTE)
+1BCB:0561	IN	279, 96  	(BYTE)
+1BCB:07CD	OUT	278, 00  	(BYTE)
+
+íQue lo pari≤! Si hacemos lo mismo con los otros archivos observaremos cosas
+similarmente asquerosas.
+íPero no os desesperΘis! íPensad! íPensad un cachito!
+Por un lado se observa que la cantidad de accesos a la llave es variable por
+cada ejecuci≤n del programa de protecci≤n, pero por otro lado se sabe que los
+datos de la llave se utilizan para desencriptar al programa protegido, podemos
+inferir entonces que lo que se lee es siempre lo mismo (pueden haber
+variaciones con los OUTs pero los INs deberφan ser siempre iguales).
+Verificamos esta sospecha con el programa IOINS.C:
+
+--------------------BEGIN IOINS.C--------------------------------------
+/*
+** IOINS.C - (c) 1998 - Maruja
+** Muestra (en forma entendible) los datos capturados en operaciones IN
+**
+** Modo de uso:  IOINS &lt;file>
+** Donde &lt;file> es el nombre del archivo con los datos
+*/
+
+
+#include &lt;stdio.h>
+#include &lt;stdlib.h>
+
+
+/* Teseteo de Flags */
+#define TEST_OUT(flag)		(flag & 32768)		/* bit 15 = OUT */
+#define TEST_WORD(flag)		(flag & 16384)		/* bit 14 = WORD */
+#define GET_PORT(flag)		(flag & 2047)
+
+
+/* Estructura basica */
+typedef struct {
+
+    unsigned int	cs, 
+			ip, 
+			flags, 
+			data;
+
+    } TRAP;
+
+
+
+int main (int can, char *arg[])
+{
+FILE	*f;
+TRAP	i;
+
+
+/* Verificar que se encuentre el nombre del file */
+if (can < 2) {
+
+	fprintf (stderr, 
+		 "%s: Falta el nombre del archivo con los datos capturados\n\r",
+		 arg[0]);
+
+	exit (-1);
+
+	}
+
+
+/* Abrir archivo de datos */
+if (! (f = fopen (arg[1], "rb")) ) {
+
+	fprintf (stderr, "%s: ", arg[0]);
+	perror (arg[1]);
+	exit (-1);
+
+	}
+
+
+/* Mostrar informacion */
+printf ("\nArchivo: '%s'", arg[1]);
+for (;;) {
+
+	/* Leer estructura */
+	if (!fread (&i, sizeof (TRAP), 1, f)) break;
+
+	/* Mostrar en forma humana */
+	if (!TEST_OUT(i.flags)) {
+		
+		printf ("\n%04X:%04X\tIN\t%03X, ", i.cs, i.ip, 
+							GET_PORT(i.flags));
+
+		if (TEST_WORD(i.flags))
+
+			printf ("%04X\t(WORD)", i.data);
+
+		else printf ("%02X  \t(BYTE)", i.data & 255);
+
+		}
+
+	}
+
+printf ("\n");
+return 0;
+}
+--------------------END IOINS.C----------------------------------------
+
+Hagamos lo siguiente:
+
+C:\>CC IOINS.C
+..
+C:\>IOINS 1.DAT > IN1.ASC
+
+C:\>IOINS 2.DAT > IN2.ASC
+
+C:\>IOINS 3.DAT > IN3.ASC
+
+C:\>IOINS 4.DAT > IN4.ASC
+
+C:\>IOINS 5.DAT > IN5.ASC
+
+C:\>DIR C:\IN*.ASC
+
+ Volumen en unidad C es PINDONGA
+ N·mero de serie de volumen es 2D4B-1CD6
+ Directorio de C:\
+
+IN1      ASC     13784 15/09/98    0:15
+IN2      ASC     13784 15/09/98    0:16
+IN3      ASC     13784 15/09/98    0:16
+IN4      ASC     13784 15/09/98    0:17
+IN5      ASC     13784 15/09/98    0:17
+        5 archivo(s)      68920 bytes
+                   757334016 bytes libres
+
+C:\>
+
+[ Jejejejeje... La cantidad de INs es siempre la misma. Veamos si los datos
+tambien son los mismos... ]
+
+C:\>FC IN1.ASC IN2.ASC
+Comparando archivos IN1.ASC y IN2.ASC
+***** IN1.ASC
+
+Archivo: '1.DAT'
+1BCB:0854       IN      278, 00         (BYTE)
+***** IN2.ASC
+
+Archivo: '2.DAT'
+1BCB:0854       IN      278, 00         (BYTE)
+*****
+
+C:\>FC IN1.ASC IN3.ASC
+Comparando archivos IN1.ASC y IN3.ASC
+***** IN1.ASC
+
+Archivo: '1.DAT'
+1BCB:0854       IN      278, 00         (BYTE)
+***** IN3.ASC
+
+Archivo: '3.DAT'
+1BCB:0854       IN      278, 00         (BYTE)
+*****
+
+C:\>FC IN1.ASC IN4.ASC
+Comparando archivos IN1.ASC y IN4.ASC
+***** IN1.ASC
+
+Archivo: '1.DAT'
+1BCB:0854       IN      278, 00         (BYTE)
+***** IN4.ASC
+
+Archivo: '4.DAT'
+1BCB:0854       IN      278, 00         (BYTE)
+*****
+
+C:\>FC IN1.ASC IN5.ASC
+Comparando archivos IN1.ASC y IN5.ASC
+***** IN1.ASC
+
+Archivo: '1.DAT'
+1BCB:0854       IN      278, 00         (BYTE)
+***** IN5.ASC
+
+Archivo: '5.DAT'
+1BCB:0854       IN      278, 00         (BYTE)
+*****
+
+C:\>
+
+Jurujujßja... Sabemos que los 5 archivos tienen los mismos datos leφdos y
+que las operaciones son de a bytes (osea: 'IN AL,DX' y 'OUT DX,AL').
+Para poner los datos de la llave en un programa emulador necesitamos un
+conversor .DAT a .ASM, el programa DBIN.C se encarga de esto:
+
+--------------------BEGIN DBIN.C---------------------------------------
+/*
+** DBIN.C - (c) 1998 - Maruja
+** Muestra (en forma de codigo para ensamblador) los datos 
+** capturados en operaciones IN en orden de aparicion
+**
+** Modo de uso:  DBIN &lt;file>
+** Donde &lt;file> es el nombre del archivo con los datos
+**
+** IMPORTANTE: LOS DATOS DEBEN SER TODOS BYTES!! (IN AL, XX)
+*/
+
+
+#include &lt;stdio.h>
+#include &lt;stdlib.h>
+
+
+/* Bytes por linea */
+#define COLUMNAS		10
+
+
+/* Teseteo de Flags */
+#define TEST_OUT(flag)		(flag & 32768)		/* bit 15 = OUT */
+#define TEST_WORD(flag)		(flag & 16384)		/* bit 14 = WORD */
+#define GET_PORT(flag)		(flag & 2047)
+
+
+/* Estructura basica */
+typedef struct {
+
+    unsigned int	cs, 
+			ip, 
+			flags, 
+			data;
+
+    } TRAP;
+
+
+
+int main (int can, char *arg[])
+{
+FILE	*f;
+TRAP	i;
+int	cols,
+	datos;
+
+
+/* Verificar que se encuentre el nombre del file */
+if (can < 2) {
+
+	fprintf (stderr, 
+		 "%s: Falta el nombre del archivo con los datos capturados\n\r",
+		 arg[0]);
+
+	exit (-1);
+
+	}
+
+
+/* Abrir archivo de datos */
+if (! (f = fopen (arg[1], "rb")) ) {
+
+	fprintf (stderr, "%s: ", arg[0]);
+	perror (arg[1]);
+	exit (-1);
+
+	}
+
+
+/* Mostrar informacion */
+datos = 0;
+cols = 0;
+for (;;) {
+
+    /* Leer estructura */
+    if (!fread (&i, sizeof (TRAP), 1, f)) break;
+
+
+    /* Solamente si es IN */
+    if (!TEST_OUT(i.flags) ) {
+
+	/* Contador de cantidad de INs */
+	datos++;
+
+	/* Iniciar linea */
+	if (!cols) printf ("\n\t\tdb\t");
+
+	/* Mostrar en decimal */
+	printf ("%03u", i.data & 255);
+	if (++cols == COLUMNAS) cols = 0;
+	else printf (", ");
+
+	}
+
+    }
+
+/* Mostrar cantidad de datos */
+printf ("\n\nKEYBUF\t\tEQU\t%u\n", datos);
+return 0;
+}
+--------------------END DBIN.C-----------------------------------------
+
+Ojo: Este programa asume que los INs son de la forma 'IN AL,DX'. Si el lector
+estß experimentando con otra implementaci≤n del programa de protecci≤n debe
+hacer los cambios pertinentes.
+Al compilar y ejecutar obtenemos:
+
+C:\>CC DBIN.C
+..
+C:\>DBIN 1.DAT > 1.ASM
+
+C:\>DBIN 2.DAT > 2.ASM
+
+C:\>DBIN 3.DAT > 3.ASM
+
+C:\>DBIN 4.DAT > 4.ASM
+
+C:\>DBIN 5.DAT > 5.ASM
+
+C:\>DIR C:\?.ASM
+
+ Volumen en unidad C es PINDONGA
+ N·mero de serie de volumen es 2D4B-1CD6
+ Directorio de C:\
+
+1        ASM      2468 16/09/98   22:14
+2        ASM      2468 16/09/98   22:14
+3        ASM      2468 16/09/98   22:14
+4        ASM      2468 16/09/98   22:14
+5        ASM      2468 16/09/98   22:14
+        5 archivo(s)      12340 bytes
+                   756776960 bytes libres
+
+C:\>FC 1.ASM 2.ASM
+Comparando archivos 1.ASM y 2.ASM
+FC: no se encontraron diferencias
+
+C:\>FC 1.ASM 3.ASM
+Comparando archivos 1.ASM y 3.ASM
+FC: no se encontraron diferencias
+
+C:\>FC 1.ASM 4.ASM
+Comparando archivos 1.ASM y 4.ASM
+FC: no se encontraron diferencias
+
+C:\>FC 1.ASM 5.ASM
+Comparando archivos 1.ASM y 5.ASM
+FC: no se encontraron diferencias
+
+C:\>TYPE 1.ASM
+
+		db	000, 085, 170, 000, 204, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 000, 000, 204, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 134, 134, 150, 134, 134, 150
+		db	134, 150, 134, 134, 134, 150, 150, 134, 134, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 134
+		db	134, 134, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 134, 134, 134, 134, 134, 134
+		db	134, 134, 150, 150, 150, 134, 150, 134, 134, 150
+		db	150, 150, 150, 134, 134, 150, 134, 134, 150, 134
+		db	150, 134, 134, 134, 150, 150, 133, 204, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	149, 204, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 
+
+KEYBUF		EQU	444
+
+C:\>
+
+Sabiendo que:
+    1. Para leer se utiliza SIEMPRE la instrucci≤n 'IN AL,DX';
+    2. Se leen SIEMPRE la misma cantidad de datos;
+    3. Se leen SIEMPRE los mismos datos;
+el programa KEYEMU1.ASM puede enga±ar perfectamente al archivo de protecci≤n:
+
+--------------------BEGIN KEYEMU1.ASM-----------------------------------
+;
+;KEYEMU1.ASM - (c) 1998 - Maruja
+;
+;Programa residente de prueba que emula la llave de harware
+;marca 'SOStuare Look' que protege a un programa berreta de facturacion
+;
+;Confunde al programa de proteccion pero no al programa protegido
+;
+
+.model tiny
+.code
+org 100h
+
+inicio:		jmp  Arranque
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+IN_BYTE		EQU	0ECh		;IN  AL, DX
+
+IPanterior	dw	0		;CS:IP Instruccion anterior
+CSanterior	dw	0
+
+lpt11		dw	?		;Direccion base (1er registro) de LPT1
+lpt13		dw	?		;Direccion 3er registro de LPT1
+
+KEYBUF		EQU	444
+keyindex	dw	0
+keydata		db	000, 085, 170, 000, 204, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 000, 000, 204, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 134, 134, 150, 134, 134, 150
+		db	134, 150, 134, 134, 134, 150, 150, 134, 134, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 134
+		db	134, 134, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 134, 134, 134, 134, 134, 134
+		db	134, 134, 150, 150, 150, 134, 150, 134, 134, 150
+		db	150, 150, 150, 134, 134, 150, 134, 134, 150, 134
+		db	150, 134, 134, 134, 150, 150, 133, 204, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	149, 204, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+SetTrap:	push ax
+		push bp
+
+		mov  bp, sp
+		mov  ax, [bp+8]		;Obtener flags de la pila
+		or   ah, 1		;Activar bit T
+		mov  [bp+8], ax		;Colocar nuevos flags en la pila
+
+		push dx
+		push ds
+		push cs
+		pop  ds
+		mov  ax, 2501h		;Setear nuestro vector de int TRAP
+		lea  dx, Trap
+		int  21h
+		pop  ds
+		pop  dx
+
+		pop  bp
+		pop  ax
+
+	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+	; INSTRUCCION ORIGINAL EN EL ARCHIVO DE PROTECCION
+	; QUE FUE CAMBIADA POR EL 'INT 90h' (CD 90)
+	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+		ADD  DI, AX
+	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+		iret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+UnTrap:		push ax
+		push bp
+
+		mov  bp, sp
+		mov  ax, [bp+8]		;Obtener flags de la pila
+		and  ah, 0FEh		;Desactivar bit T
+		mov  [bp+8], ax		;Colocar nuevos flags en la pila
+
+		mov  cs:keyindex, 0	;Resetear posicion en buffer de llave
+
+		pop  bp
+		pop  ax
+		iret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+Trap:
+	SP_INICIAL	EQU	$
+
+		push cx			;Salvar registros utilizados
+		push si
+		push ds
+		push bp
+
+	SP_FINAL	EQU	$
+
+		cmp  cs:CSanterior, 0	;CSanterior tiene un valor incorrecto ?
+		jz   Trap_salir		;Si: salir
+		
+		mov  si, cs:CSanterior
+		mov  ds, si
+		mov  si, cs:IPanterior	;DS:SI = CS:IP instruccion anterior
+		mov  cl, byte ptr [si]	;Obtener opcode 
+
+		cmp  cl, IN_BYTE	;El opcode es IN_BYTE ?
+		jne  Trap_salir		;No: salir
+
+		push cs
+		pop  ds
+		cmp  dx, lpt11		;Acceso a alguno de los puertos LPT1 ?
+		jb   Trap_salir
+		cmp  dx, lpt13
+		ja   Trap_salir		;No: salir
+
+		call EmularKey		;Si: emular llave
+
+Trap_salir:	mov  bp, sp		;Guardar CS:IP de proxima instruccion
+		mov  si, [bp + (SP_FINAL-SP_INICIAL)*2 + 2 ]
+		mov  cs:CSanterior, si
+		mov  si, [bp + (SP_FINAL-SP_INICIAL)*2 ]
+		mov  cs:IPanterior, si
+
+		pop  bp			;Recuperar registros y salir
+		pop  ds
+		pop  si
+		pop  cx
+		iret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+EmularKey:	;En AL pone el mismo dato que pondria la llave
+
+		lea  si, keydata	;Posicionarse en el buffer
+		add  si, keyindex
+		mov  al, byte ptr [si]	;Obtener dato de la llave ;)
+
+		inc  keyindex
+		cmp  keyindex, KEYBUF	;Ya llego al ultimo dato ?
+		jne  EK_salir
+
+		mov  keyindex, 0	;Si: resetear posicion en el buffer
+
+EK_salir:	ret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+FINRESID	EQU	$		;Aca termina el residente
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+SetearVectores:	mov  ax, 2590h		;Hacer que una INT 90h ejecute el
+		lea  dx, SetTrap	;codigo 'SetTrap'
+		int  21h
+
+		mov  ax, 2591h		;Hacer que una INT 91h ejecute el
+		lea  dx, UnTrap		;codigo 'UnTrap'
+		int  21h
+
+		ret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+GetLPT1:	push es				;Obtener registros de LPT1
+		mov  di, 40h
+		mov  es, di
+		mov  di, 8			;ES:DI = 0040:0008h
+		mov  ax, word ptr es:[di]
+		mov  lpt11, ax			;lpt11 = Registro 1 LPT1
+		add  ax, 2
+		mov  lpt13, ax			;lpt13 = Registro 3 LPT1
+		pop  es
+		ret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+mok		db	13, 10, 'OK', 13, 10, '$'
+myaestoy	db	13, 10, 'Ya estaba residente', 13, 10, '$'
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+Arranque:	push ds				;El offset del vector de
+		xor  si, si			;interrupcion 90h es igual
+		mov  ds, si			;al offset de la SetTrap ?
+		mov  si, 240h
+		mov  ax, word ptr [si]
+		pop  ds
+		cmp  ax, offset SetTrap
+		jne  A_instalar			;No: instalar residente
+
+		lea  dx, myaestoy		;Como el residente ya estaba
+		mov  ah, 9			;instalado mostrar mensaje
+		int  21h			;y salir
+		mov  ax, 4C00h
+		int  21h
+
+A_instalar:	call GetLPT1			;Obtener direcciones de LPT1
+		call SetearVectores		;Setear nuevos vectores de ints
+		lea  dx, mok			;Mostrar mensaje 'OK'
+		mov  ah, 9
+		int  21h
+		mov  ax, 3100h			;Terminar y quedar residente
+		lea  dx, FINRESID
+		shr  dx, 4
+		inc  dx
+		int  21h
+
+end inicio
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+--------------------END KEYEMU1.ASM-------------------------------------
+
+Descripci≤n de las variables:
+keydata:
+    Es un buffer con datos que el programa de protecci≤n necesita para
+    desencriptar al archivo protegido (aquφ estßn los mismos datos que se
+    leerφan de la llave si estuviera conectada).
+
+keyindex:
+    Esta variable indica la posici≤n dentro del buffer (n·mero de ≤rden de
+    lectura).
+
+KEYBUF:
+    Definici≤n que contiene la longitud del buffer.
+
+Descripci≤n de las rutinas:
+Trap:
+    Rastrea la ejecuci≤n de todas las instrucciones y, cuando encuentra un
+    'IN AL, DX' llama a la rutina 'EmularKey'.
+
+EmularKey:
+    Pone en AL el dato que corresponde para que el programa de protecci≤n se
+    'coma' que la instrucci≤n reciΘn ejecutada (la IN) tuvo acceso a la llave.
+
+
+Este programa funciona de la siguiente manera:
+Antes de realizar los accesos a LPT1, el programa de protecci≤n modificado
+activa el sistema de rastreo con la 'INT 90h'.
+Si la llave no estß conectada, luego de ejecutarse una instrucci≤n 'IN AL,DX'
+el registro AL contiene basura, en Θse momento la rutina Trap toma el control
+y ejecuta un EmularKey que coloca en AL el mismo valor que se hubiera leφdo
+del puerto si la llave hubiese estado conectada.
+Un ejemplo grßfico de este procedimiento puede ser:
+
+    EJECUCION NORMAL:
+    +------------+
+    | MOV DX,278 |
+    +------------+
+    | IN  AL,DX  |
+    +------------+
+    | CMP AL,00  |
+    +------------+
+    |	.. 	 +
+    +------------+
+
+    EJECUCION UTILIZANDO KEYEMU1:
+    +------------+
+    | MOV DX,278 |
+    +------------+     +---------------------+     +--------------------+
+    | IN  AL,DX  |---->| Acceso al puerto:   |---->| Trap/EmularKey:    |----+
+    +------------+     | AL = indeterminado  |     | AL = dato correcto |    |
+                       +---------------------+     +--------------------+    |
+                                                                             |
+    +------------+                                                           |
+    | CMP AL,00  |<----------------------------------------------------------+
+    +------------+
+    |	.. 	 +
+    +------------+
+
+
+    NIVEL 2: ENGA╤ANDO AL PROGRAMA PROTEGIDO:
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    Si el programa LPT1CAP1 estß residente debemos quitarlo, ya sea resetenado
+la mßquina o utilizando alg·n programa preparado para tal fφn (como ser el
+par MARK/RELEASE), luego sacamos la llave y realizamos:
+
+C:\>TASM KEYEMU1.ASM
+...
+C:\>TLINK /t KEYEMU1
+...
+C:\>REN PROTECT.EXE MODIFIC.EXE
+
+C:\>COPY ORIGINAL.EXE PROTECT.EXE
+
+C:\>GESTION.EXE
+
+* El m≤dulo 'SOStuare Look' con n·mero de serie: 00-00000 no estß instalado.
+
+C:\>DEL PROTECT.EXE
+
+C:\>COPY MODIFIC.EXE PROTECT.EXE
+
+C:\>KEYEMU1
+
+OK
+
+C:\>GESTION.EXE
+...
+...
+...
+...
+...
+...
+...
+	+---------------------------------------------------------------+
+        |	El m≤dulo SOStuare Look ha sido retirado		|
+	|	Oprima cualquier tecla para reiniciar el sistema	|
+	+---------------------------------------------------------------+
+
+Se ha enga±ado totalmente al archivo de protecci≤n pero el programa protegido
+dijo: 'íNo contaban con mi astucia!'.
+Calma calma que no panda el c·nico. El chipote chill≤n es nuestro.
+
+    Si ejecutamos el programa original (sφn las modificaciones en el archivo
+de protecci≤n) y, en alg·n momento sacamos la llave, despuΘs de un instante
+aparecerß el mensaje anterior, esto significa que el programa protegido accede
+al puerto paralelo en forma peri≤dica verificando la existencia de la llave.
+No sabemos para quΘ utiliza estos datos pero, utilizando el mΘtodo KISS (Keep
+It Simple, Stupid! -tΘcnica que deberφan adoptar los infelices que hicieron el
+programa de factucari≤n-) asumamos, como primera medida, que el programa
+protegido no usa para un pito los datos de Θsta.
+Con esto ·ltimo en mente, tenemos que debuggear la rutina del programa de
+facturaci≤n que accede a la llave y cancelarla (si esto no llega a funcionar
+hay que emular de la misma forma que se hizo con el archivo de protecci≤n).
+
+    Sφn el residente KEYEMU1.COM, con la llave colocada en el puerto, y con
+el programa original sφn modificaciones, corremos el debugger:
+
+C:\>DEL PROTECT.EXE
+
+C:\>COPY ORIGINAL.EXE PROTECT.EXE
+
+C:\>LDR GESTION.EXE
+
+Loading C:\GESTION.EXE
+...
+...
+:bpint 21 ah=4c
+:x
+Break Point at 1AE3:01A3
+    1AE3:018F	E85500		CALL 01E7
+    1AE3:0192	A16401		MOV AX, [0164]
+    1AE3:0195	E83500		CALL 01CD
+    1AE3:0198	BB1502		MOV BX, 0215
+    1AE3:019B	E80700		CALL 01A5
+    1AE3:019E	A16201		MOV AX, [0162]
+    1AE3:01A1	B44C		MOV AH, 4C
+>   1AE3:01A3	CD21		INT 21		;Terminate process
+    ...
+    
+[ El programa de protecci≤n termina y le devuelve el control al programa
+protegido ]
+
+:t
+>   0123:109E	90		NOP
+    0123:109F	90		NOP
+    0123:10A0	E8CC00		CALL 116F
+    ...
+
+[ Inicio del c≤digo de la interrupci≤n tipo 21h ]
+
+:p ret
+>   FDC9:423C	CF		IRET
+    ...
+    
+[ Punto final de la funci≤n 4Ch del DOS ]
+
+:t
+>   0E0B:05D6	7303		JAE 05BD
+    ...
+    
+[ Inicio del c≤digo del programa de facturaci≤n ya desencriptado ]
+
+:bpio 278
+:bpio 279
+:bpio 27a
+:x
+Break Point at 0E0B:0AF9
+    0E0B:0AF8	EC		IN AL, DX
+>   0E0B:0AF9	EB01		JMP 0AFC
+    ...
+
+[ C≤digo que accede al puerto paralelo ]
+
+:p ret
+>   0E0B:12D9	C3		RET
+    ...
+
+[ Termina la ejecuci≤n del c≤digo que accede a la llave ]
+
+:t
+    0E0B:1300	2E8C0E0105	MOV CS:[0501], CS
+    0E0B:1307	E8CEF7		CALL 0ADD
+>   0E0B:130F	2E803EFE0401	CMP BYTE PTR CS:[04FE], 01	;CS:[04FE]=01
+    0E0B:1315	7502		JNZ 1319
+    0E0B:1317	EB0B		JMP 1324
+    0E0B:1319	E8C1F7		CALL 0ADD
+    ...
+
+[ 0E0B:0ADD es la direcci≤n de la rutina que accede a la llave directamente,
+pero esta secci≤n de c≤digo genera dos accesos, por lo tanto, asumimos que es
+parte de un sistema de verificaci≤n de los datos de Θsta, veamos como
+termina... ]
+
+:p ret
+:t
+    0E0B:0892	2EFF1EDD03	CALL FAR CS:[03DD]
+>   0E0B:0897	2E803ED50300	CMP BYTE PTR CS:[03D5], 00	;CS:[03D5]=00
+    0E0B:089D	7409		JZ 08A8
+    0E0B:089F	2EC706D8031200	MOV WORD PTR CS:[03D8], 0012
+    0E0B:08A6	EB07		JMP 08AF
+    0E0B:08A8	2EC706D8038F00	MOV WORD PTR CS:[03D8], 008F
+    0E0B:08AF	2EC606D40300	MOV BYTE PTR CS:[03D4], 00
+    0E0B:08B5	2E833EF80300	CMP WORD PTR CS:[03D8], 00
+    0E0B:08BB	7405		JZ 08C2
+    0E0B:08BD	2EFF0ED803	DEC WORD PTR CS:[03D8]
+    0E0B:08C2	CF		IRET
+
+[ Era de esperar: el sistema que accede a la llave estß dentro de una
+interrupci≤n -la ·ltima instrucci≤n es un IRET-, veamos cußl es... ]
+
+:p ret
+:t
+    3799:00F0	55		PUSH BP
+    3799:00F1	CD16		INT 16
+>   3799:00F3	5D		POP BP
+
+[ íJß! En vez de utilizar la obvia interrupci≤n Timer Tick usa la 16h del BIOS
+que se encarga de casi todo lo que tiene que ver con el teclado.
+Todo lo que estß desde 0E0B:0892 hasta el IRET es sumamente sospechoso, por lo
+tanto, vamos a finalizar la interrupci≤n justamente en Θse punto... ]
+
+:a e0b:892
+0E0B:0892 iret
+0E0B:0893
+
+[ Ahora limpiamos todos los breakpoints, sacamos la llave, y dejamos correr al
+programa como si nada... ]
+
+:bc *
+:x
+...
+...
+...
+...
+...
+C:\>
+
+Hemos solucionado el problema: el programa protegido ya no accede a la llave.
+Tenemos que hacer algo para que el IRET se ponga en forma automßtica. No
+podemos modificar al programa de facturaci≤n porque estß encriptado, por lo
+tanto, tendremos que provocar otro desvφo en el archivo de protecci≤n en alg·n
+lugar despuΘs de la desencripci≤n. El mejor lugar para esto es el momento en
+que dicho programa termina su ejecuci≤n. Recordando esa parte del c≤digo:
+
+    1AE3:018F	E85500		CALL 01E7
+    1AE3:0192	A16401		MOV AX, [0164]
+    1AE3:0195	E83500		CALL 01CD
+    1AE3:0198	BB1502		MOV BX, 0215
+    1AE3:019B	E80700		CALL 01A5
+    1AE3:019E	A16201		MOV AX, [0162]
+    1AE3:01A1	B44C		MOV AH, 4C
+    1AE3:01A3	CD21		INT 21
+
+Con la gran ayuda del 'disquetitor':
+
+C:\>DISQUETITOR MODIFIC.EXE /W
+
+Buscamos la secuencia:
+
+    E8 55 00 A1 64 01 E8 35 00 BB 15 02 E8 07 00 A1 62 01 B4 4C CD 21
+    
+y reemplazamos el 'B4 4C' con un 'CD 92' quedando:
+
+    E8 55 00 A1 64 01 E8 35 00 BB 15 02 E8 07 00 A1 62 01 CD 92 CD 21
+
+luego se graban los cambios y, despuΘs de modificar al programa de emulaci≤n
+anterior, obtenemos a KEYEMU.ASM:
+
+--------------------BEGIN KEYEMU.ASM------------------------------------
+;
+;KEYEMU.ASM - (c) 1998 - Maruja
+;
+;Programa residente que emula a la perfeccion a la llave de hardware
+;marca 'SOStuare Look' que protege a un programa berreta de facturacion
+;
+
+.model tiny
+.code
+org 100h
+
+inicio:		jmp  Arranque
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+IN_BYTE		EQU	0ECh		;IN  AL, DX
+
+IPanterior	dw	0		;CS:IP Instruccion anterior
+CSanterior	dw	0
+
+lpt11		dw	?		;Direccion base (1er registro) de LPT1
+lpt13		dw	?		;Direccion 3er registro de LPT1
+
+IRET_CODE	EQU	0CFh		;Opcode de 'IRET'
+OFF_PROTEGIDO	EQU	0892h		;Offset del programa protegido en el
+					;que se anula el llamado a la rutina
+					;de la llave
+
+KEYBUF		EQU	444
+keyindex	dw	0
+keydata		db	000, 085, 170, 000, 204, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 000, 000, 204, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 134, 134, 150, 134, 134, 150
+		db	134, 150, 134, 134, 134, 150, 150, 134, 134, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 134
+		db	134, 134, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 134, 134, 134, 134, 134, 134
+		db	134, 134, 150, 150, 150, 134, 150, 134, 134, 150
+		db	150, 150, 150, 134, 134, 150, 134, 134, 150, 134
+		db	150, 134, 134, 134, 150, 150, 133, 204, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	149, 204, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150, 150, 150, 150, 150, 150, 150
+		db	150, 150, 150, 150
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+SetTrap:	push ax
+		push bp
+
+		mov  bp, sp
+		mov  ax, [bp+8]		;Obtener flags de la pila
+		or   ah, 1		;Activar bit T
+		mov  [bp+8], ax		;Colocar nuevos flags en la pila
+
+		push dx
+		push ds
+		push cs
+		pop  ds
+		mov  ax, 2501h		;Setear nuestro vector de int TRAP
+		lea  dx, Trap
+		int  21h
+
+		pop  ds
+		pop  dx
+		pop  bp
+		pop  ax
+		
+	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+	; INSTRUCCION ORIGINAL EN EL ARCHIVO DE PROTECCION
+	; QUE FUE CAMBIADA POR EL 'INT 90h' (CD 90)
+	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+		ADD  DI, AX
+	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+		iret
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+Trap:
+	SP_INICIAL	EQU	$
+
+		push cx			;Salvar registros utilizados
+		push si
+		push ds
+		push bp
+
+	SP_FINAL	EQU	$
+
+		cmp  cs:CSanterior, 0	;CSanterior tiene un valor incorrecto ?
+		jz   Trap_salir		;Si: salir
+		
+		mov  si, cs:CSanterior
+		mov  ds, si
+		mov  si, cs:IPanterior	;DS:SI = CS:IP instruccion anterior
+		mov  cl, byte ptr [si]	;Obtener opcode 
+
+		cmp  cl, IN_BYTE	;El opcode es IN_BYTE ?
+		jne  Trap_salir		;No: salir
+
+		push cs
+		pop  ds
+		cmp  dx, lpt11		;Acceso a alguno de los puertos LPT1 ?
+		jb   Trap_salir
+		cmp  dx, lpt13
+		ja   Trap_salir		;No: salir
+
+		call EmularKey		;Si: emular llave
+
+Trap_salir:	mov  bp, sp		;Guardar CS:IP de proxima instruccion
+		mov  si, [bp + (SP_FINAL-SP_INICIAL)*2 + 2 ]
+		mov  cs:CSanterior, si
+		mov  si, [bp + (SP_FINAL-SP_INICIAL)*2 ]
+		mov  cs:IPanterior, si
+
+		pop  bp			;Recuperar registros y salir
+		pop  ds
+		pop  si
+		pop  cx
+		iret
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+EmularKey:	;En AL pone el mismo dato que pondria la llave
+
+		lea  si, keydata	;Posicionarse en el buffer
+		add  si, keyindex
+		mov  al, byte ptr [si]	;Obtener dato de la llave ;)
+
+		inc  keyindex
+		cmp  keyindex, KEYBUF	;Ya llego al ultimo dato ?
+		jne  EK_salir
+
+		mov  keyindex, 0	;Si: resetear posicion en el buffer
+
+EK_salir:	ret
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+SetJMP:		push si
+		push ds
+		push bx
+		push ax
+
+		mov  ah, 51h		;Obtener direccion del PSP
+		int  21h
+		mov  ds, bx
+		mov  si, 0Ch		;El offset 0Ch del PSP contiene el
+					;segmento del codigo al que se debe
+					;volver cuando termine el programa de
+					;proteccion
+
+		mov  bx, word ptr [si]	;Cancelar llamada a la rutina de 
+		mov  ds, bx		;lectura de la llave
+		mov  si, OFF_PROTEGIDO
+		mov  byte ptr [si], IRET_CODE
+
+		pop  ax
+		pop  bx
+		pop  ds
+		pop  si
+
+	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+	; INSTRUCCION ORIGINAL EN EL ARCHIVO DE PROTECCION
+	; QUE FUE CAMBIADA POR EL 'INT 92h'
+	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+		MOV  AH, 4Ch
+	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+		iret
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+FINRESID	EQU	$		;Aca termina el residente
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+SetearVectores:	mov  ax, 2590h		;Hacer que una INT 90h ejecute el
+		lea  dx, SetTrap	;codigo 'SetTrap'
+		int  21h
+
+		mov  ax, 2592h		;Hacer que una INT 92h ejecute el
+		lea  dx, SetJMP		;codigo 'SetJMP'
+		int  21h
+
+		ret
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+GetLPT1:	push es				;Obtener registros de LPT1
+		mov  di, 40h
+		mov  es, di
+		mov  di, 8			;ES:DI = 0040:0008h
+		mov  ax, word ptr es:[di]
+		mov  lpt11, ax			;lpt11 = Registro 1 LPT1
+		add  ax, 2
+		mov  lpt13, ax			;lpt13 = Registro 3 LPT1
+		pop  es
+		ret
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+mok		db	13, 10, 'OK', 13, 10, '$'
+myaestoy	db	13, 10, 'Ya estaba residente', 13, 10, '$'
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+Arranque:	push ds				;El offset del vector de
+		xor  si, si			;interrupcion 90h es igual
+		mov  ds, si			;al offset de la SetTrap ?
+		mov  si, 240h
+		mov  ax, word ptr [si]
+		pop  ds
+		cmp  ax, offset SetTrap
+		jne  A_instalar			;No: instalar residente
+
+		lea  dx, myaestoy		;Como el residente ya estaba
+		mov  ah, 9			;instalado mostrar mensaje
+		int  21h			;y salir
+		mov  ax, 4C00h
+		int  21h
+
+A_instalar:	call GetLPT1			;Obtener direcciones de LPT1
+		call SetearVectores		;Setear nuevos vectores de ints
+		lea  dx, mok			;Mostrar mensaje 'OK'
+		mov  ah, 9
+		int  21h
+		mov  ax, 3100h			;Terminar y quedar residente
+		lea  dx, FINRESID
+		shr  dx, 4
+		inc  dx
+		int  21h
+
+end inicio
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+--------------------END KEYEMU.ASM--------------------------------------
+
+Explicaci≤n de las variables:
+IRET_CODE:
+    Definici≤n que contiene el c≤digo de operaci≤n de la instrucci≤n IRET.
+    
+OFF_PROTEGIDO:
+    Definici≤n que contiene el offset dentro del programa protegido donde
+    se pondrß el IRET (0892h).
+
+Explicaci≤n de las rutinas:
+SetJMP:
+    La ejecuta el programa de protecci≤n a travΘs de un 'INT 92h' colocado
+    antes de terminar la ejecuci≤n del mismo.
+    Obtiene el segmento del programa protegido a travΘs del PSP, coloca el
+    IRET en el offset que corresponde de Θse segmento, y ejecuta la
+    instrucci≤n original que fuΘ 'tapada' por el 'INT 92h' (en este caso
+    un 'MOV AH, 4Ch').
+    NOTA: Observar que el segmento del punto de entrada del programa protegido
+    luego de la desencripci≤n es el mismo que el segmento de la rutina de
+    interrupci≤n que accede a la llave.
+
+Si sacamos la llave, activamos al programa de protecci≤n modificado,
+compilamos y ejecutamos al programa de emulaci≤n...
+
+C:\>DEL PROTECT.EXE
+
+C:\>REN MODIFIC.EXE PROTECT.EXE
+
+C:\>TASM KEYEMU.ASM
+...
+C:\>TLINK /t KEYEMU
+...
+C:\>KEYEMU
+
+OK
+
+C:\>GESTION
+...
+...
+...
+...
+...
+...
+...
+...
+C:\>
+
+El programa funciona sφn llave de hardware.
+Para finalizar, se ilustra el comportamiento de KEYEMU:
+
+    PROGRAMA DE PROTECCION
+    +------------+
+    | MOV DX,278 |
+    +------------+     +---------------------+     +--------------------+
+    | IN  AL,DX  |---->| Acceso al puerto:   |---->| Trap/EmularKey:    |----+
+    +------------+     | AL = indeterminado  |     | AL = dato correcto |    |
+                       +---------------------+     +--------------------+    |
+                                                                             |
+    +------------+                                                           |
+    | CMP AL,00  |<----------------------------------------------------------+
+    +------------+
+    |	.. 	 +
+    +------------+
+    |	.. 	 +			 -  -  -  -  -  -  -  - 
+    +------------+       +--------+     |                       |
+    |	.. 	 +    +->| SetJMP |-----+
+    +------------+    |  +--------+     |     +-------+         |
+    | INT 92 	 +----+                 +---->| AH=4C |----+
+    +------------+                            +-------+    |    |
+    | INT 21     |<----------------------------------------+
+    +-----+------+                                              |
+          |
+          +----------------+                                    |
+                           |
+	                   |                                    |
+    PROGRAMA PROTEGIDO     |
+    +---------------+      |                                    |
+    |   ..          |<-----+
+    +---------------+                                           |
+    |   ..          |
+    +---------------+                                           |
+    |   ..          |
+    +---------------+                                           |
+    |   I R E T     |< -  -  -  -  -  -  -  -  -  -  -  -  -  -   
+    +- -  -  -  -  -+
+    | Accesos a la  |
+    | llave y       |
+    | comparaciones |
+    | varias        |
+    +---------------+
+    | IRET original |
+    +---------------+
+
+
+
+CONCLUSION:
+~~~~~~~~~~~
+- El programa KEYEMU.COM (que ocupa 747 bytes) emula a la perfecci≤n la llave
+  de hardware marca 'SOStuare Look'.
+- Para poder hacer esto se modificaron solamente, y nada mas que, 4 bytes en
+  el archivo de protecci≤n provisto por el fabricante de la llave.
+- Esta gente no sirve para hacer sistemas de seguridad, han demostrado o que no
+  saben un pito de computaci≤n o que son unos mentirosos de aquellos que venden
+  gato por liebre.
+- Los fabricantes del programa de facturaci≤n son unos reverendos caraduras.
+  Son tan caretas que le ponen una llave de hardware a ese aborto maltrecho
+  que venden a $600. íNo podeeees!
+- Propongo que ambos cambien de rubro y se dediquen a vender manzanitas y
+  pochoclos en la plaza.
+
+
+
+REFERENCIAS BIBLIOGRAFICAS:
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+En InglΘs:
+{1} Tφtulo     : "The 8088 Family: Design, Programming, and Interfacing"
+    Autor      : Uffenbek
+    Editorial  : Prentice Hall
+    Comentarios: Todo sobre el 8088. Aunque este libro es para electr≤nicos,
+		 la parte de assembler esta muy bien explicada -cosa poco
+		 com·n en los libros de assembler-. Para entenderlo por
+		 completo el lector debe poseer conocimientos bßsicos de
+		 electr≤nica digital.
+    Veredicto  : Muy bueno
+
+
+{2} Tφtulo     : "PC Intern"
+    Autor      : Tisher
+    Editorial  : Abacus
+    Comentarios: Todo sobre el DOS -tambien tiene algunas cosas que MS no ha
+		 documentado-, funciones del BIOS/DOS, casi nada de windows y
+		 modo protegido, la edici≤n del 94 tiene errores en la
+		 descripci≤n del PSP.
+    Veredicto  : Bueno
+
+
+En Castellano:
+{3} Tφtulo     : "MSDOS Avanzado"
+    Autor      : Duncan
+    Editorial  : Anaya
+    Comentarios: Contiene todo lo oficial sobre el DOS, funciones del BIOS/DOS,
+                 tambien tiene errores en la descripci≤n del PSP.
+    Veredicto  : Bueno para empezar aunque es muy viejo (1986)
+	
+    
+{4} Tφtulo     : "Lenguaje de Programaci≤n C"
+    Autor      : Ritchie, Kernigam
+    Editorial  : Prentice Hall
+    Comentarios: Es pesado pero imprescindible para iniciarse en lenguaje C.
+    Veredicto  : Muy Bueno
+
+
+{5} Tφtulo     : "80386/80286 Programaci≤n en lenguaje ensamblador"
+    Autor      : William H. Murray III, Chris H. Pappas
+    Editorial  : McGraw-Hill
+    Comentarios: No lo compren, no lo lean, no le den bola.
+    Veredicto  : Una reverenda cagada
+
+    
+    
+MENSAJITOS PARA LOS MAS CHIQUITOS:
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- Nunca se dejen enga±ar por los idiotas marketinistas que dicen que algo
+  es imposible. Todo es posible. Todo.
+  Ellos son unos infelices ignornantes y solamente les interesa vender la
+  basura que venden.
+- Nunca se dejen enga±ar por los idiotas facilistas que dicen:
+  'Para quΘ lo vas a hacer... Si ya esta hecho.'
+  Si uno hace se equivoca. Si uno se equivoca aprende. No importa que ya estΘ
+  hecho. Alguien lo tuvo que haber hecho. Y Θse podes ser vos.
+
+
+
+
+
+
+    Sφn otro particular, saludo a Uds. en forma muy atte.
+    
+							    Maruja
+
+
+
+
+*****************************END OF TRANSMISSION*******************************
+
+```
+
+</div>
