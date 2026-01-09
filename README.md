@@ -1,19 +1,18 @@
-# NPC - Northern Phun Co.
+# PhileZ
 
-A tribute site preserving **Northern Phun Co.**, Quebec's bilingual underground e-zine from the 418 area code (1992-1994).
+**The BBS-era underground ezine archive**
 
-**Live site:** https://mistercrunch.github.io/npc/
+A project to preserve and make accessible the underground e-zines of the BBS era — hacking, phreaking, virii, anarchy, and cracking textfiles from the digital underground, converted for the modern web.
+
+**Live site:** https://mistercrunch.github.io/philez/
 
 ## Goals
 
-- Make these old fanzines easier to read and consume on the modern web
-- Get the content indexed by search engines for discoverability
-- Convert the funky CP437 DOS encoding to proper UTF-8 (preserving ASCII art)
-- Make the content searchable using Nextra's built-in search
-
-## About NPC
-
-Northern Phun Co. was a French/English hacker/phreaker zine published out of Quebec City between November 1992 and April 1994. All 15 issues have been converted from their original CP437 DOS encoding to modern web format while preserving the ASCII art.
+- Make old fanzines easier to read and consume on the modern web
+- Get content indexed by search engines for discoverability
+- Convert CP437 DOS encoding to proper UTF-8 while preserving ASCII art
+- Make content searchable using Nextra's built-in search
+- Preserve digital history that might otherwise be lost
 
 ## Development
 
@@ -22,6 +21,26 @@ npm install
 npm run dev
 ```
 
+## Fetching Ezines
+
+The project includes scripts to fetch and convert ezines from the autistici.org archive.
+
+```bash
+# Fetch a single ezine
+node scripts/fetch-ezine.mjs phrack
+
+# Fetch all ezines (with options)
+node scripts/fetch-all-ezines.mjs --small-first --resume
+```
+
+Options for `fetch-all-ezines.mjs`:
+- `--small-first` — Process smaller ezines first
+- `--resume` — Skip ezines that have already been processed
+- `--skip-existing` — Skip ezines that already have pages generated
+
+Options for `fetch-ezine.mjs`:
+- `--force-download` — Re-download archives even if already extracted
+
 ## Source
 
-Original archives from [autistici.org](https://www.autistici.org/ezine/Northern_Phun_Co/right.html).
+Original archives from [autistici.org/ezine](https://www.autistici.org/ezine/).

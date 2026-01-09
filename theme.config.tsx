@@ -16,14 +16,14 @@ const config: DocsThemeConfig = {
       <meta property="og:title" content="PhileZ — the BBS-era underground ezine archive" />
       <meta property="og:description" content="Hacking, phreaking, virii, anarchy, and cracking textfiles from the BBS underground, preserved for the modern web." />
       {/* Google Analytics */}
-      <script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX" />
+      <script async src="https://www.googletagmanager.com/gtag/js?id=G-LBHR3Z3M1C" />
       <script
         dangerouslySetInnerHTML={{
           __html: `
             window.dataLayer = window.dataLayer || [];
             function gtag(){dataLayer.push(arguments);}
             gtag('js', new Date());
-            gtag('config', 'G-XXXXXXXXXX');
+            gtag('config', 'G-LBHR3Z3M1C');
           `,
         }}
       />
