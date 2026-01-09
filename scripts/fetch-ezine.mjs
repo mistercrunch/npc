@@ -9,7 +9,7 @@
  * Example: node scripts/fetch-ezine.mjs noway
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'fs'
 import { join, dirname, basename, extname } from 'path'
 import { fileURLToPath } from 'url'
 import { execSync } from 'child_process'
@@ -266,14 +266,38 @@ async function processEzine(ezineName) {
     f.endsWith('.txt') || f.endsWith('.nfo') || f.endsWith('.TXT')
   )
 
-  // Download and extract archives
+  // Download, extract, and clean up archives
   for (const archive of archives) {
     const archivePath = join(ezineArchiveDir, archive)
-    if (!existsSync(archivePath)) {
+    const needsDownload = !existsSync(archivePath)
+
+    if (needsDownload) {
       await downloadFile(`${ezineUrl}${archive}`, archivePath)
     }
-    const extractDir = join(ezineArchiveDir, basename(archive, extname(archive)))
-    extractArchive(archivePath, extractDir)
+
+    // Handle nested archives (e.g., .txt.tar.gz extracts to .txt.tar)
+    let currentArchive = archivePath
+    let extractDir = ezineArchiveDir
+
+    // Keep extracting until we get to the actual files
+    while (currentArchive && /\.(zip|tar|gz|tgz)$/i.test(currentArchive)) {
+      const archiveBase = basename(currentArchive).replace(/\.(zip|tar|gz|tgz)$/i, '')
+      extractDir = join(ezineArchiveDir, archiveBase)
+      extractArchive(currentArchive, extractDir)
+
+      // Delete the archive after extraction
+      try {
+        unlinkSync(currentArchive)
+      } catch (e) { /* ignore */ }
+
+      // Check if we extracted another archive (e.g., .tar from .tar.gz)
+      const innerArchive = join(extractDir, archiveBase)
+      if (existsSync(innerArchive) && /\.(zip|tar|gz|tgz)$/i.test(innerArchive)) {
+        currentArchive = innerArchive
+      } else {
+        currentArchive = null
+      }
+    }
   }
 
   // Download standalone text files
