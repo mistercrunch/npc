@@ -9,7 +9,7 @@
  * Example: node scripts/fetch-ezine.mjs noway
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync, rmSync } from 'fs'
 import { join, dirname, basename, extname } from 'path'
 import { fileURLToPath } from 'url'
 import { execSync } from 'child_process'
@@ -56,6 +56,32 @@ const cp437ToUnicode = {
   0xF0: '≡', 0xF1: '±', 0xF2: '≥', 0xF3: '≤', 0xF4: '⌠', 0xF5: '⌡',
   0xF6: '÷', 0xF7: '≈', 0xF8: '°', 0xF9: '∙', 0xFA: '·', 0xFB: '√',
   0xFC: 'ⁿ', 0xFD: '²', 0xFE: '■', 0xFF: ' ',
+}
+
+// Detect if content looks like binary (OLE docs, executables, etc.)
+function isBinaryContent(buffer) {
+  if (buffer.length < 10) return true
+
+  // Check for common binary file signatures
+  const header = buffer.slice(0, 8)
+  // OLE/Word doc: D0 CF 11 E0 A1 B1 1A E1
+  if (header[0] === 0xD0 && header[1] === 0xCF && header[2] === 0x11 && header[3] === 0xE0) return true
+  // ZIP: PK
+  if (header[0] === 0x50 && header[1] === 0x4B) return true
+  // EXE: MZ
+  if (header[0] === 0x4D && header[1] === 0x5A) return true
+  // PDF: %PDF
+  if (header[0] === 0x25 && header[1] === 0x50 && header[2] === 0x44 && header[3] === 0x46) return true
+
+  // Check for high concentration of null bytes (binary indicator)
+  let nullCount = 0
+  const sampleSize = Math.min(buffer.length, 1000)
+  for (let i = 0; i < sampleSize; i++) {
+    if (buffer[i] === 0x00) nullCount++
+  }
+  if (nullCount > sampleSize * 0.1) return true // More than 10% nulls = binary
+
+  return false
 }
 
 function convertCP437ToUTF8(buffer) {
@@ -200,8 +226,9 @@ function findTextFiles(dir, files = []) {
       const ext = extname(entry).toLowerCase()
       const name = entry.toLowerCase()
       // Include .txt, .nfo, .diz, files without extension, numeric extensions, or files that look like text
+      // NOTE: .doc is Microsoft Word binary format, not text!
       const isNumericExt = /^\.\d+$/.test(ext)
-      if (['.txt', '.nfo', '.diz', '.asc', '.doc', '.1st', '.me', '.now', '.log'].includes(ext) ||
+      if (['.txt', '.nfo', '.diz', '.asc', '.1st', '.me', '.now', '.log'].includes(ext) ||
           name.startsWith('readme') || name.startsWith('read.me') ||
           isNumericExt ||
           (!ext && stat.size < 500000 && stat.size > 100)) {
@@ -222,6 +249,15 @@ function convertToMarkdown(content, filename, ezineName) {
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n')
 
+  // Find the longest sequence of backticks in content to create a safe fence
+  const backtickMatches = cleaned.match(/`+/g) || []
+  const maxBackticks = Math.max(3, ...backtickMatches.map(m => m.length + 1))
+  const fence = '`'.repeat(maxBackticks)
+
+  // Escape any < or > that could be interpreted as JSX/HTML tags
+  // Only escape those that look like tags (< followed by letter or /)
+  cleaned = cleaned.replace(/<(?=[a-zA-Z\/])/g, '&lt;')
+
   return `---
 title: "${cleanName}"
 ezine: "${ezineName}"
@@ -233,22 +269,27 @@ ezine: "${ezineName}"
 
 <div className="ascii-content">
 
-\`\`\`
+${fence}
 ${cleaned}
-\`\`\`
+${fence}
 
 </div>
 `
 }
 
-async function processEzine(ezineName) {
+async function processEzine(ezineName, forceDownload = false) {
   console.log(`\n${'='.repeat(60)}`)
-  console.log(`Processing: ${ezineName}`)
+  console.log(`Processing: ${ezineName}${forceDownload ? ' (force download)' : ''}`)
   console.log('='.repeat(60))
 
   const ezineUrl = `${BASE_URL}/${ezineName}/`
   const ezineArchiveDir = join(ARCHIVES_DIR, ezineName)
   const ezinePagesDir = join(PAGES_DIR, ezineName)
+
+  // Clean up existing output directory for idempotency
+  if (existsSync(ezinePagesDir)) {
+    rmSync(ezinePagesDir, { recursive: true })
+  }
 
   // Create directories
   mkdirSync(ezineArchiveDir, { recursive: true })
@@ -266,12 +307,22 @@ async function processEzine(ezineName) {
     f.endsWith('.txt') || f.endsWith('.nfo') || f.endsWith('.TXT')
   )
 
-  // Download, extract, and clean up archives
+  // Download and extract archives
   for (const archive of archives) {
     const archivePath = join(ezineArchiveDir, archive)
-    const needsDownload = !existsSync(archivePath)
 
-    if (needsDownload) {
+    // Check if already extracted (folder exists with content)
+    const archiveBase = basename(archive).replace(/\.(zip|tar|gz|tgz)$/i, '')
+    const extractedDir = join(ezineArchiveDir, archiveBase)
+    const alreadyExtracted = existsSync(extractedDir) && readdirSync(extractedDir).length > 0
+
+    if (alreadyExtracted && !forceDownload) {
+      console.log(`  ⏭ ${archive} (already extracted)`)
+      continue
+    }
+
+    // Download if needed
+    if (!existsSync(archivePath) || forceDownload) {
       await downloadFile(`${ezineUrl}${archive}`, archivePath)
     }
 
@@ -281,17 +332,12 @@ async function processEzine(ezineName) {
 
     // Keep extracting until we get to the actual files
     while (currentArchive && /\.(zip|tar|gz|tgz)$/i.test(currentArchive)) {
-      const archiveBase = basename(currentArchive).replace(/\.(zip|tar|gz|tgz)$/i, '')
-      extractDir = join(ezineArchiveDir, archiveBase)
+      const base = basename(currentArchive).replace(/\.(zip|tar|gz|tgz)$/i, '')
+      extractDir = join(ezineArchiveDir, base)
       extractArchive(currentArchive, extractDir)
 
-      // Delete the archive after extraction
-      try {
-        unlinkSync(currentArchive)
-      } catch (e) { /* ignore */ }
-
       // Check if we extracted another archive (e.g., .tar from .tar.gz)
-      const innerArchive = join(extractDir, archiveBase)
+      const innerArchive = join(extractDir, base)
       if (existsSync(innerArchive) && /\.(zip|tar|gz|tgz)$/i.test(innerArchive)) {
         currentArchive = innerArchive
       } else {
@@ -303,7 +349,7 @@ async function processEzine(ezineName) {
   // Download standalone text files
   for (const txtFile of textFiles) {
     const txtPath = join(ezineArchiveDir, txtFile)
-    if (!existsSync(txtPath)) {
+    if (!existsSync(txtPath) || forceDownload) {
       await downloadFile(`${ezineUrl}${txtFile}`, txtPath)
     }
   }
@@ -338,11 +384,17 @@ async function processEzine(ezineName) {
     for (const txtFile of files) {
       try {
         const buffer = readFileSync(txtFile)
+
+        // Skip binary files that slipped through
+        if (isBinaryContent(buffer)) {
+          console.log(`  ⊘ ${folder}/${basename(txtFile)} (binary, skipped)`)
+          continue
+        }
+
         const utf8Content = convertCP437ToUTF8(buffer)
 
-        // Skip tiny files or binary files that slipped through
+        // Skip tiny files
         if (utf8Content.length < 100) continue
-        if (utf8Content.includes('\x00')) continue
 
         const ext = extname(txtFile)
         const base = basename(txtFile, ext)
@@ -356,7 +408,8 @@ async function processEzine(ezineName) {
         writeFileSync(mdPath, markdown)
 
         const name = basename(txtFile)
-        const displayName = makeDisplayName(name, slug, ezineName)
+        // Use raw filename (WITH extension) for doctree parity
+        const displayName = name
         converted.push({ slug, name, displayName })
         console.log(`  ✓ ${folder}/${name}`)
       } catch (err) {
@@ -376,10 +429,8 @@ async function processEzine(ezineName) {
       writeFileSync(join(issueDir, '_meta.json'), JSON.stringify(folderMeta, null, 2))
     }
 
-    // Create a nice display name for the folder/issue
-    const folderDisplayName = folderSlug
-      ? makeDisplayName(folder, folderSlug, ezineName)
-      : ezineName
+    // Use raw folder name for doctree parity
+    const folderDisplayName = folderSlug ? folder : ezineName
 
     issues.push({
       folderSlug,
@@ -435,15 +486,20 @@ ${issues.map(issue => {
 }
 
 // Main
-const ezineName = process.argv[2]
+const args = process.argv.slice(2)
+const FORCE_DOWNLOAD = args.includes('--force-download')
+const ezineName = args.find(a => !a.startsWith('--'))
+
 if (!ezineName) {
-  console.log('Usage: node scripts/fetch-ezine.mjs <ezine-name>')
+  console.log('Usage: node scripts/fetch-ezine.mjs <ezine-name> [--force-download]')
   console.log('Example: node scripts/fetch-ezine.mjs noway')
+  console.log('\nOptions:')
+  console.log('  --force-download  Re-download even if archives exist')
   console.log('\nAvailable ezines: https://www.autistici.org/ezine/')
   process.exit(1)
 }
 
-processEzine(ezineName).then(count => {
+processEzine(ezineName, FORCE_DOWNLOAD).then(count => {
   console.log(`\nDone! Run 'npm run dev' to preview.`)
 }).catch(err => {
   console.error('Error:', err)

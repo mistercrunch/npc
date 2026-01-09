@@ -23,6 +23,8 @@ const BASE_URL = 'https://www.autistici.org/ezine/'
 const args = process.argv.slice(2)
 const DRY_RUN = args.includes('--dry-run')
 const SKIP_EXISTING = args.includes('--skip-existing')
+const RESUME = args.includes('--resume') // Skip already-successful from log
+const SMALL_FIRST = args.includes('--small-first') // Process smaller ezines first
 const SPECIFIC = args.find(a => !a.startsWith('--'))
 
 async function fetchEzineList() {
@@ -42,6 +44,16 @@ async function fetchEzineList() {
   }
 }
 
+async function countEzineFiles(name) {
+  try {
+    const html = execSync(`curl -sL "${BASE_URL}${name}/"`, { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024, timeout: 30000 })
+    const files = [...html.matchAll(/href="([^"]+)"/gi)].filter(m => !m[1].startsWith('?') && !m[1].startsWith('/'))
+    return files.length
+  } catch {
+    return 999 // Unknown size, process last
+  }
+}
+
 function loadLog() {
   if (existsSync(LOG_FILE)) {
     return JSON.parse(readFileSync(LOG_FILE, 'utf-8'))
@@ -53,8 +65,15 @@ function saveLog(log) {
   writeFileSync(LOG_FILE, JSON.stringify(log, null, 2))
 }
 
-async function processEzine(name, log) {
+async function processEzine(name, log, fileCount = 0) {
   const ezinePageDir = join(PAGES_DIR, name)
+
+  // Skip if already successful in log (--resume)
+  if (RESUME && log.processed[name]?.status === 'success') {
+    console.log(`⏭ Skipping ${name} (already successful)`)
+    log.stats.skipped++
+    return true
+  }
 
   // Skip if already processed and flag set
   if (SKIP_EXISTING && existsSync(ezinePageDir)) {
@@ -64,28 +83,31 @@ async function processEzine(name, log) {
   }
 
   if (DRY_RUN) {
-    console.log(`[DRY RUN] Would process: ${name}`)
+    console.log(`[DRY RUN] Would process: ${name} (~${fileCount} files)`)
     return true
   }
 
   try {
     console.log(`\n${'─'.repeat(60)}`)
-    console.log(`Processing ${name}...`)
+    console.log(`Processing ${name} (~${fileCount} files)...`)
     console.log('─'.repeat(60))
+
+    // Longer timeout for bigger ezines (base 5min + 30sec per file)
+    const timeout = Math.max(300000, 300000 + fileCount * 30000)
 
     const output = execSync(
       `node "${join(__dirname, 'fetch-ezine.mjs')}" "${name}"`,
-      { encoding: 'utf-8', maxBuffer: 50 * 1024 * 1024, timeout: 300000 }
+      { encoding: 'utf-8', maxBuffer: 50 * 1024 * 1024, timeout }
     )
     console.log(output)
 
-    log.processed[name] = { status: 'success', timestamp: new Date().toISOString() }
+    log.processed[name] = { status: 'success', files: fileCount, timestamp: new Date().toISOString() }
     log.stats.success++
     return true
   } catch (err) {
     console.error(`✗ Failed to process ${name}:`, err.message)
     log.processed[name] = { status: 'error', error: err.message, timestamp: new Date().toISOString() }
-    log.errors.push(name)
+    if (!log.errors.includes(name)) log.errors.push(name)
     log.stats.failed++
     return false
   }
@@ -138,6 +160,8 @@ async function main() {
   console.log('═'.repeat(60))
   console.log(`Mode: ${DRY_RUN ? 'DRY RUN' : 'LIVE'}`)
   console.log(`Skip existing: ${SKIP_EXISTING}`)
+  console.log(`Resume from log: ${RESUME}`)
+  console.log(`Small first: ${SMALL_FIRST}`)
   console.log()
 
   // Get list of all ezines
@@ -149,28 +173,55 @@ async function main() {
   }
 
   console.log(`Found ${ezines.length} ezines to process`)
-  console.log()
-
-  if (DRY_RUN) {
-    console.log('Ezines that would be processed:')
-    ezines.forEach((e, i) => console.log(`  ${i + 1}. ${e}`))
-    return
-  }
 
   // Load progress log
   const log = loadLog()
+
+  // Get file counts and sort if --small-first
+  let ezineData = ezines.map(name => ({ name, files: 0 }))
+
+  if (SMALL_FIRST) {
+    console.log('Counting files in each ezine (this takes a moment)...')
+    for (let i = 0; i < ezineData.length; i++) {
+      // Skip counting if already successful
+      if (RESUME && log.processed[ezineData[i].name]?.status === 'success') {
+        ezineData[i].files = -1 // Will be skipped anyway
+        continue
+      }
+      if (SKIP_EXISTING && existsSync(join(PAGES_DIR, ezineData[i].name))) {
+        ezineData[i].files = -1 // Will be skipped anyway
+        continue
+      }
+      ezineData[i].files = await countEzineFiles(ezineData[i].name)
+      process.stdout.write(`\r  Counted ${i + 1}/${ezineData.length}...`)
+    }
+    console.log('\n')
+
+    // Sort: skipped first (files=-1), then by file count ascending
+    ezineData.sort((a, b) => a.files - b.files)
+  }
+
   log.stats.total = ezines.length
+
+  if (DRY_RUN) {
+    console.log('Ezines that would be processed:')
+    ezineData.forEach((e, i) => console.log(`  ${i + 1}. ${e.name} (~${e.files} files)`))
+    return
+  }
 
   // Process each ezine
   let processed = 0
-  for (const ezine of ezines) {
+  for (const { name, files } of ezineData) {
     processed++
-    console.log(`\n[${processed}/${ezines.length}] ${ezine}`)
+    console.log(`\n[${processed}/${ezineData.length}] ${name}`)
 
-    await processEzine(ezine, log)
+    await processEzine(name, log, files)
 
     // Save progress after each ezine
     saveLog(log)
+
+    // Update navigation after each successful ezine
+    updateMeta(ezineData.map(e => e.name), log)
   }
 
   // Update navigation
