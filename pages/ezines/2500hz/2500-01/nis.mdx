@@ -1,0 +1,208 @@
+---
+title: "NIS"
+ezine: "2500hz"
+---
+
+# NIS
+
+**Ezine:** 2500hz
+
+<div className="ascii-content">
+
+```
+                     - NIS  -                
+            - -- -- - -- - -- - -- - -- - -- - -- - -- - -- - -- -
+                                                    by: Junkee
+
+
+Fecha 25-12-99
+
+DEFINCIαN
+
+Nis (Network Information System ), es un servicio para compartir datos del sistema, en una red. 
+Imaginemos que tenemos una red de ordenadores y que nos interesaría que la información perteneciente a nombres de login/passwords/directorios home, etc.. fuese global para todos los equipos (es decir que por ejemplo realizar un login en un ordenador cualquiera de la red). Una solución sería tener toda la información en cada uno de los ordenadores y otra sería utilizar NIS.
+Este protocolo se basa en la centralización de los ficheros necesarios para la configuración de nuestra red, en una única máquina que sería el servidor NIS. Sólo sería necesaria actualizar los ficheros configuración en esta máquina(cuentas de usuarios, nombres de host, servicios TCP u UDP, etc..), para que los cambios surgan efecto en toda la red.
+Este protocolo fue desarrollado por Sun Microsystems para reducir el esfuerzo necesario para el mantenimiento de las estaciones UNIX.
+
+FUNCIONAMIENTO
+
+NIS se compone de un servidor maestro (ypserv), que tenemos ejecutándose en el ordenador que contiene la información de la red, y opcionalmente, servidores esclavos que difunden la información que mantiene el maestro.
+Los servidores esclavos solo tienen copias de las bases de datos NIS y reciben estas copias del servidor NIS maestro cada vez que se realizan cambios a las bases de datos maestras. Dependiendo del número de máquinas que haya en tu red y de la seriedad de tu red, podrías decidir si instalar uno o más servidores esclavos. 
+
+Para obtener esta información del NIS, hay un cliente corriendo en cada ordenador de la red (ypbind).Para ello, éste normalmente envía un mensaje broadcast en la red local. El primer servidor que responda será usado para obtener la respuesta.
+
+NIS es un servicio orientado a redes locales o por lo menos a redes relativamente pequeñas.
+Para redes mayores se usa DNS.
+
+SEGURIDAD
+
+NIS se basa en el protocolo RPC (Remote Procedure Calls).Mediante RPC se consigue que un proceso pueda llevar a cabo llamadas a funciones en máquinas remotas. El propósito de NIS es el establecimiento de una base de datos distribuida.
+
+Desde el punto de vista del servidor NIS se puede considerar seguro ya que los ficheros pueden ser leidos por todo el mundo pero no actualizada. Pero desde el punto de vista del cliente, la seguridad es bastante pobre, ya que NIS no utiliza autentificación a nivel de RPC, cualquier máquina de la red puede enviar una respuesta falsa y pasar por el servidor NIS.
+
+La solución de estos problemas se seguridad es emplear autentificación para el protocolo RPC. Con Solaris llega el servicio NIS+ que elimina la mayor parte de problemas de seguridad que nis planteaba. El inconveniente es que NIS+ es más difícil a la hora de administrar, y el más importante es que todavía está en desarrollo.
+
+CONFIGURACIαN
+
+Para poder configurar NIS necesitas:
+
+-El mapeador de Puertos RPC. (Algunas distribuciones Linux ya tienen código para arrancar este demonio en /etc/rc.d/rc.inet2)
+-Software: La librería del sistema /usr/lib/libc.a version 4.5.21 y el software de cliente NIS
+
+La configuración consta de 2 partes:
+
+- Configurar el programa cliente
+- Configurar los recursos que queramos consultar a través de NIS
+
+CONFIGURACIαN DEL CLIENTE
+
+Lo primero que hay que hacer es editar el fichero /etc/defaultdomain y escribir en él el nombre de dominio NIS. Este nombre es análogo al nombre de dominio DNS y cumple una función similar.  No tiene por qué ser igual, pero desgraciadamente en muchos casos se hace así :D
+
+Normalmente existe un servidor en la red local. Si no es así, hay que añadir una línea al fichero /etc/yp.conf para informar al cliente sobre quién es el servidor al que pedir servicio:
+
+ypserver nombre_del_servidor
+
+(La IP del host llamado nombre_del_servidor ha de hallarse en el fichero /etc/hosts).
+
+Ahora sólo queda arrancar el programa ypbind.
+
+Para que se ejecute al inicio de la máquina, debemos configurar los scripts de inciación, normalmente: /etc/init.d/nis start. Casi siempre, al instalar NIS, se instalan los scripts correspondientes, por lo que sólo habrá que sólo habrá que editar la línea del script para especificar que en este ordenador residirá un cliente:
+
+/etc/init.d/nis
+
+Y poner la variable NISSERVER igual a false
+
+
+
+CONFIGURACIαN DE DATOS CON NIS
+
+Para resolver las direcciones IP de hosts hay que editar el fichero /etc/host.conf y poner:
+
+order hosts, nis, bind
+multi on
+
+La primera línea especifica el orden de intento de resolver la dirección (primero en el fichero hosts, luego en nis y finalmente en bind (DNS)
+
+Para obetener la información de los usuarios y grupos, hay que editar el fichero /etc/passwd y añadir al final:
+
++::::::
+
+Y en el /etc/group
+
++:::
+
+De este modo, cualquier usuario o grupo que no se encuentre en el fichero local será consultado en NIS.
+
+Para poder refinar  un poco más estas consultas podemos añadir más líneas, cuyo formato es:
+
++ Incluimos al usuario que especificamos
+- Lo excluimos.
+
+Por eso en la línea +::::::  lo que se provoca es que se busque en NIS a todos los usuarios que no se encuentren antes en el fichero /etc/passwd.
+
+Si se quiere modificar el valor de alguno de los campos del usuario, no lo dejaremos vacío. El valor de ese campo para ese o esos usuarios será el que ahí se encuentre. Por ejemplo:
+
++luis::::::/bin/bash 			El usuario luis tendrá como shell /bin/bash
+
+-juan;;;;;;				El usuario luis no será consultado (como si no existiera)
+
++pepe:*:::::/bin/noShell		El usuario pepe mno se conocerá, pero tiene una 					palabra clave no válida y no se podrá realizar un login. 					Además tiene una shell nula.
+
++::::::/bin/tcsh				El resto de usuarios tendrán como sehll tcsh
+
+
+Atención: Para las aplicaciones que usan la librería libc6, hay que editar en el fichero /etc/nsswithc.conf las siguientes entradas:
+
+passwd: compat
+group: compat
+shadow: compat
+
+Que hace que la consulta de usuarios y grupos funcione como se describió arriba.
+
+netgroup: nis
+
+Hace que la información de los grupos de red se consulte en NIS
+
+hosts 	files nis dns
+
+Hace que las direcciones IP de los hosts se resuelvan con el fichero /etc/hosts, con NIS y con DNS. (Para más información: man nsswitch.)
+
+CONFIGURACIαN DEL SERVIDOR MAESTRO
+
+En un dominio NIS sólamente puede existir un servidor maestro. Los datos locales de este servidor (direcciones IP, servicios..) son los datos que se harán globales en el dominio.
+
+1º Paso: En el fichero /etc/hosts deben aparecer  todos los servidores NIS, maestros o esclavos.
+
+2º Paso: Editar el fichero /etc/defaultdomaine y escribir en él el nombre de dominio NIS.
+
+3º Paso: Dar acceso a todo el mundo editando el fichero /etc/ypserv.conf:
+
+* :* : none
+
+y en /etc/ypserv.securenets añadir la línea:
+
+0.0.0.0		0.0.0.0
+
+4º Paso: Arrancar el servidor mediante los siguientes demonios:
+
+ypserv (el servidor)
+
+ypbind  (el cliente que es también necesario en este ordenador )
+
+rpc.yppasswdd (para cambiar la clave de usuario desde cualquier otra maquina)
+
+rpc.ypxfrd (atiende a petición de datos de tablas de los servidores esclavos, para que mantengan la información actualizada)
+
+Para arrancarlo al inicio suele haber un script llamado /etc/init.d/nis, en el cual pondremos la variable:
+
+NISSERVER=master
+
+Y ejecutamos nis start.
+
+5º Paso: Iniciar la tabla de datos. Hay dos formas de hacerlo. Aquí se explica la forma más sencilla, que es mediante un programa:
+
+/usr/lib/yp/ypinit -m
+
+Con el cual se seguirán las instrucciones siguientes. (la otra forma es manualmente :D)
+
+CONFIGURACIαN DEL SERVIDOR ESCLAVO
+
+1: El fichero hosts ha de contener las direcciones IP de los servidores del sistema (igual que en el maestro :D)
+
+2: Establecer el nombre de dominio en el fichero /etc/defaultdomaine
+
+3: Poner la variable NISSERVER=slave en el fichero de iniciación para que arranque los programas:
+
+ypserv
+ypbind
+
+4: Ejecutar:
+
+/usr/lib/yp - s nombre-servidor-maestro 
+
+De este modo el servidor secundario ya tendrá las tablas de datos actualizadas.
+
+VERIFICACIαN DE LA INSTALACIαN DE NIS
+
+Uffff. parecía que no iba a acabar eh :D.
+
+Bueno para verificar que todo va bien ejecuta el siguiente comando:
+
+ypcat passwd
+
+Este debe devolverte los contenidos de tu fichero NIS passwd. El comando:
+
+ypmatch userid passwd
+
+(donde userid es el nombre de login de un usuario arbitrario) Te debe devolver la entrada correspondiente a ese usuario en el fichero NIS passwd.
+
+Junkee
+Miembro de 2500Hz
+http://pagina.de/2500Hz
+
+
+
+
+```
+
+</div>

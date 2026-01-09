@@ -1,0 +1,589 @@
+---
+title: "0x5"
+ezine: "disidents"
+---
+
+# 0x5
+
+**Ezine:** disidents
+
+<div className="ascii-content">
+
+```
+ -+-| DisidentS Hack Journal #4 |-+-
+
+
+
+
+
+
+
+
+  ___________________________________________________________________________
+ |                                                                           |
+ | -- Titulo_____: DLL injection o el arte de chopitear(primera parte)       |
+ | -- Autor______: W3ndig0                                                   |
+ | -- E-Mail_____:                                                           |
+ | -- Team_______: Disidents Espa±a - http://www.disidents.org               |
+ | -- KB_________: x.x                                                       |
+ | -- Tema_______: Artesania en visual basic                                 |
+ |___________________________________________________________________________|
+
+
+              "la potencia sin control..no sirve de nada"
+>>------------------------------------------------------------------------<<
+
+
+
+----------------------------------------------------------------------------
+----------------------------------------------------------------------------
+
+.==========================================================================.
+|===========~ INDICE ~======================================================
+|===========================================================================
+|=~ 0.0.0 Introduccion.                                                    |
+|=~ 1.0.0 Descripcion de la tecnica.                                       |
+|=~ 1.1.0 Ingredientes.                                                    |
+|=~ 1.1.1 Repaso sobre lo que nos hace falta saber antes de nada.          |
+|=~ 1.1.2 Cazando PIDs y Handles desde VB.                                 |
+|=~ 1.2.0 La DACL                                                          |
+|=~ 1.2.1 La DACL y los SIDs                                               |
+|=~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~=.
+======================================================~ INDICE ~============
+============================================================================
+
+
+
+.==========================================================================.
+|===========~ 0.0.0 Introduccion. ~=========================================
+|===========================================================================
+
+ Bueno, aqui estamos de nuevo jugando con el api de win, para los que habeis
+leido la ezine anterior, os habreis encontrado con un  escueto y extra±o ar-
+ticulo denominado  HOOKS en VB, en el cual, se os dejo un poco  las explica-
+ciones de lado, para  daros cancha  a  la hora  de experimentar por vosotros 
+mismos este mundo de los threads, hooks, apis y otras hiervas. 
+
+Esta vez, vuelvo  sobre mis pasos, para que entre muchas cosas, podais darle
+sentido, a si habeis  practicado, al anterior articulo, para introduciros ya
+directamente sin  mas demora  en la  tecnica de  injeccion de  dlls. Tambien
+conocida por mi como chopiteo, por razones abstractas...
+
+Hace unos  dias, Bockvan y towanda, me comentaban esta tecnica como  algo de
+dimensiones  escabrosas, a lo cual como siempre y para variar, me comprometi
+a meter mis  narices en ello, e voila! aqui teneis un poco de este  tema tan
+interesante.
+
+Para  empezar hablaremos de viejos  amigos y  conocidos  que han  usado esta 
+tecnica, estoy  seguro que a todos os suena PWDUMP2, verdad?,  para los  que
+no os suene, PWDUMP2  es lo que su nombre viene a decirnos, un  dumpeador de
+passwords, y eto que ye?  pos eso, un programa que obtiene los passwords  de
+un sistema NT, w2k y XP. No  os  pongais  tan  felices  que  requerireis  al 
+colega Lophtz crack si quereis ver el password de una forma legible.
+
+(no hablo mas del tema ya que el articulo no va sobre recuperacion de passw-
+ords)
+
+
+y como obtiene nuestro amigo PWDUMP2 los  passwords? ..usando injeccion DLL.
+
+Pero.. aparte de para esto...la injeccion DLL puede ser empleada  para  otro 
+tipo de cosas?.  Pues sip. Lo primero es ver en que consiste esta tecnica.
+
+En este capitulo solo pasearemos por la extructura de permisos, tratando de
+comprender como funciona, para en capitulos posteriores, profundizar a fon-
+do en esto, prometido.
+
+Entender que de lo contrario, el articulo seria enorme, me he visto obliga-
+do a cortarlo en entregas, muy a mi disgusto :(
+
+.==========================================================================.
+|===========~ 1.0.0 Descripcion de la tecnica. ~============================
+|===========================================================================
+ 
+El termino injeccion os puede orientar en que consiste esta tecnica, se tra-
+ta de meter una dll dentro de espacio en memoria de otra aplicacion.
+
+No es algo tan "especial", esta referenciada en numerosos  manuales de  pro-
+gramacion avanzada en windows. Como aneddota quizas,  es curioso ver como se
+contradicen los amigos de micro con el tema...primero nos recomiendan un li-
+bro, y despues en uno de los articulos de la tech net, nos dicen lo malisima
+que es la injeccion dll..antes de nada riamosnos un poco...
+
+
+
+http://www.microsoft.com/latam/technet/seguridad/au/julio2000.asp
+
+El equipo RAZOR recientemente liber≤ nuevas versiones de dos poderosas herra-
+mientas para auditar NT que ahora funcionan  en  Win 2000.  Estas herramient-
+as requieren el privilegio de Administrador y de ninguna  manera  comprometen
+la seguridad de Windows. Los administradores tienen todo el  control sobre la 
+mßquina, de modo que estas herramientas hacen Θnfasis en la necesidad crφtica 
+para proteger estas cuentas con poderosas contrase±as, inicios de  sesi≤n lo-
+cales solamente, uso del comando runas en Win 2000 y otras medidas de seguri-
+dad planteadas en publicaciones anteriores. Ademßs, emplean una  tΘcnica pro-
+gramßtica llamada "DLL injection" que no es compatible con Microsoft y  puede
+tener consecuencias accidentadas. HablarΘ brevemente sobre esto  de  modo que
+los lectores estΘn al tanto de sus capacidades y pongan especial  cuidado  en 
+considerar quΘ tan secreta es esta informaci≤n realmente para  cualquiera con 
+los privilegios de Administrador. 
+
+->(se refieren a Pwdump2)
+...
+
+Tecnica programatica... y no compatible con microsoft?!...si es el propio api
+de micro quien  nos da esta opcion!...es curioso no? mas adelante veremos que
+para realizar  una injeccion, no  nos vamos a  sacar absolutamente nada de la 
+manga, ni hacer nada anormalmente extra±o...
+
+...
+
+ahora las risas...que nos recomienda microo ??
+
+http://www.microsoft.com/latam/mspress/books/book11717.htm
+
+Programming Applications for Microsoft⌐ Windows⌐ 
+by  Jeffrey Richter 
+ 
+Pages   1104 
+User Level   Int/Adv  
+ISBN   1-57231-996-8 
+Release date   29 September 1999 
+
+
+LA COBERTURA INCLUYE: 
+
+0  Entender las funciones de  Windows  2000,  tales  como: tareas, APIs  para 
+agrupaci≤n  de hilos, extensiones  para  ventanas de  direcciones,  funciones 
+Toolhelp  y archivos sparse 0 Dominar los elementos bßsicos de DLL y  aplicar 
+las  tΘcnicas avanzadas,  incluyendo:  colgarse a APIs,  Inyecci≤n DLL, envi-
+adores  de funciones, carga de demora,  redireccionamiento, rebasing, y bind-
+ing 
+     
+....
+
+Definitivamente... una tecnica avanzada..y incompatible con el tarugo que es-
+cribio ese articulo... porque que se vea..con windows...lo es.
+
+por cierto el libro en cuestion, tiene una pinta acojonante..no creeis?
+
+....
+
+
+Bueno, despues de esta peque±a referencia historico-anecdotica, vamos  a man-
+charnos las manos y a desarrollar algo en torno a esto. (eso para que algunos
+todabia tengan la muy cara dura y geta de decir k no hacemos codigo Xd).  
+
+
+.==========================================================================.
+|===========~ 1.1.0 Ingredientes. ~=========================================
+|===========================================================================
+
+Como siempre, y como ya estareis acostumbrados a estas alturas de la ezine ,
+adivinar en que vamos a trabajar...VISUAL BASIC!! XD, porque?..porque todo o
+casi todo lo que se ve sobre esta tecnica, se ve en c++,  y  veremos  que VB
+puede hacer sus pinitos.
+
+Decualquier forma, con el api de win, siempre se nos hace mas comodo trabajar
+con C++.
+
+Pero como siempre digo, como somos muy chulos, lo hacemos en VB, demostrando 
+una vez mas, que vb es potente.
+
+Asique..ingredientes:
+
+	1.-Compilador de VB.
+	2.-Articulo del tio w3n.
+	3.-Pakete de lucky strike, y si no fumais, unos caramelitos.
+	4.-Paciencia para leer y entender el pedazo paseo que  nos  vamos  a 
+           dar. 
+ 
+.==========================================================================.
+|===~ 1.1.1 Repaso sobre lo que nos hace falta saber antes de nada.~========
+|===========================================================================
+
+
+Cazando la direccion de una funcion o de una variable:
+------------------------------------------------------
+
+'un ejemplo sacado de codigo ya presentado en la ezine:
+
+Private Declare Function GetIcmpStatistics Lib "IPhlpApi" (StdICMP As MIB_ICMP) As Long
+
+si alguno de vosotros programais en C, sabreis que es necesario declarar an-
+tes las funciones con sus parametros, lo que se llaman prototipos, bien este
+es un proceso similar, estamos diciendo al VB que declare una funcion que se
+encuentra contenida en una libreria, en este caso iphlpapi.
+
+El problema viene cuando nos vamos a explorar..y vemos que no sabemos ni que
+apis hay, ni que parametros toman..ni nada de nada...
+
+Solucion..podemos buscar en microsoft o bien usar el api viewver del  Visual
+estudio.
+
+Si miramos en microsoft, nos daran ganas de llorar, ya que la descripcion se
+realiza para C++, y el problema mas gordo aun, si cabe, es que los tipos  de
+datos de VB,C++, y los del api, no siempre nos van a coincidir con los de vb
+
+Independientemente de esto, nos es posible trabajar.
+
+Si vamos a escribir algo en memoria, lo fundamental es saber 2 cosas: 
+
+1. Sobre que proceso nos lo vamos hacer.
+2. La direccion de este proceso.
+
+Pasamos al punto 2 (estamos en una parte generica), como podriamos nosotros 
+obtener la direccion de memoria de determinado proceso....? nos la podra dar
+el propio api de win?... SI.
+
+Libreria:kernell32.lib
+Funcion: GetProcAddress
+Descripcion: GetProcAddress nos proporciona la direccion de una variable, o 
+             funcion de una dll que hemos cargado en memoria, o ya lo esta.
+http://msdn.microsoft.com/library/default.asp?url=/library/en-us/dllproc/dll_0f8z.asp
+
+el problema lo tenemos, en que necesitamos saber el handle de la Dll cargada.
+
+Sin problemas..el api nos lo proporciona tambien:
+
+Libreria:kernell32.lib
+Funcion: GetModuleHandleEX 
+Descripcion:  nos proporciona el handle de un proceso, o del nuestro. 
+             
+http://msdn.microsoft.com/library/default.asp?url=/library/en-us/dllproc/dll_5plx.asp
+
+y logicamente..si vamos a escribir en memoria...tendremos que ver como lo ha-
+cemos una vez mas...recurrimos al api:
+
+libreria:NK.lib 
+Funcion:WriteProcessMemory
+Descripcion:Pues eso, escribe dentro de un proceso en memoria,  el problema , 
+es que en esa zona se pueda escribir. 
+
+
+Una forma de capturar procesos lanzados que no los hayamos previamente lanza-
+do nosotros es usar otra muy interesante api:
+
+Libreria COREDLL.lib
+Funcion: Openprocess
+Descripcion: nos retorna el handle de un proceso existente fuera de nuestra app.
+
+http://msdn.microsoft.com/library/default.asp?url=/library/en-us/wcekernl/htm/_wcesdk_win32_OpenProcess.asp
+
+Con lo cual...estariamos libres de obtener el  handle de  cualquier  proceso, 
+y si tenemos permisos...escribir en el. Bonito  verdad?.  Bueno.. pues  calma  
+que por ahora lo que estmos es haciendo un paseo por enzima.... De  cualquier
+forma vamos a ver una aplicacion de este metodo, para ello vamos  a  trabajar
+un poco...asique vamos a abrir nuestro compilador de VB si  no  lo  teneis ya
+abierto de antemano..y vamos a construirnos un modulo que nos  permita  cazar
+los identificadores de los procesos de momento para despues obtener sus hand-
+les correspondientes con la api openprocess.
+
+.==========================================================================.
+|===~ 1.1.2 Cazando PIDs y Handles desde VB .~==============================
+|===========================================================================
+
+Como he dicho vamos a realizar un modulo, porque iremos haciendonos una lib-
+reria con todo lo que aprendramos para poder ir usandola en nuestras aventu-
+ras...
+
+Abrimos un proyecto...metemos un form y un modulo.
+
+Por cierto, no se si lo he mencionado mas arriba pero esto es para NT, no os
+pitara en otro windows, salvo en 2k y XP logicamente.
+
+bien..ale ahi teneis el codigo...a destriparlo chavalettes :)
+(no me seais tan cutres de crtl+c & ctrl+V ..no me hagais capar  los progra-
+mas jodios...)
+
+|===========================================================================
+|===========================================================================
+
+
+'primero vamos a meter la funcion del api k nos va a dar acceso al listado de procesos.
+'Psapi.lib (process api..na intuitivo verdad ?)
+
+'mas info guapa sobre la PSAPI.lib en:
+'http://msdn.microsoft.com/library/default.asp?url=/library/en-us/perfmon/psapi_0bjn.asp
+
+Private Declare Function EnumProcesses _
+   Lib "PSAPI" (PID As Any, bytesktengo As Long, byteskmevaocupa As Long) As Long
+
+Private Identificadores() As Long 'PIDS
+
+Private numero_procesos As Long
+
+Type T_proceso
+   
+     identificador As String
+End Type
+Type T_procesos
+    total As Long
+    proceso() As T_proceso
+End Type
+
+Dim Procesetes As T_procesos
+
+Public Function CAZA_PROCESOS() As T_procesos
+   Dim buffer_necesario As Long
+   Dim tama±o_buffer As Long
+   Dim nRet As Long
+  
+   Dim contador  As Long
+   ReDim Identificadores(1)
+
+      ' llamamos a la api para que nos de los tama±os de buffer que requerimos
+      tama±o_buffer = 4 * UBound(Identificadores) 'el 4 son las bytes k ocupa un long
+      fallo = EnumProcesses(Identificadores(1), _
+         tama±o_buffer, buffer_necesario)
+      
+      
+
+           
+      
+'miramos si tenemos suficiente buffer, y redimensionamos los buffer
+         If buffer_necesario > tama±o_buffer Then
+            ReDim Identificadores(1 To buffer_necesario) As Long
+               tama±o_buffer = buffer_necesario
+               nRet = EnumProcesses(Identificadores(1), tama±o_buffer, buffer_necesario)
+         End If
+         ' miamos si ha ido todo bien ...
+         If nRet = False Then
+            MsgBox "ala pedazo de error nen!"
+            Exit Function
+         End If
+
+
+      ' ala...seteamos el numero de procesos...
+      numero_procesos = buffer_necesario \ 4 ' 4 bytes por long
+      'redimensionamos la extructura de datos
+      ReDim Procesetes.proceso(numero_procesos)
+      Procesetes.total = numero_procesos 'metemos el numero de procesos k hay
+      
+      ' Metemos los procesos a nuestra extructura de datos.
+      For contador = 1 To numero_procesos
+        Procesetes.proceso(contador).identificador = CStr(Identificadores(contador))
+      Next
+      
+      CAZA_PROCESOS = Procesetes 'retornamos la extructura
+
+
+
+End Function
+
+|===========================================================================
+|===========================================================================
+
+bien..una aplicacion de esta funcion, que siempre me venis con lo mismo,  jo
+no da error pero como la uso?!
+
+haber la funcion retorna un tipo llamado procesetes, veros la declaracion  y
+tal...un ejemplo de esta funcion puede ser echar la extructura a un  listbox
+cuando pulseis un boton...en nuestro caso no haremos esto, la usaremos  para
+obtener los handles de los procesos.
+
+|===========================================================================
+|===========================================================================
+Private Sub Command1_Click()
+Dim fake As T_procesos
+fake = CAZA_PROCESOS
+
+Dim a As Long 'ojito k a saber cuantos hay!!...mas vale pasarse un poco k 
+              'que nos pete el programa aqui por algo tan tonto.   
+
+For a = 1 To fake.total
+  Me.List1.AddItem fake.proceso(a).identificador
+Next
+
+End Sub
+|===========================================================================
+|===========================================================================
+
+
+Total, que ahora tenemos una funcion que nos retorna los PID de los procesos
+que tenemos en memoria, pero si queremos hacer algo..tendremos que usar  los
+handles de estos procesos, como decia, esto lo haremos  con la  api OPENPRO-
+CESS, ahora tenemos una extructura con los PID, no tendremos mas  que  hacer
+otra funcion por ejemplo que coja los pids de la extructura y  nos  meta los
+handles. 
+
+ Antes de nada, vamos a explicar alguna cosita interesante....si buscamos un
+poco, nos encontramos con que openprocess, nos pide un parametro  aparte  de
+del propio PID, con C++ hubieramos tenido las cosas mas faciles, ya que  ese
+parametro es una constante, en nuestro caso, para que luego digan que VB  es
+para iniciarse, tendremos que buscarnos la vida, afortunadamente, ya os  doy
+yo estas constantes que nos son fundamentales para hacer una injeccion DLL.
+
+este es el caso de las siguientes, de las cuales la que mas nos va a intere-
+sar sera PROCESS_ALL_ACCESS ; porque? porque nos dara un handle  en  funcion
+de los accessos que podamos tener y no de uno especifico. Es decir, a lo que
+buenamente se pueda. 
+
+Const SYNCHRONIZE = &H100000
+Const INFINITE = -1& 
+Const PROCESS_ALL_ACCESS = 0
+
+[De momento estas..]
+
+En especial hay un detalle muy importante que deberiamos de tener en cuenta
+y que quizas nos pueda ser una via de acceso a una posible escalada de pri-
+vilegios sobre otros procesos.
+
+Imagimemos que el proceso Manolo, tiene acceso al  proceso  PEPE,  nosotros
+somos el proceso manolo, para hacer esta tecnica..bien, el handle al proce-
+so pepe tiene unas restricciones, pero que pasa si duplicamos este handle?
+
+TENEMOS UN HANDLE CON EL MAXIMO DE ACCESO SOBRE EL PROCESO PEPE. Putada...
+Tenemos que tener algun tipo de acceso a pepe previamente. :(
+
+http://msdn.microsoft.com/library/default.asp?url=/library/en-us/dllproc/prothred_68ab.asp
+ 
+
+
+
+  
+si miramos el codigo de PWDUMP2 ..veremos que usa openprocess igual  que  lo
+vais a usar vosotros..'
+
+
+Los permisos para un determinado thread , donde estan?  quien los define?.. 
+hablemos de la DACL.
+
+
+.==========================================================================.
+|===~ 1.2.0 La DACL.~=======================================================
+|===========================================================================
+
+Mas o menos, intuitivamente podeis llegar a lo que es la DACL, no  se  trata
+mas que de una lista de los grupos de usuarios que tienen acceso a un deter-
+minado objecto marcado como seguro. Osea, marca quien tiene acceso o  no  al
+objecto, y para molestarnos mas, la DACL es extensible a todos los hilos  de
+ejecucion lanzados por un objecto, es decir, SI NO TENEMOS ACCESO AL OBJECTO
+NO TENDREMOS ACCESO A NINGUN THREAD DE ESTE OBJECTO.  Por  otro  lado, si el
+objecto no tiene una DACL establecida, tendremos acceso total. Seria  bonito
+hacernos un programilla para ver que objectos tenemos en el sistema con DACL
+o lo que es mejor...cuales no la tienen, asi  tendremos  acceso  garantizado
+tanto para metodos writeprocessmemory, o readprocessmemory, ya  que  tambien
+podemos leer...
+
+
+La DACL asociada a un objecto o recurso (como por ejemplo una impresorda, es
+en si, una lista de ACEs. Lo entendereis mas comodamente si dibujo un peque-
+±o esquema...
+
+                     -------------------
+                     |                  |
+         ___________ |                  |
+        (            |      OBJECTO     |
+        |            |                  | 
+        |            |                  |
+        |            --------------------
+        |                      |          
+        \/                     |              ____________
+--------------------           |	     (            ) 
+\\\\\\\\\\\\\\\\\\\\           |------------>| Thread 1   |---->usuario->SID
+\\\\\\DACL\\\\\\\\\\           |             (____________)
+--------------------           |              ____________ 
+|                  |           |             (            )
+|\\\\\ACE1\\\\\\\\ |           |------------>| Thread 2   |---->Usuario->SID
+|                  |                         (____________)
+|                  |           .
+|                  |           .
+|                  |           .-.-.-.--.-.-> ............
+|\\\\\ACE2\\\\\\\\ |           .
+|                  |           \/
+|                  |
+|                  |
+|                  | 
+|    .......       |
+(------------------)
+
+    
+
+.> Como vemos en la ilustracion, nuestro objecto, recurso o lo k sea, dispone
+de X threads..al objecto se le ha asociado una DACL, por tanto cada acceso  a
+uno de sus threads sera consultado con la DACL del objecto. 
+
+En el esquema vemos que cada thread es usado por un usuario, y  cada  usuario
+deberia de tener un sid.
+
+Vamos a pasar a explicar paso por paso cada termino....
+
+.==========================================================================.
+|===~ 1.2.1 La DACL y los SIDs.~============================================
+|===========================================================================
+
+SID -> Security identifier.
+-----------------------------------------------------------------------------
+ 
+El sid es un valor unico que identifica unica y esclusivamente a  un  usuario
+o a un grupo. Por ejemplo es empleado en la identificacion de usuarios en cu-
+entas etc. Una vez usado, no puede ser reutilizado. Es decir,  es  personal e
+intransferible. Como el dni XD. En definitiva no es mas que un identificador.
+
+Ademas  de los SID especificos, hay SID well-know, o genericos... hablemos de
+ellos un poco.
+
+Un Sid generico, por ejemplo puede ser el de  creador,  todo el mundo o admi-
+nistrador... el grupo del administrador...un grupo sin usuarios...
+
+Algunos Sid genericos o well-know
+
+Identifier authority              Valor                SID prefijo de cadena 
+SECURITY_NULL_SID_AUTHORITY         0                          S-1û0 
+SECURITY_WORLD_SID_AUTHORITY        1                          S-1û1 
+SECURITY_LOCAL_SID_AUTHORITY        2                          S-1û2 
+SECURITY_CREATOR_SID_AUTHORITY      3                          S-1û3 
+SECURITY_NON_UNIQUE_AUTHORITY       4                          S-1-4 
+SECURITY_NT_AUTHORITY               5                          S-1û5 
+
+(sacado de msdn.microsoft.com)
+ 
+
+Links interesantisimos para la comprension del proximo articulo..ir mirandolos ;)
+
+http://msdn.microsoft.com/library/default.asp?url=/library/en-us/security/security/well_known_sids.asp
+http://msdn.microsoft.com/library/default.asp?url=/library/en-us/security/Security/order_of_aces_in_a_dacl.asp
+http://msdn.microsoft.com/library/default.asp?url=/library/en-us/security/Security/how_dacls_control_access_to_an_object.asp
+http://www.iu.hio.no/cfengine/docs/cfengine-NT/node29.html
+Netapi32.lib,  
+http://msdn.microsoft.com/library/default.asp?url=/library/en-us/dllproc/dll_0f8z.asp
+http://msdn.microsoft.com/library/default.asp?url=/library/en-us/netmgmt/ntlmapi2_07zj.asp
+
+
+  
+Nos vemos en el siguiente Capitulo, donde entraremos a Ca±on sobre este tema
+que esta realmente interesante verdad?. 
+-----------------------------------------------------------------------------
+
+
+                          ------------
+                          |          |
+                          |   E0f!   |
+                           -/---------
+                           / 
+                          """"     
+                        """  """              %%%
+                       """      ""         %%%% )
+                        ""()    ""   %%%%%%   )
+                         \ |    "" %"""""  ) )
+                          \|   ""%%       )#
+                              ""%%  ) )  )#
+                             ""#% ) )"""""""
+                            ""#%% """"""""#
+                            """""""""""""#
+                       ....   """""""""".......
+                            ...............
+                     ......                ........
+                            .............. 
+-----------------------------------------------------------------------------
+-----------------------------------------------------------------------------
+contacto: disidents@disidents.no-ip.org
+contacto: w3ndig0@disidents.no-ip.org
+-----------------------------------------------------------------------------
+
+
+
+```
+
+</div>

