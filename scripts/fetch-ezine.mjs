@@ -253,7 +253,12 @@ async function processEzine(ezineName) {
       if (utf8Content.includes('\x00')) continue
 
       const relativePath = txtFile.replace(ezineArchiveDir + '/', '')
-      const slug = slugify(basename(txtFile, extname(txtFile)))
+      const ext = extname(txtFile)
+      const base = basename(txtFile, ext)
+      // Preserve numeric extensions (like .2, .3, .001) in the slug
+      const isNumericExt = /^\.\d+$/.test(ext)
+      const slugBase = isNumericExt ? `${base}-${ext.slice(1)}` : base
+      const slug = slugify(slugBase)
       const mdPath = join(ezinePagesDir, `${slug}.mdx`)
 
       const markdown = convertToMarkdown(utf8Content, txtFile, ezineName)
