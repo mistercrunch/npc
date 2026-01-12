@@ -1,0 +1,263 @@
+==============================================================================
+-----------[ BFi numero 10, anno 4 - 30/09/2001 - file 15 di 18 ]-------------
+==============================================================================
+
+
+-[ REVERSING ]----------------------------------------------------------------
+---[ 0K - 0 KELViN
+-----[ syscalo <x4sys@bigfoot.com>
+
+
+L'idea:
+Pensando ad una possibile applicazione dell'algoritmo di generazione di chiavi
+pseudo casuali presentato nel numero 9 di BFI, ricavato dal reversing del
+programma keygen, ho ritenuto sensato usare la chiave per crittare file.
+
+Riflettendo meglio ho però valutato che la crittazione, implementata in modo che
+fosse reversibile, non sarebbe stata molto (per niente?) sicura, a meno di
+implementare algoritmi studiati e ristudiati... ma allora cosa me ne faccio
+della chiave del keygen 8-?
+
+Allora ho pensato un po' a dove potesse essere utile l'implementazione di una
+crittazione senza ritorno, ma a parte password & co. per cui esistono già
+funzioni di crittazione note non ho avuto altre intuizioni :-/
+
+Alla fine l'idea è arrivata: usare la chiave pseudo casuale per crittare i file
+in modo unidirezionale, prima di cancellarli, scrivendo un programma che si
+occupi di tutto, in sostanza un surrogato di rm con crittazione unidirezionale
+inclusa.
+
+
+La riflessione:
+Sviluppata mentre stavo già scrivendo il programma surrogato di rm.
+In fin dei conti quello che ci interessa è perdere l'informazione contenuta nel
+file in modo che non sia più recuperabile, quindi sfruttiamo l'idea più semplice
+possibile: prima di rimuovere il file sostituiamo il suo contenuto con byte 0.
+Ho subito abbandonato l'idea di effettuare la crittazione e ho implementato il
+programma con la sostituzione di zeri.
+L'abbandono è stato fatto senza troppi ripensamenti perchè, come vedrete dal
+programma, per effettuare la crittazione si tratta di sostituire la funzione
+zero_it.
+
+
+Analisi delle problematiche:
+Azzeriamo il contenuto e poi cancelliamo; ok, ma in linux (anche in altri os,
+lo so;-p) tutto è visto come file, ma sono tipi di file ben differenti!
+Quindi la prima condizione che dobbiamo verificare è che il file da rimuovere
+sia un file regolare.
+
+Problema 2: in linux esistono gli hard link!
+Azzerare il contenuto di un file senza tenere conto di questa situazione vuol
+dire ritrovarsi con tanti file contenenti zeri, senza nemmeno accorgersene.
+Quindi effettueremo la sostituzione degli zeri solo se il numero di hard link
+corrispondenti al file è 1, altrimenti ci limiteremo a rimuovere l'hard link.
+Parlando di hard link, vengono in mente i link simbolici, ma di questi non
+dobbiamo preoccuparci ;-)
+
+
+L'implementazione:
+
+<-| zero-rm.c |->
+/*
+ * zero-rm.c
+ * Compilazione : gcc -o zero-rm -O2 zero-rm.c && strip --strip-all zero-rm
+ *
+ * syscalo <x4sys@bigfoot.com>
+ */
+
+#include <stdio.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+
+void zero_it(char *, int);
+
+void zero_it(char *file, int size)
+{
+	int i, fd;
+	int buf[4096];
+ 
+	fd = open(file, O_WRONLY);
+
+	/* azzeriamo a blocchi di 4096 byte */
+	for(i = 0; i <= size/4096; i++)
+		write(fd, buf, 4096);
+
+	close(fd);
+}
+
+
+int main(int argc, char *argv[])
+{
+	struct stat statbuf;
+
+	/* se ci sono errori avvisiamo e terminiamo */
+	if(0 != stat(argv[1], &statbuf))
+	{
+		fprintf(stderr, "%s: error occurred on stat\n", argv[0]);
+		exit(-1);
+	}
+
+	/* se non e' un file regolare avvisiamo e terminiamo */
+	if(!S_ISREG(statbuf.st_mode))
+	{
+		fprintf(stderr, "%s: cannot zeroing a non regular file\n", 
+			argv[0]);
+		exit(-1);
+	}
+
+	/*
+	 * se il numero di hard link e' maggiore di 1 avvisiamo
+	 * e rimuoviamo il file senza azzerare
+	 */
+	if(statbuf.st_nlink > 1)
+	{
+		fprintf(stdout, "%s: removing (hard) link without zeroing it\n",
+			 argv[0]);
+		if(0 != unlink(argv[1]))
+		{
+			fprintf(stderr, "%s: cannot remove file %s\n", 
+				argv[0], argv[1]);
+			exit(-1);
+		}
+		exit(0);
+	}
+ 
+	/* azzera il file */
+	zero_it(argv[1], statbuf.st_size);
+ 
+	/* rimuove il file */
+	if(0 != unlink(argv[1]))
+	{
+		fprintf(stderr, "%s: Cannot remove file %s\n", 
+			argv[0], argv[1]);
+		exit(-1);
+	}
+}
+<-X->
+
+Il programma è scritto in modo `prolisso' per mantenere tutte le condizioni ben
+separate, ma sono sicuro che sapete come renderlo più C-style.
+
+
+Le osservazioni:
+Non sostituite questo programma al programma rm, per 2 motivi:
+1- non sono supportate le opzioni di rm
+2- applicato questo programma non avete modo di recuperare i dati
+
+
+L'implementazione seria:
+Solo per i più temerari ;-)
+Il programma presentato, funziona, è bello =), ma a mio avviso è scomodo!
+E poi non abbiamo smanettato abbastanza ;-p
+Quindi ecco l'implementazione come modulo del kernel, per rendere definitiva la
+nostra scelta!
+
+<-| 0K.c |->
+/*
+ * 0K : 0 Kelvin
+ * Compilazione: gcc -c -O2 -fomit-frame-pointer 0K.c
+ * Installazione: insmod 0K.o
+ * Rimozione: rmmod 0K
+ *
+ * syscalo <x4sys@bigfoot.com>
+ */
+ 
+#define MODULE
+#define __KERNEL__
+
+#define MYNAME "0K"	/* il nome del modulo ;-p */
+
+#define HACK_FS(value)		value = get_fs(); set_fs(get_ds()) 
+#define RESTORE_FS(value)	set_fs(value)
+
+#include <linux/module.h>
+#include <linux/modversions.h>
+#include <linux/kernel.h>
+#include <linux/mm.h>
+#include <sys/syscall.h>
+#include <asm/uaccess.h>	/* includere per get_fs, set_fs, get_ds */
+
+
+extern void *sys_call_table[];
+
+/* syscall sostituita */
+int (*hooked_unlink)(const char *);
+
+/* syscall usate */
+int (*_open)(const char *, int);
+int (*_close)(int);
+int (*_stat)(const char *, struct stat *);
+int (*_write)(int, const char *, int);
+
+
+int zero_unlink(const char *pathname)
+{
+	struct stat statbuf;
+	int fd, i;
+	char zero='\0';
+	mm_segment_t fs_value;	/* usata da HACK_FS e RESTORE_FS */
+
+	HACK_FS(fs_value);
+
+	if(0 == _stat(pathname, &statbuf))
+	{
+		if(S_ISREG(statbuf.st_mode) && (1 == statbuf.st_nlink))
+		{
+			if((fd = _open(pathname, O_WRONLY)) >= 0)
+			{
+				printk(KERN_INFO "%s : zeroing file %s\n", 
+					MYNAME, pathname);
+				
+				for(i = 0; i < statbuf.st_size; i++)
+					_write(fd, &zero, 1);
+
+				_close(fd);
+			}
+		}
+	}
+
+	RESTORE_FS(fs_value);
+
+	return hooked_unlink(pathname);
+}
+
+int init_module()
+{
+	_open = sys_call_table[SYS_open];
+	_close = sys_call_table[SYS_close];
+	_stat = sys_call_table[SYS_stat];
+	_write = sys_call_table[SYS_write];
+
+	hooked_unlink = sys_call_table[SYS_unlink];
+	sys_call_table[SYS_unlink] = zero_unlink;
+
+	printk(KERN_INFO "%s loaded\n", MYNAME);
+	return 0;
+}
+
+void cleanup_module()
+{
+	sys_call_table[SYS_unlink] = hooked_unlink;
+	printk(KERN_INFO "%s removed\n", MYNAME);
+}
+<-X->
+
+That's all!
+
+Saluti e...:
+A tutto lo staff del s0ftpj, in particolare a blinking che gli torni la voglia
+di fare qualcosa ;-p hihihi
+
+E per risparmiare byte, tutti quelli che conosco; Ritz sei il primo della lista,
+quindi mi spetta una birra quando ci vediamo ;-)
+
+... un po' di diffusione di informazione:
+Per chi è interessato ad un po' di reversing e al coding in assembly in linux...
+http://racl.oltrelinux.com
+
+bye to all `,`,`, syscalo
+
+
+==============================================================================
+--------------------------------[ EOF 15/18 ]---------------------------------
+==============================================================================

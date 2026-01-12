@@ -1,0 +1,862 @@
+      ## #######   ####### #######      ####### ### ######## ######## ##      
+      ## ########  ####### #######      ####### ### ######## ######## ##      
+     ##      ##### ####### #######      ####### ### #### ### ########  ##     
+     ##        ###                                  ###  ###           ###    
+    ###  ###   ###   ###   #######  ###    ###  ### ###   ## ########  #####  
+  #####  ###   ###   ###   #######  ###   ###   ### ###   ## ########  #####  
+  #####  ###   ###   ###   #######        ###   ### ###   ## ########  ### #  
+  # ###  ###  ####   ###   ###           ###  # ### ###   ## ###       ##  #  
+  #  ##  ########   #####  ###           ###  # ### ###   ## ########  ##  #  
+  #  ##  #######    #####  ###          ####### ### ###   ## ######## ##   #  
+  #   ## ######     #####  ###          ####### ### ###   ## ######## ##   #  
+  #   ##                                                                   #  
+  #              ############################################              #  
+  #             ##  DTFzine issue #3    Mayo'02             ##             #  
+  #             #   TiTuLo: Kernel Hack, un ejemplo          #             #  
+  ###############   Autor : Isaac Clerencia                  ###############  
+    #############   email : isaac@sindominio.net             #############    
+                 ##  Web   : http://www.dtfzine.cjb.net     ##               
+                  ###########################################               
+                   ######################################### 
+
+
+  (El autor  no  se  hace  responsable  de  cualquier  da;o  causado  por  la
+ instalación de este módulo).
+
+
+  Hola, me llamo Isaac y soy nuevo en DTF, en esta ocasión voy a presentar un
+ ejemplo  sobre "kernel  hacking", en  este  caso un módulo  del kernel Linux
+ 2.0.30 (para  usarlo en  otro necesitará ligeras o profundas modificaciones)
+ para establecer seguridad 'ad-hoc' en sistemas GNU/Linux.
+
+  Nuestro módulo se encargará de registrar cualquier acceso (open,read,write,
+ close) a los  ficheros  que le  indiquemos. Además, trataremos de ocultar la
+ existencia de nuestro módulo en la medida de lo posible.
+
+  Vamos a  dividir el trabajo en dos grandes  secciones: la monitorización de
+ los ficheros y la ocultación del módulo y los resultados.
+
+  - Monitorización de las actividades sobre ficheros
+
+  Se realiza mediante la sustitución de  las llamadas  al sistema  originales
+ por  unas  nuevas  que  contienen  el código  necesario  para  registrar  la
+ actividad y una llamada a la función original.
+
+  Para realizar la sustitución, cambiamos las entradas apropiadas en la tabla
+ de llamadas al sistema (syscall_table).
+
+  Para saber que ficheros están siendo monitorizados se mantiene una lista de
+ inodos. Esta  lista  se  consulta  cada  vez que se hace una de las llamadas
+ sustituidas. La  información se registra en un fichero de "log". Si el inodo
+ del fichero sobre  el que se efectua la llamada está en la lista, escribimos
+ una línea en dicho fichero incluyendo toda la información necesaria (llamada
+ al sistema, programa, fecha y hora, ...).
+
+  - Ocultación del módulo y del fichero de log
+
+  Para  llevar  a  cabo una completa  ocultación del módulo, debemos tener en
+ cuenta varios aspectos.
+
+  En primer lugar, el  módulo  no  debe  aparecer  en  la  lista  de  módulos
+ (/proc/modules), para  esto lo hacemos pasar por el módulo kernel, cambiando
+ su nombre  por la cadena vacía, y poniendo su tamaño y número de referencias
+ a 0. La lista de  módulos no es un símbolo global del sistema, por lo que no
+ tenemos  acceso  desde  nuestro módulo. Para conseguir cambiar estos campos,
+ aprovechamos  que sys_init_module() deja  un  puntero a  la estructura en la
+ pila.
+
+  También  debemos  evitar que los símbolos exportados de nuestro módulo sean
+ visibles en /proc/ksyms o mediante la llamada get_kernel_syms().
+
+  Hemos  optado  por  la  mejor  solución,  que  además  es  la más sencilla,
+ consistente  en  no  exportar  ningún   símbolo  de  nuestro  módulo  usando
+ register_symtab(NULL);
+
+  Otra solución  hubiera  sido modificar  la  llamada  read() para que cuando
+ leyera  el  fichero  /proc/ksyms filtrara  el  resultado  mostrando sólo los
+ símbolos  que  no  pertenecen  al módulo. Pero  esta solución, además de ser
+ bastante  más  costosa, no funciona, ya que con hacer dd if=/proc/ksyms bs=1
+ es decir, leer  el fichero  byte  a byte, descubriríamos todos los símbolos.
+ Además, habría que sustituir también la llamada get_kernel_syms().
+
+  El último  aspecto a tener en cuenta es la ocultación del fichero en el que
+ son  registrados  los  resultados  de  la  monitorización. Para  ello  hemos
+ sustituido la  llamada getdents(), por una versión que llama a la original y
+ filtra los resultados, devolviendo sólo los ficheros que no contienen cierta
+ cadena mágica, tal  y  como  muestra  el  siguiente  esquema, suponiendo que
+ "magic" sea la cadena mágica.
+
+Relación de ficheros generados
+
+eiso.c
+eiso.h
+Makefile
+
+Código fuente de los ficheros generados
+
+eiso.c
+
+#include <linux/module.h>
+#include <linux/types.h>
+#include <linux/errno.h>
+#include <linux/stat.h>
+#include <linux/kernel.h>
+#include <linux/sched.h>
+#include <linux/fcntl.h>
+#include <linux/mm.h>
+#include <linux/uio.h>
+#include <linux/proc_fs.h>
+#include <linux/dirent.h>
+#include <asm/unistd.h>
+#include "eiso.h"
+
+// Estructura utilizada para mantener la lista de inodos monitorizados
+struct lista_inodos{
+   int i_ino;
+   struct lista_inodos * next;
+};
+
+// Lista de inodos monitorizados
+static struct lista_inodos *lista;
+
+// Numero de inodos que están siendo monitorizados
+static int num_inodos=0;
+
+// Llamadas al sistema originales
+static int (*open_orig)(char *pathname, int flags, mode_t mode);
+static int (*close_orig)(unsigned int fd);
+static int (*read_orig)(unsigned int fd, char * buf, int count);
+static int (*write_orig)(unsigned int fd, char * buf, int count);
+static int (*brk_orig)(void *end_data_segment);
+static int (*getdents_orig) (unsigned int fd, void *dirent, unsigned int count);
+
+// Buffer para escribir la información en el log
+char info[200];
+
+/* Escribe en el archivo de "log" la cadena "info"
+ * Variables globales accedidas:
+ * current (->mm, ->fsuid, ->files)
+ * Funciones del kernel utilizadas:
+ * memcpy_tofs()
+ * memset()
+ * strlen()
+ * */
+
+int log(char *info){
+   // Guardaremos el fsuid original
+   int save_fsuid;
+   struct file *file;
+   unsigned long mm,ret;
+   int logfd;
+
+   //reservamos memoria para el path (que también utilizaremos para info)
+   // mediante brk
+   //necesitamos que esta memoria sea de usuario porque asi lo esperan las
+   // llamadas al sistema open y write
+   mm=current->mm->brk;
+   ret=brk_orig((void*)mm+204);
+   if(ret < 0)
+      return ret;
+
+   //copiamos el path a la memoria reservada
+   memcpy_tofs((void *)mm+2,"/eiso523.log",13);
+
+   //para poder escribir en el fichero de log, lo más fácil es
+   //poner fsuid a 0, con lo cual podremos escribir en cualquier fichero
+   save_fsuid=current->fsuid;
+   current->fsuid=0;
+   //llamamos a open
+   logfd=open_orig((char *)mm+2,O_WRONLY|O_CREAT,S_IRWXU);
+   //restauramos fsuid a su valor anterior!!!
+   current->fsuid=save_fsuid;
+
+   //lseek(END) casero
+   file=current->files->fd[logfd];
+   file->f_pos=file->f_inode->i_size;
+   file->f_reada=0;
+
+   //copiamos la informacion a escribir a la memoria reservada
+   memcpy_tofs((void *)mm+2,info,200);
+   ret=strlen(info);
+   //realizamos la escritura y cerramos el fichero
+   write_orig(logfd,(char *)mm+2,ret);
+   close_orig(logfd);
+
+   //borramos lo que hemos escrito en memoria de usuario,
+   // si no lo hicieramos -> Ver: hack2.c
+   memset(info,0,200);
+   memcpy_tofs((void *)mm+2,info,200);
+
+   //liberamos la memoria
+   brk_orig((void *)mm);
+   return 0;
+}
+
+/* Función que sustituye a la llamada al sistema getdents
+ *
+ * Esta función llama a la original y modifica el resultado para filtrar
+ * los ficheros con la cadena mágica "eiso523"
+ * 
+ * Funciones del kernel utilizadas:
+ * kmalloc()
+ * kfree()
+ * memcpy_tofs()
+ * memmove()
+ * strstr()
+ */
+
+/* Esta función ha sido extraida del artículo :
+ * (nearly) Complete Linux Loadable Kernel Modules (Pragmatic / THC) 
+ * concretamente de una adaptación del AFHRM (Michal Zalewski),
+ * tenía algun fallo, y estaba claro que se había hecho un copy-paste,
+ * porque habia cosas que no tenían ningún sentido, variables declaradas
+ * y no usadas, etc., además, si había dos ficheros seguidos que debían
+ * ser ocultados no lo hacía -> Ver: OJO!!
+ *
+ * Esta función es una de las posibilidades de descubrir nuestro módulo,
+ * ya que no garantiza que devuelve la cantidad de información que le han
+ * pedido, un atacante podría realizar una copia de todos los ficheros
+ * que "se ven" en un directorio a otro y ejecutar getdents() y obtendría
+ * diferentes resultados, ya que en el primero getdents() le devolvería
+ * menos información que en el segundo con una llamada. La solución a esto
+ * seria garantizar que getdents() devuelve lo que le han pedido, bastaría
+ * con un bucle que cogiera todo el código de la llamada y si ret < ret_orig,
+ * llamara a getdents_orig con (count+(ret_orig-ret)), y repetiriamos hasta
+ * que tuvieramos los bytes que queriamos.
+ */
+
+asmlinkage int getdents_eiso(unsigned int fd, void *dirp, unsigned int count)
+{
+ unsigned int ret, ret_orig, n;
+ int t;
+ struct dirent *dirp2, *dirp3;
+ char patron[]="eiso523"; //cadena a ocultar
+   
+   //llamamos al getdents original
+   ret=(*getdents_orig) (fd, dirp, count);
+   ret_orig=ret;  //para poder borrar el espacio que dejamos libre al final
+   
+   if (ret > 0) {
+      dirp2 = (struct dirent *) kmalloc(ret, GFP_KERNEL);
+      //copiamos el resultado de dirent_orig a espacio de kernel para poder
+      //modificarlo
+      memcpy_fromfs(dirp2, dirp, ret);
+      //dirp3 apunta a dirp2 para saber donde empezaba el espacio reservado
+      dirp3 = dirp2;
+      t = ret;
+      while (t > 0){
+         n = dirp3->d_reclen;
+         t -= n;
+         //comprobamos si el nombre contiene la cadena magica
+         if (strstr((char *) &(dirp3->d_name), (char *) &patron) != NULL){
+            //modificamos la estructura dirent si contenia la cadena magica
+            if (t != 0)
+               memmove(dirp3, (char *) dirp3 + dirp3->d_reclen, t);
+            else
+               dirp3->d_off = 1024;
+            ret-= n;
+         }else{
+            // OJO!! solo debemos avanzar el puntero si no contenia la
+            // cadena magica porque si no nos saltamos un fichero
+            if (t != 0)
+               dirp3 = (struct dirent *) ((char *) dirp3 + dirp3->d_reclen);
+         }
+      }
+      //ponemos a 0 el espacio que queda al final
+      memset( (char *) dirp2 + ret, 0, ret_orig-ret);
+      //copiamos a espacio de usuario el resultado modificado
+      memcpy_tofs(dirp, dirp2, ret_orig);
+      kfree(dirp2);
+   }
+   return ret;
+}
+
+/* Función que sustituye a la llamada al sistema open
+ *
+ * Esta función llama a la original y si el objetivo de ella es uno
+ * de los inodos monitorizados, registra la actividad en el fichero
+ * de "log"
+ */
+
+asmlinkage int open_eiso(char * pathname, int flags, mode_t mode){
+   int fd;
+   struct inode * inode;
+   struct lista_inodos *inodo;
+   char *pathker;
+
+   //Llamamos a la función original
+   fd=open_orig(pathname,flags,mode);
+   //Si devuelve error salimos
+   if(fd < 0) 
+      return fd;
+
+   //Obtenemos el inodo sobre el que se realiza la llamada
+   inode=current->files->fd[fd]->f_inode;
+   
+   for(inodo=lista; inodo!=NULL; inodo=inodo->next){
+      //Si esta en la lista
+      if(inodo->i_ino==inode->i_ino){
+         pathker=kmalloc(200,GFP_KERNEL);
+         for(i=0;i<200:i++) pathker[i]=get_user(&pathname[i]);
+         pathker[199]=0;
+         //Registramos en el fichero de "log"
+         sprintf(info,"open: uid=%d,nombre=\"%s\",inodo=%ld,comando=%s,time=%d\n",
+            current->uid,pathker,inode->i_ino,current->comm,CURRENT_TIME);
+         kfree(pathker);
+         log(info);
+      }
+   }
+   
+   return fd;
+}
+
+/* Función que sustituye a la llamada al sistema close
+ *
+ * Esta función llama a la original y si el objetivo de ella es uno
+ * de los inodos monitorizados, registra la actividad en el fichero
+ * de "log"
+ */
+
+asmlinkage int close_eiso(unsigned int fd){
+   struct inode * inode;
+   struct lista_inodos *inodo;
+
+   //Comprobamos que el fd es correcto
+   if(!(fd < NR_OPEN) || (current->files->fd[fd] == NULL))
+      return -EBADF;
+
+   //Obtenemos el inodo sobre el que se realiza la llamada
+   inode=current->files->fd[fd]->f_inode;
+
+   for(inodo=lista; inodo!=NULL; inodo=inodo->next){
+      //Si esta en la lista
+      if(inodo->i_ino==inode->i_ino){
+         //Registramos en el fichero de "log"
+         sprintf(info,"close: uid=%d,inodo=%ld,comando=%s,time=%d\n",
+            current->uid,inode->i_ino,current->comm,CURRENT_TIME);
+         log(info);
+      }
+   }
+   //Llamamos a la función original
+   return close_orig(fd);
+}
+
+/* Función que sustituye a la llamada al sistema read 
+ *
+ * Esta función llama a la original y si el objetivo de ella es uno
+ * de los inodos monitorizados, registra la actividad en el fichero
+ * de "log"
+ */
+
+asmlinkage int read_eiso(unsigned int fd, char * buf, int count){
+   int size;
+   struct inode * inode;
+   struct lista_inodos *inodo;
+
+   //Comprobamos que el fd es correcto
+   if(!(fd < NR_OPEN) || (current->files->fd[fd] == NULL))
+      return -EBADF;
+
+   //Obtenemos el inodo sobre el que se realiza la llamada
+   inode=current->files->fd[fd]->f_inode;
+
+   //Llamamos a la función original
+   size=read_orig(fd,buf,count);
+
+   for(inodo=lista; inodo!=NULL; inodo=inodo->next){
+      //Si esta en la lista
+      if(inodo->i_ino==inode->i_ino){
+         //Registramos en el fichero de "log"
+         sprintf(info,"read: uid=%d,inodo=%ld,count=%d,size=%d,comando=%s,time=%d\n", 
+               current->uid,inode->i_ino,count,size,current->comm,CURRENT_TIME);
+         log(info);
+      }
+   }
+   return size;
+}
+
+/* Función que sustituye a la llamada al sistema write
+ *
+ * Esta función llama a la original y si el objetivo de ella es uno
+ * de los inodos monitorizados, registra la actividad en el fichero
+ * de "log"
+ */
+
+asmlinkage int write_eiso(unsigned int fd, char * buf, int count){
+   int size;
+   struct inode * inode;
+   struct lista_inodos *inodo;
+
+   //Comprobamos que el fd es correcto
+   if(!(fd < NR_OPEN) || (current->files->fd[fd] == NULL))
+      return -EBADF;
+
+   //Obtenemos el inodo sobre el que se realiza la llamada
+   inode=current->files->fd[fd]->f_inode;
+
+   //Llamamos a la función original
+   size=write_orig(fd,buf,count);
+
+   for(inodo=lista; inodo!=NULL; inodo=inodo->next){
+      //Si esta en la lista
+      if(inodo->i_ino==inode->i_ino){
+         //Registramos en el fichero de "log"
+         sprintf(info,"write: uid=%d,inodo=%ld,count=%d,size=%d,comando=%s,time=%d\n",
+            current->uid,inode->i_ino,count,size,current->comm,CURRENT_TIME);
+         log(info);
+      }
+   }
+
+   return size;
+}
+
+/* Esta es la nueva llamada al sistema que se usa para monitorizar
+ * un inodo, magic debe ser igual a una cadena magica ("eiso"), en
+ * caso contrario devolvemos ENOSYS como si no existiera la llamada.
+ * Si no hicieramos esto, se podría descubrir la existencia de esta
+ * llamada. Ver: hack1.c
+ *
+ * Funciones del kernel utilizadas:
+ * verify_area()
+ * memcpy_fromfs()
+ * put_user()
+ * kmalloc()
+ * kfree()
+ * strncmp()
+ */
+
+int sys_eiso(char *magic, int inode, int CMD, int *buf){
+   struct lista_inodos *inodo,*aux;
+   char cadena[5];
+   int i;
+
+   //Comprobación de superusuario
+   if(current->uid)
+      return -ENOSYS;
+
+   //Comprobación de la cadena mágica
+   if(verify_area(VERIFY_READ,magic,5))
+      return -ENOSYS;
+   
+   memcpy_fromfs(cadena,magic,5);
+   
+   if(strncmp(cadena,"eiso",5))
+      return -ENOSYS;
+
+   //Si CMD es ON, añadimos el inodo a la lista de monitorizados
+   if(CMD==ON){
+      for(inodo=lista; inodo!=NULL; inodo=inodo->next){
+         if(inodo->i_ino==inode){
+            return -ENOENT;
+         }
+      }
+      inodo=lista;
+      lista=kmalloc(sizeof(struct lista_inodos),GFP_KERNEL);
+      lista->i_ino=inode;
+      lista->next=inodo;
+      num_inodos++;
+      return 0;
+   //Si CMD es OFF, eliminamos el inodo de la lista de monitorizados
+   }else if(CMD==OFF){
+      if(lista){
+         if(lista->i_ino==inode){
+            aux=lista->next;
+            kfree(lista);
+            lista=aux;
+            num_inodos--;
+            return 0;
+         }
+      }
+      for(inodo=lista; inodo!=NULL; inodo=aux){
+         aux=inodo->next;
+         if(aux->i_ino==inode){
+            inodo->next=aux->next;
+            kfree(aux);
+            num_inodos--;
+            return 0;
+         }
+      }
+      return -ENOENT;
+   //Si CMD es INFO
+   }else if(CMD==INFO){
+      //Si buf es NULL devolvemos el número de inodos
+      if(!buf){
+         return num_inodos;
+      }
+      //Si buf no es NULL rellenamos buf con "inode" inodos
+      if(verify_area(VERIFY_WRITE,buf, inode * sizeof(int)))
+         return -ENOMEM;
+      i=0;
+      for(inodo=lista; inodo!=NULL; inodo=inodo->next){
+         put_user(inodo->i_ino,&(buf[i++]));
+         if(i==inode)
+            return i;
+      }
+      return i;
+   }else
+      return -ELOOP;
+}
+
+/* Función de instalación del modulo
+ *
+ * En esta función realizamos el cambio de las llamadas al sistema originales
+ * por las que hemos implementado 
+ *
+ * Funciones del kernel utilizadas:
+ * verify_area()
+ */
+
+int init_module(){
+   extern long sys_call_table[];
+
+   register struct module *mp asm("%ecx");
+   __asm__("pop %ecx\n\t"
+           "push %ecx\n\t");
+   *(char *) (mp->name) = 0;
+   mp->size = 0;
+   mp->ref = 0;
+
+   lista=NULL;
+
+   //Necesitamos brk_orig para reservar memoria de usuario
+   brk_orig = (int(*)(void *end_data_segment))
+      sys_call_table[__NR_brk];
+
+   //Llamadas monitorizadas
+   open_orig = (int(*)(char *pathname, int flags, mode_t mode)) 
+      sys_call_table[__NR_open];
+   sys_call_table[__NR_open] = (unsigned long) open_eiso;
+
+   close_orig = (int(*)(unsigned int fd)) 
+      sys_call_table[__NR_close];
+   sys_call_table[__NR_close] = (unsigned long) close_eiso;
+
+   read_orig = (int(*)(unsigned int fd, char * buf, int count)) 
+      sys_call_table[__NR_read];
+   sys_call_table[__NR_read] = (unsigned long) read_eiso;
+
+   write_orig = (int(*)(unsigned int fd, char * buf, int count))
+      sys_call_table[__NR_write];
+   sys_call_table[__NR_write] = (unsigned long) write_eiso;
+
+   //Modificamos getdents para que programas como "ls" no muestren
+   //el fichero de "log" y en general los que contengan una cadena mágica
+   getdents_orig = (int(*)(unsigned int fd, void *dirent, unsigned int count))
+      sys_call_table[__NR_getdents];
+   sys_call_table[__NR_getdents] = (unsigned long) getdents_eiso;
+
+   //Añadimos nuestra llamada al sistema
+   sys_call_table[__NR_eiso] = (unsigned long) sys_eiso;
+
+   //No queremos exportar ningún símbolo
+   register_symtab(NULL);
+   
+   return 0;
+}
+
+/* Función de desinstalación del modulo
+ *
+ * En esta función restituimos las llamadas al sistema originales,
+ * si hemos ocultado el módulo nunca se ejecutará
+ *
+ * Funciones del kernel utilizadas:
+ * kfree()
+ */
+
+void cleanup_module(){
+   extern long sys_call_table[];
+   struct lista_inodos *inodo,*aux;
+   //Vaciamos la lista de inodos monitorizados
+   for(inodo=lista; inodo!=NULL; inodo=aux){
+      aux=inodo->next;
+      kfree(inodo);
+   }
+   //Restauramos las llamadas al sistema originales
+   sys_call_table[__NR_read] = (unsigned long) read_orig;
+   sys_call_table[__NR_write] = (unsigned long) write_orig;
+   sys_call_table[__NR_open] = (unsigned long) open_orig;
+   sys_call_table[__NR_close] = (unsigned long) close_orig;
+   sys_call_table[__NR_getdents] = (unsigned long) getdents_orig;
+   sys_call_table[__NR_eiso] = (unsigned long) NULL;
+}
+
+eiso.h
+
+#define ON 0
+#define OFF 1
+#define INFO 2
+#define __NR_eiso 200
+
+Makefile
+
+# Makefile
+
+CC=gcc
+MODCFLAGS := -O6 -Wall -DCONFIG_KERNELD -DMODULE -D__KERNEL__ -DLINUX
+
+eiso.o:  eiso.c /usr/i486-linuxlibc1/include/linux/version.h
+      $(CC) $(MODCFLAGS) -c -o eiso523.o eiso.c 
+
+       Programas de prueba
+
+       Programa para gestionar la monitorización
+		
+#include <linux/unistd.h>
+#include <errno.h>
+#include <stdio.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <string.h>
+#include "eiso.h"
+
+//Función envolvente para nuestra llamada al sistema
+_syscall4(int,eiso,char*,magic,int,inode,int,CMD,int*,buf)
+
+//Obtiene el número de inodo a partir de un nombre de fichero
+int get_ino(char *filename){
+   struct stat stat_buf;
+   if(stat(filename,&stat_buf)<0)
+      return -1;
+   else
+      return stat_buf.st_ino;
+}
+
+int main(){
+   char line[80];
+   int inode,num,i;
+   int *ptr;
+
+   while(1){
+      //Menú
+      fprintf(stderr,"a) Activar monitorizacion fichero\n");
+      fprintf(stderr,"b) Desactivar monitorizacion fichero\n");
+      fprintf(stderr,"c) Listar inodos monitorizados\n");
+      fprintf(stderr,"d) Salir\n");
+      fgets(line,80,stdin);
+      switch(line[0]){
+         case 'a':   fprintf(stderr,"Introduzca nombre del fichero\n");
+                     fgets(line,80,stdin);
+                     line[strlen(line)-1]='\0';
+                     inode=get_ino(line);
+                     //Si el fichero existe, añadimos su inodo
+                     // a la lista de monitorizados
+                     if(inode==-1){
+                        fprintf(stderr,"No existe el fichero");
+                     }else{
+                        eiso("eiso",inode,ON,NULL);
+                     }
+                     break;
+         case 'b':   fprintf(stderr,"Introduzca nombre del fichero\n");
+                     fgets(line,80,stdin);
+                     line[strlen(line)-1]='\0';
+                     inode=get_ino(line);
+                     //Si el fichero existe, eliminamos su inodo
+                     // de la lista de monitorizados
+                     if(inode==-1){
+                        fprintf(stderr,"No existe el fichero");
+                     }else{
+                        eiso("eiso",inode,OFF,NULL);
+                     }
+                     break;
+
+         case 'c':   //Obtenemos el número de inodos monitorizados
+                     num=eiso("eiso",0,INFO,NULL);
+                     if(!num){
+                        fprintf(stdout,"No hay inodos monitorizados\n");
+                     }else{
+                        if(num==1){
+                           fprintf(stdout,"Hay 1 inodo monitorizado\n");
+                        }else{
+                           fprintf(stdout,"Hay %d inodos monitorizados\n",num);
+                        }
+                        //Obtenemos los numeros de los inodos monitorizados
+                        // y los mostramos por pantalla
+                        ptr=(int*) malloc(num * sizeof(int));
+                        eiso("eiso",num,INFO,ptr);
+                        for(i=0;i<num;i++)
+                           fprintf(stdout,"%8d -> %8d\n",i,ptr[i]);
+                        free(ptr);
+                     }
+                     break;
+         case 'd':   exit(0);
+                     break;
+      }
+   }
+}
+
+  Programas que intentan aprovechar agujeros de seguridad en el módulo
+
+  - Detección de nuevas llamadas al sistema
+
+  Una  posible  manera de detectar módulos ocultos es comprobar si hay alguna
+ nueva  llamada al sistema. Este programa va recorriendo la tabla de llamadas
+ al sistema (syscall_table) a  partir  de la  posición 160 en busca de nuevas
+ llamadas, y  va  escribiendo en  pantalla el valor devuelto por éstas. Si no
+ tenemos  en  cuenta  este  potencial  peligro, un programa como el siguiente
+ podría detectar nuestra nueva llamada.
+	
+//Este programa busca llamadas al sistema a partir de la 160,
+// para detectar posibles llamadas añadidas
+
+#include <errno.h>
+#include <stdio.h>
+
+int main(){
+   int i=0;
+   long __res;
+
+   //Ejecutamos las llamadas al sistema y mostramos su resultado
+   for(i=160;i<256;i++){
+      __asm__ volatile("int $0x80" \
+      : "=a" (__res) \
+      : "0" (i)); \
+      if(__res>0) {
+         return __res;
+      }else{
+         errno=-__res;
+         fprintf(stderr,"Syscall %d -> ",i);
+         perror("error");  
+      }
+   }
+}
+
+  Esto  es  un fragmento del  resultado de ejecutar este programa con nuestro
+ módulo cargado sin la necesaria protección:
+
+Syscall 160 -> error: Success
+Syscall 161 -> error: Bad address
+Syscall 162 -> error: Bad address
+Syscall 163 -> error: Success
+Syscall 164 -> error: Function not implemented
+Syscall 165 -> error: Function not implemented
+Syscall 166 -> error: Success
+Syscall 167 -> error: Function not implemented
+Syscall 168 -> error: Function not implemented
+Syscall 169 -> error: Function not implemented
+Syscall 170 -> error: Function not implemented
+-- 25 líneas omitidas --
+Syscall 196 -> error: Function not implemented
+Syscall 197 -> error: Function not implemented
+Syscall 198 -> error: Function not implemented
+Syscall 199 -> error: Function not implemented
+Syscall 200 -> error: Too many symbolic links encountered
+Syscall 201 -> error: Function not implemented
+Syscall 202 -> error: Function not implemented
+Syscall 203 -> error: Function not implemented
+-- 50 líneas omitidas --
+Syscall 254 -> error: Function not implemented
+Syscall 255 -> error: Function not implemented
+
+  Como vemos, se descubre  que  algo extraño ocurre con la llamada al sistema
+ número 200 (la que hemos escogido). Para resolver este problema, obligamos a
+ que cuando  se  invoca  nuestra  llamada, el  primer  parametro deba ser una
+ cadena especial. De  esta  manera, si no se sabe esta clave, nuestra llamada
+ al  sistema actúa  como  si  no  existiese.  Estas  son  las  modificaciones
+ realizadas sobre el código para resolverlo:
+	
+int sys_eiso(char *magic, int inode, int CMD, int *buf){
+   struct lista_inodos *inodo,*aux;
+   char cadena[5];
+   int i;
+
+   //Comprobación de superusuario
+   if(current->uid)
+      return -ENOSYS;
+
+   //Comprobación de la cadena mágica
+   if(verify_area(VERIFY_READ,magic,5))
+      return -ENOSYS;
+   
+   memcpy_fromfs(cadena,magic,5);
+   
+   if(strncmp(cadena,"eiso",5))
+      return -ENOSYS;
+		
+  Este es el  nuevo  resultado  de la ejecución del programa anterior una vez
+ resuelto este problema:
+		
+Syscall 160 -> error: Success
+Syscall 161 -> error: Bad address
+Syscall 162 -> error: Bad address
+Syscall 163 -> error: Success
+Syscall 164 -> error: Function not implemented
+Syscall 165 -> error: Function not implemented
+Syscall 166 -> error: Success
+Syscall 167 -> error: Function not implemented
+Syscall 168 -> error: Function not implemented
+Syscall 169 -> error: Function not implemented
+Syscall 170 -> error: Function not implemented
+-- 25 líneas omitidas --
+Syscall 196 -> error: Function not implemented
+Syscall 197 -> error: Function not implemented
+Syscall 198 -> error: Function not implemented
+Syscall 199 -> error: Function not implemented
+Syscall 200 -> error: Function not implemented
+Syscall 201 -> error: Function not implemented
+Syscall 202 -> error: Function not implemented
+Syscall 203 -> error: Function not implemented
+-- 50 líneas omitidas --
+Syscall 254 -> error: Function not implemented
+Syscall 255 -> error: Function not implemented
+
+  - Búsqueda de modificaciones en memoria de usuario
+
+  Otra posible  forma de detectar las acciones de un módulo oculto es revisar
+ la memoria  de usuario en busca de posibles modificaciones de ésta por parte
+ del  kernel  tras  una  llamada  al sistema. Si no "limpiamos" la memoria de
+ usuario  que  utilizamos desde nuestro módulo, un programa como el siguiente
+ podría  descubrir  la existencia  de un módulo oculto que está interceptando
+ las llamadas al sistema.
+
+/* Programa que comprueba la zona de memoria que nuestro módulo del kernel
+ * usa para almacenar los parametros cuando realiza llamadas al sistema */
+
+#include <fcntl.h>
+
+int main(){
+   int fd;
+   void *ptr;
+   char buff[4];
+   fd=open("d",O_RDONLY);
+   read(fd,buff,4);
+   write(1,buff,4);
+   write(1,"\n--\n",4);
+   ptr=(void *)sbrk(204);
+   write(1,ptr,204);
+}
+
+  Este sería el  resultado de ejecución del programa anterior, suponiendo que
+ el fichero d (que  sólo  contiene "hola") está  siendo  monitorizado, si  no
+ tenemos  esto  en  cuenta. Como   vemos, se  descubre  que  el  kernel  está
+ monitorizando las llamadas al sistema:
+
+hola
+--
+read: uid=0,inodo=288805,count=4,size=4,comando=hack2,time=1012145877
+
+  Por esto, después  de  cualquier  uso  po r nuestra  parte de la memoria de
+ usuario, debemos asegurarnos de no dejar rastro en ella. Por tanto, añadimos
+ las siguientes líneas al codigo de nuestra función log():
+
+	mm=current->mm->brk;
+   ret=brk_orig((void*)mm+204);
+   if(ret < 0)
+      return ret;
+
+   /* ... */
+
+   memcpy_tofs((void *)mm+2,info,200);
+
+   /* ... */
+   memset(info,0,200);
+   memcpy_tofs((void *)mm+2,info,200);
+
+   brk_orig((void *)mm);
+   return 0;
+}
+
+  Este es el  resultado de  la ejecución del programa anterior una vez tenido
+ en cuenta este problema: hola
+
+  Hasta  aquí dura  este artículo, para cualquier duda no dudeis en contactar
+ conmigo mediante e-mail (isaac@sindominio.net).

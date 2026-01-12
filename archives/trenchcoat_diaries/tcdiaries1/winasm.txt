@@ -1,0 +1,220 @@
+- - - - = = = | W i n 3 2   a s s e m b l e r   p r o g r a m m i n g | = = = - - - -   
+
+
+                           b y   k a c i m i r o 
+ 
+  _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+
+Son tiempos dificiles , necesitamos armas si queremos defendernos en este
+mundo , pero ya basta del mundo , vamos a hablar de programacion y que mejor
+que programacion de win32 con ensamblador!.
+
+
+Introduccion -O cuando las mascas ya no quieren volar-
+
+El computador para poder procesar los datos y hacer todas sus cosas necesita
+unas celdas llamas registros, estos son algo asi como unos variables.Para los
+que ya han ensamblado en dos esto no es un termino nuevo, pero ahora,en win32
+los registros son de 32 bits y los que se conocian como ax, bx, cx, etc, aho-
+ra los conoceran como eax, ebx, ecx, etc . Tambien se daran cuenta que en 
+win32 ya no se trabaja con registros de segmentos, porque la memoria ya no se
+administra en segmentos de 64k, sino que es un solo gran segmento de 4 Gb.
+
+Windows corre cada programa en espacios virtuales separados, quiere decir que
+cada uno tiene sus propias 4 Gb de direcciones , eso quier decir que puede
+utilizar cualquier direccion dentro de ese rango , pero no que tenga 4 Gb de
+memoria fisica , claro!. Entonces windows se encarga de hacer que cada direc-
+cion a la que el programa haga referencia sea valida , pero sometiendose tam-
+bien a unas reglas. En win32 cada programa trabaja aparte , no pueden "verse"
+entre ellos.
+
+Windows message handling -O de cuando las ventanas no tienen visagras-
+
+Windows obliga a los programas a una cosa que se llama message loop , esto es
+una cosa que obliga al programa estar atento a mensajes del sistema operativo
+estos mensajes son unos avisos que le manda windows a sus programas para de-
+cirles si hay algo nuevo como click del mouse, mover ventana , cambiar el ta-
+maño de la ventana , etc . Esto quiere decir que el programa no se ve forzado 
+directamente a verificar los eventos , sino que windows lo hace y le avisa al
+programa.
+
+Esta cosa funciona asi, windows va acumulando los mensajes en una cosa que se
+llama queue . El programa de windows a traves del api mira si hay nuevos men-
+sajes, si los hay actua y el mensaje es borrado del queue y si no, no.
+
+Cada ventana esta identificada por una structura de datos (en run-time) cono-
+cida como "window class" . Cada "window class" tiene un nombre y asociado con
+este hay una funcion callback conocida como "window procedure"y esta callback
+define el comportamiento de todas las ventanas creadas con esa clase.
+
+Ya basta de esta teoria , al final no les importa y si hay algo mas , pues se 
+lo voy explicando luego.
+
+El codigo -O de cuando los botones se oxidan-
+
+Vamos con la estructura de un programa. Los ejemplos del tutorial son para
+compilar con el turbo assembler 5.0 y superiores, si ustedes usan el Masm mal
+hecho, pero de cualquier manera no difieren en mucho.
+
+.386
+.model flat,stdcall
+locals
+jumps
+
+Esta es la cabecera de cualquier programa en ensamblador.Y es la parte que le
+dice al compilador como compilar el programa.
+
+[.386]
+Dice que utilizaremos instrucciones de 80386 , ustedes pueden colocar .486 ,
+.586, pero recomiendo .386 porque es mucho mas seguro . tambien estan .386p ,
+486p que se utilizan para trabajar en "privileged mode" (modo privilegiado!")
+que sirve para utilizar instrucciones reservadas para el " protected mode "
+( modo protegido ) . Pero no se metan con eso , es muy peligroso y el monitor
+puede perder estabilidad y caer encima del teclado. Si no salieron corriendo,
+pueden saber que es mentira. Solamante les digo que no es seguro.
+
+[locals]
+Indica que vamos a utilizar simbolos locales, los simbolos locales son varia-
+bles o etiquetas que comienzan por "@@".
+
+[.model flat,stdcall] 
+Esto indica que vamos a utilizar el modo de memoria flat . Y stdcall quiere 
+decir que usaremos el modo standart para llamadas de funciones , es decir que
+en esta parte especificamos la forma en que le seran pasados los parametros a
+la funcion. stdcall indica que los parametros seran pasados de derecha a iz-
+quierda y la llamada es la encargada de balancear la pila (stack) despues de 
+la llamada.
+
+Hablemos de la API (Application Programming Interface), la API es el conjunto
+de las tan utiles funciones de windows . Estas funciones estan guardadas en 
+dll's ( dinamic linked libraries) como kernel32.dll, user32.dll, gdi.dll,etc.
+en kernel32.dll estan las funciones relacionadas con el manejo de memoria y
+procesos , user32.dll tiene lo relacionado con la interfaz de usuario y en
+gdi.dll esta lo relacionado con graficos.
+Para que el programa pueda utilizar estas funciones , necesita saber donde es-
+tan , para eso estan los include files y se declaran asi:
+
+include...
+include tasm/include/windows.inc (esta es la basica)
+include ...
+
+Luego hay que indicar las funciones que vamos a utilizar , hay dos tipos de 
+funciones, para ANSI y para UNICODE , las primeras se identifican porque ter-
+minan con una A y las segundas con una W , solo hablaremos de las primeras , 
+que son para windows 9x, las segundas son para Windows Nt. Asi seria:
+
+extrn ...
+extrn MessageBoxA:PROC (por ejemplo)
+extrn ...
+
+Las funciones se deben escribir teniendo en cuenta las mayusculas . A no ser 
+que se le indique lo contrario al compilador
+Lo que sigue seria asi:
+
+.data
+.code
+start:
+<codigo del programa>
+end start
+
+Antes de .data se declaran las constantes.
+En .data van todos los datos que necesitemos (variables) inicializadas o no .
+En .code se comienza con una etiqueta (start:) y luego va todo el codigo del
+programa y el final de la primera etiqueta (end start).
+Los comentarios van con ";".
+
+Vamos a hacer un ejemplo, es un simple dialogo con dos botones.
+
+;----------------------------------------------------------------------------
+;---------------------------------START HERE!!!------------------------------
+;----------------------------------------------------------------------------
+.386
+.Model Flat, StdCall
+locals
+jumps  
+
+include c:\tasm\include\windows.inc ;O donde sea que este.
+
+extrn DialogBoxParamA:PROC
+extrn ExitProcess:PROC
+extrn GetModuleHandleA:PROC
+extrn EndDialog:PROC       ;Las funciones que vamos a utilizar
+
+.data
+hinstance dd ?   ; variable no inicializada.
+titulo db "Me presionaste",0
+texto db "Por que eres tan atrevido?",0
+.code
+
+cosa: ;O cualquier otro nombre
+
+push 0            
+call GetModuleHandleA ;Esta funcion coge el handle (identificador) de la 
+mov [hinstance], eax;aplicacion y lo pone en eax, luego nosotros lo po-
+               ;nemos en hinstance para usarlo luego.
+
+push 0 ;valor de inicializacion
+push offset DlgProc   ;Dialog Procedure
+push 0 ;parent handle (identificador del dueño)
+push 1000 ;identifica el "dialog bo xtemplate"
+push hinstance ;el handle de la aplicacion 
+call DialogBoxParamA
+jmp salir
+
+;Aqui declaramos el Dialog Procedure
+DlgProc proc hwnd:DWORD, wmsg:DWORD, wparam:DWORD, lparam:DWORD
+
+cmp wmsg, WM_CLOSE ;Si windows le manda un mensaje al program "WMCLOSE"
+je salir       ;entonces el programa va a "salir".
+cmp wmsg, WM_COMMAND
+je accion       ; lo mismo aqui
+ret
+
+accion:
+cmp wparam,ID_EXIT
+je salir
+cmp wparam,ID_MENSAJE
+je mensaje
+ret
+DlgProc endp ; terminamos el Dialog procedure
+
+mensaje:
+push hinstance
+push offset titulo
+push offset texto
+push 0
+ret
+
+salir:
+push 0
+push hdlg
+call EndDialog
+push 0
+call ExitProcess
+end cosa       ;FINAL, final.
+
+;----------------------------------------------------------------------------
+;-----------------------------END HERE!!!!-----------------------------------
+;----------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

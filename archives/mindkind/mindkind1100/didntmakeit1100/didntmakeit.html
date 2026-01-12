@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<html>
+<head>
+<title>Mindkind 1011</title>
+<meta name="author" content="Mindkind" />
+<meta name="generator" content="UltraEdit NotePad++ vi Notepad cat /dev/urandom" />
+<style type="text/css">
+<!--
+body {background-color:#000000; color:#ffffff; white-space:pre; font-family: monospace; font-size:1em;}
+A {text-decoration:underline; color:#ffffff;}
+A:hover {text-decoration: none; color:#000000; background-color:#ffffff;}
+div.atitle {border:0px; margin:0px; padding:0px; font-size:1em; font-weight:bold;}
+div.acode {border:solid 1px #00ff00; background-color:#c3c3c3; color:#000000; margin: 1em; padding:1em; font-family: monospace; font-size:0.9em;}
+div.alist {border:solid 1px #00ff00; margin: 1.5em; padding:1em; font-family: monospace; font-size:0.9em;}
+
+.blogs {font-size: 10pt; width: 46em; border: 1px dashed darkgrey; padding: 5px;}
+.blogs A {color: lightblue; padding-top: 0;}
+.blogs A:hover {color: #000000; background-color:lightblue; padding-top: 0;}
+
+.blogs H1 {font-size: 11pt; margin-bottom: 0;}
+.mkdsays {background: #404040;;}
+
+//-->
+</style>
+</head>
+<body>
+<pre>
+
+  ------------------------------------- - ------------------------ --  --- --
+ |                                                                              
+ |   .----------------------- - --------------  ----------------- - ---- -- -  -
+ |   | 
+ |   |                 ARTICLES THAT DIDN'T MAKE IT
+ |   | 
+ ;   | - <a href="#detectsniffer">détection des sniffer par kqkq</a>
+ |   | 
+ '---'                                                                         .---.
+                                                                               |   |
+                                                                               |   |
+                                                                               |   |
+        - -- - ------------------------------------------------------ -- ------'   ;
+                                                                                   |
+     - ----------------- - --------------------- - ---------------------------- -- '
+
+<a name="detectsniffer"></a>
+               .-..-..---..---.
+         .-- --| || || . || . |----. 
+         |     '-''-''---''---'    | 
+   .- ---'------------------- -.   '-------------.
+   |                           |   |             | 
+   '-------------------- - ----|   | ----- --.   '
+                               '   '---- ----|   |------------------ -------.
+         Détection de sniffer  |             |   |                          |
+                AKA            '-- - --------|   |- - -- --- ------- - -.   |
+           snif the sniffer                  |   |                      |   |
+                                             .   :    DIDN'T MAKE IT    |   ;
+   .--- - ------------------------------- ---'   ;                      ;   .
+   |                                             |   Par : KQKQ         |   |
+   '------------------------- - -----------------'   Pour : Hackever    |   |
+                                                                        .   '
+                               .------------------------ - -------------'   |
+                               |                                            |
+                               '----------------- -------------------- -----'
+
+<h2>I Introduction</h2>
+ 
+ Un sniffer utilise une interface réseau en mode promiscuous pour accepter tous 
+ les paquets qu'il reçoit, même ceux qui ne le concernent pas. Détecter une 
+ machine en mode promiscuous sur un réseau est donc intéressant  car cela permet 
+ d'identifier un IDS ou un utilisateur un peu trop curieux...
+ 
+ 
+<h2>II Mode promiscuous</h2>
+ 
+ Ce mode permet de capturer l'ensemble des trames circulant sur le réseau ( du
+ moins celles qui atteignent l'interface réseau ). Il consiste à désactiver le 
+ filtre matériel de la carte réseau.
+ 
+ 
+  <h3>1 Filtre matériel</h3>
+ 
+ Il est localisé au niveau de l'interface réseau.
+ Il a pour principe de ne laisser passer que les trames qui sont destinées à la 
+ machine seule, soit à un groupe (multicast/broadcast) auquel elle appartient.
+ Il y a ainsi quatre modes de fonctionnement principaux :
+ 
+-> Unicast : le filtre laisse passer les paquets destinés précisément à la machine 
+  ( à partir de son adresse MAC ).
+ 
+-> Broadcast : le filtre autorise les paquets envoyés à toutes les machines ( donc 
+   à l'adresse  MAC FF:FF:FF:FF:FF:FF ) à continuer leur chemin.
+ 
+-> Multicast : le filtre autorise les paquets de groupes auquels la machine 
+   appartient à passer.
+ 
+-> Promiscuous : le filtre laisse passer tous les paquets sans analyser l'adresse 
+   destination.
+ 
+ Généralement une interface réseau a les 3 premiers modes activés. On pourrait 
+ penser qu'il suffit alors d'envoyer une requète ARP ( voir tutorial ARP cache 
+ poisoning ) à l'adresse IP de la machine mais avec une adresse MAC de destination 
+ fausse et attendre une réponse : puisque la requète a passé le filtre matériel (mode 
+ promiscuous), la machine devrait considérer que l'adresse MAC destination est 
+ bonne et y répondre. Mais un deuxième filtre intervient et empèche cette réponse : 
+ le filtre "logiciel".
+ 
+  <h3>2 Filtre logiciel</h3>
+ 
+ Il est localisé au niveau du noyau de l'OS, son implémentation peut donc varier.
+ Il trie les paquets en quatre catégories : Broadcast, Multicast, TO_US et OTHERHOST.
+ 
+ Il est apparu (voir annexe) qu'en ce qui concerne les paquets de broadcast (destinés 
+ à FF:FF:FF:FF:FF:FF), le filtre logiciel les repère seulement à partir des bits de 
+ poids fort (le premier octet) : en gros FF:FF:FF:FF:FF:FE est considéré comme un 
+ broadcast par le filtre logiciel ( mais pas par le filtre matériel bien sur ! ).
+ Donc si un paquet avec FF:FF:FF:FF:FF:FE comme destination atteint le filtre 
+ logiciel, alors celui ci laissera le paquet atteindre le noyau et y répondre le cas 
+ échéant. Avec le filtre matériel actif, ce paquet n'atteindrait pas le filtre 
+ logiciel... C'est cela qui va nous permettre de détecter les sniffers.
+ 
+ 
+<h2>III Mise en pratique</h2>
+ 
+ Il nous faut donc forger des requètes ARP avec des adresses MAC de destination du 
+ type FF:FF:FF:FF:FF:FE, et attendre les réponses.
+ Pour l'envoi, j'utiliserai Nemesis et pour voir les réponses, tcpdump.
+ Tous deux sont disponibles avec les méthodes d'installation classiques de vos distributions.
+ 
+ 
+ A partir de la machine 192.168.4.10 (00:08:54:04:40:94) vers 192.168.4.12 (mode normal) :
+ 
+<center><IMG SRC="dtsniff.png"></center>
+ 
+ 
+ Sur la même machine en mode sniffer :
+ 
+<center><IMG SRC="dtsniff2.png"></center>
+ 
+ 
+ La réponse est ainsi immédiate au niveau de tcpdump.
+ La machine 192.168.4.12 utilise un sniffer !!
+ 
+ 
+<h2>IV Annexe</h2>
+ 
+ Comment a t'on su que le filtre logiciel ne s'occupe que des bits de poids fort ?
+ Sur les OS *nix, pas de souci, c'est l'analyse des sources qui l'a montré.
+ En ce qui concerne windows, ce sont des tests empiriques qui s'en sont chargés.
+ 
+ A noter que cette technique fonctionne avec des sniffers installé sur des machines 
+ "clientes" classiques, en ce qui concerne les sondes réseau et tout outil matériel 
+ spécifiquement conçu pour le sniffage, il ne faut pas espèrer que l"erreur" des OS 
+ classiques soient reproduites ^^ .
+ 
+ J'ai remarqué que les windows server 2003 ( et 2k surement aussi ) mettent leur carte 
+ réseau en mode  promiscuous de base, donc éviter de crier au loup pour rien :p
+ 
+ J'ai testé cette technique sur Windows XP, Debian et Ubuntu.
+ Il est possible que sur certains OS le filtre logiciel fonctionne différement.
+ 
+ Cette technique est une de celle qui est utilisé dans le logiciel AntiSniff du 
+ célèbre groupe L0pht :-)
+ 
+Ecrit par Kqkq.
+ 
+<IMG SRC="bana.png">
+</pre>
+</body>
+</html>

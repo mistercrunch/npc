@@ -1,0 +1,901 @@
+                   -+-| DisidentS Hack Journal #4 |-+-
+
+
+
+
+
+  ___________________________________________________________________________
+ |                                                                           |
+ | -- Titulo_____: Primer contacto con un KeyME.                             |
+ | -- Autor______: S-P-A-R-K                                                 |
+ | -- Team_______: Disidents España - http://www.disidents.org               |
+ | -- Tema_______: Ingenieria Inversa                                        |
+ |___________________________________________________________________________|
+
+
+
+
+.==========================================================================.
+|===========~ INDICE ~======================================================
+|===========================================================================
+|=~ 1.0 Introducción                                                       | 
+|=~ 2.0 Primer contacto                                                    | 
+|=~ 3.0 Logica de un KeyME                                                 |
+|=~ 4.0 Primer contacto con un KeyME                                       |
+|=~ 5.0 Aplicando Ingenieria Inversa                                       |
+|=~ 6.0 Solucion                                                           |
+|=~ 7.0 Conclusion                                                         |
+|=~ 8.0 Agradecimientos                                                    |
+|=~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~=.
+======================================================~ INDICE ~============
+============================================================================
+
+
+
+.==========================================================================.
+|=======~ 1.0 INTRODUCCION     ~============================================
+|===========================================================================
+
+Bien amigos, aqui estamos de nuevo, tratando de entender este mundo tan mis-
+terioso de  la codificacion y la ingenieria inversa que tanto nos apasiona y 
+nos llama la atencion, de la cual hemos filosofado y hablado muchisimo, pero 
+aun, aun quedan miles de puntos por tratar, por estudiar, por ampliar.
+El codigo  que corre cada instante  en un procesador  es como nuestra sangre 
+que corre por nuestras venas, son como nuestros pensamientos que nunca paran
+a no ser que nos desenchufen :( .
+Pero, quizas tu, iniciado, novato, aprendiz, estudiante, te  preguntes, por-
+que estudiar estas cosas?, con  que fin?, cual es  el motivo  principal, que 
+nos lleva a leer horas y horas de codigo, tracearlo, a sacar conclusiones, a 
+investigar, porque?, pues es muy simple y a la vez dificil de contestar, es-
+tudiamos que sucede para poder ver que vendra, para  poder crear lo  que aun 
+no esta creado, o simplemente para soñar....
+Porque ASM?, bueno, quizas sea uno de los lenguajes mas misteriosos, podero-
+sos, hoy en dia  facil  de  poder  aprender  con  algunos  conocimientos  de 
+Win32Apis, produce programas altamente  optimizados (dependiendo del progra-
+mador siempre). Si, se que es dificil, poco practico  y hasta paranoico, cu-
+ando hoy tenemos procesadores  de 2Ghz, pero, mi  amigo, nunca sabes  cuando 
+podras necesitar de el, cuando necesitaras hacer una conversion de formatos, 
+formatos que nadie o pocos conocen, que no  existe descripcion por la super-
+ficie  de  la red, o  quizas, analizar un  virus, detenerlo, o  encontrar un
+error en un programa el cual debemos debugear para encontrar ese error.
+En esta entrega veran una proteccion muy usada, y quizas muy  dificultosa de 
+aplicarle ingenieria inversa si el programador de esta piensa la  proteccion 
+demasiado bien.
+Esta proteccion se llama genericamente  KeyFile (archivo llave), o sea , li-
+teralmente hablando, necesitamos esa "llave" en forma de archivo, para poder
+ abrir las compuertas de nuestro programa/juego.
+Esta llave por supuesto debe tener  ciertas  caracteristicas  internas, a lo 
+que me refiero es que seguramente debera tener cierto codigo de maquina den-
+tro, datos encriptados, datos  que seguramente  no nos diran  nada, pero son 
+necesarios para la rutina que llamaremos desde ahora "candado".
+
+.==========================================================================.
+|=======~ 2.0 PRIMER CONTACTO     ~=========================================
+|===========================================================================
+
+Ejecutemos el fichero que viene incluido en la ezine llamado keyme.exe.
+Lo primero que vemos es una ventana que abre y nos dice a secas, 'Unregiste-
+red', pero que esta pasando aqui?, no hay botones, no hay menues, no hay li-
+mites, solamente un 'Unregistered' cruel y tirano que no nos da opcion a na-
+da, ni siquiera a  elegir.... como que  no? si, tenemos  una opcion... crac-
+kearlo :). Pero un momento, no lo crackeemos, antesde ir  desaforados a par-
+chear  la victima y a tomarnos  un refresco, pensemos  como funciona cual es
+el truco aqui, porque hace eso, y que reaccion debemos tener para poder con-
+trarestar su proteccion.
+
+.==========================================================================.
+|=======~ 3.0 LOGICA DE UN KEYME     ~======================================
+|===========================================================================
+
+Ok, tratare de dar  a entender  la  logica de un  keyfile protection, porque 
+funciona asi, como funciona, y como podriamos en pseudocodigo programar uno, 
+su logica, variaciones y paranoias posibles. :)
+
+Un Keyme funciona de la manera descripta anteriormente, pero veamos  algunos 
+detalles:
+
+*para pasar la proteccion debemos tener un archivo
+*este fichero debera tener un nombre y/o extension especifica
+*a su vez  debe contener informacion especifica vital para que la proteccion 
+ nos de el OK
+
+variaciones:
+
+*la informacion contenida, puede ser  redundante en  algunos casos, en zonas
+ del fichero, o en todo el fichero.
+*el formato de datos puede ser variable o pseudoaleatorio, lo que dificulta-
+ ria tremendamente la conclusion final de la proteccion
+*puede contener codigo  tramposo, haciendonos  creer que  estamos  viendo la 
+ verdadera rutina candado, cuando  en realidad  vemos un simulacro , u  otra
+ que varia en  alguna operacion.
+
+Explicare la logica de un Keyme, a continuacion:
+
+		/--------------------\  NO
+	(1)	|existe fichero llave?|-------(No esta registrado)-..
+		\____________________/			^
+			|				|
+			| SI				|
+			|				|
+		      _______				|
+	(2)	     |Abrirlo|				|
+		      -------				|
+			|				|
+			|				|
+		      ------   SI			|
+	(3)	     (Error?)-------(informa del error)-|
+		      ------				|
+			|				|
+			| NO				|
+			|				|
+		     --------				|
+	(4)	    (Analizar)				|
+		     --------				|
+			|				|
+			|				|
+		    -----------		NO		|
+	(5)	   (Resultado +)-------------------------
+		    -----------
+			|
+			| SI
+			|
+		    -----------
+	(6)	   (REGISTRADO!)
+		    -----------
+			|		
+			.
+			.
+
+Bueno, vamos a explicar el diagrama de flujo, creo que por si solo se expli-
+ca, pero por las dudas, hagamoslo, paso por paso:
+
+Como deben intuir todo parte del paso (1), en donde se pregunta primeramente 
+si el  fichero X  existe (punto de ataque), en caso de que no exista no esta 
+registrado, y todos los demas pasos quedan sin  chequear, ya que  el primero 
+fue desaprobado directamente.
+Porque digo que el (1) es punto de ataque?, muy simple, podemos ver tracean-
+do el codigo con paciencia, el nombre del  fichero que  necesita, con lo que 
+ya podriamos pasar el primer paso, si tuvieramos e l nombre  y extension del 
+fichero, y pasariamos al paso (2).
+En el paso (2) el fichero es  abierto, con lo que ya podemos ver que se che-
+quea dentro del fichero, que debe existir dentro de el, con que realidad nos
+encontraremos. En (3), se pregunta si hubo un error, por supuesto  que todos 
+estos  chequeos son redundantes, quizas en algunos keyme's no se  pregunten, 
+pero partiendo de la logica  programatica, debemos chequear cada  proceso en 
+un programa, a fin de que no se produzcan errores de excepcion.
+Amigos, quizas muchos esten en  desacuerdo conmigo, pero  muchos de los pro-
+blemas de  Windows, es la falta de programacion de excepciones, muchos erro-
+res de compilacion, y errores que  los programadores cometen  sin querer, ya
+sea por  falta de experiencia en compiladores, o como dije antes, por no co-
+nocer al mitico ASM. 
+El punto (4) es el analisis en si, tomamos la informacion del archivo abier-
+to y la analizamos, como dije antes, este analisis  puede llevar, rutinas de
+ encriptacion, codigo  hexadecimal contenido  en el keyfile, que representen 
+instrucciones, para completar el funcionamiento del programa, o sea, algunas
+ instrucciones en ASM precompiladas, que se chequeen si son las correctas, y
+ que se utilicen para complementar el funcionamiento del programa.
+Informacion incluida, que el programa espera para poder pasar  esta fase, es 
+vital, esta parte, es la que  analizaremos, y la  que veremos como funciona, 
+con una rutina bastante sencilla, pero sin dejar de ser misteriosa :)
+En el (5), preguntamos por el resultado del archivo analizado, si es positi-
+vo obviamente  estamos registrados, si  no es asi, entonces  es informado el
+error al usuario, y el resultado, es unregistered.
+
+.==========================================================================.
+|=======~ 4.0 ANALISIS PARTICULAR DE UN KEYME EN DELPHI     ~===============
+|===========================================================================
+
+
+Bien, particularmente en  mi caso, definire el  archivo del tipo  byte, para
+luego  hacer operaciones de  este tipo, para  ir a esa posicion, comparar el 
+byte esperado, o conjunto de bytes.
+
+Bueno, para chequear si e l fichero existe, podemos usar  varios  metodos, y
+ sea por medio  de  las  API's, o tambien  puede ser a traves de  la funcion
+ fileexists, que nos devolvera un valor true o false.
+Tambien podemos inventar nuestro propio metodo, tratando de abrir el fichero 
+bajo un nombre especifico, que este debe tener, y luego tratar, de  escribir
+ en el, o leer, para saber si  existe, si obtenemos  un valor negativo en la
+ operacion (en win32asm  se devuelve  un valor como -1 en eax), quiere decir 
+que el fichero no existe, y que no se  pudo llevar a cabo la  operacion, con 
+lo que el fichero no esta.
+Como especifique anteriormente, ahora quizas  se puedan  realizar otros che-
+queos, pero  tambien  corresponde la  abertura del  fichero, y un chequeo de 
+error, que nos  devolvera  true, si esta abierto o siendo  utilizado, con lo 
+que nosotros detendremos la ejecucion del programa, y lo  desaprobaremos. :)
+Ahora que todo  esta  en  condiciones, empecemos  a  analizar, necesitaremos
+ bytes, o conjuntos de bytes en ciertas posiciones, o no, con lo que podria-
+mos utilizar fileseek, para "viajar" a la posicion indicada.
+Obtener cada byte, y chequear con el esperado, esta parte como dije antes es 
+VITAL, y un byte que no sea el buscado daria la operacion  por fallida, y no 
+estariamos registrados.
+Este  chequeo no solo  puede ser  asi, inclusive  finalmente, o al principio 
+como mas se guste hacer, se puede  implementar un CRC32 o CRC16, con lo  que 
+la key creada, debera tener un CRC32 o 16 precalculado.
+Luego, de la rutina de chequeo, se obtiene  por supuesto  el resultado, y en 
+este caso, sera positivo o negativo.
+
+.==========================================================================.
+|=======~ 5.0 APLICANDO INGENIERIA INVERSA     ~============================
+|===========================================================================
+
+Bueno, carguemos el DEDE, y analicemos el fichero, esperemos un poco....lis-
+to?? ok, miremos en la parte procedures, vemos que existe uno solo y este es
+ Tform1, que contiene FormCreate en 44DFF4.
+Hagamosle doble click a este ultimo y nos lleva a l codigo ASM que esta con-
+tenido en esta "rutina" generada por delphi.
+
+Veamos, que encontramos:
+
+0044DFF4   55                     push    ebp
+0044DFF5   8BEC                   mov     ebp, esp
+0044DFF7   81C4E4FEFFFF           add     esp, $FFFFFEE4
+0044DFFD   53                     push    ebx
+0044DFFE   56                     push    esi
+0044DFFF   57                     push    edi
+0044E000   33C9                   xor     ecx, ecx
+0044E002   894DE4                 mov     [ebp-$1C], ecx
+0044E005   894DF4                 mov     [ebp-$0C], ecx
+0044E008   894DF0                 mov     [ebp-$10], ecx
+0044E00B   894DEC                 mov     [ebp-$14], ecx
+0044E00E   894DE8                 mov     [ebp-$18], ecx
+0044E011   8945FC                 mov     [ebp-$04], eax
+0044E014   33C0                   xor     eax, eax
+0044E016   55                     push    ebp
+
+* Possible String Reference to: 'éÀXûÿëë_^[‹å]Ã'
+|
+0044E017   685BE34400             push    $0044E35B
+
+Estos trozos de codigo son genericos  de todos  los comienzos de  rutinas de
+ programas delphi, asi que ignoremoslos.
+
+0044E01C   64FF30                 push    dword ptr fs:[eax]
+0044E01F   648920                 mov     fs:[eax], esp
+0044E022   33C0                   xor     eax, eax
+0044E024   8945F8                 mov     [ebp-$08], eax
+0044E027   8D45F4                 lea     eax, [ebp-$0C]  quizas esto sea como un puntero, 							  indicando al string que viene abajo
+
+* Possible String Reference to: '1q2w'			<-- que es esto?
+|
+0044E02A   BA74E34400             mov     edx, $0044E374  justamente esta es la direccion del 							  	  string
+
+|
+0044E02F   E85C62FBFF             call    00404290        un llamado a una rutina (generada por 					                  el compilador o por el programador, ya 							  lo veremos :) 
+0044E034   8D45F0                 lea     eax, [ebp-$10]  la carga en eax, quizas otro puntero 
+
+* Possible String Reference to: '3e4r'
+|
+0044E037   BA84E34400             mov     edx, $0044E384  ahora este string?, ke sucede aqui
+
+|
+0044E03C   E84F62FBFF             call    00404290        la misma rutina
+0044E041   8D45EC                 lea     eax, [ebp-$14]  ....
+
+* Possible String Reference to: '.zas'
+|
+0044E044   BA94E34400             mov     edx, $0044E394  epa!, .zas?? mmm saquen sus 							  conclusiones
+
+|
+0044E049   E84262FBFF             call    00404290        again....
+0044E04E   8B45FC                 mov     eax, [ebp-$04]
+
+
+Ok, algo bastante visible ocurre aqui, pero miremos mas, y saquemos conclusiones...
+
+* Reference to control Label1 : TLabel
+|
+0044E051   8B80F0020000           mov     eax, [eax+$02F0]     en eax, quizas el ID del label
+
+* Possible String Reference to: 'Unregistered'
+|
+0044E057   BAA4E34400             mov     edx, $0044E3A4	preparamos el string 						           unregistered, en edx, como los otros
+
+* Reference to: controls.TControl.SetText(TControl;System.String);
+|
+0044E05C   E867F2FDFF             call    0042D2C8            ok, la llamada esta evidentemente 
+nos dice que pondra esa string en el tlabel, con lo que concluimos en dos cosas:
+1- utiliza edx, y el handle del label en eax, para poner el texto en el control.
+2- antes de chequear nada, pone el texto unregistered.
+
+0044E061   FF75F4                 push    dword ptr [ebp-$0C]
+0044E064   FF75F0                 push    dword ptr [ebp-$10]
+0044E067   FF75EC                 push    dword ptr [ebp-$14]
+0044E06A   8D45E4                 lea     eax, [ebp-$1C]
+0044E06D   BA03000000             mov     edx, $00000003
+
+|
+0044E072   E8F964FBFF             call    00404570        Esta llamada nos lleva a estos trozos de codigo, que analizaremos, para dar una idea de para que sirve, como delphi compila el programa, y que utiliza para un simple cometido como un: edit1.text:='SparK';
+
+hagamos doble click sobre ese salto, y miremos abajo el nombre de esta funcion:
+
+* Reference to: system.Move(void;void;Integer);
+
+Una rutina a nivel de sistema, utilizando la unit system de delphi, quiere decir ademas, que la funcion move se encuentra en la unit system, miremos que contiene esta unit:
+
+		procedure Move(const Source; var Dest; Count: Integer);
+
+esta es la declaracion de la funcion move de la unit system, utilizada por el compilador delphi, para "hacer algo" que ahora intentaremos analizar:
+
+procedure Move( const Source; var Dest; count : Integer );
+{$IFDEF PUREPASCAL}
+var
+  S, D: PChar;
+  I: Integer;
+begin
+  S := PChar(@Source);
+  D := PChar(@Dest);
+  if S = D then Exit;
+  if Cardinal(D) > Cardinal(S) then			ALARMENSE!! LO QUE APARECE EN ASM
+    for I := count-1 downto 0 do			ES EXACTAMENTE LO MISMO DESENSAMBLADO!!
+      D[I] := S[I]
+  else
+    for I := 0 to count-1 do
+      D[I] := S[I];
+end;
+{$ELSE}
+asm
+{     ->EAX     Pointer to source       }
+{       EDX     Pointer to destination  }
+{       ECX     Count                   }
+
+        PUSH    ESI
+        PUSH    EDI
+
+        MOV     ESI,EAX
+        MOV     EDI,EDX
+
+        MOV     EAX,ECX
+
+        CMP     EDI,ESI
+        JA      @@down
+        JE      @@exit
+
+        SAR     ECX,2           { copy count DIV 4 dwords       }
+        JS      @@exit
+
+        REP     MOVSD
+
+        MOV     ECX,EAX
+        AND     ECX,03H
+        REP     MOVSB           { copy count MOD 4 bytes        }
+        JMP     @@exit
+
+@@down:
+        LEA     ESI,[ESI+ECX-4] { point ESI to last dword of source     }
+        LEA     EDI,[EDI+ECX-4] { point EDI to last dword of dest       }
+
+        SAR     ECX,2           { copy count DIV 4 dwords       }
+        JS      @@exit
+        STD
+        REP     MOVSD
+
+        MOV     ECX,EAX
+        AND     ECX,03H         { copy count MOD 4 bytes        }
+        ADD     ESI,4-1         { point to last byte of rest    }
+        ADD     EDI,4-1
+        REP     MOVSB
+        CLD
+@@exit:
+        POP     EDI
+        POP     ESI
+end;
+
+PERFECTO!, HAGAMOS DOBLE CLICK EN 004045CC   E8EFE2FFFF             call    004028C0
+ y entraremos en el ASM que les acabo de mostrar, esto evidentemente, hace una transferencia de valores, desde una zona de memoria a otra, en lenguaje humano, de variable a variable. :)
+
+	const Source; var Dest; count : Integer 
+
+miremos esto y ahora, el ASM:
+
+	{     ->EAX     Pointer to source       }  eax, es source
+	{       EDX     Pointer to destination  }  edx, es edx
+	{       ECX     Count                   }  ecx , es count
+
+Perfecto, hemos llegado a ver, que delphi agrega este ASM exactamente a como esta en sus sources, en el programa compilado, para poder hacer operaciones tan basicas como asignar un texto a un label.
+
+
+  S := PChar(@Source);
+  D := PChar(@Dest);
+  if S = D then Exit;
+  if Cardinal(D) > Cardinal(S) then			
+    for I := count-1 downto 0 do			
+      D[I] := S[I]
+  else
+    for I := 0 to count-1 do
+      D[I] := S[I];
+end;
+
+esta parte en delphi, es exactamente que lo que esta hecho en ASM, mas abajo, si miramos una linea mas abajo del end; final encontramos una directiva del compilador {$ELSE}, quiere decir que el compilador puede elegir entre una rutina o la otra, que es exactamente la misma pero en ASM.
+Ya que tenemos ambas miremos de que se trata:
+
+S es lo que simboliza a EAX, y D simboliza a EDX
+
+004028C0   56                     push    esi
+004028C1   57                     push    edi
+004028C2   89C6                   mov     esi, eax   las asignaciones!
+004028C4   89D7                   mov     edi, edx
+004028C6   89C8                   mov     eax, ecx
+004028C8   39F7                   cmp     edi, esi   ahora comparamos, esto es el segundo IF
+004028CA   7713                   jnbe    004028DF  miren este jump, if not below or equal, 
+traducido al japones: si no es menor o igual, conlusion?? si es MAYOR! es el:
+				if Cardinal(D) > Cardinal(S) then
+
+si salta por ese if, o sea si es mayor, nos lleva a:
+
+004028DF   8D7431FC               lea     esi, [ecx+esi-$04]   asignaciones d[i]:=s[i];
+004028E3   8D7C39FC               lea     edi, [ecx+edi-$04]    mirar source orig en ASM (arriba)
+004028E7   C1F902                 sar     ecx, $02
+004028EA   7811                   js      004028FD
+
+por el ELSE:
+
+004028CC   742F                   jz      004028FD     este salto nos lleva al final.
+004028CE   C1F902                 sar     ecx, $02    
+004028D1   782A                   js      004028FD
+004028D3   F3                     rep                  
+004028D4   A5                     movsd
+
+En conclusion es un movimiento de una variable a otra, con un indice I, evidentemente, sirve para asignarle el texto a nuestro querido tlabel. ;)
+
+* Reference to: sysutils.FileExists(System.AnsiString):System.Boolean;  <-- El archivo existe ?
+|
+0044E07A   E8E1A4FBFF             call    00408560
+0044E07F   84C0                   test    al, al
+0044E081   0F84B9020000           jz      0044E340
+0044E087   FF75F4                 push    dword ptr [ebp-$0C]
+0044E08A   FF75F0                 push    dword ptr [ebp-$10]
+0044E08D   FF75EC                 push    dword ptr [ebp-$14]
+0044E090   8D45E8                 lea     eax, [ebp-$18]
+0044E093   BA03000000             mov     edx, $00000003
+
+|
+0044E098   E8D364FBFF             call    00404570
+0044E09D   BA02000000             mov     edx, $00000002
+0044E0A2   8B45E8                 mov     eax, [ebp-$18]
+
+|
+0044E0A5   E822A3FBFF             call    004083CC
+0044E0AA   8BD8                   mov     ebx, eax
+0044E0AC   B902000000             mov     ecx, $00000002
+0044E0B1   33D2                   xor     edx, edx
+0044E0B3   8BC3                   mov     eax, ebx
+
+* Reference to: sysutils.FileSeek(System.Integer;System.Integer;System.Integer):System.Integer;overload;
+|
+0044E0B5   E8F2A3FBFF             call    004084AC
+0044E0BA   8BF0                   mov     esi, eax
+0044E0BC   8D4601                 lea     eax, [esi+$01]
+
+Bien, call    00408560, es muy curioso y por demas poco optimizado miren porque:
+
+* Reference to: sysutils.FileAge(System.AnsiString):System.Integer;
+|
+00408565   E88EFFFFFF             call    004084F8
+
+Resumiendo llama a esa funcion de sysutils, fileage, pero, porque fileage?? si solamente queremos saber si un fichero existe o no.
+Miremos que tiene fileage dentro:
+
+* Reference to: kernel32.FindFirstFileA()          Bien, esta es la funcion mas util para el 
+|						   cometido de nuestro keyme.
+00408513   E8B0E1FFFF             call    004066C8
+00408518   83F8FF                 cmp     eax, -$01
+0040851B   7434                   jz      00408551
+0040851D   50                     push    eax
+
+* Reference to: kernel32.FindClose()
+|
+0040851E   E89DE1FFFF             call    004066C0
+00408523   F685B4FEFFFF10         test    byte ptr [ebp+$FFFFFEB4], $10
+0040852A   7525                   jnz     00408551        <-- sale de la rutina si hay error
+0040852C   8D45F4                 lea     eax, [ebp-$0C]
+0040852F   50                     push    eax
+00408530   8D85C8FEFFFF           lea     eax, [ebp+$FFFFFEC8]
+00408536   50                     push    eax
+
+* Reference to: kernel32.FileTimeToLocalFileTime()           \
+|							     |
+00408537   E87CE1FFFF             call    004066B8	     |
+0040853C   8D45FC                 lea     eax, [ebp-$04]     |
+0040853F   50                     push    eax		     |
+00408540   8D45FE                 lea     eax, [ebp-$02]     |
+00408543   50                     push    eax		     |
+00408544   8D45F4                 lea     eax, [ebp-$0C]     |
+00408547   50                     push    eax		     |
+							     |
+* Reference to: kernel32.FileTimeToDosDateTime()	     |Estas llamadas para nuestro come-
+|							     |tido no sirven, ahora porque delphi
+00408548   E863E1FFFF             call    004066B0	     |las agrega igual? como ven, este es
+0040854D   85C0                   test    eax, eax	     |uno de los problemas de los RAD's,
+0040854F   7507                   jnz     00408558	     \___________Estas rutinas son agre-
+00408551   C745FCFFFFFFFF         mov     dword ptr [ebp-$04], $FFFFFFFF |gadas "por si las mos-
+00408558   8B45FC                 mov     eax, [ebp-$04]                 |cas" por el compilador.
+0040855B   5B                     pop     ebx				 |
+0040855C   8BE5                   mov     esp, ebp			 |
+0040855E   5D                     pop     ebp				 |
+0040855F   C3                     ret					 /
+
+ahora:
+
+0044E0A5   E822A3FBFF             call    004083CC   <- analizaremos este call...
+0044E0AA   8BD8                   mov     ebx, eax
+0044E0AC   B902000000             mov     ecx, $00000002
+0044E0B1   33D2                   xor     edx, edx
+0044E0B3   8BC3                   mov     eax, ebx
+
+* Reference to: sysutils.FileSeek(System.Integer;System.Integer;System.Integer):System.Integer;overload;
+|
+0044E0B5   E8F2A3FBFF             call    004084AC
+0044E0BA   8BF0                   mov     esi, eax
+0044E0BC   8D4601                 lea     eax, [esi+$01]
+
+el call de 44e0a5 nos muestra en resumen lo siguiente:
+
+* Reference to: kernel32.CreateFileA()          <-crea fichero????
+|
+0040841D   E866E2FFFF             call    00406688
+00408422   5F                     pop     edi
+00408423   5E                     pop     esi
+00408424   5B                     pop     ebx
+00408425   C3                     ret
+
+Justamente no crea un fichero, pero lo que hace es abrir el archivo key bajo un modo read, o read write seguramente, entonces para eso, llama a createfilea igual, porque simplemente debe pasarsele a la funcion una constante.
+
+* Reference to: sysutils.FileSeek(System.Integer;System.Integer;System.Integer):System.Integer;overload;
+|
+0044E0B5   E8F2A3FBFF             call    004084AC
+0044E0BA   8BF0                   mov     esi, eax
+0044E0BC   8D4601                 lea     eax, [esi+$01]
+
+Perfecto, tenemos a una funcion de delphi llamada fileseek, que justamente significa que busque en un fichero, conclusion, el keyme esta buscando una vez que se ha chequeado que el archivo key existe, si existe tal o cual caracter o conjunto de caracteres en el fichero, para eso, veremos que hace la funcion:
+
+004084AC   51                     push    ecx
+004084AD   6A00                   push    $00
+004084AF   52                     push    edx
+004084B0   50                     push    eax
+
+* Reference to: kernel32.SetFilePointer()
+|
+004084B1   E862E3FFFF             call    00406818
+004084B6   C3                     ret
+
+Bien!, solamente llama a la funcion setfilepointer de kernel, y fijense en el push $00, por supuesto todos los push's son los parametros a la funcion miren como esta la funcion definida en su estandar:
+
+DWORD SetFilePointer(
+
+    HANDLE hFile,	// handle of file 
+    LONG lDistanceToMove,	// number of bytes to move file pointer 
+    PLONG lpDistanceToMoveHigh,	// address of high-order word of distance to move  
+    DWORD dwMoveMethod 	// how to move 
+   );
+
+---------------------------------------------------------------------------------------------
+Ojo! aqui, DEDE nos muestra los push correctamente, pero deben ser introducidos de abajo hacia arriba, para que el ultimo de la pila de push (push eax) sea el primero a tomar por la API!!.
+---------------------------------------------------------------------------------------------
+
+Ok, vemos lo siguiente, el primer push lo que hace es cargar lo que contiene ECX, en nuestro caso ECX contiene el modo de moverse o sea lo que contiene EAX que lo ha cargado antes de llamar a fileseek.
+
+El tercer parametro es nulo, por eso es un 00, pero es el tercer parametro en la api desde arriba hacia abajo. En EDX tenemos la cantidad de bytes a movernos o sea un 02, y el cuarto es EAX, que contiene el handle (manija) del fichero.
+
+Miren delphi como llama a esta api internamente:
+
+function FileSeek(Handle, Offset, Origin: Integer): Integer;
+begin
+{$IFDEF MSWINDOWS}
+  Result := SetFilePointer(THandle(Handle), Offset, nil, Origin); <-- AQUI!
+{$ENDIF}
+{$IFDEF LINUX}
+  Result := __lseek(Handle, Offset, Origin);
+{$ENDIF}
+end;
+
+como ven , el tercer parametro es siempre NULO, o sea 0, entonces deducimos sin debuggear que EDX contendra un 0 o un valor nulo, sin significado para la API.
+El ultimo parametro dice, que nos moveremos 2 bytes para adelante.
+
+* Reference to: sysutils.AllocMem(System.Cardinal):System.Pointer;
+|
+0044E0BF   E8249FFBFF             call    00407FE8
+
+Seguramente realiza alguna asignacion utilizando punteros o algo asi, utilizando variables para despistar, esta funcion reserva memoria para una operacion, que generalmente suele ser asignaciones.
+
+Ahora viene otra fileseek, observemos los parametros:
+
+0044E0C4   8BF0                   mov     esi, eax
+0044E0C6   33C9                   xor     ecx, ecx
+0044E0C8   BA2C000000             mov     edx, $0000002C  <---- en decimal es un 44
+0044E0CD   8BC3                   mov     eax, ebx
+
+* Reference to: sysutils.FileSeek(System.Integer;System.Integer;System.Integer):System.Integer;overload;
+|
+0044E0CF   E8D8A3FBFF             call    004084AC
+
+Quizas, ese 44 que vemos alli, sea un parametro, como la cantidad de bytes a moverse para leer, luego cuando llama a la API setfilepointer. Es lo mismo que sucede antes.
+
+Ok, esta es la parte mas repetitiva y decisiva del programa, observemos como delphi genera codigo ensamblador tremendamente rutinario, pudiendo hacer un bucle e ir llamando a las api's sin necesidad de repetir todo el proceso cada vez, que desea leer un byte del keyme, miremos:
+
+0044E0D4   8BFE                   mov     edi, esi
+0044E0D6   8BD7                   mov     edx, edi
+0044E0D8   B901000000             mov     ecx, $00000001
+0044E0DD   8BC3                   mov     eax, ebx
+
+* Reference to: sysutils.FileRead(System.Integer;void;System.Longword):System.Integer;
+|           or: sysutils.FileWrite(System.Integer;void;System.Longword):System.Integer;
+|
+0044E0DF   E870A3FBFF             call    00408454
+
+bien, DEDE nos dice que se puede haber ejecutado un fileread o un filewrite, yo creo personalmente que debe ejecutar la primera funcion, salvo que hiciera un calculo complicado con el key, y generara un numero leyendo y luego escribiendo un resultado en el key, pero por lo que he visto en el archivo no sucede eso, ahora veran porque.
+
+0044E0E4   8D85E4FEFFFF           lea     eax, [ebp+$FFFFFEE4]
+0044E0EA   8BD6                   mov     edx, esi
+
+* Reference to: commctrl.TreeView_GetChild(Windows.HWND;HTREEITEM):HTREEITEM;
+|           or: commctrl.TreeView_GetNextSibling(Windows.HWND;HTREEITEM):HTREEITEM;
+|           or: commctrl.TreeView_GetPrevSibling(Windows.HWND;HTREEITEM):HTREEITEM;
+|           or: commctrl.TreeView_GetParent(Windows.HWND;HTREEITEM):HTREEITEM;
+|           or: commctrl.TreeView_GetNextVisible(Windows.HWND;HTREEITEM):HTREEITEM;
+|           or: commctrl.TreeView_GetPrevVisible(Windows.HWND;HTREEITEM):HTREEITEM;
+|           or: commctrl.TreeView_SelectItem(Windows.HWND;HTREEITEM):HTREEITEM;
+|
+0044E0EC   E8C74EFBFF             call    00402FB8
+
+Algunas de estas funciones no se aun para que son ejecutadas, realmente delphi, hace lo imposible para gastar recursos de sistema, no quiero ni pensar en VB, ya veremos que sucede en VB tambien.
+
+0044E0F1   8D85E4FEFFFF           lea     eax, [ebp+$FFFFFEE4]
+0044E0F7   BAB4E34400             mov     edx, $0044E3B4
+0044E0FC   33C9                   xor     ecx, ecx
+0044E0FE   8A08                   mov     cl, byte ptr [eax]
+0044E100   41                     inc     ecx
+
+* Reference to: system.@AStrCmp;
+|
+0044E101   E8424CFBFF             call    00402D48
+0044E106   7507                   jnz     0044E10F
+0044E108   C745F801000000         mov     dword ptr [ebp-$08], $00000001
+0044E10F   33C9                   xor     ecx, ecx
+
+en eax, seguramente se guarda o el puntero a uno de los 2 strings y en edx, el otro, miremos una cosa, en edx, se mueve el texto que esta en 443bb4, pero en eax, se mueve lo que vale ebp mas el otro valor, eso quiere decir, que esa zona de memoria, contiene la variable en donde se debe alojar lo que leyo el archivo.
+luego de preparar el terreno, llama a la funcion que compara ambos strings, que contiene lo siguiente:
+	
+00402D48   53                     push    ebx
+00402D49   56                     push    esi
+00402D4A   51                     push    ecx
+00402D4B   89CE                   mov     esi, ecx
+00402D4D   C1EE02                 shr     esi, $02
+00402D50   7426                   jz      00402D78
+00402D52   8B08                   mov     ecx, [eax]
+00402D54   8B1A                   mov     ebx, [edx]
+00402D56   39D9                   cmp     ecx, ebx
+00402D58   7545                   jnz     00402D9F
+00402D5A   4E                     dec     esi
+00402D5B   7415                   jz      00402D72
+00402D5D   8B4804                 mov     ecx, [eax+$04]
+00402D60   8B5A04                 mov     ebx, [edx+$04]
+00402D63   39D9                   cmp     ecx, ebx
+00402D65   7538                   jnz     00402D9F
+00402D67   83C008                 add     eax, +$08
+00402D6A   83C208                 add     edx, +$08
+00402D6D   4E                     dec     esi
+00402D6E   75E2                   jnz     00402D52
+00402D70   EB06                   jmp     00402D78
+00402D72   83C004                 add     eax, +$04
+00402D75   83C204                 add     edx, +$04
+00402D78   5E                     pop     esi
+00402D79   83E603                 and     esi, +$03
+00402D7C   7436                   jz      00402DB4
+00402D7E   8A08                   mov     cl, byte ptr [eax]
+00402D80   3A0A                   cmp     cl, byte ptr [edx]
+00402D82   7530                   jnz     00402DB4
+00402D84   4E                     dec     esi
+00402D85   7413                   jz      00402D9A
+00402D87   8A4801                 mov     cl, byte ptr [eax+$01]
+00402D8A   3A4A01                 cmp     cl, byte ptr [edx+$01]
+00402D8D   7525                   jnz     00402DB4
+00402D8F   4E                     dec     esi
+00402D90   7408                   jz      00402D9A
+00402D92   8A4802                 mov     cl, byte ptr [eax+$02]
+00402D95   3A4A02                 cmp     cl, byte ptr [edx+$02]
+00402D98   751A                   jnz     00402DB4
+00402D9A   31C0                   xor     eax, eax
+00402D9C   5E                     pop     esi
+00402D9D   5B                     pop     ebx
+00402D9E   C3                     ret
+
+00402D9F   5E                     pop     esi
+00402DA0   38D9                   cmp     cl, bl
+00402DA2   7510                   jnz     00402DB4
+00402DA4   38FD                   cmp     ch, bh
+00402DA6   750C                   jnz     00402DB4
+00402DA8   C1E910                 shr     ecx, $10
+00402DAB   C1EB10                 shr     ebx, $10
+00402DAE   38D9                   cmp     cl, bl
+00402DB0   7502                   jnz     00402DB4
+00402DB2   38FD                   cmp     ch, bh
+00402DB4   5E                     pop     esi
+00402DB5   5B                     pop     ebx
+00402DB6   C3                     ret
+
+Larga y tediosa string , que deberia servir para eso, una vez mas, veremos mas adelante que hace, y porque es tan tediosa y larga esta rutina ;)
+
+0044E14D   7503                   jnz     0044E152
+
+luego de la llamada a la rutina de chequeo de strings, hay un salto condicional, esto evalua, si las strings, son iguales o no.
+
+En caso de no ser iguales, salta a un lugar muy cerquita del que esta:
+
+0044E14F   FF45F8                 inc     dword ptr [ebp-$08]
+0044E152   33C9                   xor     ecx, ecx
+0044E154   BA73000000             mov     edx, $00000073
+0044E159   8BC3                   mov     eax, ebx
+
+al XOR,, vaciando ecx mas rapidamente que con un mov ecx,0 (eso si lo saben los chicos de borland, bue... una buena! :P )
+si son iguales las strings, lo que hace, es continuar, e incrementa simplemente el puntero que apunta a la zona de memoria en donde se encuentra el texto leido, y continua.
+Fijense que en rr3154, carga otro valor en hexadecimal, posiblemente otro offset, y luego prepara los registros para llamar a la funcion:
+
+* Reference to: sysutils.FileSeek(System.Integer;System.Integer;System.Integer):System.Integer;overload;
+|
+0044E15B   E84CA3FBFF             call    004084AC
+0044E160   8BD7                   mov     edx, edi
+0044E162   B901000000             mov     ecx, $00000001
+0044E167   8BC3                   mov     eax, ebx
+
+* Reference to: sysutils.FileRead(System.Integer;void;System.Longword):System.Integer;
+|           or: sysutils.FileWrite(System.Integer;void;System.Longword):System.Integer;
+|
+0044E169   E8E6A2FBFF             call    00408454
+
+Y de nuevo vuelve a repetirse la historia, con las llamadas desconocidas, de treeview, y luego la tediosa comparacion, y la decision con un jnz, todo igual, nada mas que cambiando el offset a leer en el fichero.
+
+Bien, un truco del programdor, ahora les comentare:
+
+0044E0C8   BA2C000000             mov     edx, $0000002C
+0044E111   BA69000000             mov     edx, $00000069
+0044E154   BA73000000             mov     edx, $00000073
+0044E197   BA31000000             mov     edx, $00000031
+0044E1DA   BA64000000             mov     edx, $00000064
+0044E21D   BA65000000             mov     edx, $00000065
+0044E260   BA6E000000             mov     edx, $0000006E
+0044E2A3   BA74000000             mov     edx, $00000074
+0044E2E6   BA53000000             mov     edx, $00000053
+
+estos son los offset los cuales el keyme lee al archivo key:
+
+2C 69 73 31 64 65 6E 74 53
+
+Son los valores en hexadecimal de la palabra:
+
+								2C 69 73 31 64 65 6E 74 53
+								D  i  s  i  d  e  n  t  S
+
+Ahora miremos, como chequea las strings, o sea, lo leido en el fichero llave, contra el patron correcto que debe ser:
+
+en la rutina que comienza en: 402D48, en una parte debuggeando encontre lo siguiente:
+
+00402D87  |. 8A48 01        MOV CL,[BYTE DS:EAX+1]
+00402D8A  |. 3A4A 01        CMP CL,[BYTE DS:EDX+1]
+00402D8D  |. 75 25          JNZ SHORT KEYME1.00402DB4
+
+en eax+1 esta lo que ha leido el keyme del keyfile, y en edx+1 encontramos el patron correcto, de esta manera funciona la rutina, string, si debugeamos en ese momento, la primera vez veremos lo siguiente :
+
+		Stack [DS:0069FB79]=43 ('C')
+
+Si no son iguales , en 402d8d salta a 02db4, o sea, directamente, sale de la rutina, sin chequear mas nada.
+
+Asi hace, con cada chequeo que realiza, en cada offset antes mencionado.
+
+0044E2DA   E8694AFBFF             call    00402D48	<-- llamada al chequeo de strings
+0044E2DF   7503                   jnz     0044E2E4
+0044E2E1   FF45F8                 inc     dword ptr [ebp-$08]  <-- incremento variable si son iguales
+
+Otro truco, si debugeamos cada vez, dentro del proceso que hay en 402D48, veremos las letras por las cuales pregunta el keyme y estas son: C r a c k i n g !
+
+					SI, tu lo has pensado(creo)!!! DisidentS Cracking!    xD
+
+
+Finalmente:
+
+0044E31D   E8264AFBFF             call    00402D48     <--- rutina de chequeo
+0044E322   7503                   jnz     0044E327     <--- salto por si NO son iguales
+0044E324   FF45F8                 inc     dword ptr [ebp-$08] incremento contador
+0044E327   837DF809               cmp     dword ptr [ebp-$08], +$09 `PREGUNTO si es = a 9`
+0044E32B   7513                   jnz     0044E340    Si no es igual a 9, es porque no ha encontrado alguna coincidencia entonces el contador no fu incrementado
+
+0044E32D   8B45FC                 mov     eax, [ebp-$04]
+
+* Reference to control Label1 : TLabel
+|
+0044E330   8B80F0020000           mov     eax, [eax+$02F0]
+
+* Possible String Reference to: 'Registered!!'
+|
+0044E336   BAE0E34400             mov     edx, $0044E3E0
+
+* Reference to: controls.TControl.SetText(TControl;System.String);  <- seteamos el texto Registered!! al label!!!!
+
+|
+0044E33B   E888EFFDFF             call    0042D2C8
+0044E340   33C0                   xor     eax, eax
+0044E342   5A                     pop     edx
+0044E343   59                     pop     ecx
+0044E344   59                     pop     ecx
+0044E345   648910                 mov     fs:[eax], edx
+
+Perfecto!!!, ahi estariamos registrados, como ven este tipo de proteccion implementada en delphi no resulta muy dificil de comprender, veremos mas adelante esta misma proteccion pero programada de distinta manera, entonces podriamos ver como el compilador implementa su 
+
+.==========================================================================.
+|=======~ 6.0 SOLUCION     ~================================================
+|===========================================================================
+
+Bien, las  posibles  soluciones  son muchisimas, pero le s comentare algunas 
+para que tengan en cuenta.
+Como existe un contador en ebp-$08  y este debe valer 09, podriamos forzar a
+ que este valga 09, y entonces asi, podriamos estar registrados sin  necesi-
+dad, de crear el keyfile que necesita la rutina "candado".
+Otra buena solucion  seria, redirigir, una  instruccion del codigo, de  esta 
+manera:
+
+		 CMP CL,[BYTE DS:EDX+1] 
+
+esa instruccion  pertenece a la  rutina que compara  byte por byte  leido en 
+offset del fichero predeterminados, esto es comparado contra eax+1, bien, si 
+lo que tenemos originalmente es lo  que esta en eax+1 entonces para  que sea 
+siempre igual deberiamos compararlo contra lo que  se carga en memoria siem-
+pre, o sea contra eax+1, entonces:
+
+		 CMP CL,[BYTE DS:EAX+1]
+
+Podria solucionarnos el problema, ya que  estaria comparando  siempre contra 
+el mismo patron, ademas, podriamos modificarlo tambien asi:
+
+		 CMP CL,CL
+
+lo que tambien daria siempre lo mismo.
+Una tercera solucion  que se me  ocurre podria ser que en  los saltos que se 
+realizan una y otra vez, leyendo el keyfile en el offset indicado:
+
+0044E322   7503                   jnz     0044E327     <--- salto por si NO son iguales
+0044E324   FF45F8                 inc     dword ptr [ebp-$08] incremento contador
+
+Cambiemos el jnz, por  un nop, o un jz. Pero  de esta  manera seria un  poco 
+tedioso, ya que necesitariamos cambiar todos los jumps que andan por ahi, la 
+solucion podria ser, cambiar el primer salto y luego hacer un:
+
+				JMP 44E32D
+
+a donde salta?
+
+Bueno, saltaria directamente a la rutina que pone el  texto registered!!! en
+ el label.
+
+Pero todas estas soluciones con muy vagas, y de una manera  u otra esquivan,
+la solucion real, y el problema real, y en resumen no lo solucionan.
+Si tenemos un programa que  tiene  denegadas ciertas  opciones, no nos seria 
+muy practico hacer que la rutina de registro nos diga "Thank you!!! you  are 
+Registered!!!", y que luego  funcione  como   un programa  no registrado, lo 
+ideal, seria, estar registrados como debemos estarlo, y para eso, podriamos, 
+debuggear el programa, e ir atentamente  verificando en que  offset y contra
+que patron chequea.
+
+.==========================================================================.
+|=======~ 7.0 CONCLUSION     ~==============================================
+|===========================================================================
+
+
+Lo ideal que yo recomendaria, seria  la ultima  solucion, ya que sirve  para 
+todos los casos, por mas  proteccion que  tenga el programa, entendiendo  el 
+problema y arrancandolo de raiz, podemos  estar registrados  como cualquiera
+ que desembolso del bolsillo.
+Eso si, les comento que este tipo de  protecciones, tienden a ser criptogra-
+ficas, ya  que  estamos  tratando  con bytes, numeros, nos podemos  llegar a 
+topar con  ecuaciones muy  complejas, o  codigo muy dificil para  encontrar, 
+realmente que es lo que se esta buscando en el fichero clave.
+
+
+.==========================================================================.
+|=======~ 8.0 AGRADECIMIENTOS     ~=========================================
+|===========================================================================
+
+Ok, ahi van :) , les  agradezco a (sin  orden  especial, me estoy  acordando 
+simplemente) +Fravia, +ORC, +Malattia, R!sC, X-Grimator,  DaFixer, +Aescula-
+pius, +Crudd, +Q, Numit_or, Esn-Min,  Mr Ridk, sn00pe, y a todos  los que no
+recuerdo ahora mismo, no es por nada, un fallo de memoria :P .
+

@@ -1,0 +1,529 @@
+
+.--[ @_2500Hz - Underground Scene - ]------------(http://pagina.de/2500Hz)--.
+|                                                                           |
+| Titulo : Samba                                                            |
+| Autor  : JuNkEe (junkee@supercable.es)                                    |
+| Fecha  : 27/03/2000                                                       |
+`-----------------------------------------------------(2500hz@mixmail.com)--´
+
+ÍNDICE
+
+1. ¿QUÉ ES SAMBA?
+
+2. UN POQUILLO DE HISTORIA
+
+3. INSTALACIÓN DE SAMBA
+
+	3.1 INSTALACIÓN MEDIANTE RPM
+	3.2 INSTALACIÓN DE LOS FUENTES
+
+4. ¿CÓMO FUNCIONA SAMBA?
+
+5. CONFIGURANDO SAMBA
+
+	5.1 CONFIGURANDO SAMBA A MANO
+	5.2 CONFIGURANDO SAMBA USANDO SWAT
+	5.3 COMPROBANDO SI HEMOS CONFIGURADO BIEN
+	5.4 CONFIGURANDO LAS IMPRESORAS
+		5.4.1 USO DE IMPRESORAS DE WINDOWS DESDE LINUX
+		5.4.2 USO DE IMPRESORAS DE LINUX DESDE WINDOWS
+		5.4.3 COMPROBACION DE LAS IMPRESORAS
+
+6. INICIAR LOS DEMONIOS SMBD Y NMBD
+
+	6.1 INICIAR LOS DEMONIOS SMBD Y NMBD COMO DEMONIOS INDEPENDIENTES
+	6.2 INICIAR LOS DEMONIOS SMBD Y NMBD POR PETICION DE INETD
+
+7. UTILIZACION DE RECURSOS WINDOWS DESDE LINUX
+
+8. FIN Y SUERTE......
+
+
+1. ¿QUÉ ES SAMBA?
+
+Imaginemos que tenemos una red compuesta por 5 equipos, de los cuales 3 son 
+máquinas windows, 1 tiene instalada OS/2 y otra tiene LINUX. ¿Cómo haríamos
+para compartir recursos entre éstas máquinas?. Si todas las máquinas fuesen 
+windows (por ejemplo) los recursos los compartiríamos por NETBIOS, pero..
+¿y si tenemos distintos Sistemos Operativos?
+
+La respuesta es SAMBA. Samba es un páquete desarrollado por SAMBA TEAM
+(http://samba.org) que permite compartir y utilizar recursos entre 
+distintos sistemas operativos (OS/2, VMS, NetWare, etc.).
+
+En este documento me voy a centrar al dúo LINUX-Windows, pero si alguíen 
+desea más información, que acuda a la web de Samba Team :)))))))).
+
+2. UN POQUILLO DE HISTORIA (Sólo un poquillo.... :))
+
+Hace mucho tiempo, IBM desarrolló el protocolo NetBIOS, el cual permitía 
+que el hardware y software se "entendieran" en el interior de la LAN 
+(Local Areal Network). Más adelante, desarrollaron el protocolo NetBEUI 
+(NetBIOS Enhanced User Interfaze), que permitía utilizar el protocolo NetBIOS
+a través de las redes Ethernet o Token Ring. Microsoft (como no) decidió 
+incluir en su sistema operativo este protocolo (NetBEUI), el cual es el 
+actualmente utilizado para compartir directorios e impresoras.
+
+Por aquel tiempo Andrew Tridgell disponía un servidor UNIX y unos PC´s con 
+Sistemas Operativos Microsoft, y se le planteaba el problema de compartir 
+dispositivos entre estos PC´s. Debido a esto, decidió crear el paquete SMB 
+(NetBEUI) para las máquinas UNIX, al cual denominó SAMBA.
+
+3. INSTALACIÓN DE SAMBA
+
+Instalar SAMBA no es nada dificil. Podemos optar por conseguir el código
+fuente, o por conseguirlo mediante paquetes precompilados. Además, en la
+mayoría de las distribuciones es posible elegir la instalación de SAMBA 
+durante la instalación de LINUX.
+
+3.1 INSTALACIÓN MEDIANTE RPM
+
+Para instalar Samba desde el paquete RPM, lo primero es conseguir la última 
+versión disponible en http://neptuno.ipf.uvigo.es/samba/ftp/Binary_Packages/.
+A continuación instalamos el paquete con la orden:
+
+rpm -i samba-lastest.rpm
+
+Con lo que el paquete Samba se quedará instalado en el equipo y estará listo 
+para ser configurado.
+
+
+
+3.2 INSTALACIÓN DE LOS FUENTES
+
+Si preferimos obtener el códifo fuente y compilarlo los pasos son los siguientes:
+
+1. Obtener los fuentes del paquete http://es.samba.org/samba/ftp/samba-latest.tar.gz
+2. Descomprimir el paquete con la orden tar xvfz samba-latest.tar.gz
+
+Esto creará un directorio denominado samba-X.Y.Z (X,Y,Z indica la versión del paquete).
+Este directorio está formado a su vez por otros directorios:
+
+- docs : Documentación sobre SAMBA en varios formatos. En este directorio se
+encuentra un fichero llamado INSTALL.txt el cual te da un sencillo conjunto 
+de instrucciones paso a paso.
+
+- examples : Diferentes ejemplos sobre la configuración de SAMBA. He de mencionar
+que la configuración de samba se realiza a través del fichero smb.conf
+
+- packaging : Paquetes compilados para diversas distribuciones
+
+- source : Código fuente del paquete SAMBA
+
+Los pasos a seguir para instalar SAMBA son: 
+
+1. Cambiar al directorio source con el comando: cd source (Suponiendo que 
+estemos en el directorio donde hemos descomprimido SAMBA)
+
+2. Configurar el paquete para tu sistema: ./configure
+
+Con este comando se genera el fichero Makefile para SAMBA con la configuración
+de tu sistema. La orden configure puede ir acompañada de varios parámetros 
+(ejecute ./configure-help para visualizar la información sobre los parámetros).
+
+3. Compilar: make
+
+4. Instalar: make install
+
+Mediante esta orden se instalara el paquet SAMBA en nuestro sistema y podremos
+pasar a configurarlo. 
+
+--------------------------------------------------------------------------------
+
+Cuando hayamos acabado de instalar el paquete Samba (utlizando cualquiera de
+los 2 caminos) éste se quedará con la siguiente estructura de contenidos:
+
+/usr/local/samba/bin/   Ejecutables
+
+/usr/local/samba/lib/   Fichero smb.conf
+
+/usr/local/samba/man/   Páginas del manual
+
+/usr/local/samba/private/  Privado
+
+/usr/local/samba/swat/  Utilidad para configurar el fichero smb.conf mediante un navegador
+
+/usr/local/samba/var/   Ficheros .log
+
+
+4. ¿COMO FUNCIONA SAMBA?
+
+El paquete SAMBA está formado principalmente por 2 demonios (2 "programas" que
+se están ejecutando constantemente en segundo plano):
+
+- smbd : Este se ocupa de los servicios de ficheros e impresión y de la 
+autentificación y autorización de usuarios
+
+- nmbd : Este otro se ocupa de la resolución de nombres y de la presentación 
+de los servicios.
+
+Además de estos 2 demonios, el paquete de Samba está formado por otros demonios 
+más. Éstos son:
+
+- smbclient : Utilidad que implementa un cliente Linux para utilizar recursos Windows
+- testparm : Utilidad para comprobar la configuración de SAMBA (smb.conf)
+- testprns : Utilidad que permite comprobar las impresoras configuradas (/etc/printcap)
+- smbstatus : Utilidad para listar las conexiones actuales
+- nmblookup : Utilidad listar los recursos compartidos por una máquina Linux
+- make_smbcodepage : Utilidad que permite definir un fichero de definición de 
+códigos de página para smbd
+- smbpasswd : Utilidad que permite el cambio de clave sobre SAMBA y Windows NT
+- swap : Utilidad para configurar SAMBA (smb.conf) mediante un navegador
+
+Estas son principalmente las utilidades de SAMBA :).
+
+5. CONFIGURANDO SAMBA
+
+El siguiente paso consiste en crear el fichero de configuración smb.conf. Este 
+fichero determina qué recursos del sistema quieres compartir con el mundo exterior 
+y que restricciones deseas poner en ellos.
+
+Este fichero no es generado durante el proceso de instalación (mediante la 
+compilación de los fuentes) por lo que será necesario crearlo. La ubicación
+ es /usr/local/samba/lib.
+
+He de mencionar que la configuración de este archivo se puede realizar de dos maneras:
+
+- Editando el archivo a mano
+- Usando la herramienta swat
+
+5.1 CONFIGURANDO SAMBA A MANO
+
+La estructura de este fichero es mediante secciones en las que se incluyen una
+serie de parámetros con unos determinados valores. El esquema es el siguiente:
+
+[sección1]
+par1=val1
+par2=val2
+...
+[sección2]
+par3=val3
+par4=val4
+...
+
+Cada sección dentro del fichero, es utilizada para especificar recursos 
+compartidos por la máquina Linux.
+
+El nombre de la sección es el nombre del recurso a compartir y los parametros 
+especifican sus atributos. Por ejemplo, la siguiente sección comparte un directorio 
+llamado /tmp/compartir dándole por nombre al recurso temporal y asignando permiso
+de escritura.
+
+[temporal]
+path=/tmp/compartir
+writeable=1
+
+He de mencionar que existen tres secciones especiales:
+
+- global : Que define unas pocas variables que Samba usará para todo el sistema.
+- homes : Permite a los usuarios remotos acceder a sus respectivos directorios 
+principales en la máquina Linux local (cada uno al suyo nada más). Esto es, si 
+un usuario de Windows intenta conectar a este recurso desde su máquina Windows, 
+será conectado a su directorio personal.
+- printers : Permite el uso de impresoras a los usuarios del sistema.
+
+En cuanto a los parámetros que pueden incluirse en cada sección hay que aclarar 
+que algunos sólo podrán aparecer, por ejemplo, en la sección global, mientras que
+otros pueden aparecer en cualquier sección. Además, si incluimos un parámetro en
+la sección global, este parámetros afectará a todos los recursos.
+
+Por ejemplo, la siguiente estructura del archivo smb.conf, permite compartir una
+carpeta, con el nombre public, en la cual hay permisos de escritura pero en la
+que sólo tienen acceso el grupo laborales:
+
+[public]   
+comment = Cosas publicas   
+path = /home/public   
+public = yes
+writable = yes   
+printable = no   
+write list = @laborales
+
+Como se puede observar, el fichero smb.conf puede sufrir muchísimas modificaciones.
+En el directorio samba-X.Y.Z/examples existe un gran número de ejemplos de ficheros
+de configuración. Si desea utilizar uno de estos archivos, simplemente copielo al
+direcotrio /usr/local/samba/lib y Samba lo usará como configuración.
+
+En el directorio donde haya descomprimido los fuentes de Samba hay una carpeta 
+denominada /examples. En ella existen unos cuantos ficheros smb.conf. Si quiere
+usar uno de estos simplemente copielo a la carpeta /usr/local/samba/lib sustituyendo 
+al archivo que se encuentre ahi.
+
+5.2 CONFIGURANDO SAMBA UTILIZANDO SWAT
+
+El paquete SAMBA incluye entre sus aplicaciones una utilidad, denominada swat, 
+que facilita la creación del fichero smb.conf. Esta herramienta permite configurar 
+este archivo mediante una página WWW, por lo que su configuración es más... amena :).
+
+Para disponer de ella simplemente deberemos modificar los ficheros de configuración 
+del superservidor inetd. Por lo tanto, será necesario editar el fichero /etc/services 
+añadiéndole la siguiente línea:
+
+swat 901/tcp
+
+Y al fichero /etc/inetd.conf la siguiente línea:
+
+swat stream tcp nowait.400 root /usr/local/samba/bin/swat swat
+
+Realizados estos cambios, será necesario reiniciar el superservidor inetd:
+
+killall -HUP inetd
+
+Hecho esto ya estamos listos para utilizar esta herramienta, por lo que ejecutamos
+nuestro navegador y le indicamos la máquina y el puerto que contiene la herramienta.
+Como la herramienta se encuentra en nuestra máquina y hemos especificado el puerto 901,
+escribimos lo siguiente en la barra de dirección del navegador:
+
+http://localhost:901/
+
+He de mencionar que aquellas personas que tengan puesto en el navegador la conexion
+a traves de un proxy, deben especdificar No usar proxy para las direcciones locales,
+ya que si no Swat no funcionara.
+
+
+5.3 COMPROBANDO SI HEMOS CONFIGURADO BIEN 
+
+El paqueta Samba incluye una utilidad denominada testparm, cuya funcion es examinar
+el fichero smb.conf y comprobar que funciona correctamente. Despues de configurar Samba,
+es aconsejable ejecutar este fichero y comprobar que la configuracion no presenta errores
+
+./tesparm
+
+Con lo que el resultado sera asi si hemos configurado bien el archivo
+
+[junkee@junkee bin]$ ./testparm 
+Load smb config files from /usr/local/samba/lib/smb.conf
+Processing section "[tmp]"
+Loaded services file OK.
+
+5.4 CONFIGURANDO LAS IMPRESORAS
+
+
+5.4.1 USO DE IMPRESORAS DE WINDOWS DESDE LINUX
+
+Samba permite, ademas de la comparticion de archivos, la comparticion de Impresoras.
+Para utilizar una impresora instalad en una maquina Windows desde Linux, necesitaremos
+añadir esta impresora en Linux. 
+
+La configuracion de impresoras en Linux se realiza a traves del archivo /etc/printcap.
+Estre fichero cuenta con una linea por cada impresora instalada, donde entre otras
+cosas se especifica el nombre de la impresora, tamaño maximo de archivo, etc.
+
+Para utilizar una impresora remota bastara inluir una entrada en este fichero que 
+especifique la impresora, añadir una entrada para el fichero de cuentas y utilizar
+como un script que realice la conexion y el envio del fichero.El script que realiza
+esta conexion se llama smbprint y viene con los fuentes (/samba-X.Y.Z/examples/printing) 
+
+Antes de empezar debemos asegurarnos que la impresora esta compartida y funciona
+perfectamente :)
+
+El fichero podria ser asi:
+
+smb:cm=HpDeskjet 820:\
+   :lp=/dev/null:\
+   :sd=/var/spool/lpd/smb:\
+   :af=/var/spool/lpd/smb/acct:\
+   :mx#0:\
+   :if:=/usr/bin/smbprint
+
+Grabamos y salimos. Estas son las entradas de ese fichero:
+
+cm - comentario
+lp - nombre del dispositivo a abrir para salida
+sd - el directorio de spool de la impresora (en la máquina local)
+af - el fichero de cuentas
+mx - el tamano maximo del fichero (cero es ilimitado)
+if - nombre del fichero de entrada (script)
+
+5.4.2 USO DE IMPRESORAS DE LINUX DESDE WINDOWS
+
+Si podemos utilizar la impresora en Linux, la comparticion de esta a traves de Samba
+es muy sencilla. Si alguien tiene problemas para configurarla le remito al Printing
+How To donde viene bastante informacion al respecto.
+
+Para compartir una impresora instalada en Linux desde windows, es preciso introducir
+este recurso en el fichero smb.conf. Este fichero tiene una seccion especial para
+las impresoras [printers]. Antes de configurar las impresoras sera necesario especifar
+unos valores en la seccion [global]. Estos valores son los parametros printing 
+(sistema de impresion), printcap name (ubicacion del fichero printcap) y load printers 
+(posibilidad de cargar impresoras). Los valores podrian ser:
+
+[global]
+
+pringting=bsd
+printcap name=/etc/printcap
+load printers=yes
+
+Ahora es necesario configurar la seccion [printers]. En ella se especifican los
+valores de las impresoras compartidas. Un ejemplo seria:
+
+[printers]
+comment=Todas las impresoras
+security=server
+path=/var/spool/lpd/lp
+browseable=no
+printable=yes
+guest ok=yes
+writable=no
+create mode=0700
+
+A continuacion una posible seccion para compartir una impresora podria ser 
+la siguiente:
+
+[dj600]
+security=server
+path=/var/spool/lpd/lp
+printer name=lp
+writable=yes
+guest ok=yes
+printable=yes
+print command=lpr -r -h -P %p %s
+
+Asegúrate de que el 'path' de la impresora (en este caso bajo [dj600]) se 
+corresponde al directorio de 'spool' en /etc/printcap
+
+Ahora ya esta compartida la impresora en Linux y solo nos faltaria instalarla
+en windows como si fuese una impresora normal y corriente en red :)
+
+5.4.3 COMPROBACION DE LAS IMPRESORAS
+
+Samba incluye una utilidad llamada testprns que permite comprobar las impresoras 
+definidas en /etc/printcap. Seria conveninente ejecutar esta utilidad para comprobar 
+si hemos configurado bien el arhivo 
+
+6. INICIAR LOS DEMONIOS SMBD Y NMBD
+
+Como dijimos anteriormente, SMBD y NMBD son los demonios que utiliza Samba para 
+funcionar. Para ello utilizan la configuracion del archivo smb.conf. 
+
+Existen 2 formas de lanzar estos demonios: como demonios independientes o mediante 
+el inetd.
+
+Si estás configurando un servidor de ficheros permanente, deberían de ejecutarse
+desde inetd para que sean reejecutados si 'mueren'. Si solo quieres usar los
+servicios SMB de vez en cuando o como ayuda a la administración del sistema,
+puedes ejecutarlos con un script o incluso a mano cuando los necesites.
+
+6.1 INICIAR LOS DEMONIOS SMBD Y NMBD COMO DEMONIOS INDEPENDIENTES
+
+Este primer metodo consiste en crear un script donde se incluyan las ordenes para
+lanzar los demonios de forma independiente. Para crear el script puedes usar tu
+editor de texto preferido (vi, joe, emacs, Microsoft Word xDDDDD). El nombre del
+script esta a tu eleccion. Un ejemplo podria ser startsamba, por lo que para empezar
+a su edicion creamos el archivo (en mi caso con el editor vi)
+
+vi startsamba
+
+Y a continuacion editamos el contenido que debe ser el siguiente:
+
+#!/bin/sh
+/usr/local/samba/bin/smbd -D
+/usr/local/samba/bin/nmbd -D
+
+Guardamos y salimos. A continuacion le damos permisos de ejecucion con la orden:
+
+chmod +x startsamba
+
+Esto debemos hacerlo como root!!! xD
+
+Para utilizar los servicios de Samba, simplemente debemos ejecutar este script.
+Pero si queremos que se este ejecutando permanentemente debemos lanzarlo desde inetd.
+
+6.2 INICIAR LOS DEMONIOS SMBD Y NMBD POR PETICION DE INETD
+
+Una segunda forma de utilizar los servicios de Samba es mediante el superservidor
+inetd. Inetd utiliza la configuracion de los archivos /etc/services y /etc/inetd.conf.
+
+El primero permite definir los servicios disponibles en el sistema. El segundo especifica
+como inetd debe tratar un servicio concreto.
+
+Por lo tanto, para poder lanzar smbd y nmbd desde inetd, debemos modificar estos
+2 archivos. En el fichero /etc/services debemos incluir esta linea:
+
+netbios-ssn	139/tcp
+netbios-ns	137/udp
+
+Guardamos el fichero y salimos.
+ 
+En el fichero /etc/inetd.conf hay que incluir las siguientes lineas:
+
+netbios-ssn stream tcp nowait root /usr/sbin/smbd smbd
+netbios-ns dgram udp wait root /usr/sbin/nmbd nmbd
+
+Una vez echas las modificaciones guardamos, salimos del editor y reiniciamos el
+superservidor inetd con la orden:
+
+killall -HUP inetd
+
+
+7 UTILIZACION DE RECURSOS WINDOWS DESDE LINUX
+
+Ya hemos visto como configurar Linux para poder compartir recursos, pero, como 
+hacemos para utilizar los recursos de una maquina Windows?
+
+De esto se encarga la utilidad smbclient. Smbclient es un cliente Linux que permite 
+utilizar el protocolo SMB.
+
+Su formato es el siguiente:
+
+/usr/local/samba/bin/smbclient -L servicio clave -N -P -I IP -U usuario -W grupo -c comando
+
+Cuando menciona servicio hace referencia al servidor y al recurso compartido.
+El resto de parametros son opcionales.
+
+-L \\host: Permite obtener un listado de los recursos compartidos en un servidor. Ejemplo:
+
+smbclient -L \\zimmerman
+
+Obtendriamos el siguiente resultado:
+
+Server time is Sat Aug 10 15:58:27 1996
+   Timezone is UTC+10.0
+   Password: 
+   Domain=[WORKGROUP] OS=[Windows NT 3.51] Server=[NT LAN Manager 3.51]
+
+   Server=[ZIMMERMAN] User=[] Workgroup=[WORKGROUP] Domain=[]
+
+           Sharename      Type      Comment
+           ---------      ----      -------
+           ADMIN$         Disk      Remote Admin
+           public         Disk      Public 
+           C$             Disk      Default share
+           IPC$           IPC       Remote IPC
+           OReilly        Printer   OReilly
+           print$         Disk      Printer Drivers
+
+
+   This machine has a browse list:
+
+           Server               Comment
+           ---------            -------
+           HOPPER               Samba 1.9.15p8
+           KERNIGAN             Samba 1.9.15p8
+           LOVELACE             Samba 1.9.15p8
+           RITCHIE              Samba 1.9.15p8
+           ZIMMERMAN            
+
+-clave: Es la clave de acceso al recurso. Si no se especifica clave, un prompt
+solicitara al usuario la introduccion de la misma.
+-N: Indicara que el recurso al que vamos ha acceder no tiene clave.
+-P:Indica que se trata de un recurso de impresion.En las versions mas modernas 
+de Samba no es necesario especificarle el recurso, ya que Samba lo reconoce
+automaticamente
+-I IP: Permite especificar la IP del destino
+-U usuario: Permite especificar el Usuario con el que queremos entablecer la
+conexion
+-W grupo: Permite especificar el grupo
+-c comando: Permite ejecutar un comando mediante la aparicion de un propmt.
+Escribiendo help, se nos mostrara el listado posible de ordenes.
+
+Para poder utilizar un recurso compartdo de la maquina, por ejemplo luis,
+introduciriamos los siguiente. Hay que destacar que el recurso compartido se llama varios y no tiene clave:
+
+smbclient \\luis\varios -N
+
+
+8. FIN Y SUERTE......
+
+Este es fin del documento. Espero que os haya servido y ya sabeis, si teneis
+ alguna duda, escribirme al correo!! 

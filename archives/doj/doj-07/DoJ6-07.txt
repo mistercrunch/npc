@@ -1,0 +1,430 @@
+:::::::::::::::::::::::::::::::::::::::::::::::::::::::Oct/99
+::: The Discordant Opposition Journal ::: Issue 7 - File 7 :::
+::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+:ISBN Script:
+ JamesTK [jamestk@chat.ru]
+
+Sometimes on the net, you will find an amazing data mine.  It is imperative that at these times, you are able to download that data.  Websites are dynamic, and you never know when that fave technical resource of yours is going to go down for technical or lawful reasons. 
+
+Background info:
+
+We have had the opportunity to find resources at which the mind has boggled in immensity.  We have witnessed books, e-books, online books at which it has become our mission to download a.s.a.p.
+
+---------------------Case Study #1---------------------
+
+O'Reilly 
+Unix CD Bookshelf
+Perl CD Bookshelf
+...other CD Bookshelves
+
+O'Reilly is known for their quality books, but sadly it is very hard to find their books online without paying for the opportunity at their website http://www.ora.com
+
+The CD Bookshelves by O'Reilly are an attempt to profit from selling electronic html versions of their popular books via cd.  Many people have bought these books, and a few have uploaded their copies to websites.
+
+To find these books online we used a variety of methods:
+
+#1  DejaNews Search.  This was the first method to give results, although it was a slow and unreliable method.  By searching for oreilly and online books, it was possible to locate a server that contained the aforementioned books.
+
+#2  WWW Search Engines:  NorthernLight (www.northernlight.com) and those search engines that incorporate 16 in 1 or such.  Basically we just searched for "cd bookshelf" and hoped for a result.  If you look at the search summary, the best results were not from official oreilly sites and contained the start of a chapter.  The title always (!) contain "cd bookshelf."  This is a direct result of it being the exact upload of the original cd sold by oreilly.
+
+#3  Word of mouth.  This is _always_ the best way.  Sadly it is also the rarest.
+
+Finding these books was an exercise in itself, but downloading was another.  For some strange reason, most of the servers hosting online, or ebooks, are in Russia!  We have started to gain a new appreciation for the Russian culture. :)
+
+We used GNU Wget to download the goods, on a *nix computer.  There is also a win32 version available, although as usual, we do not recommend using any type of winOS.  After setting wget to dl the index file recursively we found a good link checker on the web.  Using this link checker we outputted its results to a file.  It indicated broken links and we thus constructed a new perl script to dl each file that was missing.
+
+Voila, we had the cd bookshelf. 
+
+---------------------Case Study #2---------------------
+
+MCP Books
+http://www.mcp.com/personal	Your Personal Bookshelf
+
+This site has an interesting background.  When we first found this site it was not possible to directly link to the books to download them.  Later, after analysing, i.e. experimenting with the source html and directory structure of the website it became apparent that
+
+#1 Each book is sorted by its isbn number.
+#2 Each book is found in this directory: http://pbs.mcp.com/ebooks/ISBN where ISBN is a number
+#3 When looking for books to add to your personal bookshelf, a file, all_allphas.html contains all the books descriptions and isbns.
+
+Therefore it was possible to construct a perl script to parse all_alphas.html, find all books to dl by their isbn numbers, and then use a web mirroring tool to download them.
+
+We chose to write a tool that interfaced with GNU Wget, a favorite mirroring tool.
+
+After using this tool to download all the ebooks, we used a link checker to find any missed files.  Sometimes Wget, even though it is the best mirrorring tool that we have found to date, misses dling some files.
+
+
+~~~ cut here ~~~ cut here ~~~ cut here ~~~ cut here ~~~
+
+#!/usr/bin/perl 
+
+# This program requires:
+# GNU Wget 1.5.3
+#
+# Older versions of wget, as well as newer versions, are untested.
+#
+#
+# NOTE: this program requires a file such as all_alphas.html in
+#       the CURRENT DIRECTORY!
+#
+# This program reads in a text file such as all_alphas.html
+# and locates all references to isbn and title, and goes in for the KILL!
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~MAIN~~~~~~~~~~~~~~~~~~~~~~~~~
+&intro;
+&define_globals;
+$dl_log = $working_dir . "dl_log.txt";
+&get_ebooks_isbns;
+
+open DLOG, ">$dl_log" or die "\n\nCannot open download log: $dl_log!!!\n\n\n";
+foreach (@isbn2) {
+	print DLOG "\n$_ begin...";
+	$current_isbn = $_ . "/";
+	#&ripit;  		 #this is to dl the book
+	#&print_index_to_file;   #this is to get all indexes to ALLINDEX.txt
+#	if ($_ eq "1575211556") {
+#		$TRUE_DAT = "hell yeah";
+#	}
+#	if ($TRUE_DAT) {
+		&get_missing;
+#	}
+	print DLOG "end";
+	#remove the fake index, viewabooka....
+	system "rm -f $working_dir$back_addr";
+}
+
+
+#the following is used to test.  A select number of books can be done
+#instead of all by default above.
+
+=POD
+#TESTING &print_index_to_file and &dl_missing_files
+$x = 0;
+foreach (@isbn2) {
+	$cooL = $_;
+	while ($x < 1) {
+		$current_isbn = $cooL . "/";
+		#&print_index_to_file;
+		&get_missing;
+		system "rm -f $working_dir$back_addr";
+		$x += 1;
+	}
+}
+=cut
+
+##########################################################################
+
+sub intro {
+
+	print "\t\tsuckbooks version 1.2\n";
+	print "\t\tAuthor:           darkImage\n";
+	print "\t\tLicense:          GNU GPL\n";
+	print "\t\tAuthor's Comment: FSF!! FSF!!\n";
+	print "\t\tAuthor's Comment #2:  INFORMATION FREEDOM 4 ALL\n\n";
+
+} #sub
+
+	
+###########################################################################
+sub get_missing {
+
+$boom = &get_fake_index;
+if ($boom eq "bad_msg") {
+	die "\nNot good fake index file for $current_isbn!\n";
+}
+
+$boom = &find_real_index;
+if ($boom eq "no_real_index") {
+	die "\nCannot find real index in fake index file for $current_isbn!\n";
+}
+
+&dl_missing_files;
+} #sub
+
+###########################################################################
+
+sub print_index_to_file {
+
+
+$boom = &get_fake_index;
+if ($boom eq "bad_msg") {
+	die "\nNot good fake index file for $current_isbn!\n";
+}
+
+$boom = &find_real_index;
+if ($boom eq "no_real_index") {
+	die "\nCannot find real index in fake index file for $current_isbn!\n";
+}
+
+open ALLINDEX, ">>COOLALL.txt" or die "\n\n        Can't write to ALLINDEX.txt\n\n"; 
+$book_descr = "Book Description";
+print ALLINDEX "<a href=\"$current_isbn$real_index\">$book_descr</a>\n";
+
+} #sub
+
+###########################################################################
+
+sub get_non_java {
+
+$boom = &get_fake_index;
+if ($boom eq "bad_msg") {
+	print "\nNot good index file for $current_isbn!\n";
+}
+
+$boom = &find_real_index;
+if ($boom eq "no_real_index") {
+	print "\nCannot find real index in fake index file!\n";
+}
+
+$boom = &dl_most_book;
+if ($boom eq "bad_msg") {
+	print "\Something Funny happened, the index was wrong?!\n";
+}
+
+} #sub
+
+##########################################################################
+
+sub ripit {
+&get_non_java;
+&parse_dled_www_pages;
+print "\nDONE BOOK: $current_isbn ! \n\n";
+} #sub
+
+###########################################################################
+
+sub define_globals {
+	
+	######################
+	$revision = "rev002";
+	######################
+
+	$working_dir = "/home/case/suckbooks/ripit/$revision/";
+	$data_file = $working_dir . "all_books.txt";
+	$logfile = $working_dir . "log.txt";
+	$javalog = $working_dir . "javalog.txt";
+	
+	$front_addr = "http://pbs.mcp.com/ebooks/";
+ 	$back_addr = "viewabookab.html";
+	# was ????!!!! is this valid  $back_addr2 = "/viewabookab.htm";
+	
+	#not ERROR 404 ???!!
+	$bad_msg = "Downloaded: 0 bytes in 0 files";
+
+	#$current_isbn = "0672310694/";
+} #sub
+
+############################################################################
+
+# this sub gets the titles and isbns from 
+# the file @ http://www.pbs.mcp.com/cell/all_alphas.html
+# it is renamed to be all_books.txt, because all_alphas.html 
+# can be replaced by the html file that contains the books
+# by published date.  (accessible through the page at 
+# http://www.mcp.com/personal
+# it uses the LOCAL file that must be pre-dled
+# results: @title, @isbn
+
+sub get_isbn_and_title_arrays {
+
+my($x, $num);
+$x = 0;  #counter for @isbn
+print "\nParsing $data_file ...\n";
+open SATAN, $data_file or die("\n\tCannot open data file: $data_file\n");
+
+while (<SATAN>) {
+	if ($_ =~ /name=\"isbn\" value=\"(.+)\"/) {
+		$isbn[$x] = $1;
+	} elsif ($_ =~ /name=\"title\" value=\"(.+)\"/) {
+		$title[$x] = $1;
+	$x++;
+	}
+}
+	$num = @isbn;
+	print "\n\tThe no. books is $num\n";
+	close SATAN;
+} #sub
+##############################################################################
+
+# this sub gets the isbns from the file @ http://www.pbs.mcp.com/ebooks
+# it uses the LOCAL file that must be pre-dled
+# results: @isbn2
+
+sub get_ebooks_isbns {
+	my($x, $num);
+	$x = 0;
+	print "\nParsing ebooks.html ...\n";
+	open DEMON, "ebooks.html" or die "\n\tCannot open ebooks.html\n";
+	while (<DEMON>) {
+		if ($_ =~ /NAME=\"([0-9].+)\/\"/) {
+			$isbn2[$x++] = $1;
+		}
+	}	
+	$num = @isbn2;
+	print "\n\tThe no. books is $num\n";
+	close DEMON;
+}
+##############################################################################
+#  NOTE:  We shall use @isbn2 for the grand DL.
+##############################################################################
+
+# this function gets the viewabookab.htm? file for the current book
+# this file will then be parsed to find the real index file.
+		 
+sub get_fake_index {
+	my($full_url, $command);
+	print "\nGetting fake index for book \"$current_isbn\"...\n";
+	$full_url = $front_addr . $current_isbn . $back_addr; 
+	$command = "wget $full_url -o $logfile -np -U Mozilla -t 50";
+	system $command;
+	
+	#now parse the logfile and make sure that viewabook.html is the fake
+	#address and that it is not something else
+	
+	open THUNDER, $logfile or die "\n\tCannot open logfile: $logfile!\n\n";
+	while (<THUNDER>) {
+		if ($_ =~ /ERROR 404/) {
+			return "bad_msg";		
+		}
+	}
+	close THUNDER;
+	return "good_msg";
+
+} #sub
+
+##############################################################################
+
+sub find_real_index {
+	print "\nParsing fake index for real index...\n";
+	open GODLESS, $back_addr or die "\n\tCannot open $back_addr\n\n";
+	while (<GODLESS>) {
+		if ($_ =~ /\<FRAME src\=\"([A-Za-z.]+)\" frameborder\=\"NO\" noresize\>/ ) {
+			$real_index = $1;
+			print "\n\tReal index is \"$1\"\n";
+			return "found_real_index";
+		}
+	}
+	if (!$real_index) {
+		return "no_real_index";
+	}
+	
+} #sub
+
+##############################################################################
+
+sub dl_most_book {
+	my($full_url, $command);
+	print "\nDling most of the book \"$current_isbn\"...\n";
+	$full_url = $front_addr . $current_isbn . $real_index; 
+	$command = "wget $full_url -o $logfile -np -nc -k -r -U Mozilla -t 50";
+	system $command;
+	
+	#now parse the logfile and make sure that the dl went well
+
+	open JESUS, $logfile or die "\n\tCannot open logfile: $logfile!\n\n";
+	while (<JESUS>) {
+		if ($_ =~ /Something Funny, this index was checked?/) {
+			return "bad_msg";		
+		}
+	}
+	close JESUS;
+	return "good_msg";
+
+} #sub
+
+##############################################################################
+#  - Download viewabookab.html for the book.
+#    Parse it to find the correct index file.
+#  - Invoke wget with the correct index file.
+##############################################################################
+
+##############################################################################
+#  After wget has finished, begin:
+#
+#  1.  Parse the log file, and find all htm,html documents that were saved.
+#  2.  Compile the htm,html documents that were saved into a file.
+#  3.  Using this "source" file, parse each referenced document
+#      for javascript images.
+#  4.  Download all javascript images.
+#  5.  Thank Satan.
+##############################################################################
+
+sub parse_dled_www_pages {
+	print "\nDownloading java referenced files...\n";
+	my($seen_finished, $part_url, $rel_dir, $home_dir, $htmlsource);
+
+	open PSIONIC, $logfile or die "\nCannot open logfile: $logfile\n";
+	while (<PSIONIC>) {
+		if ($_ =~ /FINISHED/) {
+			$seen_finished = "true";
+		} elsif ( ($_ =~ /Converting ([A-Za-z0-9\.\/\_\-]+)\.\.\./) && ($seen_finished) ) {
+			# $part_url is e.g. pbs.mcp.com/ebooks/024/ch01/ch01.htm
+			# $rel_dir  is e.g. pbs.mcp.com/ebooks/024/ch01/
+			# $home_dir is e.g. http://pbs.mcp.com/ebooks/024/ch01/
+			$part_url = $1;
+			$rel_dir = substr($part_url, 0, (rindex($part_url, "/") +1 ));
+			$home_dir = "http://" . $rel_dir;
+
+			#begin parse
+			$htmlsource = $working_dir . $part_url;		
+			open THASOURCE, $htmlsource or die "\nCannot open file: $htmlsource (according to $logfile this file should exist!)\n";
+			while (<THASOURCE>) {
+				if ($_ =~ /javascript\:popUp\(\'([A-Za-z0-9\.\/]+)\'/) {
+				system "wget $home_dir$1 -P $working_dir$rel_dir -a $javalog -U Mozilla -nc";
+				print ".";
+				}
+			}
+			#end parse
+		}
+
+	}
+} #sub
+
+#############################################################################
+
+sub dl_missing_files {
+
+#This sub checks the current book to see if it was dled completely, then dls
+#missing files.  
+
+#Explanation of vars
+#$basehref is the base url for the data site
+#$cl_base is the base dir for the local dump
+#$logfile is the log file of dls
+#$notfound is the file output from the "cl...pl" perl link checker
+
+my($basehref, $baselocal, $logfile, $notfound,
+   $dirs_and_file, $wwwurl, $place_it
+  );
+
+#call cl...pl  link checker
+system "cd $working_dir";
+$cl_base = $working_dir . "pbs.mcp.com/ebooks/" . $current_isbn;
+$command = "./cl-1.0.pl -D DOCUMENT_ROOT=$cl_base -f $cl_base$real_index > notfound.txt";
+
+system $command;
+
+#Note $current_isbn has a slash after the isbn!!!
+$basehref = "http://pbs.mcp.com/ebooks/$current_isbn";
+
+$logfile = "$working_dir" . "log_not_found.txt";
+$notfound = "$working_dir" . "notfound.txt";
+
+open NOTFOUND, $notfound or die("\nCannot open file: $notfound\n");
+while (<NOTFOUND>) {
+        if ($_ =~ /http\:\/\/localhost\/(.+)404/) {
+                #$dirs_and_file e.g. chars/ddelta.gif
+                #$wwwurl e.g. http://abc/chars/ddelta.gif
+                #$place_it e.g. /tmp/chars/
+
+                $dirs_and_file = $1;
+                $wwwurl = $basehref . $dirs_and_file;
+                $place_it = $cl_base. substr($dirs_and_file, 0, (rindex($dirs_and_file, "/") +1 ));
+                system "wget $wwwurl -P $place_it -a $logfile";
+        }
+}
+system "rm $logfile";
+system "rm $notfound";
+
+} #sub

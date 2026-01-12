@@ -1,0 +1,709 @@
+
+
+
+                              - D I S I D E N T S - H A C K  J O U R N A L -
+
+                                               Numero 2
+                                                 IV
+                             
+
+
+
+
+
+
+
+                                                                TITLE: IDENTIFICACION Y ENUMERACION DE REDES
+                                                                Author:leon01
+                                                                DISIDENTS ARGENTINA 2001 -  LOS FUERA DE LA LEY
+
+
+
+
+
+--------------------------------------------------------------------------------------------------
+----------[ IDENTIFICACION Y ENUMERACION DE REDES ]-----------------------------------------------
+--------------------------------------------------------------------------------------------------
+----[1.0 PARA QUE?                                                                               -                  
+----[2.0 TRASADO DE RUTA                                                                         - 
+----[2.1 TRAZANDO RUTAS EN WIN                                                                   -
+----[2.2 TRAZANDO CON TRACEROUTE EN LINUX                                                        -
+----[3.0 ESCANERS                                                                                -
+----[3.1 ESCANERS QUE SON?                                                                       -  
+----[3.2 TIPOS DE EXPLORACIONES                                                                  -
+----[3.3 TABLA COMPARATIVA                                                                       -
+----[3.4 JUGANDO CON EL NMAP                                                                     -
+----[3.5 DETECCION DE PUERTOS                                                                    - 
+----[4.0 DETECION DE SISTEMAS OPERATIVOS                                                         - 
+----[4.1 METODOS BASICOS                                                                         -
+----[4.2 RASTREANDO PILAS PILAS                                                                  -
+----[4.3 TIPOS DE SONDEOS                                                                        -
+----[4.4 HERRAMIENTAS EN LINUX Y WINDOWS  CON EJEMPLOS                                           -
+----[5.0 Sitios y libros de conslulta                                                            -  
+----[5.1 he? quien soy?                                                                          - 
+--------------------------------------------------------------------------------------------------
+
+
+
+--------------------------------------------------------------------------------------------------
+-----------[1.0 - PARA que?]----------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------
+
+Una vez establecido un objetivo en la red necesitaremos recopilar todos los datos posibles 
+respecto a su hardware  software y red este proceso de identificación se conoce con el nombre de 
+"enumeración e identificacion " y este textito es como para ke te vayas haciendo la idea de como
+recopilar informacion nesesaria para poder explotar alguna vulnerabilidad 
+Pondremos como ejemplo de objetivo: wwww.inseguro.org.ar....
+
+
+--------------------------------------------------------------------------------------------------
+-----------[2.0 - Trazado de ruta]----------------------------------------------------------------
+--------------------------------------------------------------------------------------------------
+
+Tanto para windows como para linux existen diversas aplicaciones dedicadas al trazado de ruta. 
+
+2.1 En Windows la mayoría de los escáner y auditores incluyen la función, pero el mismo win en 
+todas sus versiones (9x, nt, 2000, me) incluye la función tracert: 
+
+--------------------------------------------------------------------------------------------------
+Windows
+
+C:\WINNT\system32>tracert
+Usage: tracert [-d] [-h maximum_hops] [-j host-list] [-w timeout] target_name
+
+Options:
+    -d                 Do not resolve addresses to hostnames.
+    -h maximum_hops    Maximum number of hops to search for target.
+    -j host-list       Loose source route along host-list.
+    -w timeout         Wait timeout milliseconds for each reply.
+-------------------------------------------------------------------------------------------------
+
+2.2 Usando el traceroute de linux 
+
+* EL trarceroute es una herramienta de diagnostico, que indica la ruta que sigue un paquete IP 
+de un host al siguiente. Traceroute utiliza la opción TTL ( time-to-live) para obtener el ICMP 
+TIME_EXCEEDED de de cada router.    
+
+-------------------------------------------------------------------------------------------------
+
+[Leon@leon /]# traceroute inseguro.org.ar
+traceroute to inseguro.org.ar (216.122.49.119), 30 hops max, 38 byte packets
+ 1  ruoter.capfed.usersio.com.ar (201.241.210.230)  153.581 ms  159.512 ms  159.830 ms
+ 2  Gigolf-driel.tecoint.net (220.43.189.53)  249.127 ms  139.729 ms  149.829 ms
+ 3  sl-bb20-orl-0-0.sprintlink.net (144.232.2.232)  299.750 ms  289.721 ms  309.832 ms
+ 4  144.232.19.73 (144.232.19.73)  309.916 ms  330.922 ms  288.478 ms
+ 5  nat-94-9.big.net (216.122.49.59)  379.835 ms  389.665 ms  359.796 ms
+ 6  * inseguro.or.ar (216.122.49.119)  379.726 ms  369.728 ms
+
+-------------------------------------------------------------------------------
+
+Aquí observamos el camino ke recorre el paquete ip hasta su destino comenzando desde el router 
+y haciendo los saltos 2-5 hasta llegar a destino. Lo cual nos puede hacer suponer ke el salto 
+anterior al host podría tratarse de un router  o firewall. Es importante destacar lo simplista 
+de este ejemplo, ya que pueden haber múltiples rutas (dispositivos de redireccionamiento como 
+los Cisco 7500 series).
+La mayoria de las versiones traceroute envían de forma predeterminada paquetes UDP y con la 
+opcion 
+
+-I usaríamos paquetes ICMP. 
+
+Algunas opciones a considerar:
+
+-g Especificar ruta perdidas
+-pn Especificar puerto UDP de salida (n) incrementando en 1 en la exploración (véase "s")
+-S Para impedir el incremento en en el numero de puerto (versiones 1.4a5 en adelante)
+
+En algunos casos te ocurrirá que algún router de filtrado o firewal tendrá activo el ACL (access 
+Control List) no devolviendo los paquetes caducados TTL ICMP (de ambos paquetes ICMP y UDP). En 
+estos casos lo mejor seria usar la opción -s -p(numero_puerto) empezando con el udp 53 que es el 
+de consulta DNS que es mas factible que lo permita (ejemplo: [Leon@leon /]# traceroute -S -p53 
+inseguro.org.ar)
+En los routers cisco bastara con agregar el sigiente ACL " access-list 101 deny ip any any 11 0   " 
+para ke el router no responda paquetes  TTL o bien especificar ke ip pueden hacerlo "access-list 
+101 permit icmp any 172.29.20.0 0.255.255.255 11 0" "access-list denu ip any any log"
+
+
+Si quiieres hacerlo desde web la pagina www.visualroute.com presta un servicio muy util, ya ke no 
+comprometemos nuestra ip, además de contar con  un planisferio que ubica el trazado haciendo un 
+whois por cada salto de red.
+
+
+-------
+
+.Nota para entender esto es necesario ke conozcas el funcionamiento de la familia de protocolos 
+tcp/ip en todas sus niveles o capas, así como la funciones especificas de flags (banderas) y pilas 
+
+------------------------------------------------------------------------------------------------
+-----------[3.0 - SCANER]-----------------------------------------------------------------------
+------------------------------------------------------------------------------------------------
+
+3.1 ESCANER QUE SON?
+
+Deberíamos separar los escáners en tres tipos:
+
+1. Escáner de Sistema - rastrean host locales en busca de puntos vulnerables 
+2. Escáner de red - Prueban hots sobre conexiones de red, examinan servicios - del ke hablaremos aquí
+3. Auditores de seguridad - Examinan Puertos y servicios en busca de debilidades a explotar 
+
+La acción de escanar puertos (exploración), se utiliza para intentar identificar los servicios ke se
+encuntran en estado LISTENING (escucha o abiertos). Existen varios métodos de escaneo de puertos, 
+que son aplicados según la necesidad de evitar se loqueado o por la existencia dispositivos de bloqueo 
+y/o engaño.
+
+
+3.2 TIPOS DE EXPLORACIONES----------------------------------------------------------------------
+
+--> Exploración Tcp standard: lo mas detectables por el objetivo, pudiendo inclusive este, al darse 
+cuenta de la interrogación de puertos, devolver información falsa o negar el acceso del host de origen. 
+Su ventaja es la velocidad del mismo
+
+Funcionamiento:
+  (SYN (cliente)--- > (servidor puerto abierto) <----SYN/ACK <----- ACK (cliente) = conexión establecida. <-- ( aki 
+  esa el problema se establece una conexión) luego simplemente el escáner mandara un fin (en realidad son dos) o un RST
+
+
+--> Exploración TCP SYN: ("semi-abierta"): Esta técnica a diferencia del anterior no realiza una conexión 
+completa con el servidor de tal manera de ke luego ke el cliente envía el SYN al puerto objetivo y el servidor 
+envía la confirmación de la conexión (SYN /ASK) el cliente envía un RST/ASK evitando así establecer la conexión, 
+si el puerto estaría cerrado igualmente que el ejemplo anterior la respuesta por el servidor seria un RST/ASK 
+en ves del SYN/ASK. La ventaja es que esta opción corre menos riesgo de ser detectada y logueada
+
+Funcionamiento:
+  (SYN (cliente)--- (servidor puerto abierto) <----SYN/ACK <----- RST (cliente) (recordar la diferencia entre 
+un RST y FIN)
+
+
+--> Exploración TCP FIN: este tipo de escaneo se utiliza para escanear host  que se encuentran detrás de un firewall 
+ke o routers de filtrado ke " escuchen" peticiones SYN }, además tambien se utiliza para eludir detectores de rastreo 
+como courtney y synlogger. Al enviar un pakete FIN si el puerto esta cerrado nos devolverá un RST y si el puerto esta 
+abierto no recibiremos respuestas. Este tipo de exploración solo funciona en víctimas UNIX, LInuX y novell. Pero no 
+así es OS Windows.
+
+Funcionamiento:
+    (FIN (cliente)---><---- RST (servidor puerto cerrado)
+ 
+
+--> Exploración nula TCP: En esta técnica simplemente no se envían banderas (flags) y basándose en RFC 793, el host objetivo 
+devolverá RST por cada puerto abierto.
+
+
+--> Exploración UDP: Aquí se envía aun paquete usando el protocolo UDP (User Datagram Protocol) al puerto objetivo. Si el puerto
+responde con un mensaje tipo "puerto ICMP no alcanzable" (ICMP_PORT_UNREACH) el puerto estará cerrado, si no lo recibimos se 
+entiende que el puerto esta abierto Existen muchas variables que hacen que este método pueda resultar poco fiable en sus resultados 
+dependiendo del filtrado de origen y recordando que el protocolo UDP es un protocolo "no orientado a la conexión" no contamos 
+con la seguridad de respuesta de ICMP_PORT_UNREACH... No dejando de ser por esto variable a utilizar antes que una TCP . 
+
+
+--> Nota: Existen mas técnicas como por ejemplo la fragmentación o el TCp árbol de Navidad, pero estas técnicas en realidad 
+consisten en variaciones sobre las antes descriptas.
+
+
+3.3 TABLA COMPARATIVA -----------------------------------------------------------------------------------------------------------
+
+Tabla comparativa de herramintas mas populares:
+
+Scaner		TCP	UDP	Invisible	     SO
+-------		---	--	--------	   ------
+Strove	        SI	NO	   NO		Unix / linux
+TCP scan	SI	NO	   NO		Unix / linux
+UDP SCAn	NO	SI	   NO		Unix / linux
+nmap		SI	SI	   SI		Unix / linux
+Net cat		SI	SI	   NO		Unix / Linux / WIndows	*en winndows la eploracion UDP no suele funcionar P:
+Portpro		SI	NO	   NO		   WIndows	
+
+
+
+3.4 JUGANDO CON EL NMAP -----------------------------------------------------------------------------------------------------------
+
+Es imposible al recomendar un scaner no caer en el nmap de linux ya ke brinda muchisimas posibilidades:
+
+======================================================================================
+Opcion        | Descricion
+--------------------------------------------------------------------------------------
+-b		Capacidad de atakes de rebotes FTP
+-e[interfaz]    Espesificar interfaz
+-f		Enviar pequeños paquetes fragmentados
+-F		Espesificar rastreo rapido que compruebe los servicios estandares
+-g		Definir el puerto de origen del rastreo
+-i[archivo]     Para que lea las direciones IP,a escanear, de un archivo.
+-I		Opcion para extraer datos ident de los objetivos (si esta disponible)
+-n 		Para desactivar la busqueda DNS
+-o[archivo]	Especificar archivo de salida
+-p[puertos]	Epesificar puertos. Por rango ejemplo: 21-1024 o delimitados 21,23,25
+-P0		Desactivar los pings de los host
+-PB		Para utilizar en conjunto rastreos TCP y ICMP
+-PI		Especificar ping ICMP
+-PT[puerto]	Especificar ping TCP
+-O              Usar TCP/IP fingerprinting (vea abajo)
+-sF		Utilizar rastreos furtivos FIN
+-sS		Rastreo SYN semiabierto
+-sT		Rastreo TCP conect
+-sU		Rastreo UDP
+-v		Activar modo personalizado
+----------------------------------------------------- 
+
+
+3.5 Sistemas de detencion de rastreos ------------------------------------------
+
+
+he aqui un codigo para identificar rastreos de puertos SYN
+
+----------------------------------  copiar  ---------------------------------------
+
+# detencion de la exploracion de puertos
+# Por Stuart McClure
+# este codigo verifica los intentos fallidos de un explorador de puerto
+# que produce un ACK/RST. Pueden jugar con las varibles maxcount y maxtime para configurar la aplicacion
+
+port_schema = library_schema:new( 1, [ "time", "ip", "int" ], scope () );
+time = 0;
+          count = 0;
+maxcount = 2;  # Numero maximo permitido de ACK/RST
+maxtime = 5;   # Tiempo maximo permitido para que ocurra maxcount
+source = 0;
+port = 0;
+target = 0;
+
+filter portscan ip ()
+{
+     if (tcp.is)
+     {
+              # buscar ACK, RST´s y, si tiene el mismo origen, contar
+              # solo uno
+
+              if (byte(ip.blob, 13) == 20 ) #bandera definida como ACK, RST
+              {
+                    count = count + 1;
+                   
+                    source = ip.dest;
+                    target = ip.source;
+                    port = tcp.sport;
+                    time = system.time;
+             }
+       }
+  on tick = timeout ( sec: maxtime, repeat ) call checkcount; 
+}
+
+func checkount
+{ 
+           if (count >>= maxcount)
+           {
+                 echo ("Port scan Georgie?, Time: ", time, "\n") ;
+                      record system.time, source, target, port
+                      to the_recorder_portscan;
+                 count = 0;
+       }
+       else
+                 count = 0;
+}
+the_recorder_portscan=recorder( "bin/histogram packages/sandbox/portscan.cfg",
+           port_schema" );
+
+---------------------------------- fin de copiar---------------------------------------
+
+Otras herramientas puden ser el scanglogd de solar designer o el Psionic Portsentry del proyecto Abacus
+(wwww.psionic.com/abacus/) para ke detecte y responda a un ataque activo. Otra heramienta que se puede 
+utilizar es el Firewall-1 de alerta de scaneos furtivos (wwww.enteract.com/~lspitz/intrusion.html)
+
+Tanto como para windows 9x, nt y 2000 cualquier buen firewall detectara un escaneo de puertos, como por ejemplo
+el blackIce de network ICE ( www.networkice.com). Existen herramientas como el Genius que tienen funciones entre
+otras de detectar rastreos de puertos, pero jeje tengo la desgracia de informarles que ese detector de rastreo
+de puertos es totalmetne obsoleto, ya que lo unico que hace es abrir el puerto 10 a a escucha de una solicitud
+de conecion ( ode cualquier tipo) y si esta se efectua envia el mesge de alerta, claro esta que la mayoria de
+los scaner por omicion jamas escanean el puerto 10.
+
+-----------------------------------------------------------------------------------------------------------
+-----------[4.0 DETENCION DE SISTEMAS OPERATIVOS]----------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+
+
+Las razones del porque debemos saber el sistema operativo en la víctima son mas que obvias, ya que la información
+no será útil en las búsquedas de vulnerabilidades.
+
+
+
+
+
+
+-------------------------------------------------------------------------------------------------
+------------[4.1 METODOS BASICOS ]--------------------------------------------------------------
+-------------------------------------------------------------------------------------------------
+
+
+Una de las primeras pruebas a hacer seria un telnet al puerto 23 , en muchos casos obtendremos 
+el sistema corriendo en la victima:
+
+[Leon@leon /]# telnet inseguro.org.ar
+Trying 216.122.49.119 ...
+Connected to 216.122.49.119.
+Escape character is '^]'.
+Red Hat linux releasse 6.1 (Cartman)
+kernel 2.2.12 - 20 on i586
+login: 
+
+Para quienes quieran quitar o personalizar el inicio de sección en las  conexiones de red, deberán modificar 
+el los archivos /etc/issue y /etc/issue.net
+
+
+Ni que hablar de probar al ftp (21):
+
+[Leon@leon /]# telnet inseguro.org.ar 21
+Trying 216.122.49.119 ...
+Connected to inseguro.org.ar
+Escape character is '^]'.
+220 ftp29 FTP server (UNIX(r) System V Release 4.0) ready.
+SYST
+215 UNIX Type: L8 Version: SUNOS
+
+Otro truco ke puede resultar es echo [Leon@leon /]# 'GET / HTTP/1.0 ' | nc hotbot.com 80 | egrep '^Server:' 
+
+
+
+
+
+
+-------------------------------------------------------------------------------------------------
+------------[4.1 RASTREO DE PILAS ]-------------------------------------------------------------
+-------------------------------------------------------------------------------------------------
+
+
+Si ninguno de estos métodos no arroja un resultado favorable existen programas que realizan consultas a las
+pilas (stack), este método se lo conoce como stack finger printing o en español rastreo de pilas. EL rastreo de pilas
+es una técnica extremadamente poderosa, pero no 100 % segura), para averiguar el sistema operativo instalado en 
+el host víctima. Exiten muchos matices que diferencian el desarrollo de las pilas en ls distintos fabricantes.
+A la hora de escribir las pilas cada fabricante suele interpretar a su manera la normativa RFC especifica. Por
+lo tanto mediante la detención de las diferencias de estas  podremos realizar suposiciones razonables de cual será
+el OS que se esta utilizando.
+
+
+
+
+
+
+-------------------------------------------------------------------------------------------------
+------------[4.2 Tipos de sondeos stack ]-------------------------------------------------------
+-------------------------------------------------------------------------------------------------
+
+
+--> Sondeo FIN: Se envía un paquete FIN a un puerto abierto o cualquiera ke no incluya un flag SYN o ACK. 
+EL comportamiento de correcto del SO seria no responder al flag FIN (según el RFC 793), sin embargo
+muchos desarrollos de pilas (como MS Windows, BSDI, CISCO, HP/UX, MVS, e IRIX ) responderán con un paquete 
+reset (flag RESET)
+
+--> Sondeo Bogus Flag: SE introduce una bandera TCP indefinida (64 o 128) en la cabecera TCP de un paquete SYN 
+Algunos sistemas operativos de linux (con kernels anteriores al 2.0.35) mantendrán la bandera en su paquete de 
+respuesta. Otros sistemas operativos resetean la conexión.
+
+--> Muestreo de numero de secuencia Inicial (ISN): La premisa básica es encontrar un patrón en la secuencia inicial
+elegida por la implementacion TCP cuando responde a una solicitud de conexión. Existen entre varios grupos de OS
+que generan de distinta manera los ISN.
+
+--> Supervisión de bit no fragmentado: Algunos sistemas operativos activaran la opción "no-fragmentación" de IP 
+para mejorar su rendimiento. Vigilando este bit observaremos que tipos de sistemas operativos muestran este comportamiento
+
+--> Tamaño de ventana inicial TCP: Se analiza el tamaño de la ventana inicial en los paquetes de respuesta. En algunos desarrollos
+de pilas este tamaño es único y puede ayudar bastante en la precisión del mecanismo de seguimiento.
+
+--> Valor ACK. Las pilas IP difieren en el valor de la secuencia que usan en el campo ACK. por lo que algunos desarrolladores
+responderán con el mismo numero de secuencia que han recibido y otros responderán con ese numero de secuencia + 1 
+
+--> Control de error de mensaje  ICMP:  Los sistemas operativos cumplen la RFC 1812 (www.ietf.org/rfc/frc812.txt) y limitan
+la velocidad a la que se envían los mensajes de error. Si se enviaran paquetes UDP a algún puerto con un numero aleatorio 
+elevado, es posible contar el numero de mensajes recibidos no contestados en un intervalo de tiempo determinado. hay que tener
+en cuenta que UDP no es un protocolo orientado a la conexión y en muchos casos dichos paquetes podrían resultar descartados por la 
+red, por este caso aplicaciones como el nmap solo utilizan este método cuando se usa en conjunto con rastreos UDP (# nmap -OsU ip)
+
+--> Citado de mensajes ICMP: Los sistemas operativos difieren la cantidad de información que cita cuando aparecen mensajes de error ICMP.
+si se examina el mensaje citado, podríamos realizar ciertas hipótesis sobre cual es el sistema operativo destino. Por ejemplo podríamos identificar
+las maquinas bajo  Linux y Solaris aun cuando no tengan ningún puerto escuchando.
+
+--> Integridad del eco de mensajes de error ICMP: Algunos desarrolladores de pilas pueden alterar  las cabeceras IP cuando devuelven mensajes de error 
+ICMP. Si examinamos el modificaciones producidas en las cabeceras, podremos realizar ciertas hipótesis Por ejemplo, AIX y BSDI nos regresan un datagrama 
+IP con el campo "longitud total" que es 20 bytes mas grande. Algunos BSDI, FreeBSD, OpenBSD, ULTRIX, y VAXen alteran el ID del datagrama IP que les mandaste.
+ Mientras el checksum va a cambiar debido que se cambia el TTL de todas formas, hay algunas maquinas (AIX, FreeBSD, etc.) que regresan un checksum 
+inconsistente o de 0. 
+
+--> Tipo de servicio (TOS): En los mensaje del tipo " ICMP port unreachable "  (puerto ICMP no alcanzable)  se pueden examinar el TOS. La mayor parte
+los desarrolladores de pilas utilizan un 0, pero existen otras posibilidades
+
+-->  Gestion de fragmentacion: Tal y como lo resaltaron thomas Ptacek y Tim Newsham en el informe " insercion, evacion y denial of service. Como evitar
+el itrusismo en la red" ( lo podemos encontrar en www.nai.com/services/support/whitepapers/security/IDSpaper.pdf), cada pila maneja de forma diferente
+la superposición de los fragmentos. Algunas pilas, cuando recomponen los fragmentos, escriben los datos nuevos encima de los viejos y viceversa. Analizando
+como se recomponen los paquetes de sondeo, se pueden realizar suposiciones sobre el OS objetivo.
+  
+
+--> Opción TCP: Las opciones TCP se definen en el RFC 7 y, de forma mas reciente, en RFC 123 (www.ietf.org/rfc/efc1323.txt) Las opciones mas avanzadas 
+proporcionadas por el mismo suelen encontrarce en los desarrollos de las pilas mas modernas. Enviando un pakete para ke se han definido una seri de opciones 
+( por ejemplo, no operación, tamaño máximo de segmento, factor de escala de ventana y estampaciones de hora)
+
+NOTA: Para diferenciar algunas versiones de sistemas operativos, como el windows, se puede simplemente empezar con antiguos ataques para Windows DoS 
+(Ping of Death, WinNuke, etc) y después cambiar un poco mas arriba a ataques como Teardrop y Land. Después de cada ataque, hacer un ping 
+para ver si cayeron. Cuando finalmente el host caiga, se puede deducir la versión que están corriendo, e incluso hasta de paquete o parche.
+
+
+
+
+
+
+
+-------------------------------------------------------------------------------------------------
+------------[4.4 Herramientas con ejemplos ]----------------------------------------------------
+-------------------------------------------------------------------------------------------------
+
+
+
+      ------------------------------------ LINUX -----------------------------------------
+
+
+--> queso 
+
+El queso a diferencia del nmap no es un scaneador de puertos y realiza la de detección en base a un único puerto abierto, por defecto el puerto 80
+si el puerto 80 no esta abierto en el OS objetivo, tendremos que especificar algún puerto abierto. 
+
+ejemplo:
+
+[Leon@leon /]# queso  216.122.49.119:25
+216.122.49.119           *Windoze 95/98/NT
+
+Los podemos encontrar en www.apostols.org.projectz/
+
+--> cheops 
+
+
+Cheops es una utilidad gráfica diseñada para ser utilizada en la exploración de la red que engloba ping, traceroute, scaner e identificación de SO 
+mediante el uso del queso
+
+Web del programa: www.marko.net/cheops/
+
+--> nmap
+
+Nuevamente dentro de las herramientas para linux se destaca el nmap y esto es porque tiene una lista de " firmas" que se guarda en un archivo denominado
+nmap-os-fingerprints. Si kieres añadir una firma y mejorar su funcionamiento puede hacerlo en http://www.insecure.org/cgi-bin/nmap-submit.cgi.
+Mientras mas puertos estén listing en OS víctima mas oportunidades tendremos de realizar la suposición del mismo, aunque también si no existiera ningún
+puerto  abierto podríamos realizar una aproximación del mismo.
+
+ejemplos:
+
+aquí tenemos un ejemplo básico con el nmap
+
+ [root@leon leon]# nmap -O www.inseguro.net.ar
+
+Starting nmap V. 2.53 by fyodor@insecure.org ( www.insecure.org/nmap/ )
+Interesting ports on inseguro.net.ar (216.122.49.119):
+(The 1508 ports scanned but not shown below are in state: closed)
+Port       State       Service
+21/tcp     open        ftp
+22/tcp     open        ssh
+23/tcp     open        telnet
+25/tcp     open        smtp
+80/tcp     filtered    http
+106/tcp    open        pop3pw
+110/tcp    open        pop-3
+139/tcp    open        netbios-ssn
+143/tcp    open        imap2
+443/tcp    open        https
+513/tcp    open        login
+514/tcp    open        shell
+646/tcp    open        unknown
+648/tcp    open        unknown
+12345/tcp  filtered    NetBus
+
+TCP Sequence Prediction: Class=random positive increments
+                         Difficulty=72039 (Worthy challenge)
+Remote operating system guess: BSDI BSD/OS 4.0.1 Kernel
+
+ map run completed -- 1 IP address (1 host up) scanned in 36 seconds
+  
+---
+		
+>>>Luego de esto no tuve mejor idea que probar con mi OS a ver que resultados obtenía
+
+[root@leon leon]# nmap -OsS localhost
+
+Starting nmap V. 2.53 by fyodor@insecure.org ( www.insecure.org/nmap/ )
+Interesting ports on localhost.localdomain (127.0.0.1):
+(The 1520 ports scanned but not shown below are in state: closed)
+Port       State       Service
+1025/tcp   open        listen
+6000/tcp   open        X11
+
+TCP Sequence Prediction: Class=random positive increments
+                         Difficulty=3758413 (Good luck!)
+No OS matches for host (If you know what OS is running on it, see http://www.insecure.org/cgi-bin/nmap-submit.cgi).
+TCP/IP fingerprint:
+TSeq(Class=RI%gcd=1%SI=72B285)
+TSeq(Class=RI%gcd=1%SI=72B29E)
+TSeq(Class=RI%gcd=2%SI=39594D)
+T1(Resp=Y%DF=Y%W=7FFF%ACK=S++%Flags=AS%Ops=MNNTNW)
+T2(Resp=N)
+T3(Resp=Y%DF=Y%W=7FFF%ACK=S++%Flags=AS%Ops=MNNTNW)
+T4(Resp=Y%DF=Y%W=0%ACK=O%Flags=R%Ops=)
+T5(Resp=Y%DF=Y%W=0%ACK=S++%Flags=AR%Ops=)
+T6(Resp=Y%DF=Y%W=0%ACK=O%Flags=R%Ops=)
+T7(Resp=Y%DF=Y%W=0%ACK=S++%Flags=AR%Ops=)
+PU(Resp=Y%DF=Y%TOS=C0%IPLEN=164%RIPTL=148%RID=E%RIPCK=E%UCK=E%ULEN=134%DAT=E)
+Nmap run completed -- 1 IP address (1 host up) scanned in 8 seconds
+
+Extrañamente el nmap no pudo detectar el OS que corría en mi localhost y me pide que si se que OS corre en el host, agregue las 
+firmas abajo impresas en la web antes mencionada.
+
+>> haci, que hice un segundo intento pero esta ves con un scaneo UDP para ver que obtenía.
+.
+
+[root@leon leon]# nmap -OsU localhost
+ 
+Starting nmap V. 2.53 by fyodor@insecure.org ( www.insecure.org/nmap/ )
+Warning:  No TCP ports found open on this machine, OS detection will be MUCH less reliable
+Interesting ports on localhost.localdomain (127.0.0.1):
+(The 1447 ports scanned but not shown below are in state: closed)
+Port       State       Service
+177/udp    open        xdmcp
+ 
+Remote OS guesses: Linux 2.3.49 x86, Linux 2.3.99-pre2 x86
+ 
+Nmap run completed -- 1 IP address (1 host up) scanned in 5 seconds
+
+ >> Aqui de un solo puerto UDP el nmap pudo hacer una suposición aproximada del OS corriendo (recuerda el sondeo por  control 
+de error de mensaje  ICMP)
+
+
+
+     ------------------------------------ WINDOWS-----------------------------------------
+
+Este es el auditor de redes Shadowscan una de sus funciones es proporcionar información sobre el SO que corre en el objetivo 
+en el ejemplo aquí presentado si bien vemos que no pudo detectar el sistema operativo mediante las consultas al los
+servidores FTP, HTTP y SMTP, sabemos que el host es un windows y por lógica deducimos ke si el HTTP es el IIS 4.0  (internet
+information Server) el windows seria un windows NT (en la version NT enterpraice 4.0 venia con el IIS 3.0 pero en el segundo 
+CD contaba con el 4.0) En la primera ezine DDiego en un articulo comentaba la función y uso de este auditor para win9X NT y 2000
+
+shadowscan
+wwww.inseguro.org.ar
+OS : Not Detect 
+Ftp Server : 220 server46 Microsoft FTP Service (Version 4.0).  
+HTTP Server : Microsoft-IIS/4.0 
+SMTP Server : 220-server46.usa.prod.interland.net Microsoft SMTP MAIL ready at Wed, 8 Aug 2001 22:46:07 -0400 Version: 5.5.1877.197.19 220 ESMTP spoken here  
+POP3 Server : Not Detect 
+NNTP Server : Not Detect 
+DNS Server : Not Detect 
+Socks Server : Not Detect 
+Proxy Server : Not Detect 
+Telnet Server : Not Detect
+Imap Server : Not Detect 
+Samba Server : Not Detect
+SSH Server : Not Detect 
+Finger Server : Not Detect 
+IP Address : 208.240.135.129 
+
+Si bien el Shadowscan (junto con el SSS, de la misma compania, y el Retina) son unos de los mejores auditores que podemos encontrar par windows (retina solo 
+corre bajos sistemas win NT y 2k) no es capas de reconocer el sistema operativo en uso por el servidor, esto se debe a que a diferencia del nmap de linux no tiene una 
+lista tan completa de "respuestas" segun stack. 
+
+
+
+ ------------------------------------ Harware de red -----------------------------------------
+
+
+Aqui agrego una pequeña lista de puertos según harware para que puedas identificarlos si no obtienes resultados del rastreo de pilas sobre los mismos
+
+
+
+================================================================================
+Hardware                   |   Puertos TCP		   |  Puertos UDP       | 	
+================================================================================
+routers cisco			 21 ftp			       	  0 tcpmux
+				 23 telnet			 49 dominio
+		 		 79 finger			 67 bootps
+				 80 http			 69 tftp
+				512 exec			123 NTP
+	 			513 loing			161 snmp	
+	 			514 shell
+			       1993 snmp  (cisco)
+			       1999 ident (cisco)
+			       2001
+			       4001
+			       6001
+		     	       9001 Xremote
+---------------------------------------------------------------------------------				 					
+Conmutadores de Cisco 		 23 telnet			  0 tcpmux
+			       7161 				123 ntp
+---------------------------------------------------------------------------------		 	 	 	
+Routers de Bay			 21 ftp				  7 echo
+				 23 telnet			  9 discard
+				 				 67 bootps
+								 68 bootpc 		
+								 69 tftp	
+								161 snmp
+								520 route
+---------------------------------------------------------------------------------
+
+Rputers de Ascend		 23 telnet			  7 echo
+				 				  9 discard			
+								161 snmp
+								162 snmp-trap
+								514 shell
+								520 route	
+===================================================================================
+
+>> Nota: existen web de consulta de OS como el caso de http://www.netcraft.com/
+
+-------------------------------------------------------------------------------------------------------
+-----------[5.0 MATERIAL DE CONSULTA]------------------------------------------------------------------
+-------------------------------------------------------------------------------------------------------
+
+www.hackinexposed.com
+www.insecure.org
+www.insecure.org/nmap/nmap-fingerprinting-article.html
+www.nai.com/services/support/whitepapers/security/
+www.ietf.org/rfc/
+Linux serie practica (m Drew Streib, Michael Tuner)
+Linux seguridad Maxima (anonimo)
+Redes TCP/IP (?)
+ 
+
+
+
+	 _
+	| |		      __  _
+	| | ___  ___ _ __    /  \/ |
+	| |/ _ \/   \ v_ \  | || | |
+	| |  __/  |   | | | | || | |
+	|_|\___|\___/_| |_|  \__/|_|
+	 
+
+
+
+
+
+
+-------------------------------------------------
+-        CONTACTA CONMIGO O EL TEAM             -
+-------------------------------------------------
+- NICK:        leon01                           -
+- CARGO:       Secretario                       -
+- MAIL:        leon01_best@hotmail.com          -
+- MAIL TEAM:   Disidents@yahoo.es               -
+- WEB:         http://www.disidents.int-ltd.com -
+-------------------------------------------------
+
+
+
+
+
+
+
+
+                                         ---------------------------
+                                         -   L4 N0bL3Z4 D31 H4cK   -  Disidents Argentina  2001 2° edicion. 
+-----------------------------------------------------------------------------------------------------------
+
+                     @@-------               @@---------------  
+		    @@----                  @@---------       @@@@@@@@@  
+		   @@--     @@@@@--        @@-- @@@@@       @     @@  @@@@@@@@@@@@@@@@@@@@@@@@@@@@-------
+              @@@@@@    @@ @@      @@ @@@@@@-  @@      @@@ @    @@  @@-----------------------------
+             @@        @@ @@@@@   @@ @@---    @@@@@@   @@ @@   @@  @@@@@--------------
+            @@        @@     @@  @@ @@ -     @@       @@ @@   @@      @@----------
+             @@@@@@@ @@  @@@@@@ @@   @@@@@@@ @@@@@@@ @@  @@ @@	     @@--------
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@------
+
+
+

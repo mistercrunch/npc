@@ -1,0 +1,139 @@
+<HTML>
+<HEAD>
+<TITLE>.pt zine - Fun&ccedil;&atilde;o getpass</TITLE>
+</HEAD>
+<BODY BGCOLOR="Black" TEXT="#000000" LINK="Green" VLINK="Red">
+<IMG SRC="pt_small.gif" WIDTH=452 HEIGHT=81 BORDER=0>
+<P>
+<FONT SIZE="5" FACE="Arial" COLOR="#FFC639">
+<B>Fun&ccedil;&atilde;o getpass (Escondendo passwords):</B><BR>
+(digita&ccedil;&atilde;o de caracteres sem eco para o stdout)<BR>
+----------------------------------------------------------------- 
+</FONT>
+<BR>
+<FONT SIZE="3" FACE="Arial" COLOR="#FFC639">
+by Elektro
+<P>
+                   
+              
+
+  Quantas vezes ja li ou ouvi, algures pessoal, a perguntar "como &eacute; que se
+faz", para que as teclas digitadas, n&atilde;o aparecam no ecra?? Montes de vezes.<P>
+  Obviamente que este artigo esta mais orientado, para SysAdm, que produzem
+as pr&oacute;prias aplicacoes, para o seu sistema.<P>
+  &Eacute; mais bonitinho ainda, que tal criar uma fun&ccedil;&atilde;o, que cada vez que uma tecla
+  &eacute; premida, aparece no ecra um asterisco (*), tipo Windows!!<P>
+  As libraries do C, contem uma fun&ccedil;&atilde;o chamada getpass, cuja fun&ccedil;&atilde;o &eacute; essa
+mesmo, porem, n&atilde;o est&aacute; definida nenhuma fun&ccedil;&atilde;o, em que cada tecla premida um
+asteriso &eacute; imprimido para o stdout. Esta situa&ccedil;&atilde;o, acontece tanto em sistemas
+Linux como outros (Turbo C, Borland...).<P>
+  POREM EM LINUX uma fun&ccedil;&atilde;o destas n&atilde;o ser&aacute; "doce" de criar e vai muito alem,
+do nivel de programa&ccedil;&atilde;o que aqui se pretende. Porem em sistemas MS-DOS, &eacute;
+possivel, com relativa facilidade, criar uma fun&ccedil;&atilde;o deste tipo.<P>
+  O facto de aparecer ou n&atilde;o no ecra quando uma tecla, e pressionada, esta
+relacionado com o facto de se tratar ou nao de um buffered output! Por exemplo
+(toda a gente deve saber o que e um buffer, quem n&atilde;o sabe, pode-se dizer
+que se trata de uma especie de mem&oacute;ria intermedi&aacute;ria, onde dados s&atilde;o guardados,
+ at&eacute; serem colocados no seu destino):<P>
+<DD>  Num unbuffered output os dados s&atilde;o directamente enviados para o destino,
+(em linguagem de design de sistema, pode-se considerar um ficheiro), um
+ficheiro.<P>
+<DD>  Num buffered output, os dados s&atilde;o guardados num buffer, e
+apenas quando este
+ est&aacute; "cheio", ou se efectua um "flush", &eacute; que os dados s&atilde;o mandados para o
+ficheiro.<P>
+  As vantagens de usar um buffered ou unbuffered output, v&atilde;o alem do que &eacute;
+necess&aacute;rio para este artigo.<P>
+  Existem pr&eacute;-definidos nos sistemas tr&ecirc;s unbuffered ficheiros (apontadores):<P>
+ <DD> - Stdin (standart input)
+ <DD> - Stdout (standart output)
+ <DD> - Stderr (standart error)
+<P>
+  J&aacute; est&atilde;o a come&ccedil;ar a perceber, porque &eacute; que quando carregamos numa tecla,
+o caracter correspondente &eacute; imediatamente imprimido no stdout!!!!
+<P>
+  Como ent&atilde;o j&aacute; perceberam, para n&atilde;o aparecer imediatamente, uma tecla no
+ecra basta "atribuir" um buffer aos apontadores de ficheiros que nos
+interessam (em linux fazer "man setbuf").<P>
+  No entanto, tanto em sistemas Linux como MS-DOS, n&atilde;o &eacute; necess&aacute;rio ir t&atilde;o
+longe, visto ser possivel, obter resultados satisfatorios, utilizando algumas
+fun&ccedil;&otilde;es j&aacute; definidas.:-))<P>
+
+                          <B>EM SISTEMAS MS-DOS</B>
+<P>
+  Em sistemas MS-DOS, podemos usar a fun&ccedil;&atilde;o getch(), que "bufferiza" o stdout
+  Por&eacute;m ao construir uma fun&ccedil;&atilde;o deste tipo &eacute; preciso ter certo tipo de aten&ccedil;&otilde;es:
+<PRE>
+     #include &lt;conio.h&gt;
+     #include &lt;stdio.h&gt;
+     #include &lt;string.h&gt;
+
+     char *my_getpass(const char *prompt, int tamanho){
+
+     static char password[15];
+     char *apontador=password;
+     int caracter;
+
+     printf("%s", prompt);
+     for(;;){
+             caracter=getch();
+
+             if( caracter == '\r' )  /* ENTER sai do ciclo (fim passwd) */
+                break;
+
+             if( caracter == '\b' ){ /* Caso uma pessoa se engane a escrever
+               apontador--;             esta funcao lida com o backspace */
+               putch('\b');
+               putch(' ');
+               putch('\b');
+               continue;
+               }
+
+             *apontador++= (char) caracter;
+
+             putch('*');
+
+             if( apontador == password+tamanho ) /* Caso a password exceda o 
+                break;                              tamanho definido, sai do
+             }                                      ciclo */
+     *apontador='\0';
+     return password;
+     }
+</PRE>  
+    &Eacute; preciso ter em consideracao, aspectos como o tamanho da password, lidar
+com o backspace etc...
+<P>
+
+<B>EM SISTEMAS LINUX</B>
+<P>
+  Em sistemas Linux, assim a primeira m&atilde;o, n&atilde;o &eacute; possivel criar uma fun&ccedil;&atilde;o
+tao "bonitinha", porem usando chamadas ao sistema operativo e possivel fazer
+com que os caracteres "teclados", n&atilde;o apare&ccedil;am no ecra:
+<PRE>
+   #include &lt;stdio.h&gt;
+   #include &lt;string.h&gt;
+
+
+   char *my_getpass_linux(const char *prompt, int tamanho){
+
+   static char password[15];
+   static char temporario[15];
+
+   system ("stty -echo > /dev/console");
+   scanf("%s", &temporario);
+   system ("stty echo > /dev/console");
+   strncpy(password, temporario, tamanho);
+
+   return password;
+   }
+</PRE>
+   Apesar de n&atilde;o ter sido descrito aqui como criar uma fun&ccedil;&atilde;o em cada "teclar"
+e substituido por asterisco, criou-se aqui uma que tambem cumpre a sua fun&ccedil;&atilde;o.
+</FONT>
+<P>
+&nbsp;
+<P>
+<A HREF="http://www.complex-x.net/kaotik/"><IMG SRC="kaotikm1.gif" WIDTH=147 HEIGHT=50 BORDER=1></A>
+
+</BODY>
+</HTML>

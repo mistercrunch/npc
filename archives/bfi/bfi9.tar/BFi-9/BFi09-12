@@ -1,0 +1,850 @@
+==============================================================================
+-------------[ BFi numero 9, anno 3 - 03/11/2000 - file 12 di 21 ]------------
+==============================================================================
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ C0ME F0TTERE iL TCP/iP FiNGERPRiNTiNG
+-----[ |CyRaX| <cyrax@pkcrew.org> & FuSyS <fusys@s0ftpj.org>
+
+
+Consumo di |CyRaX| : un'anima ke ha perso ogni speranza di raggiungere il 
+                     paradiso per tutte le bestemmie tirate durante lo
+                     sviluppo
+
+Thanx : B_Berry, recidjvo, i fratelli pkc, gli amici di #programmazione e 
+        #sikurezza
+
+Pensierino del giorno: ti accorgi della difficolta' a realizzare un certo
+programma quando il 90% dei nomi ke assegni alle variabili durante il debug
+sono bestemmie (tranquilli tranquilli.. le ho kavate :P)
+
+Documentazione se non ci kapite un kazzo o volete approfondire:
+
+nmap-x.xx/nmap-fingerprinting-article.txt : per l'os fingerprinting
+nmap-x.xx/nmap-os-fingerprints : file ke contiene tutti i comportamenti degli
+                                 os per poterli rikonoscere
+nmap-x.xx/osscan.c : implementazione del fingerprint in nmap
+Phrack55/P55-12 : come intercettare e modifikare i pakketti via lkm
+
+Salvo dove specificato l'artikolo l'ho skritto io (|CyRaX|) quindi tutti gli
+insulti per errori grammaticali, ortografici, calligrafici e logici mandateli
+a me.
+
+Nota agli script kiddie: no.. qui non troverete nessun exploit universale
+ke vi permetta di bukare il mondo, ma un bell'lkm per fare i fighetti con gli
+amici facendogli credere di avere qualkosa tipo un vax/vms in casa.
+
+
+Oky... cominciamo con le kose serie...
+
+Suppongo ke tutti voi sappiate cos'e' il tcp/ip fingerprinting (altrimenti
+guardatevi nmap-fingerprinting-article.txt nella dir coi sorci dell'nmap).
+Per quelli ke non hanno voglia di dokumentarsi ve lo dico io: e' un metodo
+ke permette ad un attacker di sapere ke sistema operativo gira su una
+determinata vittima esaminando il comportamento del suo stack tcp/ip
+(per esempio guardando quali opzioni tcp supporta e quanti byte mette
+negli errori icmp). Con questo metodo e' possibile fottere tutti quelli
+ke cambiano l'issue e tutti i banner dei servizi.
+
+Come tutti voi saprete un buon tool per fare il fingerprint in circolazione
+e' l'nmap (-O).
+L'nmap manda un po' di pakketti settando vari flag su porte aperte e kiuse,
+guarda come sono fatti i pakketti ke la vittima rimanda indietro, confronta
+le risposte con quelle memorizzate nel suo file (solitamente in
+/usr/local/share/nmap-os-fingerprints) e cerka di indovinare ke os e'
+(mi sono spiegato veramente alla kazzo.. ma non sono qui per spiegarvi il 
+fingerprint.. vi ho detto dove approfondire.. se volete farlo bene altrimenti
+kazzi vostri :) .
+Avrete gia' capito (spero) ke per poter fottere queste tecniche non ci basta
+un programmino in userlevel, ma dobbiamo per forza andare a kernel-level
+con un lkm che intercetti i pakketti in entrata e in uscita e li modifiki.
+
+Per fare in modo ke nmap risponda unknow a ki ci fingerprinta basterebbe
+una modifika minima sui pakketti... kenneso'... per esempio togliere a tutti
+il bit DF (don't fragment).
+Volendo invece far creder ad nmap di stare su un altro os dobbiamo skazzarci
+molto di piu'... se poi volete fare un lkm configurabile per scegliere tra
+vari os c'e' da bestemmiarci sopra. :)
+In ogni caso.. facendo le kose via lkm non possiamo emulare tutto.. alcuni
+test dell'nmap non si possono aggirare modificando pakketti gia' fatti.. ma
+solo andando a modifikare le funzioni ke li creano (es.: il test su come
+variano gli inital seq number (ISN)).
+
+Oky.. vediamo lkm e parser al lavoro :)
+
+c500:/usr/src/fpf# ./parser "Windows NT 4 SP3"
+
+Windows NT 4 SP3 ? [y/n] y
+                            Finger Print Fucker
+Idea and lkm by |CyRaX| of Packet Knights Crew (www.pkcrew.org)
+Parser for the nmap's file by FuSyS of S0ft Project (www.s0ftpj.org)
+Comments to cyrax@pkcrew.org
+THIS SOFTWARE IS SISTERWARE! REMEBER TO REGISTER!
+
+Bene... modulo caricato.. ora vediamo cosa si bekka uno ke prova a usare
+il fingerprint dell'nmap contro di noi :) :
+
+p100# nmap -p 21 -O 192.168.0.1
+
+Starting nmap V. 2.53 by fyodor@insecure.org ( www.insecure.org/nmap/ )
+Interesting ports on  (192.168.0.1):
+Port       State       Service
+21/tcp     open        ftp
+
+TCP Sequence Prediction: Class=random positive increments
+                         Difficulty=2255666 (Good luck!)
+Remote operating system guess: Windows NT 4 SP3
+
+Nmap run completed -- 1 IP address (1 host up) scanned in 1 second
+p100#
+
+uazz.. proprio NT :P
+
+Oky.. prima del codice ekko un altro bel po' di os emulabili
+dall'lkm con cui potrete fare i fighetti:
+
+Atari Mega STE running JIS-68k 3.0
+BSDI BSD/OS 3.0-3.1
+VAX/VMS v5.5, CMU-TEK TCP/IP stack
+Cisco 762 Non-IOS Software release 4.1(2) or 766 ISDN router
+
+e altri.. ma sono sikuro ke vi divertirete a cercarveli da soli :P
+
+E infine.. il codice :)
+
+<-| fingerprint/fing_fuck.c crc32: 1260000861 |->
+/*
+ * Name: Finger Print Fucker
+ * Date: Tue Jul 04 13:23:36 2000
+ * Author: |CyRaX| [cyrax@pkcrew.org]
+ * Packet Knights Crew
+ *   www.pkcrew.org   
+ 
+ * Greetz : B_Berry : for making me leave the visualbasic :)
+ * FuSyS : for the help and for the parser :)
+ * recidjvo, asynchro and all the bros of the packet knights crew ;)
+ *
+ * Description : this lkm change the linux stack to emulate other os'es 
+ *               against nmap fingerprints (maybe others). This module
+ *               accepts parameter from insmod. Use it with the nmap's file
+ *               parser of FuSyS
+
+ * Compile with:
+ * gcc FingerPrintFucker.c -c -fomit-frame-pointer -O2 -I/usr/src/linux/include
+ * Usage :
+ * insmod FingerPrintFuker.o
+ * to emulate a vax
+ * OR (Best :):
+ * use it with the fusys's nmap file parser
+ * 
+ * SISTER-WARE LICENSE - This source code is like "THE BEER-WARE LICENSE" by
+ * Poul-Henning Kamp <phk@FreeBSD.ORG> or COFFEE_WARE LICENSE 
+ * by pIGpEN <pigpen@s0ftpj.org> but you can give me in return your sister.
+ * (if 15<= her_age <=17)
+ * 
+ * PLEASE REMEMBER TO REGISTER :P
+ * 
+ * Tested on: Linux 2.2.14 #1 Thu Mar 23 20:23:22 CET 2000 i686
+ */
+
+
+#define MODULE
+#define __KERNEL__
+
+#include <linux/module.h>
+#include <linux/fs.h>
+#include <linux/dirent.h>
+#include <linux/types.h>
+#include <linux/stat.h>
+#include <linux/fcntl.h>
+#include <linux/mm.h>
+#include <linux/if.h>
+#include <asm/uaccess.h>
+#include <asm/unistd.h>
+#include <asm/segment.h>
+
+#include <linux/byteorder/generic.h>
+#include <linux/netdevice.h>
+#include <linux/if_ether.h>
+#include <linux/ip.h>
+#include <linux/tcp.h>
+#include <linux/skbuff.h>
+#include <linux/icmp.h>
+#include <linux/udp.h>
+#include <sys/syscall.h>
+#include <net/tcp.h>
+
+
+/* our functions */
+int intercept(struct sk_buff *skb,struct device *dv,struct packet_type *pt);
+int in(struct sk_buff *skb);
+
+void ttycredit(char *str);
+u_short in_chksum(u_short *ptr,int nbytes);
+struct packet_type proto;
+
+/* Some variables passed trough insmod NAME=value*/
+int ICMPLEN;
+MODULE_PARM(ICMPLEN,"i");
+int WINDOW=0x2000;
+MODULE_PARM(WINDOW,"i");
+int DFdefault=0;
+MODULE_PARM(DFdefault,"i");
+int DFwhenconnect=0;
+MODULE_PARM(DFwhenconnect,"i");
+int TOS=0;
+MODULE_PARM(TOS,"i");
+unsigned char *OPT;
+MODULE_PARM(OPT,"s");
+int WINDOWdefault=0x64;
+MODULE_PARM(WINDOWdefault,"i");
+int CHANGE_ID=0;
+MODULE_PARM(CHANGE_ID,"i");
+int FUCK_RIPCK=0;
+MODULE_PARM(FUCK_RIPCK,"i");
+int FUCK_UCK;
+MODULE_PARM(FUCK_UCK,"i");
+int ANSWER_T2=1;
+MODULE_PARM(ANSWER_T2,"i");
+int T7_Spp=1;
+MODULE_PARM(T7_Spp,"i");
+int ACK_WHEN_RESET=1;
+MODULE_PARM(ACK_WHEN_RESET,"i");
+
+char *MYOPT;
+int OPTLEN;
+
+
+/* a struct for the tcp checksum */
+struct pseudo{
+   u_int32_t saddr;
+   u_int32_t daddr;
+   u_int8_t zero;
+   u_int8_t protocol;
+   u_int16_t lenght;
+};
+
+
+/* this function intercept the packets (and change them) */
+
+
+int intercept(struct sk_buff *skb,struct device *dv,struct packet_type *pt){
+   struct iphdr *ip;
+   struct udphdr *udph;
+   char toprint[200];
+   unsigned char *data,*option;
+   u_short *mss;
+   int len, tcplen,datalen,iplen, optlen,i,ex,oldoptlen;
+   /* adjusting some pointer */
+   skb->h.raw = skb->nh.raw +skb->nh.iph->ihl*4;
+   skb->data = (unsigned char *)skb->h.raw +(skb->h.th->doff <<2);
+   skb->len -= skb->nh.iph->ihl*4 +(skb->h.th->doff << 2);
+   
+   if(skb->nh.iph->protocol!=6 && skb->nh.iph->protocol!=1 
+      ){
+      /* we just need to control tcp and icmp */
+      kfree_skb(skb);
+      return 0;
+   }
+   /* THE REST OF THIS FUNCTION JUST HANDLE  OUTGOING PACKETS..
+    * for the incoming let's use another function.. when I created this 
+    * I didn't tought I needed to control incoming.. but to emulate
+    * more os'es we must do it (FUCKING COMPLEXX but BlackBerry asked
+    * me to emulate a vms/vax :)
+   */
+   
+   /* if the packet is ingoing we'll pass it to the "in" function..
+    * I use another function just to reduce the size of this :) */
+    
+   if(skb->pkt_type==PACKET_HOST && skb->nh.iph->protocol==6){
+      in(skb);
+      return(0);
+   }
+    
+    /* here goes the tcp handling */
+   if(skb->nh.iph->protocol==6){
+      iplen=skb->nh.iph->ihl*4;
+      tcplen=skb->h.th->doff<<2;
+      len=ntohs(skb->nh.iph->tot_len);
+      datalen=len -(iplen+tcplen);
+      optlen=tcplen-sizeof(struct tcphdr);
+                         /* IP HEADER */
+      /* DF */
+      /* if DFdefault is set we must set the DONT FRAGMENT bit */
+      if(DFdefault){
+	 skb->nh.iph->frag_off=0x40;
+      }
+      else {
+	 skb->nh.iph->frag_off=0x00;
+      }
+                         /*  TCP HEADER */
+      /* if the windows is not 0 then a connection has been estabilished */
+      if(skb->h.th->window!=0){
+         /* we must change the window value to the one expected*/
+	 skb->h.th->window=htons(WINDOW);
+	 /* some implementation set the DF only when a connection is
+	  * estabilished */
+	 if(DFwhenconnect){
+	    skb->nh.iph->frag_off=0x40;
+	 }
+	 else {
+	    skb->nh.iph->frag_off=0x00;
+	 }
+      }
+      else {
+         /* not all the oses use 0 as windows when the connection
+	  * does not start */
+	 skb->h.th->window=htons(WINDOWdefault);
+      }
+      /* some oses need to set also the ack when resetting */
+      if(skb->h.th->rst && ACK_WHEN_RESET)skb->h.th->ack=1;
+      
+      
+      /* TCP OPTIONS */
+      /* we need to modify the tcp options ONLY if some options
+       * has already been set
+       */
+      if((optlen>0) && (optlen>=OPTLEN)){
+	 /* finding where the option start */
+         option=(char *)(skb->data - optlen);
+	 /* well man.. we need to save the data */
+	 data=kmalloc(datalen,GFP_KERNEL);
+	 memcpy(data,skb->data,datalen);
+	 
+	 /* now we can play with the options.. */
+	 for(i=0;i<OPTLEN;i++){
+	    option[i]=MYOPT[i];
+	 }
+	 optlen=OPTLEN;
+	 /* well.. now we must reinsert the data 
+	  * in the correct starting point
+	 */
+	 memcpy((void *)option+optlen,data,datalen);
+	 /* and free the place we used for save it  */
+	 kfree(data);
+         /* adjusting some headers */
+	 skb->h.th->doff=(sizeof(struct tcphdr)+optlen)/4;
+	 tcplen=skb->h.th->doff <<2;
+	 skb->nh.iph->tot_len=htons(iplen+tcplen+datalen);
+	 len=ntohs(skb->nh.iph->tot_len);
+	 skb->data=(char *)(option+optlen);
+	 
+      }
+
+	 
+
+      /* we modified the packet.. so we must recomputate the checksum */
+      memset(&skb->nh.iph->check,0,2);
+      skb->nh.iph->check=in_chksum((u_short *)skb->nh.iph,skb->nh.iph->ihl*4);
+      memset(&skb->h.th->check,0,2);
+	 	 	 
+      /* after spending some time insulting god for the tcp checksum
+       * I found a very nice function in the kernel for it */
+      skb->csum=0;
+      skb->csum=csum_partial(skb->h.raw+tcplen,(len -iplen)-tcplen,0);
+      skb->h.th->check=0;
+      skb->h.th->check=csum_tcpudp_magic(
+	     			 skb->nh.iph->saddr,
+     				 skb->nh.iph->daddr,
+				 len-iplen,
+			      	 skb->nh.iph->protocol,
+		       		 csum_partial(skb->h.raw,tcplen,
+	       				      skb->csum)
+       				 );
+   }
+   
+   
+   
+   /*         ICMP PACKET HANDLING */
+   
+   if(skb->nh.iph->protocol==1){
+      /* we need only port unreachable icmps */
+      if(skb->h.icmph->code !=3 || skb->h.icmph->type !=3){
+	 kfree_skb(skb);
+	 return(0);
+      }
+      ip=(struct iphdr *)(skb->h.icmph+sizeof(struct icmphdr));
+      len=ntohs(skb->nh.iph->tot_len)-(skb->nh.iph->ihl*4)-
+	sizeof(struct icmphdr);
+      if(len>=148){
+	                  /* IP HEADER */
+	 /* - changin the Type Of Service*/
+	 skb->nh.iph->tos=TOS;
+	 /* - let's change the icmp errors' len */
+	 skb->nh.iph->tot_len=htons((skb->nh.iph->ihl*4)+
+				    sizeof(struct icmphdr)+ICMPLEN);
+	                /* ICMP DATA HEADER */
+	 
+	 ip=(struct iphdr *)(skb->h.raw+sizeof(struct icmphdr));
+	 udph=(struct udphdr *)(ip+ip->ihl*4);
+	 /* - we may need to change the id */
+	 if(CHANGE_ID)ip->id=htons(1234);
+	 /* - we may need to set 0 or a wrong value in the ip checksum */
+	 if(FUCK_RIPCK)ip->check=htons(1234);
+	 if(FUCK_RIPCK==-1)ip->check=0;
+	 /* - also in the udp checksum */
+	 if(FUCK_UCK)udph->check=htons(1234);
+	 if(FUCK_UCK==-1)udph->check=0;
+	                     /* checksum */
+	 memset(&skb->nh.iph->check,0,2);
+	 skb->nh.iph->check=in_chksum((u_short *)skb->nh.iph,skb->nh.iph->ihl*4);
+	 memset(&skb->h.icmph->checksum,0,2);
+	 skb->h.icmph->checksum=in_chksum((u_short *)skb->h.icmph,
+	   			     sizeof(struct icmphdr)+ICMPLEN);
+	 
+      }
+   }
+   kfree_skb(skb);
+   return 0;
+}
+
+/* this function handle incoming tcp packets... needed for more advanced
+  * things */
+int in(struct sk_buff *skb){
+   int i,tcplen,datalen,optlen,iplen,len;
+   unsigned long tmpip;
+   unsigned char dst_hw_addr[6];
+   char toprint[200];
+   /* oky.. we have a tcp packet.. now let's watch if it's a 
+    * nmap fucking test.. */
+   /* T2*/
+   len=ntohs(skb->nh.iph->tot_len);
+   iplen=skb->nh.iph->ihl*4;
+   tcplen=skb->h.th->doff<<2;
+   optlen=tcplen-sizeof(struct tcphdr);
+   datalen=len-(iplen+tcplen);
+   /*   T2 TEST
+    *   linux don't answer t2.. we can do it */
+   if(skb->h.th->fin==0 && skb->h.th->rst==0 && skb->h.th->syn==0 &&
+      skb->h.th->psh==0 && skb->h.th->ack==0 && skb->h.th->urg==0){
+      if(ANSWER_T2){
+	 /* to make linux answer this packet we can just turn it
+	  * into another packet at which it answers */
+	 skb->h.th->psh=1;
+	 skb->h.th->fin=1;
+	 skb->h.th->urg=1;
+	 skb->h.th->dest=htons(1);
+	 skb->csum=0;
+	 skb->h.th->check=0;
+	 skb->csum=csum_partial(skb->h.raw+tcplen,(len -iplen)-tcplen,0);
+	 skb->h.th->check=csum_tcpudp_magic(
+	     			 skb->nh.iph->saddr,
+     				 skb->nh.iph->daddr,
+				 len-iplen,
+			      	 skb->nh.iph->protocol,
+		       		 csum_partial(skb->h.raw,tcplen,
+	       				      skb->csum)
+       				 );
+      }
+      kfree_skb(skb);
+      return(0);
+      
+   }
+   /* T7 linux answer sending an ACK/RST with ack = seq +1 ..
+    * we may need to answer with ack=seq
+    * how doing this? changing the packet to be like t5
+    */
+   if(skb->h.th->fin==1 && skb->h.th->rst==0 && skb->h.th->syn==0 &&
+      skb->h.th->psh==1 && skb->h.th->ack==0 && skb->h.th->urg==1){
+      if(T7_Spp){
+	 skb->h.th->fin=0;
+	 skb->h.th->psh=0;
+	 skb->h.th->urg=0;
+	 skb->h.th->syn=1;
+	 skb->csum=0;
+	 skb->h.th->check=0;
+	 skb->csum=csum_partial(skb->h.raw+tcplen,(len -iplen)-tcplen,0);
+	 skb->h.th->check=csum_tcpudp_magic(
+	     			 skb->nh.iph->saddr,
+   				 skb->nh.iph->daddr,
+				 len-iplen,
+			      	 skb->nh.iph->protocol,
+		       		 csum_partial(skb->h.raw,tcplen,
+	       				      skb->csum)
+      				 );
+      }
+      kfree_skb(skb);
+      return(0);
+   }
+   
+   kfree_skb(skb);
+   return(0);
+}
+
+
+/* this function is started when the module is insmoded */
+
+int init_module(){
+   int i,z=0,a;
+   char toprint[100];
+   u_short *conv;
+   proto.type=htons(ETH_P_ALL);
+   proto.func=intercept;
+   /* added a function that incercept packets */
+   dev_add_pack(&proto);  
+   ttycredit("                            Finger Print Fucker\r\n");
+   ttycredit("Idea and lkm by |CyRaX| of Packet Knights Crew (www.pkcrew.org)\r\n");
+   ttycredit("Parser for the nmap's file by FuSyS of S0ft Project (www.s0ftpj.org)\r\n");
+   ttycredit("Comments to cyrax@pkcrew.org\r\n");
+   ttycredit("THIS SOFTWARE IS SISTERWARE! REMEBER TO REGISTER!\r\n");
+   ttycredit("See copyright info in FingerPrintFucker.c\r\n");
+   /* if no tcp options are passed by insmod we'll set it to M */
+   if(!OPT){
+      OPT=(char *)kmalloc(5,GFP_KERNEL);
+      strcpy(OPT,"M");
+   }
+   
+   /* well options are passed in litteral way... we must translate
+    * them to bytes
+    */
+   MYOPT=(char *)kmalloc(40,GFP_KERNEL);
+   for(i=0;i<(strlen(OPT));i++){
+      switch((unsigned char)OPT[i]){
+       case 'W':      /* WINDOW SCALE */
+	 MYOPT[z]=3; /* code 3 */
+	 z++;
+	 MYOPT[z]=3; /* len 3 */
+	 z++;
+	 MYOPT[z]=123; /* just a random value */
+	 z++;
+	 break;
+       case 'T':
+	 MYOPT[z]=8; /* timestamp */
+	 z++;
+	 MYOPT[z]=10; /* len 10 */;
+	 z++;
+	 z=z+8;
+	 break;
+       case 'N':
+	 MYOPT[z]=1; /* nop */
+	 z++;
+	 break;
+       case 'M':
+	 MYOPT[z]=2; /* mss */
+	 z++;
+	 MYOPT[z]=4; /*len = 4*/
+	 z++;
+	 if((i+1)<strlen(OPT))
+	 if(OPT[i+1]=='E'){ /* if ME passed the value must be 265 */
+	    i++;
+	    /* it must be 265 */
+	    conv=(u_short *)(MYOPT+z);
+	    *conv=htons(265);
+	 }
+	 else { /*else just a random value different from that */
+	    MYOPT[z]=123;
+	    MYOPT[z+1]=123;
+	 }
+	 z=z+2;
+	 break;
+       case 'L': /* end of option this can be used to stop the options also */
+	 MYOPT[z]=0; /* if the bytes number is not divisible by 4 */
+	 z++;
+	 /* if z is not divisible for 4 we must pad it */
+	 if(z > ((z/4)*4)){
+	    z=(z/4)*4+4;
+	 }
+	 break;
+       case '0':  /* if a 0 is passed then there are no options */
+	 i=strlen(OPT);
+	 z=0;
+	 break;
+      }      
+   }
+   
+   
+   OPTLEN=z;
+   return(0);
+}
+
+/* function called when rmmoding.. this removes our function from the 
+ * layer */
+void cleanup_module(){
+   dev_remove_pack(&proto);
+}
+
+/* Ripped from LuCe.c of Fusys */
+void ttycredit(char *str){
+   struct tty_struct *mytty;
+   if((mytty=current->tty)!=NULL){
+      (*(mytty->driver).write)(mytty,0,str,strlen(str));
+   }
+}
+
+u_short in_chksum(u_short *ptr, int nbytes)
+{
+  register long           sum;            /* assumes long == 32 bits */
+  u_short                 oddbyte;
+  register u_short        answer;         /* assumes u_short == 16 bits */
+  sum = 0;
+  while (nbytes > 1)
+  {
+    sum += *ptr++;
+    nbytes -= 2;
+  }
+  if (nbytes == 1)
+  {
+     oddbyte = 0;            /* make sure top half is zero */
+     *((u_char *) &oddbyte) = *(u_char *)ptr;   /* one byte only */
+     sum += oddbyte;
+  }
+  sum  = (sum >> 16) + (sum & 0xffff);    /* add high-16 to low-16 */
+  sum += (sum >> 16);                     /* add carry */
+  answer = ~sum;          /* ones-complement, then truncate to 16 bits */                                            
+  return((u_short) answer);
+}
+<-X->
+
+
+<-| fingerprint/fing_parses.c crc32: 3089110501 |->
+/*
+ * parser for |CyRaX| LKM
+ * reads nmap fingerprint file for os emulations choice
+ * coded this in seconds, do NOT suid this - use it as root to insmod
+ *
+ * FuSyS [S0ftPj|BFi]
+ *
+ */
+
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+#define DEBUG		0
+#define NMAPFILE	"/usr/local/share/nmap/nmap-os-fingerprints"
+
+FILE *fd;
+int Resp1=0, Resp7=0, RespPU=0, AR4=0;
+int WINDOW=0, WINDOWdefault=0, DFdefault=0, DFwhenconnect=0;
+int ANSWER_T2=0, T7_Spp=0, ACK_WHEN_RESET=0, ICMPLEN=0, TOS=0, CHANGE_ID=0;
+signed int FUCK_RIPCK=0, FUCK_UCK=0;
+char OPT[10];
+
+int choice(char *ostype)
+{
+	char c[3];
+
+	memset(&c, '\0', 2);	
+	printf("\n%s ? [y/N] ", ostype);
+	fgets(c, 3, stdin);
+	if(strstr(c, "y")||strstr(c, "Y"))
+		return 1;
+
+	return 0;
+}
+
+void lookupOPT()
+{
+	int i=0;
+
+	while(i<strlen(OPT)+1){
+		if(OPT[i]=='|') {
+			OPT[i]='\0';
+			break;
+		}
+		i++;
+	}
+
+        if(strlen(OPT)==0) {
+                OPT[0]='0';
+                OPT[1]='\0';
+                return;
+        }
+}
+
+void process_fp()
+{
+	char buff[100], *charp;
+
+	while(fgets(buff, sizeof(buff), fd)!=NULL) {
+
+		if(strstr(buff, "T1")){
+			buff[strlen(buff)-2]='\0';
+			charp=strtok(buff+3, "%");
+			if(strstr(charp, "Resp")){
+				if(!strcmp(charp+5,"Y")){
+					Resp1=1;
+				}
+				charp=strtok(NULL, "%");
+			}
+			if(strstr(charp, "DF")){
+				if(!strcmp(charp+3,"Y")){
+					DFwhenconnect=1;
+				}
+			}
+			while(*charp!='W'){
+				charp=strtok(NULL, "%");
+			}
+			WINDOW=(int)strtol(charp+2, NULL, 16);
+			while(*charp!='O'){
+				charp=strtok(NULL, "%");
+			}
+			strncpy(OPT, charp+4, strlen(charp)+1);
+			lookupOPT();
+		}
+
+                if(strstr(buff, "T2")){
+                        buff[strlen(buff)-2]='\0';
+                        charp=strtok(buff+3, "%");
+                        if(strstr(charp, "Resp")){
+                                if(!strcmp(charp+5,"Y")){
+					ANSWER_T2=1;
+				}
+			}
+		}
+
+		if(strstr(buff, "T4")){
+                        buff[strlen(buff)-2]='\0';
+                        charp=strtok(buff+3, "%");
+			while(*charp!='F'){
+				charp=strtok(NULL, "%");
+			}
+                        if(strstr(charp, "AR")){
+                                AR4=1;
+                        }
+		}
+
+                if(strstr(buff, "T6")){
+                        buff[strlen(buff)-2]='\0';
+                        charp=strtok(buff+3, "%");
+                        while(*charp!='F'){
+                                charp=strtok(NULL, "%");
+                        }
+                        if(strstr(charp, "AR")){
+                                if(AR4==1)
+                                        ACK_WHEN_RESET=1;
+                        }
+                }
+
+		if(strstr(buff, "T7")){
+			buff[strlen(buff)-2]='\0';
+                        charp=strtok(buff+3, "%");
+                        if(strstr(charp, "Resp")){
+                                if(!strcmp(charp+5,"Y")){
+                                        Resp7=1;
+                                }
+                                if((charp=strtok(NULL, "%"))==NULL)
+					goto PU;	
+                        }
+                        if(strstr(charp, "DF")){
+                                if(!strcmp(charp+3,"Y")){
+                                        DFdefault=1;
+                                }
+                        }
+                        while(*charp!='W'){
+                                charp=strtok(NULL, "%");
+                        }
+                        WINDOWdefault=(int)strtol(charp+2, NULL, 16);
+			while(*charp!='A'){
+				charp=strtok(NULL, "%");
+			}
+			if(strstr(charp, "++")){
+					T7_Spp=1;
+			}
+		}
+
+PU:             if(strstr(buff, "PU")){
+                        buff[strlen(buff)-2]='\0';
+                        charp=strtok(buff+3, "%");
+                        if(strstr(charp, "Resp")){
+                                if(!strcmp(charp+5,"Y")){
+                                        RespPU=1;
+                                }
+                        }
+			else {
+				ICMPLEN=10;
+				break;
+			}
+			if(RespPU){
+				while(*charp!='T') {
+					charp=strtok(NULL, "%");
+				}
+				TOS=(int)strtol(charp+4, NULL, 16);
+				charp=strtok(NULL, "%");
+				ICMPLEN=atoi(charp+6);
+                                charp=strtok(NULL, "%");
+                                charp=strtok(NULL, "%");
+				if(strstr(charp, "F")){
+					CHANGE_ID=1;
+				}
+				charp=strtok(NULL, "%");
+				if(strstr(charp, "F")){
+                                        FUCK_RIPCK=1;
+                                }
+				else if(strstr(charp, "0")){
+                                        FUCK_RIPCK=-1;
+                                }
+				charp=strtok(NULL, "%");
+				if(strstr(charp, "F")){
+                                        FUCK_UCK=1;
+                                }
+				else if(strstr(charp, "0")){
+                                        FUCK_UCK=-1;
+                                }
+			}
+			break;
+		}
+	}
+}	
+
+int main(int argc, char **argv)
+{
+	char os[100], buff[150], *sub, cmd[250];
+	int i=0;
+
+	if(argc < 2) {
+		fprintf(stderr, "Usage: %s os\n", argv[0]);
+		exit(0);
+	}
+
+	if(getuid()) {
+		fprintf(stderr, "You must be root to load modules\n");
+		exit(0);
+	}
+
+	strncpy(os, argv[1], 99);
+	os[100]='\0';
+	memset(&sub, 0, sizeof(sub));
+
+	if((fd=fopen(NMAPFILE, "r"))==NULL) {
+		fprintf(stderr, "Error opening %s\n", NMAPFILE);
+		exit(0);
+	}
+	
+	while((fgets(buff, sizeof(buff), fd))!=NULL) {
+		if(strstr(buff, os)) {
+			buff[strlen(buff)-1] = '\0';
+			if(strstr(buff, "Fingerprint")) {
+				sub = buff+12;
+				if(choice(sub)){
+					process_fp();
+					i=1;
+					break;
+				}
+			} else continue;
+		}
+	}
+
+	if(!sub) {
+		printf("\nNO FINGERPRINT FOUND\n\n");
+		exit(0);
+	}
+
+	snprintf(cmd, 249, "insmod lkm WINDOW=%d WINDOWdefault=%d DFdefault=%d DFwhenconnect=%d ANSWER_T2=%d T7_Spp=%d ACK_WHEN_RESET=%d ICMPLEN=%d TOS=%d CHANGE_ID=%d FUCK_RIPCK=%d FUCK_UCK=%d OPT=\"%s\" \n", 
+	WINDOW, WINDOWdefault, DFdefault, DFwhenconnect, ANSWER_T2, T7_Spp,
+	ACK_WHEN_RESET, ICMPLEN, TOS, CHANGE_ID, FUCK_RIPCK, FUCK_UCK,
+	OPT);
+	
+	if(DEBUG) printf("%s",cmd);
+	if(i) system(cmd);
+	exit(0);
+}
+<-X->
+
+
+==============================================================================
+---------------------------------[ EOF 12/21 ]--------------------------------
+==============================================================================

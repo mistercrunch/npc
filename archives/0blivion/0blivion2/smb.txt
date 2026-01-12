@@ -1,0 +1,247 @@
+           _____________________________________________________
+          /              Oblivion Underground Magazine          \
+         /                   Issue 2    15/04/2000               \
+        Ý                     Server Message Block                Ý
+         \                        by Slider                      /
+          \_____________________________________________________/
+
+- SOF -
+
+Server Message Block (SMB)
+
+Well, I wondered what to write for a new article, and what has plagued me for
+ages is the use of Server Message Block (SMB) within a network and how secure
+they really are.
+
+Lets have a run down on the usage of SMB and its history and what it is there
+for.
+
+Microsoft's networking has historically been built on the NETBIOS API and
+various related protocols (NBF, NetBEUI).  Without going into great depth, it
+is suffice to say that the two approcahes are basically incompatiable, So NT's
+built-in networking is built around the Server Message Block (SMB) protocol,
+which in turn uses NetBIOS.
+
+The basic compatibility problem between NetBIOS and TCP/IP arises as a result
+of a different approach to system indentification on the network.  NetBIOS
+uses machine names associated directly with hardware adresses to identify
+nodes on the network. while TCP/IP uses the famous four-digit dotted IP
+address, soon to become IPV6.  Explained in History, Present and Future of the
+internet.
+
+So to use Windows NT's SMB-based networking features with TCP/IP, there must
+be some mechanism to translate between NetBIOS names and IP address numbers.
+That mechanism to translate between NetBIOS names and IP address numbers.
+That mechanism is called NetBIOS-over-TCP/IP (NBT).
+
+Three types of NetBIOS nodes can be used on a TCP/IP network by NBT.  A b-node 
+(broadcast node) sends broadcasts to query other nodes on the network for the
+owner of a NetBIOS name.
+
+A p-node (point-to-point node) uses directed calls to communicate with a
+NetBIOS name server for the IP address of a NetBIOS machine.  An m-node is a
+mixed mode, one that uses broadcasted queries to find nodes and failing that,
+queries a p-node name server for the address.
+
+Once the node discovers the IP address associated with the name, it sends IP
+traffic directly to it.  The process of starting with a NetBIOS name and
+turning it into an IP address is called Address Resolution.
+
+This will be explained in a later article, so does not need to be added here
+at the moment in time.
+
+The earliest documents that i have seen on the SMB protocol is an IBM document
+from 1985. It is a copy of an IBM Personal Computer Seminar Proceedings from
+May 1985. It contains the IBM PC Network SMB Protocol. The protocol was
+subsequently developed further by Microsoft and others. 
+Many of the documents that define the SMB protocol(s) are available at
+ftp.microsoft.com in the SMB documentation area. 
+
+Clients connect to servers using TCP/IP (actually NetBIOS over TCP/IP as
+specified in RFC1001 and RFC1002), NetBEUI or IPX/SPX. Once they have
+established a connection, clients can then send commands (SMBs) to the server
+that allow them to access shares, open files, read and write files, and
+generally do all the sort of things that you want to do with a file system.
+However, in the case of SMB, these things are done over the network. These
+packets while authenticating to the server contain an encrypted password.
+
+Find more information below on security of a SMB packet.
+
+As mentioned, SMB can run over multiple protocols.
+
+SMB can be used over TCP/IP, NetBEUI and IPX/SPX. If TCP/IP or NetBEUI are in
+use, the NetBIOS API is being used. 
+SMB was also sent over the DECnet protocol. Digital (now Compaq) did this for
+their PATHWORKS product. 
+
+NetBIOS over TCP/IP seems to be referred to by many names. Microsoft refers to
+it as NBT in some places and NetBT in others (specifically in their Windows NT
+documentation and in the Windows NT registry). Others refer to it as RFCNB.
+NetBEUI is sometimes refered to as NBF (NetBIOS Frame Format?) by Microsoft. 
+
+If SMB is used over TCP/IP, DECnet or NetBEUI, then NetBIOS names must be used
+in a number of cases. NetBIOS names are up to 15 characers long, and are
+usually the name of the computer that is running NetBIOS. Microsoft, and some
+other implementors, insist that NetBIOS names be in upper case, especially
+when presented to servers as the CALLED NAME.
+
+When NetBIOS names are sent over the wire they are padded to 15 characters
+with spaces and a 16th character is added that specifies the type of NetBIOS
+name. Microsoft refers to these as NetBIOS Suffixes. A complete list can be
+found in the Microsoft Knowledge Base article Q163409.
+
+Security
+  
+The SMB model defines two levels of security: 
+
+Share level : Protection is applied at the share level on a server. Each share
+can have a password, and a client only needs that password to access all files
+under that share. This was the first security model that SMB had and is the
+only security model available in the Core and CorePlus protocols. Windows for
+Workgroups' vserver.exe implements share level security by default, as does
+Windows 95.
+
+User Level : Protection is applied to individual files in each share and is
+based on user access rights. Each user (client) must log in to the server and
+be authenticated by the server. When it is authenticated, the client is given
+a UID which it must present on all subsequent accesses to the server. This
+model has been available since LAN Manager 1.0.
+
+The SMB packets contain source and destination IP addresses, the user name,
+the SMB challenge, the encrypted LANMAN hash and the encrypted NTLM hash, if
+any.
+
+The best way to unencrypt passwords is with the use of Lopht Crack 2.5 with
+its on board SMB sniffer and cracker.
+
+Below is a cut and paste from the Lopht Crack release 2.5 readme about SMB
+packets and there capture.
+
+*****************************************************************************
+Appendix B - Technical Details About Network SMB Capture
+
+Now, let's rip apart why it is so trivial to go through the LM hash on the
+network. And then talk about why the NT hash doesn't matter.
+
+ --------------------------  -----------------------------
+|      16byte LM hash      ||     16byte NT hash (md4)    |
+ --------------------------  -----------------------------
+
+We already know that you only have to go through 7 characters to retrieve
+passwords (up to 14 chars in length) in the LM hash, and that since thereis
+no salting being done, constants show up all over the place giving away too
+much information and speeding up attacks tremendously.
+
+ -------------------------------------------------
+| 1st 8bytes of LMhash | second 8bytes of LMhash  |
+ -------------------------------------------------
+
+1st 8 bytes are derived from the first seven characters of the password and
+the second 8 bytes are derived from the 8th through 14th characters of the
+password. If the password is less than 7 characters then the second half will
+always be: 0xAAD3B435B51404EE. Let's assume for this example that the users
+password has a LM hash of 0xC23413A8A1E7665fAAD3B435B51404EE (which I'll save
+everyone the nanosecond it would have taken for them to plug this into
+L0phtcrack and have it tell them the password is "WELCOME").
+
+Here's what happens to this hash on the network:
+
+-------- -------- 
+
+| A | <______________| B |
+
+| | | | 
+
+-------- --------
+
+B sends an 8 byte challenge to A. (assume 0x0001020304050607) Machine A takes
+the hash of 0xC23413A8A1E7665fAAD3B435B51404EE and adds 5 nulls to it, thus
+becoming 0xC23413A8A1E7665fAAD3B435B51404EE0000000000. The string 
+0xC23413A8A1E7665fAAD3B435B51404EE0000000000 is broken into three groups of
+7 :C23413A8A1E766 5fAAD3B435B514 04EE0000000000 The 7 byte strings are
+str_to_key'd (if you will) into 8 byte odd parity des keys.Now we have :
+
+| 8byteDeskey1 | | 8byteDeskey2 | | 8 byteDeskey3 |
+
+8byteDeskey1 is used to encrypt the challenge 0x0001020304050607. Let's assume
+the result is 0xAAAAAAAAAAAAAAAA. 8byteDeskey2 is used to encrypt the
+challenge 0x0001020304050607. Let's assume the result is 0xBBBBBBBBBBBBBBBB.
+8byteDeskey3 is used to encrypt the challenge 0x0001020304050607. Let's assume
+the result is 0xCCCCCCCCCCCCCCCC. The three 8byte values are concatenated
+(dumb!), and the 24 byte response of 0xAAAAAAAABBBBBBBBCCCCCCCC is returned to
+the server. The server does the same thing to the hash on it's end and
+compares the result to the 24 byte response. If they match, it was the correct
+original hash. Why this is boneheaded:
+
+7 char or less passwords
+
+ --------------------  --------------------  --------------------
+|   C23413A8A1E766   ||   5fAAD3B435B514   ||    04EE0000000000  |
+ --------------------  --------------------  --------------------
+
+The first thing we check is to see if the users password is less than 8
+characters in length. We do this by taking the 7 byte value of
+0x04EE0000000000, turning it into an 8 byte odd parity DES key, and encrypting
+it against the 8 byte challenge of 0x0001020304050607. If we get the result of
+0xCCCCCCCCCCCCCCCC then we are pretty sure it's < 8 chars in length. In order
+to be sure we can run through 0x??AAD3B435B514 (ie 256 possible combinations)
+to see that 5f shows us the result is 0xBBBBBBBBBBBBBBBB, proving that the
+password is less than 7 characters and also giving us the last byte of the
+first half of the LM hash. From this point, even assuming we're just joyriding
+and not worried about optimizing the way this is done (believe me, there are
+much more effective ways to do this that reduce the amount of time needed even
+further... this whole this is just showing that even a simplistic attack works
+against this implementation), it's no different than how a tool like
+L0phtcrack attacks the hashes in the registry. 
+
+8 char or greater passwords.
+
+ --------------------  --------------------  --------------------
+|   C23413A8A1E766   ||    AC435F2DD90417  ||    CCD60000000000  |
+ --------------------  --------------------  --------------------
+
+The first thing to check is whether the password is less than 8 characters in
+length. Deriving the 8 byte odd parity des key from 0x04EE0000000000 and
+encrypting against 0x0001020304050607 does not, in this case, give us
+0xCCCCCCCCCCCCCCCC, so we know that the password is 8 characters or greater.
+
+It takes us, in a worst case scenario, 65535 checks to figure out that the
+2bytes that are used in the last third are 0xCCD6. Even approaching this in a
+completely brain-dead fashion (hey, turn-about is fair play), you can go
+through your 7 digit combinations of characters for the first third the same
+way you would the LM hash from the registry. This will yield not only the
+first third of the response, but also the first byte of the second third. Keep
+in mind that you already have the last two bytes that made up the third. You
+could approach the middle third in the same fashion. (note: this whole method
+that MS is doing screams for a precompute table lookup attack - which given
+the small enough potential values is not impossible by any means) Thus, the
+challenge response is completely brute-forcable for the LM-hash. MS made the
+"oversight" of still sending the LM-hash response along with the NT response
+even when SP3 was installed. Thus it was a moot point as to how tough or well
+done the NT hash might or might not be. Since installing the LM-fix precludes
+continued use of windows 95 machines in regards to talking to NT machines, it
+is still a moot point as to how tough or well done the NT hash might or might
+not be. The LM hash is incredibly weak and your more secure NT hash is brought
+down to the lowest common denominator. It would have been nice if you could
+type a password greater than 14 chars into the UserManager app.
+
+**************************************************************************************
+
+So really the only way to stop the cracking of passwords is to be able to
+enter a longer password, that is made up of alphanumeric characters.  Trying
+not to use names, known words, e.g. a list of randomley selected alphanumeric
+characters.  But, unfortunatly no password is totally secure to cracking.  The
+only way i can see it going is to implement a sort of higher rate of
+encryption.   But, this would mean a total rebuild of protocols and client
+implementations.
+So the increase in password length is really the best way to go, it is also
+recommended to use Lopht crack on your systems, to monitor the length of
+passwords, and then advise users.  But, unfortunatly its nearly impossible to
+test passwords in a large company enviroment.  So maybe a list of passwords
+should be created by the admin and given to the users.  But, this yet again
+can cause problems because the list must be stored somewhere either on
+hardcopy, or soft copy.
+
+Slider.
+
+- EOF -

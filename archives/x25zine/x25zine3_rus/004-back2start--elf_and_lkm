@@ -1,0 +1,262 @@
+
+        ,┌s%$%s┐,      
+       ┌$$7"^"?$$L     
+      i$$',d$b,'$$;  
+yyyyyyyy$ $$$$$ $$l    back to start: elf и lkm
+^^""¤¤¤"' '%$%',$$F    by madcr 
+             ,s$$?;,_             __,,__                          
+             '?$'j$$$$%syyy┌┌┌┌y╕$¤¤""^"¤
+                ^¤$$$¤¤"^             
+
+
+ Продолжая тему  'back to start' хотелось бы сказать пару  слов о elf формате и
+ некоторых  тонкостях, которые могут помочь при  работе. Информации о структуре 
+ самого исполнимого файла хватает (см. спецификацию elf),и проблем возникать не
+ должно, но я все же кратенько напомню. Исполнимый elf файл по спецификации мо-
+ жет состоять из 5ти условных секций: заголовок, таблица заголовков программных
+ секций, сами программные секции, таблица символьных секциий и таблица заголов-
+ ков символьных секций.На деле, executable elf может содержать лишь заголовок и
+ одну программную секцию которая будет читаться/исполнятся и куда входят непос-
+ редственно данные.При запуске kernel не обращает никакого внимания на символь-
+ ные  секции и работает лишь с заголовком  (интерпретируя тип файла и т.д.) и с 
+ программными секциями (чтобы знать куда что грузить/запускать/читать).Соответ-
+ ственно всякие утилитки типа sstrip этим и занимаются - отрезают все связанное
+ с символьными секциями, оставляя в результате полный заголовок и обычно 2 пол-
+ ные  секции. Символьные секции нужны  для динамической подцепки других файлов, 
+ линковки, отладки (например gdb), модулей и тд, чем в итоге можно пренебречь и
+ выиграть в размере. Заголовок elf файла устроен так:
+
+
+ offset    size   	        description
+
+  :0h        4      "magic line",содержит - 0x7f,"E","L","F".
+  :4h        1      класс elf файла. 01 - 32 бита, 02 - 64 бита.
+  :5h        1      порядок следования байт.
+  :6h        1      версия. если не 1 - файл считается битым.
+  :7h        9      обычно здесь оси хранят свои инфу, но можно пихать суда
+            		любой хлам.
+  :10h       2      e_type. для исполнимых файлов - 02.
+  :12h       2      e_machine. как пример, 02 - sparc, 08 - mips r3000
+  :14h       4      e_version. должно всегда быть в 1.
+  :18h       4      e_entry. entry point ;)
+  :1ch       4      e_phoff. смещение от начала файла, по которому находится
+                       таблица заголовков программных cекций. 
+  :20h       4      e_shoff. смещение от начала файла, по которому находится
+                       таблица заголовков символьных секций.
+  :24h       4      e_flags.
+  :28h       2      e_ehsize. размер elf заголовка в байтах.
+  :2ah       2      e_phentsize. размер заголовков программных секций в байтах.
+  :2ch	     2      e_phnum. количество заголовков программных секций.
+  :2ef       2      e_shentsize. размер заголовков символьных секций в байтах.
+  :30h       2      e_shnum. количество заголовков символьных секций.
+  :32h       2      e_shstrndx. 
+
+
+ И до кучи структура заголовков программных секций:
+
+
+ offset    size   	        description
+
+  :0h       4       p_type. тип программной секции. как пример: 1-load, 0-null
+  :4h       4       p_offset. смещение от начала файла по которому лежит секция
+  :8h       4       p_vaddr. адрес в памяти по которому загружаться.
+  :0ch      4       p_paddr. издержки истории :) можно хлама напихать.
+  :10h      4       p_filesz. размер секции в файле.
+  :14h      4       p_memsz. размер секции в памяти.
+  :18h      4       p_flags. тип сигмента. как пример :
+						04 - read
+						05 - read & executable
+						06 - read & write
+					        07 - read & write & executable
+  :1ch       4      p_align. выравнивание.
+
+
+ Итого по спецификации elf заголовок должен быть 34h байта,а заголовок програм-
+ мной секции 20h байт. Опять же, в исполнимом файле и их можно  урезать, пример
+ под sparc/sunos:
+
+
+;; --- elf header ---
+
+           db 0x7f,"ELF",1,2,1             ;; magic
+           db "x25zine3",0x0a              ;; os info
+           db 0,2                          ;; e_type (for executable=2)
+           db 0,2                          ;; e_machine (2 = sparc)
+           db 0,0,0,1                      ;; version (always must be in 1)
+           db 0x00,0x01,0x00,0x4c          ;; entry_point - 0x1004a
+           db 0,0,0,0x30                   ;; programm section offset
+           dd 0                            ;; symbol section offset (not need)
+           dd 0                            ;; e_flags (not need)
+           db 0,0x30                       ;; elf header size
+           db 0,0x1c                       ;; size any programm section
+           db 0,1                          ;; how many programm section
+           db 0,0                          ;; e_shoff must be for sparc/sunos
+
+;; --- programm section header ---
+
+           db 0,0,0,1                      ;; LOAD
+           dd 0                            ;; offset from begin
+           db 0x00,0x01,0x00,0x00          ;; in memory at 0x10000
+           db "evil"                       ;; haha
+           db 0,0,0,0x6c                   ;; section size in file
+           db 0,0,0,0x6c                   ;; section size in memory
+           db 0,0,0,5                      ;; read & executable
+
+;; --- real code ---
+
+           db 0x82,0x10,0x20,0x04   ;; mov 4, %g1
+           db 0x90,0x10,0x20,0x01   ;; mov 1, %o0
+           db 0x13,0x00,0x00,0x40   ;; sethi %hi(0x10000), %o1
+           db 0x92,0x12,0x60,0x07   ;; or %o1, 7, %o1 ! 10007 <*ABS*+0x10007>
+           db 0x94,0x10,0x20,0x09   ;; mov 9, %o2
+           db 0x91,0xd0,0x20,0x08   ;; ta 8
+
+           db 0x82,0x10,0x20,0x01   ;; mov 1, %g1
+           db 0x91,0xd0,0x20,0x08   ;; ta 8   
+
+
+ elf_test> nasm -f bin selfmade_elf.s
+ elf_test> chmod 777 selfmade_elf
+ elf_test> ./selfmade_elf
+ x25zine3
+ elf_test> ls -la selfmade_elf
+ -rwxrwxrwx   1 toni     grads        108 Jan 14 12:47 selfmade_elf*
+                                      (!)
+ 
+
+  Кстати если нет насма, то есть чисто хакерский трюк - cat > lala, и удерживая 
+ alt на numeric keyboard  пишем опкоды и ctrl+d. Особо полезно, когда нет жела-
+ ния/возможности юзать hex редакторы.Или если вообще ничего нет,писать на обыч-
+ ном as байтами.
+ 
+  Насчет вышепоказанного примерчика. Там может возникнуть только 1 вопрос,о ве-
+ личине entry_point. На каждой оси и архитектуре он свой, узнается банально че-
+ рез objdump/gdb/и т.д. Остальное понятно из комментариев (надеюсь). Размер ко-
+ нечно можно уменьшать и еще и еще, но это  довольно  извращено, и использовать
+ эти извраты в реальных программах будет довольно трудно.
+
+
+  Теперь немного о loadable модулях.Информации по ним тоже мягко сказать не ма-
+ ло,но нигде и никогда я не видел lkm на ассемблере.(хотя вру,redplait в 2000ом
+ году сделал gcc module.c -S ;) ). Во первых это реальное  уменьшение размера в 
+ несколько раз (что особо приятно по специфике), во вторых появляются некоторые
+ нюансы которые можно использовать в нашу пользу.Для lkm не нужны никакие прог-
+ раммные секции,не нужен также и entry point.Для минимального модуля (хотя мож-
+ но ли называть модулем то,что не имеет init/cleanup_module ?) нужен лишь соот-
+ ветствующий elf header, символьная таблица и 1 символьный заголовок который из
+ этой таблицы возьмет минимум необходимого. 
+ 
+ Структура заголовков символьных секций:
+
+ offset    size   	        description
+ 
+  04h       4         sh_name. смещение от начала символьной таблицы 
+			       на имя секции.	
+  08h       4         sh_type. тип секции (как пример 1 = progbits).
+  0ch       4         sh_flags. флаги.
+  10h       4         sh_addr. адрес в памяти по которому первый байт секции.
+  14h       4         sh_offset. смещение на данные этой секции в таблице 
+				 символов от начала файла.
+  18h       4         sh_size. размер всей секции.
+  1ch       4         sh_link. индексная таблица заголовка секции.
+  20h       4         sh_info. дополнительная инфа (зависит от типа секции).
+  24h       4         sh_addralign. ограничение выравнивания (если нужно).
+  28h       4         sh_entsize. fixed-size таблица (если нужна).
+
+
+  С lkm нюансов слегка больше чем с executable.Во первых мы не сможем уменьшить
+ размер заголовка, т.к. данные о  символьных  заголовках идут в самом конце elf 
+ заголовка. Во вторых  заголовок символьной секции нельзя  уменьшить не на байт 
+ (не в пример программному заголовку). В третьих нужно знать, что для lkm нужна
+ секция .modinfo c данными о версии кернела. (естественно,что при использовании
+ init/cleanup_module понадобится еще одна секция) В итоге мы получаем следующее
+ (x86):
+  
+;; --- elf header ---
+
+	   db 0x7f,"ELF",1,1,1     ;; magic line
+           db "x25zine#3"          ;; os info
+           db 1,0                  ;; relocatable
+           db 3,0                  ;; intel 386
+           db 1,0,0,0              ;; version
+           db 0,0,0,0              ;; entry_point _not need for lkm_
+	   db 0,0,0,0              ;; programm section _not need for lkm_
+           db 0x55,0,0,0           ;; offset on header symbol sections
+           db 0,0,0,0              ;; e_flags
+           db 0x34,0               ;; elf header size
+           db 0,0 		   ;; programm section _not need for lkm_
+           db 0,0                  ;; programm section _not need for lkm_
+
+           db 40,0                 ;; soft header size (!! must be 40 bytes !!)
+	   db 1,0                  ;; how many headers
+	   db 0,0                  ;; e_shstrndx. 
+
+
+;; --- code here ---
+;; blablabla             ;; super lkm code (where,where my init/cleanup ?;) ).
+;; --- end code ---
+
+
+;; --- symbol table ---
+
+           db "kernel_version=2.4.18-3",0   ;; =18h   
+	   db ".modinfo",0                  ;; =9h 
+	   
+;; --- symbol section header ---
+
+           db 0x18,0,0,0            ;; sh_name (.modinfo)
+	   db 0x1,0,0,0             ;; type - progbits
+	   db 0,0,0,0               ;; not need flags
+	   db 0,0,0,0               ;; not need address
+	   db 0x34,0,0,0            ;; offset from file bigining on data
+	   db 0x21,0,0,0            ;; size. 18h+9h=21h 
+	   db 0,0,0,0               ;; not have header link table
+	   db 0,0,0,0               ;; 'extra' info
+	   db 0x1,0,0,0             ;; align constraints.
+	   db 0,0,0,0               ;; not have fixed-size table.
+
+
+
+ lkm_test> nasm -f bin selfmade_elf.s
+ lkm_test> ls -la selfmade_lkm
+ -rw-r--r--   1 root     root         125 Jan 14 18:20 selfmade_lkm.o
+                                      (!)
+ lkm_test> insmod selfmade_lkm.o
+ lkm_test> lsmod
+ Module                  Size  Used   by 
+ selfmade_lkm            156    0  (unused)
+ ....
+
+
+ Естественно при нормальном модуле, выигрыш в размере будет особо чувствителен. 
+
+ Работа с sys_call_table на ассемблере также прозрачна (m68k):
+
+ /* 152 - rename */
+
+ .text
+ init_module:
+ 	movl sys_call_table+152,old_syscall
+	movl #new_syscall,sys_call_table+152
+        eorl %d0,%d0
+	rts
+ cleanup_module:
+	movl old_syscall,sys_call_table+152
+	rts
+ new_syscall:
+	eorl %d0,%d0
+	rts
+ .data
+ old_syscall: .long 0
+
+ .section .modinfo
+ .string "kernel_version=blabla"
+
+
+ Вот в принципе и все, что хотелось сказать по этим темам.Для более полного по-
+ нимания я положил в бонус некоторые примеры.
+ 
+
+ Ссылки:
+
+ [1] EXECUTABLE AND LINKABLE FORMAT (ELF)

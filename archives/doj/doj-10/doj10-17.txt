@@ -1,0 +1,225 @@
+                              ‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹
+                            ‹ﬂD i s c o r d a n tﬂ‹
+    ‹ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ‹‹‹‹‹‹‹‹‹‹‹ﬂ€ Opposition  Journal €ﬂ‹‹‹‹‹‹‹‹‹‹‹ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ‹
+   ﬁ€                        ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ                        €›
+    €       Volume: [ 1]          Month: [ Jan]           File:  [17]     €
+   ﬁ€       Issue:  [10]          Year:  [2001]           Total: [20]     €›
+    ﬂ‹‹‹‹‹‹‹‹‹‹‹           ‹‹‹‹‹‹‹‹‹€ﬂﬂﬂﬂ€‹‹‹‹‹‹‹‹‹‹           ‹‹‹‹‹‹‹‹‹‹‹ﬂ
+                ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ                         ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
+
+
+
+-- PC Interfacing --
+
+Want to do something new and interesting with that old 486 lying in the corner?
+
+This article will teach you how to control simple electronics with your
+computer, so you can do things like turn on the lights in your house at a 
+certain time, or even launch bottlerockets! (I'm doing a toaster, for more 
+information on this stupid project, go to http://phaxx.hatrick.ie/etoast)
+
+
+First, a diagram of the parallel port showing the pins.
+
+
+        _____________________________________________
+       / ___________________________________________ \
+      / /                                           \ \
+      \ \13 *  *  *  *  +  +  +  +  +  +  +  +  * 1 / /
+       \ \                                     14  / /
+        \ \25 0  0  0  0  0  0  0  0  *  *  *  *  / /
+         \ \_____________________________________/ /
+          \_______________________________________/
+
+Hope my ASCII art is clear enough =)
+
+The pins are numbered one to 25, starting at the top right, going left to
+pin 13, then starting again from 14 at the bottom right, again going left to
+pin 25.
+
+-- Explanation of the pin functions --
+
+1	* Strobe
+
+2	+ Data line 1
+3	+ Data line 2
+4	+ Data line 3
+5	+ Data line 4
+6	+ Data line 5
+7	+ Data line 6
+8	+ Data line 7
+9	+ Data line 8
+
+10	* Ack
+11	* Busy
+12	* Paper Out
+13	* Select In
+14	* Auto Line Feed
+15	* Error
+16	* Initialise
+17	* Select Out
+
+18-25	0 GND
+
+Right so, you can pretty much ignore pin one, and pins ten through 17, 
+(labeled here with asterisks, '*') as they're used for things I won't cover 
+here.
+
+Pins 18 through 25 are all ground, all connected together. (just so you know, 
+the casing of the connector is also ground, as is the computer's case)
+
+The only pins we need to worry about are two to nine, the eight data lines, 
+and of course pin 25.
+
+Right, with the theory out of the way, on to the first practical!
+
+-- Ooh, lookit the little flashing light! --
+
+IMPORTANT!
+Before you start doing anything, it would be a VERY good idea to have
+a parallel port expension card for the controlling computer, so that if you 
+make a big boo-boo, it won't hurt the computer or it's onboard parallel port.
+Four of the pins on my linux machine don't work anymore, thanks to my
+screwing about.
+
+Here, you'll be able to control a little LED. (that's Light Emitting Diode)
+
+For this, you should have the following items
+
+An LED =)
+A bit of thin-ish wire
+Wirestrippers
+A computer running some form of un*x (for the controlling program, see below
+         for the sources)
+A soldering iron
+Solder
+
+But ideally, you should have one of these thingies in addition to the above;
+
+A 25-pin male parallel port connector (If you're in the USA, it's radioshack 
+         number 276-1547)
+
+
+With that assembled, off we go!
+
+Cut two pieces of wire however long you like, I'd recommend a few inches.
+Strip a little bit off the wire, and solder each wire onto one of the LED's 
+pins.
+
+Find out which pin on the LED is negative, and solder it's wire onto pin 25 
+of the parallel port connector, then solder the positive wire onto pin two
+of the connector. (that's data line one)
+
+Don't worry if you don't know which pin is which, just try it both ways, you
+can't do any damage.
+
+Plug it into the parallel port, and then compile the code below with
+
+# g++ ppw.cpp -o ppw
+
+Copy & paste this code into ppw.cpp
+
+(This was written on a Slackware Linux 7.0 system) 
+
+*** cut here ***
+
+#include <iostream.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <asm/io.h>
+#include <sys/io.h>
+#include <string>
+#include <fstream.h>
+#include <time.h>
+#include <ctype.h>
+
+#define BASEPORT 0x378
+#define BASEPORT2 0x379
+
+void main(int argc, char *argv[]) {
+int total;
+total=0;
+
+//Check to make sure all the right information was passed to the program
+
+if (argc <= 8) {
+cout << "Parallel port writer\n\nYou cannot give less than ";
+cout << "eight arguments!\n(in the format 'ppw x x x x x x x x' ";
+cout << "where x=[0,1])\n\n";
+return 1;
+}
+if (argc >= 10) {
+cout << "Parallel port writer\n\nYou cannot give more than ";
+cout << "eight arguments!\n(in the format 'ppw x x x x x x x x' ";
+cout << "where x=[0,1])\n\n";
+return 1;
+}
+
+//If everything is okay, put together the number to be sent to the parallel 
+//port
+
+if (strcmp(argv[1],"1") == 0) {total=total+1;};
+if (strcmp(argv[2],"1") == 0) {total=total+2;};
+if (strcmp(argv[3],"1") == 0) {total=total+4;};
+if (strcmp(argv[4],"1") == 0) {total=total+8;};
+if (strcmp(argv[5],"1") == 0) {total=total+16;};
+if (strcmp(argv[6],"1") == 0) {total=total+32;};
+if (strcmp(argv[7],"1") == 0) {total=total+64;};
+if (strcmp(argv[8],"1") == 0) {total=total+128;};
+
+ioperm(BASEPORT,3,1);  //open the parallel port
+outb(total, BASEPORT); //write the number to it
+ioperm(BASEPORT,3,0);  // close the parallel port
+
+return 0;
+}
+
+*** cut here ***
+
+Then execute the code with './ppw 1 0 0 0 0 0 0 0'
+
+What this does is turns on line one, and leaves the other seven off.
+
+As soon as that's run, your LED _should_ have turned on, if not, look here
+for why it may not have.
+
+The pins on the LED are the wrong way, simply switch the wires over
+(that's remove the wires, and resolder the one that was on pin 25 to pin 2, and 
+vice versa)
+
+The LED is broken, try another one.
+
+The parallel port isn't working.
+
+The controlling software didn't work, ie, didn't compile or for some other
+reason - if the problem is here, please let me know.
+
+Well there you have it, your first step in PC interfacing. Oooh. =)
+
+You can easily add more LEDs (I made up eight on a piece of biscuitboard)
+If youre doing this, connect all their negative pins together and that to pin 
+25.
+
+If you want to make the LED(s) flash, here's a snippet of perl that will do 
+the job nicely. Note that it needs ppw to be compiled, and you run it in the
+same directory as ppw.
+
+(this is all one command, just copy & paste and press return)
+
+# perl -e 'while(){system "./ppw 1 0 0 0 0 0 0 0"; sleep 1; system 
+"./ppw 0 0 0 0 0 0 0 0"; sleep 1;' 
+
+It's all one line, and it makes first turns on the LED, waits a second, turns 
+it off, waits a second, and loops like that.
+
+
+I'll leave you with that, but I'll be back in the next issue with a guide to 
+launching bottlerockets from your computer! (Set up a cron job to launch one 
+at midnight every night, or launch one in the morning to wake you up!)
+
+
+phaxx
+
+phaxx.hatrick.ie
+root@hatrick.ie
+#hackers_ireland, #hackerzlair on DALnet (irc.dal.net)

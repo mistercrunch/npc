@@ -1,0 +1,48 @@
+---
+import Layout from '../../layouts/Layout.astro'
+import Breadcrumbs from '../../components/Breadcrumbs.astro'
+import { getEzine } from '../../lib/ezines'
+import { readTextFile } from '../../lib/files'
+
+// Parse path: /view/ezine/issue/file
+const pathParts = Astro.params.path?.split('/') || []
+const [ezineSlug, issueSlug, ...fileParts] = pathParts
+const fileSlug = fileParts.join('/')
+
+if (!ezineSlug || !issueSlug || !fileSlug) {
+  return Astro.redirect('/404')
+}
+
+const ezine = getEzine(ezineSlug)
+if (!ezine) {
+  return Astro.redirect('/404')
+}
+
+let content: string
+try {
+  content = readTextFile(ezineSlug, issueSlug, fileSlug)
+} catch (err) {
+  return Astro.redirect('/404')
+}
+
+const fileName = fileSlug.split('/').pop() || fileSlug
+const issueName = issueSlug.replace(/-/g, ' ').replace(/_/g, ' ')
+---
+
+<Layout title={`${fileName} - ${issueName} - ${ezine.name} - PhileZ`}>
+  <Breadcrumbs items={[
+    { label: 'Home', href: '/' },
+    { label: ezine.name, href: `/ezine/${ezineSlug}` },
+    { label: issueName, href: `/ezine/${ezineSlug}/${issueSlug}` },
+    { label: fileName }
+  ]} />
+
+  <h1>{fileName}</h1>
+  <p style="color: #888; margin-bottom: 1.5rem;">
+    {ezine.name} › {issueName}
+  </p>
+
+  <div class="file-viewer">
+    <pre class="file-content">{content}</pre>
+  </div>
+</Layout>

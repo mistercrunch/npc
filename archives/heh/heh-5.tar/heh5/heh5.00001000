@@ -1,0 +1,546 @@
+                         Operating Systems 
+
+		                z1p0
+
+process[z1p0]->state = running;
+
+Como ya todos deben saber un sistema operativo no es ni mas ni menos que un
+programa encargado de generar una abstraccion del hardware para que otros
+programas puedan funcionar, y que programadores sin conocimiento alguno de
+la arquitectura de la computadora puedan hacer su labor tranquilamente.
+
+Algunos sistemas operativos, los cuales van a ver mas a menudo, son:
+Unix
+Linux
+OpenBSD
+FreeBSD
+NetBSD
+Minix
+QNX
+Windows *  [ para mi no es un SO.. pero algunos lo usan como tal :) ]
+Dos
+Elix [ mi sistema operativo :) bueno solo esta en mi maquina y en desarrollo ]
+
+Y por que hay tanta variedad?
+
+Es una pregunta realmente interesante, pero hay una respuesta clara.. Nadie
+es perfecto y nadie tiene la verdad de todo. Por esta razon, cada developer
+tiene sus propios ideales, algunos les gusta un algoritmo y a otros otro, a
+algunos les gusta comunicar los procesos con mensages (Tanenbaum) y a otros no
+(Linus Torvalds), y nadie hace las cosas perfectas desde el comienzo; por lo
+tanto si el problema es estructural (basico) y no de algun simple bug, se 
+necesita hacer todo el sistema operativo de nuevo...
+
+Un poco de historia:
+
+Todo comenzo en algun laboratorio de Bell.. o algo asi.. y con ayuda de AT&T
+se comenzo a desarrollar un SO al que lo llamaron MULTICS, bueno fue un
+fracaso.. osea era el SO ideal pero no andaba como debia en la practica, a
+si que uno de los developers (Ken Thomson) se fue y comenzo un proyecto por
+separado al que un amigo molestandolo le dijo que lo llame UNICS, porque lo
+estaba haciendo solo :), y el cambio CS por X y ahi nacio UNIX. Luego cuando
+Unix comenzo a crecer y era estudiado en las universidades ahi por la
+version 6 , empezaron a pedir plata.. y obviamente tambien la pedian aunque 
+se utilizara con fines educativos... esto hizo que un profesor (Tanenbaum) 
+comenzara el desarrollo de un sistema operativo con el objetivo de utilizar a 
+este para explicar.. de aca nacio minix que viene de mini-unix ya que esta 
+basado en la version 7 de unix.. este nuevo sistema operativo era mucho mas 
+simple y muy prolijo para su rapido entendimiento por los alumnos... mas tarde
+Linus comenzo a desarrollar un nuevo sistema operativo llamado Linux, esto ya 
+que Tanenbaum no lo habia dejado comenzar a trabajar en minix, ya que 
+Tanenbaum queria mantenerlo chico (KISS = keep it simple, stupid). 
+Linux esta  basado en Minix.. bueno en cierta forma ya que tiene muchas 
+grandes diferencias.. asi que podriamos decir que Linux esta basado en Unix.. 
+Bueno la verdad que la historia de la otra rama de Unix (BSD=Berkeley
+Software Distribution) no la conosco tan bien como para contarselas pero les 
+puedo decir que Theo deRaadt comenzo a desarrollar OpenBSD cuando se separo 
+de el proyecto FreeBSD (creo que por problemas internos).
+
+Conceptos Generales:
+
+NO EXISTE UN S.O. MULTITASKING CON UN SOLO PROCESADOR
+Se los digo ya que hay mucha genete que no sabe nada, y piensa que realmente
+esta ejcutando dos aplicaciones al mismo tiemp.
+
+Multitasking: un sistema operativo multitasking es el cual puede tener en
+memoria mas de un proceso e ir dejandole un poco de tiempo del procesador a
+cada uno.. que quiere decir esto?
+
+proceso <A>   ===
+proceso <B>   +++
+proceso <C>   ---
+
+         /+\
+	  |
+          |
+Proceso A>|===      ===      ===
+Proceso B>|   +++      +++      +++
+Proceso C>|      ---      ---      ---
+          +----------------------------------> 
+                             (tiempo procesador)
+
+Como ven el sistema operativo primero comienza la ejecucion del
+proceso <A> (===), todos los demas procesos estan parados (sleeping). Luego
+pone en el estado sleeping al proceso A y comienza la ejecucion del proceso
+B (+++) y por ultimo pone en estado sleeping al proceso B y comienza la 
+ejecucion del proceso C (---) y asi sucesivamente.
+
+Timesharing: Bueno esto es algo realmente importante, normalmente se
+confunde multiusuario con timesharing... timesharing significa que mas de un
+usuario pueden estar utilizando el SO y este a nivel procesos les va dando
+una sensacion de multitasking.
+
+Multiusuario: El SO puede manejar mas de un usuario, algo muy estupido en
+esta epoca en la cual los SO's que no soportan mas de un usuario, no tienen
+futuro alguno.
+
+
+Que son los procesos:
+
+Bueno un proceso es basicamente un programa en memoria, podriamos decir que
+un proceso cuando esta en memoria, esta dividido normalmente en 3:
+Text --- Data --- Stack
+
+Mapa de la Memoria
+
+|---------------|       0x0000...
+~               ~
+|---------------|       ---+
+|     Text      |          |
+|---------------|          |
+|     Data      |          +-- Proceso
+|---------------|          |
+|     Stack     |          |
+|---------------|       ---+
+~               ~
+|               |
+|_______________|        0xFFFF...
+
+Les paso a explicar:
+[Text] es el codigo del programa (o proceso como quieran llamarlo), este es
+indispensable para cualquier programa... :) si no.. bueno. que va a hacer?... 
+[Data] son las variables, cuando en C hacemos por ejemplo:
+char pepe[] = "Hola";
+y ejecutamos el programa, en la parte de Data va a estar "Hola"...
+[Stack] es la pila del programa, se utiliza para datos intermedios, habran
+visto que es muy importante si alguna vez programaron assembler o codearon
+algun buffer_overflow.
+
+Estados de los procesos:
+
+Los procesos tienen estados, los cuales identifican que estan haciendo en
+ese momento el proceso, estos son:
+-=Ready=-+-=Stopped=-+-=Running=-
+[Ready] significa que el proceso esta listo para que el SO le de un poco del
+tiempo del procesador para seguir ejecutandose.
+[Stopped] en este estado el proceso esta realizando una operacion en la cual
+tiene que esperar, y para que no consuma tiempo del procesador se lo coloca
+en este estado. Un ejemplo es si el proceso espera que un usuario escriba
+algo, entonces se lo pone en este estado hasta que el usuario comienza a
+escribir.
+[Running] esto quiere decir que el proceso esta siendo ejecutado (IP apunta
+al codigo del proceso). SOLO UN PROCESO PUEDE ESTAR EN ESTE ESTADO, CUANDO
+SOLO HAY UN PROCESADOR.
+Estos estados son los basicos, despues en cada SO implementa los suyos, los
+nombres seguro que cambian... En linux, por ejemplo se puede observar que
+hay 5 estados (no los voy a nombrar).
+
+Que es un proceso parent y un child?
+No es para nada complejo entender esto, pero deberan hacer un peque#o
+esfuerzo mental :) . Imaginense a los procesos como un arbol jerarquico:
+
+                       (1)
+		      /   \
+		    (2)   (3)
+		  /          \
+		(4)          (7)
+	       /   \
+	     (5)   (6)
+		 
+(#) = proceso con un ID (PID = Process ID) #.
+Bueno si lo entendieron el arbol jerarquico el esfuerzo ya no fue en vano. :)
+
+Les doy un ejemplo, en linux el primer proceso que se ejecuta es el INIT,
+lo podriamos mostrar en el grafico con el (1), luego INIT inicia otros
+procesos (2) & (3), y estos a su ves ejecutan otros procesos mas... y asi
+sucesivamente; entonces podriamos decir que el proceso (2) y el proceso (3)
+son hijos, (o childs) del proceso (1). Y que el proceso (4) es hijo del
+proceso (2). El parent de (4) es (2) y el de (3) es (1). 
+Para que lo vean un poco mas en la practica, pueden ver el proceso INIT y
+ver como este ejecuta otros procesos (/usr/src/linux/init/main.c).
+Un proceso para terminar ejecuta exit() y con esto se le manda el status de
+la finalizacion al parent que debe estar ejecutando un waitpid(). Lo que
+puede ocurrir es si un parent termina y los childs tambien terminan pero lo
+que sucede es que la memoria usada por esos childs se libera, pero no se 
+libera el entry en la tabla de procesos, al estado de este proceso se lo
+llama zombie, cuando sucede esto, el proceso child pasa a ser child del
+proceso INIT, y este es el que recive el estado del proceso zombie. 
+
+Scheduling:
+
+Scheduling es el proceso de eleccion de que proceso va a estar ejecutandose
+en este momento y cuanto tiempo, etc, etc...
+bueno, como ya vimos los procesos tienen estados y el SO es el encargado de
+cambiarlo de un estado a otro, pero mas especificamente el encargado es el
+scheduler, el cual normalmente esta muy bien separado estructuralmente en
+los SO's... por ejemplo en linux lo podemos encontrar en
+/usr/src/linux/kernel/sched.c
+Bueno.. lo que hace el scheduler es a grandes rasgos mantener una tabla con
+el proceso y el estado... (normalmente estas tablas tienen muchisima mas
+info necesaria). 
+Aca viene la parte interesante!..
+El scheduler se fija en la tabla a quien tiene que pasar a estado stopped y
+a quien tiene que ponerlo en ejecucion... Esto lo hace con la ayuda de
+distintos algoritmos, los cuales veremos en breve... 
+Se nombra PREEMPTIVE scheduling, al cual pone a algunos procesos en el
+estado stopped, y ejecuta alguno, luego lo cambia a stopped y ejecuta otro;
+y asi sucesivamente.. Por lo contrario se llama NONPREEMPTIVE scheduling al
+cual ejecuta el proceso hasta que finaliza y despues agarra otro y lo
+ejecuta hasta que termina y asi sucesivamente... 
+
+Algoritmos de scheduling:
+
+Les voy a hablar a grandes rasgos algunos de los algoritmos mas conocidos y
+de los mas utilizados.
+
+[RR] Round Robin
+Es uno de los mas utilizados, funciona de la siguiente manera; a cada
+proceso se le aplica lo que se llama un quantum (un numero) el cual es el
+equivalente al tiempo que el proceso va a estar en ejecucion. Para este
+algoritmo no existen procesos mas ni menos importantes a todos se les asigna
+el mismo quantum:
+
+Proceso A     Proceso B       Proceso C
+    \         /              /
++-----+    +-----+    +-----+
+|  A  |--->|  B  |--->|  C  |
++-----+    +-----+    +-----+
+\_____/
+   |___ Tiempo de ejecucion [quantum]
+   
+Como se ve cada proceso se ejecuta un tiempo determinado, luego el segundo,
+y asi sucesivamente...
+Una de las cosas que uno se plantea es que tanto quantum le asigno a los
+procesos? Bueno si les asigno 600msec a cada uno es una barbaridad ya que
+hagan la cuenta de si hay 20 procesos corriendo, cuando se va a poder
+ejecutar el ultimo.. :( y si le pongo un quantum muy chico el problema que
+tiene es que el pasaje de un proceso a otro, osea cambiar el estado de un
+proceso y comensar a ejecutar otro tarda sus clock ticks :) entonces:
+si para cambiar de un proceso a otro son 10 clock ticks y le asignamos un
+quantum de 10, el 50% del procesador va a ser para los procesos y el otro
+50% para el pasaje de un proceso a otro... Por lo tanto se debe usar un
+valor intermedio para satisfacer las dos necesidades. Segun Tanenbaum
+100msec es un tiempo razonable.
+
+[RR with priority] Round Robin con prioridades
+
+Es el mismo concepto que Round Robin, pero a cada proceso se le asigna un
+quantum diferente segun la prioridad del mismo, por ejemplo: un daemon http
+deberia tener menos prioridad que un shell.. por lo tanto al daemon se le
+asigna un menor quantum que al shell.. 
+
+
+[Lotery Scheduling] 
+
+Este algoritmo es muy sencillo e interesante a la vez, ya van a ver porque:
+La idea es que a cada proceso se le asigna un ticket, luego cuando se tiene
+que pasar de un proceso a otro se elije un ticket random y el proceso que
+tiene ese ticket comienza su ejecucion. Para manejar prioridades con este
+algoritmo lo que se puede hacer es como hace uno en la loteria sacar mas
+tickets!!.. entonces se le asigna mas tickets al proceso que uno decide que
+tiene mas prioridad entonces las probabilidades de que salga "sorteado :)"
+son mayores...
+De esta forma dejariamos al azar la prioridad de los procesos, aunque les
+dariamos mas posibilidades a los que les damos mas tickets (mas numeros).
+No tengo conocimiento de algun SO que implemente este Algoritmo... :( pero
+alguno debe haber.
+
+Interprocess Comunication
+
+Bueno, no voy a entrar en detalles de implementaciones, por dos razones. 1)
+es un tema muy largo y grande 2) nunca lo trabaje.
+La idea es que todos los procesos se pasan los parametros mandandose
+mensajes, entonces un proceso como por ejemplo un servidor hace:
+while (1) {
+   recv(source, msg);
+   result = do_job(msg);
+   dest = source;
+   send(source, result, dest)
+}
+y de esta forma espera un mensaje cuando llega lo procesa, envia los
+resultados si es necesario y luego continua esperando.
+Para mas informacion pueden referirse a Minix, el cual esta implemetado con
+Message passing.
+Linux usa messase pasing?
+Como ya lo dije no. Para comunicacion entre procesos no se usan mensajes, si
+no que cada procesos implementa distintas syscall's y los demas procesos las
+pueden usar. Si quieren pueden ir a www.kernel.org y mirar las NOTES de las
+primeras versiones de linux que explica porque no usa messase passing, una
+de las razones (y la mas importante) es por simplicidad, ya que hay que
+tener muchas cosas en cuenta cuando se utilizan mensajes. 
+
+Compartiendo codigo:
+
+Como ya vimos los procesos estan formados por una parte la cual se llama
+Text que es ni mas ni menos que el codigo, que pasaria si ejecutamos muchas
+veces un shell como por ejemplo "bash", este shell tiene el mismo codigo
+siempre y lo unico que cambia cuando esta en memoria es el stack y los datos
+que son propios de cada proceso... Para esto lo que se puede hacer es
+compartir el Codigo y de esta forma tener una sola copia del codigo del
+shell en memoria y dejar mas memoria libre:
+
+T=text D=data S=stack
+-=Memoria=-
++------+   \
+|  T   |   |
++------+   |
+|  D   |    \
++------+    / Proceso <A>
+|  S   |   |
++------+   /
+~      ~
+|      |
++------+  \
+|  D   |   |  
++------+   |__ Este proceso esta usando el codigo del proceso A
+|  S   |   |
++------+   /
+
+
+Memory Management
+
+En esta parte hablaremos un poco de memoria virtual, y todo lo referido al
+manejo de Paginas, cuando implementamos paging...
+A mi entender es una de las partes mas criticas del sistema operativo, si
+esta no anda.. :( .. todo mal.. 
+Es la encargada de mantener un control de que partes de la memoria estan
+siendo utilizadas, donde voy a poner el proceso que se acaba de ejecutar, y
+algunas cosas mas que van a empesar a entender mas adelante.. 
+Esto es un ejemplo de un SO's que no es multitasking como puede ser DOS:
+
++------------+   0xFFFF...
+|            |
+|Espacio para|
+|    el      |
+|  proceso   |
++------------+
+|     OS     |
++------------+   0x0000...
+
+
+Esto se ve muy sencillo ejecutamos un programa y el SO se encarga de
+ponerlos en la posicion de memoria reservada para los procesos y luego lo
+ejecuta hasta que termina, donde lo saca de memoria... El problema de esto
+como es obvio es que no se puede ejecutar mas de un proceso :(.
+El ejemplo a continuacion es de un SO multitasking con tres procesos en
+memoria llamados A, B, C
+
++------------+ 0xFFFF...
+|     A      |
++------------+
+|            |    [ACLARACION] Como ya sabemos, cada proceso esta dividido
+|     B      |                 en el stack, el codigo y los datos aunque no
+|            |                 lo haya especificado.
++------------+
+|     C      |
+|            |
++------------+
+|   Free     |
+|   Space    |
++------------+
+|    OS      |
++------------+  0x0000...
+
+
+
+Como ven hay mas de un proceso en memoria, luego el scheduler se encargara
+de elegir cual ejecutar, y todo lo ya explicado...
+Entonces MM(Memory Management) se debe encargar de ubicar a los procesos y
+encontrales lugares libres cuando son ejecutados, por esta razon es el
+encargado de handlear funciones como fork, exec etc...
+
+[EXEC]Cuando ejecutamos un programa que es lo que pasa?
+Bueno es muy sencillo, cuando ejecutamos un programa, lo estamos haciendo
+desde otro :) por ejemplo, si ejecutamos en nuestro shell:
+bash# exec ls
+lo que pasa es que se nos va a desloguear la terminal, pero lo que realmente
+ocurrio fue que se ejecuto ls y luego nos deslogueamos porque no hay
+ningun shell corriendo.. :( .. pero si yo lo ejecute desde un shell.. bueno
+les cuento... 
+Cuando ejecutan algo normalmente en el shell lo que este hace es usar la
+funcion fork(), esta funcion lo que hace es hacer una copia de nuestro
+proceso (el que llamo a esta funcion) exactamente igual ejemplo:
+
+-=Memoria=-
++----------+
+|          |         En este ejemplo vemos en memoria a un proceso al que
++----------+         llamaremos A, y luego espacios libres de memoria. 
+|    A     |         Este proceso puede ser tranquilamente nuestro shell.
++----------+
+|          |
+|          |
+|          |
+~          ~
+|          |
++----------+
+|   OS     |
++----------+
+
+El proceso A ejecuta la funcion fork() y lo que obtenemos es:
+
++----------+
+|          |
++----------+  Como pueden observar al A ejecutar fork() obtenemos una 
+|     A    |  replica exacta de A [Copia de A]
++----------+
+|Copia de A|
++----------+
+|          |
+~          ~
+|          |
++----------+
+|    OS    |
++----------+
+
+Bueno para seguir con el ejemplo del shell.. cuando ejecutamos algo y el
+shell como dije ejecuta fork() obtenemos una replica del shell, lo que hace
+el shell es despues hacer que la copia haga un exec() del comando que
+ejecutaron... osea si ejecutaron "ls" primero hace un fork() y despues la
+copia hace un exec("ls") ... ahora que hace un exec?... lo que hace es
+sencillo.. borra el proceso que hizo el exec, y lo remplaza con el comando
+que ejecuto.. osea la copia de A pasa a ser el comando ls... por esta razon,
+cuando ejecutamos bash# exec ls -- lo que hace es sobrescribirse el shell
+con el codigo del LS y por esta razon cuando termina el comando nos
+deslogueamos..
+Hay que tener en cuenta que segun las implementaciones cuando se ejecuta
+EXEC primero se busca un espacio para el programa que se quiere ejecutar y
+despues se libera la memoria del proceso que ejecuto el EXEC.
+un ejemplo de un shell teoricamente [no prueben compilarlo :) ] seria algo
+asi a grandes rasgos:
+
+while (1) {
+       get_work(comando, parametros);
+       if (fork () != 0) {
+             wait(&status); 
+       } else {
+             exec(comando, parametros);
+       }
+}
+Bueno lo que significa esto es:
+Primero leemos un comando que escriba el usuario, luego ejecutamos el fork,
+lo interesante de esto es que si estamos en la copia, se ejecutara el exec
+pero si estamos en el parent, osea en el shell se ejcuta la funcion wait()
+que lo que hace es esperar a que el child (el proceso que genero con el
+fork) termine... y asi sucesivamente....
+
+Espero que hayan entendido esto que es muy facil... para mas informacion
+miren las MAN de linux u otro SO que esten corriendo...
+ACLARACION: Windows no es considerado un sistema operativo. Ya que como la
+palabra lo indica debe ser OPERATIVO, y no creo que sea algo usable.. :)
+solo molestando un poco... (un palo mas para bILL)
+
+Memoria Virtual
+
+Cuanta memoria tenes?.. 128mb? 256mb? 512mb? y te crees que eso alcanza??
+Bueno todo comenzo cuando .. bueno no me acuerdo.. creo que no habia
+nacido.. :( .. Antes tenian el problema que los programas eran cada vez mas
+grandes y no entraban en memoria completos, por esta razon los developers
+tenian que dividir a sus programas en overlays y de esta forma se hiba
+ejecutando un overlay, cuando terminaba, tenia que subir el otro overlay y
+volver comenzar su ejecucion... El problema de esto era que habia que
+dividir al programa en overlays y no era muy divertido que digamos.. :) 
+Lo que se hizo fue crear un espacio lineal de memoria virtual, osea que no
+existe... El SO se encarga de subir en memoria lo que
+puede, lo demas lo deja en el disco, y despues cuando es necesario
+automaticamente ubica un espacio en memoria y sube lo que esta en el disco a
+memoria... Tambien se encarga de dividir al programa, ya no mas trabajo del
+programador. :)
+La arquitectura intel, tiene un bus de direcciones de 32bits esto significa
+que como mucho podria direccionar hasta 2^32 = 4GB, lo que nos da la
+posibilidad de tener una memoria virtual de 4GB, las cuales solo van a estar
+mapeadas en memoria la cantidad que yo tengo fisica.. 
+A estos 4GB los llamaremos Virtual Address Space, y a al espacio fisico de
+memoria disponible, lo llamaremos Physical Address Space. que barbaro eh! XD
+
+Virtual Address Space
+
++----------+ -> 4GB
+|          |
+|          |
+~          ~
+|          |
+|          |
++----------+ -> 0x0
+
+Paging
+
+Cuando trabajamos con memoria virtual, necesitamos de una MMU (Memory
+Management Unit) la cual es la encargada de transladar nuestra Virtual
+Address a una Physical Address.
+Para poder hacer lo explicado en "Memoria Virtual" disponemos de algo que
+llamamos paginas.
+La paginas son divisiones que se le hacen al Virtual Address Space y por
+consiguiente tambien al Physical Address Space.
+Como ya dije anteriormente solo algunas Paginas que se encuentran en el
+Virtual Address Space tambien se encuentran en ls memoria fisica. Ejemplo:
+
+Virtual Address Space
+   +-------+
+   |   3   |\
+   +-------+  \
+   |   X   |    \      Physical Address Space
+   +-------+      \        +-------+
+   |   4   |\       \----->|       |
+   +-------+  \            +-------+
+   |   X   |    \--------->|       |
+   +-------+               +-------+
+   |   1   |-------------->|       |
+   +-------+               +-------+
+   |   2   |-------------->|       |
+   +-------+               +-------+
+
+Como ven las divisiones 1,2,3,4,X,X son cada una paginas, las X identifican
+a paginas que no estan mapeadas en memoria.
+De esta forma un programa es dividido en paginas, cada una mide 4Kbytes,
+aunque hay otros tama#os especificados por la arquitectuta intel (que es la
+unica con la cual trabaje hasta ahora).
+Entonces el programa no se sube a memoria completo si no solo algunas
+paginas de este si la memoria fisica no alcanza, pero se sube todo a la
+memoria virtual (por asi decirlo). Entonces cuando un programa intenta
+acceder a una posicion de memoria que no esta en la memoria fisica, se produce 
+el conocido [Page Fault], cuando se genera esta exeption del procesador
+porque un programa esta accediendo una posicion que no se encuentra en
+memoria, se mete en un registro del intel una serie de datos que van a ser
+tomados por el sistema operativo para poder ubicar la pagina requerida por
+el programa y asi continuar con la normal ejecucion del mismo.
+
+
+
+[PARA LA PROXIMA PARTE]
+
+Bueno seguramente hasta ahora se les generaron muchisimas dudas, pero esa es
+la idea. No se puede comenzar a aprender sin antes reconocer que uno no sabe
+nada.
+Prometo finalizar todo lo que se refiere a intel y el manejo de paginas, y
+todo eso..  
+
+I/O Algunas cosas de input - output , drivers, etc.
+
+File Systems.. un poco de EXT2 .. 
+
+
+Para los que quieran ayudarme con mi SO avisenme!! estoy buscando gente...
+
+
+
+
+
+
+proccess[z1p0]->state = sleeping;
+hlt
+system halted
+
+--[zb0] Actitud HEH detected "always halt your system"[1]
+--[1] or your brain
+
+[Z1P0]

@@ -1,0 +1,411 @@
+   _________SWAT MAGAZINE ISSUE TWENTY SEVEN MARCH  2000 __________
+  /         \___________________________________________/          \
+ /                    English to KLEET converter                    \
+/                      brought to u by BDPUK                         \
+-----------------------------------------------------------------------
+
+
+i found this kewl script while searching through the internet and i
+think its making a pretty good encrytion tool instead of just an
+English to "kleet" convertor.  the readme and script are included
+below:
+
+***Readme***
+
+ ---    ---     /|     ____   ____  ___________
+   \    /        |   / ___/  /___/  \_____    /
+     \/     --   |  |  _|   |  _|         / / 
+    /  \         |  | /____ | /____     / /
+  /      \       |   \_____\ \_____\  / /
+---      ---    ---                 /_/  v1.0
+***********************************************
+
+X1337 (or kleet...) is a fun little script to change regular text into
+"kleet" text.  Obviously, it has no practical uses, but it is kind of
+fun.  Anyway, here are the features and how to use them.
+
+NOTE: this was written and tested on Red Hat Linux 6.0, so if it
+doesn't work, it's because you don't have the right libraries.
+
+************************************************
+
+Usage: kleet <-i> <inputfile> <-o> <outputfile> | <-i> <inputfile> |
+<-o> <outputfile> | <-n> <message> & <-e> <characters to be excluded> | <-h>
+
+************************************************
+
+OPTIONS
+
+<-i> <inputfile> <-o> <outputfile> -- In this mode, text to be translated is 
+taken from inputfile, translated, written to outputfile, and then printed to 
+the screen
+
+<-i> <inputfile> -- In this mode, text to be translated is taken from 
+inputfile, translated, and then printed to the screen
+
+<-o> <outputfile> -- In this mode, a simple "wordprocessor" (if you could call
+it that...) type thing is opened up.  Type as much as you like, even press 
+enter as much as you like (it will bring down the cursor to the next line).
+Also, the program will print the translated output of each line to the screen 
+when you press enter, but then it will continue reading characters.  Press ^D
+(or your operating system's equivalent) when you are finished.  The program 
+will output all translated text to the outputfile.
+
+<-n> <message>  -- This mode involves no files.  Simply enter your message 
+(in quotes, of course...) for <message>.  It will then print the translated 
+text to the screen. Can't be used with the io, i, and o options, obviously.
+
+<-e> <characters to be excluded>  -- for <characters to be excluded>, type any
+characters that you do not want to be translated.  For example, upon issuing 
+this command: "kleet -n "pheedback owns me" -e edb", it would exclude all e's, 
+d's, and b's.  Thus, instead of seeing this: "p#33|)84(X 0\/\//\/5 /\/\3", one
+would instead see: "p#eedb4(X 0\/\//\/5 /\/\e".  You can do this with as many
+characters as you want.  Hell, exclude the whole alphabet if you want, but it would sort of defeat the purpose of the program... 
+
+<-h> -- Prints the "Usage" text that is displayed above the OPTIONS section.
+***readme***
+
+and now the source:
+
+***script***
+/* kleet.c */
+/* kleet v1.0 */
+/* 
+X1337 1.2
+
+read the readme (or read this source code...) to figure out how to use this 
+*/
+
+
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+void files(char *inputfile, char *outputfile, char *exclude);
+void filei(char *inputfile, char *exclude);
+void fileo(char *outputfile, char *exclude);
+void normal(char *message, char *exclude);
+char* normaltoleet(char ch);
+void printusage(void);
+
+int main(int argc, char *argv[])
+{
+        int o;
+        int i; /* loop control for disclude checking loop */
+        char *inputfile=0;
+        char *outputfile=0;
+        char *message=0;
+        char *exclude=0;
+
+        if(argc<2) printusage();
+        while((o=getopt(argc, argv, "i:o:n:e:h"))!=EOF) {
+                switch(o) {
+                        case 'i':
+                                inputfile=optarg;
+                                break;
+                        case 'o':
+                                outputfile=optarg;
+                                break;
+                        case 'n':
+                                message=optarg;
+                                break;
+                        case 'e':
+                                exclude=optarg;
+                                break;
+                        case 'h':
+                                printusage();
+                                break;
+                }
+        }
+        if(exclude) {
+                for(i=0; i<strlen(exclude); i++) {
+                        exclude[i]=tolower(exclude[i]);
+                }
+        }
+        if(inputfile && outputfile) files(inputfile, outputfile, exclude);
+        if(inputfile && !outputfile) filei(inputfile, exclude);
+        if(!inputfile && outputfile) fileo(outputfile, exclude);
+        if(message && !inputfile && !outputfile) normal(message, exclude);
+        printf("\nX1337 v1.2 written by pheedback\n");
+}
+
+void files(char *inputfile, char *outputfile, char *exclude)
+{
+        FILE *fin;
+        FILE *fout;
+        char ch;
+        char *leetch;
+        int i; /* loop control and for excludes */
+        int code; /* return code the exclude checking loops uses */
+        if((fin=fopen(inputfile, "r"))==NULL) {
+                puts("Error opening file for input");
+                exit(0);
+        }
+        if((fout=fopen(outputfile, "w+"))==NULL) {
+                puts("Error opening file for output");
+                exit(0);
+        }
+        while(!feof(fin)) {
+                code=0;
+                ch=fgetc(fin);
+                if(exclude) {
+                        for(i=0; i<strlen(exclude); i++) {
+                                if(tolower(ch)==exclude[i]) {
+                                        fprintf(fout, "%c", ch);
+                                        printf("%c", ch);
+                                        code=1; 
+                                        break;
+                                }
+                        }
+                }               
+                if(!code) {     
+                        leetch=normaltoleet(ch);
+                        if(leetch=="A") {
+                                fprintf(fout, "%c", ch);
+                                printf("%c", ch);
+                        }
+                        else {
+                                fprintf(fout, "%s", leetch);
+                                printf("%s", leetch);
+                        }
+                }       
+        }
+}       
+
+void filei(char *inputfile, char *exclude)
+{
+        FILE *fin;
+        char ch;
+        char *leetch;
+        int i; /* loop control and for excludes */
+        int code; /* return code that the exclude checking loop uses */
+        
+        if((fin=fopen(inputfile, "r"))==NULL) {
+                puts("Error opening file for input");
+                exit(0);
+        }
+        while(!feof(fin)) {
+                code=0;
+                ch=fgetc(fin);
+                if(exclude) {
+                        for(i=0; i<strlen(exclude); i++) {
+                                if(tolower(ch)==exclude[i]) {
+                                        printf("%c", ch);
+                                        code=1;
+                                        break;
+                                }
+                        }
+                }
+                if(!code) {
+                        leetch=normaltoleet(ch);
+                        if(leetch=="A") printf("%c", ch);
+                        else printf("%s", leetch);
+                }
+        }
+} 
+        
+void fileo(char *outputfile, char *exclude)
+{
+        FILE *fout;
+        char ch;
+        char *leetch;
+        int i; /* loop control and for excludes */
+        int code; /* return code used by the exclude checking loop */
+
+        if((fout=fopen(outputfile, "w+"))==NULL) {
+                puts("Error opening file for output");
+                exit(0);
+        }
+        puts("PRESS ^D TO STOP");
+        while((ch=getchar())!=EOF) {
+                code=0;
+                if(exclude) {
+                        for(i=0; i<strlen(exclude); i++) {
+                                if(tolower(ch)==exclude[i]) {
+                                        printf("%c", ch);
+                                        fprintf(fout, "%c", ch);
+                                        code=1;
+                                        break;
+                                }
+                        }
+                }
+                if(!code) {
+                        leetch=normaltoleet(ch);
+                        if(leetch=="A") {
+                                fprintf(fout, "%c", ch);
+                                printf("%c", ch);
+                        }
+                        else {
+                                fprintf(fout, "%s", leetch);
+                                printf("%s", leetch);
+                        }
+                }
+        }
+}
+
+void normal(char *message, char *exclude)
+{
+        int i; /* loop control for first "for" loop */
+        int ii; /* loop control for exclude checking loop */
+        char *leetch;
+        int code; /* return code used by the exclude checking loop */
+        
+        for(i=0; i<strlen(message); i++) {
+                code=0;
+                if(exclude) {
+                        for(ii=0 ; ii<strlen(exclude); ii++) {
+                                if(tolower(message[i])==exclude[ii]) {
+                                        printf("%c", message[i]);
+                                        code=1;
+                                        break;
+                                }
+                        }
+                }       
+                if(!code) {
+                        leetch=normaltoleet(message[i]);
+                        if(leetch=="A") printf("%c", message[i]);
+                        else printf("%s", leetch);
+                }
+                
+        }
+        printf("\n");
+}
+
+char* normaltoleet(char ch)
+{
+        char lowerch=tolower(ch);
+        switch(lowerch) {
+                case 'a': 
+                        return "4";
+                        break;
+                case 'b': 
+                        return "8";
+                        break;
+                case 'c':
+                        return "(";
+                        break;
+                case 'd':
+                        return "|)";
+                        break;
+                case 'e':
+                        return "3";
+                        break;
+                case 'f':
+                        return "ph";
+                        break;
+                case 'g':
+                        return "9";
+                        break;
+                case 'h':
+                        return "#";
+                        break;
+                case 'i':
+                        return "!";
+                        break;
+                case 'j':
+                        return "j";
+                        break;
+                case 'k':
+                        return "X";
+                        break;
+                case 'l':
+                        return "1";
+                        break;
+                case 'm':
+                        return "/\\/\\";
+                        break;
+                case 'n':
+                        return "/\\/";
+                        break;
+                case 'o':
+                        return "0";
+                        break;
+                case 'p':
+                        return "p";
+                        break;
+                case 'q':
+                        return "q";
+                        break;
+                case 'r':
+                        return "r";
+                        break;
+                case 's':
+                        return "5";
+                        break;
+                case 't':
+                        return "7";
+                        break;
+                case 'u':
+                        return "u";
+                        break;
+                case 'v':
+                        return "\\/";
+                        break;
+                case 'w':
+                        return "\\/\\/";
+                        break;
+                case 'x':
+                        return "x";
+                        break;
+                case 'y':
+                        return "y";
+                        break;
+                case 'z':
+                        return "z";
+                        break;
+                case ' ':
+                        return " ";
+                        break;
+                case '.': 
+                        return ".";
+                        break;
+                case ',':
+                        return ",";
+                        break;
+                case '?':       
+                        return "?";
+                        break;
+                case '!':
+                        return "!";
+                        break;
+                default:
+                        return "A";
+                        break;
+                }
+}
+                        
+void printusage(void) 
+{
+        puts("Usage: kleet <-i> <inputfile> <-o> <outputfile>|<-i> <inputfile>|<-o> <outputfile>|<-n> <message>&<-e> <characters to be excluded>|<-h>");
+        exit(0);
+}       
+***script***
+
+note
+i did not write this script nor do i claim to have writen this script!
+it was written by Pheedback on the AT&T mailist and all rights are reserved to him i just felt it was good enough 
+to be sent into SWAT as the script is editable to make an encryption and decryption tool to send encoded
+emails.
+
+
+this was brought to u by BDPUK of the Welsh Sheep Hackerz
+
+     .-.                                                          .-.
+    /   \           .-.                            .-.           /   \
+   /     \         /   \       .-.      .-.       /   \         /     \
+ -/-------\-------/-----\-----/---\----/---\-----/-----\-------/-------\-
+ /         \     /       \   /     `--'     \   /       \     /         \
+            \   /         `-'                `-'         \   / 
+             `-'       BAABAABAABAABAABAABAABAABAABAABAA  `-'       
+           _     _
+           \\___//
+           |     |
+          (| x x |)                     Join the clan of the
+           |  v  |__/\__/\__/\          deformed sheep and
+           \  o  /            \         feel liberated!!!!
+            \___/ i am a sheep \_
+             |____   ____   _____>      http://www.theWSH.com
+                  | |    | |            BDPUK99@yahoo.com
+                  | |    | |
+                 <__|    <_|

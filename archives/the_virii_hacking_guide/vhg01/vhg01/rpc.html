@@ -1,0 +1,225 @@
+<html>
+<head>
+<title>..:: The Virii Hacking Guide ::.. :: Numero 01</title>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+</head>
+
+<BODY TEXT="#000000" BGCOLOR="#ffffff" style="font-family: Verdana, Arial, Helvetica, sans-serif">
+<div align="center">
+  <p><font size="1" face="Verdana, Arial, Helvetica, sans-serif"><a href="viriihacking01.html">&Iacute;ndice 
+    Virii Hacking Guide 01</a></font></p>
+  <p><i><font face="Courier New, Courier, mono" size="5" color="#006600">== Remote 
+    Procedure Call(RPC) ==</font></i></p>
+  <p align="left"><font size="2" color="#FF0000">Por: Inferninh0</font></p>
+  <p align="left">&nbsp;</p>
+  <p align="left"><font size="2" face="monospace">1 - Introducao<br>
+    <br>
+    2 - Enumerando os servicos de RPC<br>
+    <br>
+    3 - Exploits para Buffer Overflow nos servicos de RPC<br>
+    <br>
+    4 - Como se proteger</font></p>
+  <p align="left"><font size="2" face="monospace"> 4.1 - bloqueando a enumeracao 
+    de RPC</font></p>
+  <p align="left"><font size="2" face="monospace"> 4.2 - Patches</font></p>
+  <p align="left"><font size="2" face="monospace">5 - Finalizando</font></p>
+  <p align="left"><font size="2" face="monospace">6 - Link's e Referencias<br>
+    </font></p>
+  <p align="left"><font size="2" face="monospace"><br>
+    -=[ 1 ]=-<br>
+    .---------------.<br>
+    | Introducao&nbsp;&nbsp;&nbsp;&nbsp; \___________________________________________________________<br>
+    `----------------------------------------------------------------------------'</font></p>
+  <p align="left"><font size="2" face="monospace"> O RPC (Remote Procedure Call) 
+    define um protocolo para execucao remota de <br>
+    procedures em computadores ligados em rede, ou seja, permite que programas 
+    <br>
+    de um computador executem programas num outro computador.. O protocolo RPC 
+    <br>
+    pode ser implementado sobre diferentes protocolos de transporte, portanto 
+    nao <br>
+    possui portas especificas e como alternativa se registra no daemon de <br>
+    mapeamento de portas (portmapper). Nao cabe ao RPC especificar como a mensagem 
+    e <br>
+    enviada de um processo para outro, mas somente especifica-la e interpreta-la. 
+    <br>
+    A sua implementa&ccedil;&atilde;o depende, portanto, de sobre qual protocolo 
+    de transporte vai <br>
+    operar. </font></p>
+  <p align="left"><font size="2" face="monospace">* Sobre TCP nao e necessario 
+    preocupar-se com time-outs, retransmissoes, <br>
+    duplicatas.</font></p>
+  <p align="left"><font size="2" face="monospace">* Sobre UDP e necessario preocupar-se 
+    com time-outs, retransmissoes, duplicatas. </font></p>
+  <p align="left"><font size="2" face="monospace"> Uma mensagem RPC tem tres campos 
+    inteiros: </font></p>
+  <p align="left"><font size="2" face="monospace">-Remote Program Number; <br>
+    -Remote Program Version Number; <br>
+    -Remote Procedure Number. </font></p>
+  <p align="left"><font size="2" face="monospace"> Alem, e claro, dos parametros 
+    especificos a chamada. A operacao do RPC pode <br>
+    ser descrita nos seguintes passos: </font></p>
+  <p align="left"><font size="2" face="monospace">-Coleta os dados dos parametros; 
+    <br>
+    -Forma a mensagem; <br>
+    -Envia a mensagem; <br>
+    -Espera a resposta; <br>
+    -Devolve a resposta atraves dos parametros. </font></p>
+  <p align="left"><font size="2" face="monospace"> Pode ser mantida a analogia 
+    entre chamadas remotas e as chamadas locais com <br>
+    as seguintes ressalvas: </font></p>
+  <p align="left"><font size="2" face="monospace">-Manipulacao de Erros Falhas 
+    no servidor remoto ou na rede devem ser <br>
+    explicitamente manipuladas quando usamos RPC;</font></p>
+  <p align="left"><font size="2" face="monospace">-Variaveis Globais Como o servidor 
+    nao tem acesso ao lado cliente ( a seu espa&ccedil;o <br>
+    de endere&ccedil;amento), nao podemos usar variaveis globais, somente parametros.</font></p>
+  <p align="left"><font size="2" face="monospace">-Performance Chamadas remotas 
+    operam normalmente a uma ou mais ordens de <br>
+    magnitude mais lentamente. </font></p>
+  <p align="left"><font size="2" face="monospace">-Autenticacao Pelo fato das 
+    chamadas remotas trafegarem sobre redes inseguras, a <br>
+    autenticacao das mensagem pode (deve) ser necessaria. </font></p>
+  <p align="left">&nbsp;</p>
+  <p align="left"></p>
+  <p align="left"><font size="2" face="monospace">-=[ 2 ]=-<br>
+    .----------------------------------.<br>
+    | Enumerando os servicos de RPC &nbsp;&nbsp;&nbsp;&nbsp;\________________________________________<br>
+    `----------------------------------------------------------------------------'<br>
+    <br>
+    Para determinar se um servidor esta usando algum servico de RPC podemos <br>
+    utilizar o bom e velho &quot;nmap&quot;, que em primeiro lugar ira fazer a 
+    varredura de <br>
+    porta em seguida ira definir quais delas sao servicos RPC, sobrecarregando 
+    cada <br>
+    porta com comandos RPC NULL.</font></p>
+  <p align="left"><font size="2" face="monospace"># nmap -sS -sR 127.0.0.1<br>
+    Starting nmap V. 3.00 ( www.insecure.org/nmap/ )<br>
+    Interesting ports on localhost.localdomain (127.0.0.1):<br>
+    (The 1597 ports scanned but not shown below are in state: closed)<br>
+    Port State Service (RPC)<br>
+    21/tcp open ftp <br>
+    80/tcp open http<br>
+    111/tcp open sunrpc<br>
+    139/tcp open netbios-ssn<br>
+    2049/tcp open nfs (nfs v2-3)<br>
+    4045/tcp open lockd (nlockmgr v1-4)</font></p>
+  <p align="left"><font size="2" face="monospace"><br>
+    Nmap run completed -- 1 IP address (1 host up) scanned in 0 seconds</font></p>
+  <p align="left"><font size="2" face="monospace"> Observe q o servico de RPC 
+    e identificado e listado entre parenteses. Outra<br>
+    forma de determinarmos quais servicos RPC estao ativos e consultando o daemon 
+    de<br>
+    mapeamento de portas atraves do comando rpcinfo.</font></p>
+  <p align="left"><font size="2" face="monospace"># rpcinfo -p 127.0.0.1<br>
+    program vers proto port<br>
+    100000 2 tcp 111 portmapper<br>
+    100000 2 udp 111 portmapper<br>
+    100003 2 udp 2049 nfs<br>
+    100021 1 udp 4045 nlockmgr<br>
+    100021 3 udp 4045 nlockmgr</font></p>
+  <p align="left"><font size="2" face="monospace"><br>
+    <br>
+    -=[ 3 ]=-<br>
+    .------------------------------------------------------.<br>
+    | Exploits para Buffer Overflow nos servicos de RPC&nbsp;&nbsp;&nbsp;&nbsp; 
+    \____________________<br>
+    `----------------------------------------------------------------------------'</font></p>
+  <p align="left"><font size="2" face="monospace"> Apos a varredura e identificado 
+    o servico RPC no servidor o &quot;hacker&quot; pode <br>
+    comecar a explorar falhas, os mais visados sao &quot;rpc.ttdbserverd&quot;, 
+    &quot;rpc.cmsd&quot; e <br>
+    &quot;rpc.statd&quot;. Estes servi&ccedil;os geralmente sao explorados pelos 
+    ataques de buffer <br>
+    overflow, que sao bem sucedidos, pois os programas que implementam as RPCs 
+    <br>
+    nao fazem a devida verifica&ccedil;ao de erro. Uma vulnerabilidade do tipo 
+    buffer <br>
+    overflow permite que um atacante envie dados pelos quais o programa nao esta 
+    <br>
+    esperando, e como o programa nao faz a devida verificacao de erro, termina 
+    por <br>
+    passar estes dados para o processamento. Abaixo segue uma lista de entradas 
+    <br>
+    CVE que apontam para diversos exploits e explicacao de cada um, voce pode<br>
+    pesquisa-los no seguinte endereco http://www.securityfocus.com/bid/cveid/</font></p>
+  <p align="left"><font size="2" face="monospace">CVE-1999-0003, CVE-1999-0693, 
+    CVE-1999-0696, CVE-1999-0018, CVE-1999-0019,<br>
+    CVE-1999-0704, CAN-2001-0236, CVE-2000-0666 </font></p>
+  <p align="left">&nbsp;</p>
+  <p align="left"></p>
+  <p align="left"><font size="2" face="monospace">-=[ 4 ]=-<br>
+    .--------------------.<br>
+    | Como se proteger &nbsp;&nbsp;&nbsp;\______________________________________________________<br>
+    `----------------------------------------------------------------------------'</font></p>
+  <p align="left"><font size="2" face="monospace">4.1 - bloqueando a enumeracao 
+    de RPC<br>
+    -------------------------------------</font></p>
+  <p align="left"><font size="2" face="monospace"> O ideal seria eliminar ao maximo 
+    o uso de servicos de chamadas a <br>
+    procedimentos remotos, mais como isso nem sempre e possivel, e indicado usar 
+    <br>
+    regras no firewall para bloquear o portmapper (porta 111) e todas as outras 
+    <br>
+    portas que nao sao necessarias explicitamente. </font></p>
+  <p align="left"><font size="2" face="monospace">4.2 - Patches<br>
+    --------------</font></p>
+  <p align="left"><font size="2" face="monospace"> Caso seja inevitavel o uso 
+    de RPC, ao menos instale os patches mais recentes. </font></p>
+  <p align="left"><font size="2" face="monospace">Para patches de Solaris:<br>
+    http://sunsolve.sun.com/</font></p>
+  <p align="left"><font size="2" face="monospace">Para o IBM AIX:<br>
+    http://techsupport.services.ibm.com/support/rs6000.support/downloads<br>
+    http://techsupport.services.ibm.com/rs6k/fixes.html</font></p>
+  <p align="left"><font size="2" face="monospace">Para patches SGI:<br>
+    http://support.sgi.com/</font></p>
+  <p align="left"><font size="2" face="monospace">Para patches Compaq (Digital 
+    Unix):<br>
+    http://www.compaq.com/support</font></p>
+  <p align="left"><font size="2" face="monospace">Para Linux:<br>
+    http://www.redhat.com/support/errata/RHSA -2000-039-02.html</font></p>
+  <p align="left">&nbsp;</p>
+  <p align="left"></p>
+  <p align="left"><font size="2" face="monospace">-=[ 5 ]=-<br>
+    .----------------.<br>
+    | Finalizando &nbsp;&nbsp;&nbsp;&nbsp;\__________________________________________________________<br>
+    `----------------------------------------------------------------------------'<br>
+    <br>
+    Explorar chamadas a procedimentos remotos (RPC) e algo mais comum do que voce 
+    <br>
+    imagina e tao eficiente quanto, nao e atoa que o uso de buffer overflow nesses 
+    <br>
+    servicos, encabecam a lista top20, em sistemas unix, das principais falhas 
+    de <br>
+    seguranca do SANS e FBI, procurar por este tipo de servico em servidores unixes<br>
+    e bem interessante pois podem ser encontradas ainda falhas em NFS mal <br>
+    configurados e por ai vai, mais isso ja e assunto para outro txt. ;) </font></p>
+  <p align="left">&nbsp;</p>
+  <p align="left"></p>
+  <p align="left"><font size="2" face="monospace">-=[ 6 ]=-<br>
+    .-------------------------.<br>
+    | Link's e Referencias &nbsp;&nbsp;&nbsp;&nbsp;\_________________________________________________<br>
+    `----------------------------------------------------------------------------'</font></p>
+  <p align="left"><font size="2" face="monospace">Referencias<br>
+    ------------</font></p>
+  <p align="left"><font size="2" face="monospace">http://www.sans.org/top20/ </font></p>
+  <p align="left"><font size="2" face="monospace"><br>
+    Link's Interessantes<br>
+    ---------------------</font></p>
+  <p align="left"><font size="2" face="monospace">http://www.infoshack.cjb.net</font></p>
+  <p align="left"><font size="2" face="monospace">http://cdm.hacking.la</font></p>
+  <p align="left"><font size="2" face="monospace">http://www.infernoz.kit.net</font></p>
+  <p align="left"><font size="2" face="monospace">http://coracaodeleao.virtualave.net</font></p>
+  <p align="left"><font size="2" face="monospace">http://www2.dct.ufms.br/~hrhp</font></p>
+  <p align="left"><font size="2" face="monospace">http://jerryslater.host.sk/</font></p>
+  <p align="left"><font size="2" face="monospace"><br>
+    *************************<br>
+    The Virii Hacking Group<br>
+    Writted by Inferninho <br>
+    *************************<br>
+    <br>
+    |=[ EOF ]=---------------------------------------------------------------=|</font><br>
+  </p>
+</div>
+</body>
+</html>

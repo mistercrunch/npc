@@ -1,0 +1,374 @@
+   ___________________________________________________________________
+  |                                                                   |
+  |   Curso de Assembly                                               |
+  |                       traduzido e adaptado do original de AESOFT  |
+  |                                                    por Dr Herman  |
+  |                                                                   |
+  |___________________________________________________________________|
+
+  Lição 4
+     
+    Entrada e saída (comunicação com o hardware I)
+	Interrupções (comunicação com o hardware II)
+	A pilha do 8086
+
+    Nesta lição vamos tratar de aspectos muito interessantes da 
+    programação do PC - interrupções, portas, etc.
+
+	
+    ENTRADA E SAÍDA (COMUNICAÇÃO COM O HARDWARE I)
+    ----------------------------------------------
+	
+    A comunicação entre um programa e o hardware, isto é, os chips de 
+    apoio e as placas periféricas, se faz através de portas. Estas
+    portas são zonas de memória de 1 ou 2 bytes de tamanho, nas quais
+    se depositam os dados que vão ser utilizados pelos chips ou placas,
+    e também se depositam os dados que voltam destes chips e placas 
+    para o processador.
+	
+    No PC, existe uma área de memória de 64 KB, a parte da memória
+    principal, dedicada as portas. Isto é, estes 64 KB de memória não
+    tem nada a ver com a memória disponível para os programas. 
+  
+    Para realizar os movimentos de dados entre porta e processador, 
+    existem instruções especiais: IN e OUT. Tanto IN como OUT têm duas
+    formas de uso, as quais utilizam o registro AL ou AX para armazenar
+    os dados a serem lidos ou escritos. A forma difere em função do que
+    se quer acessar - uma porta menor que 256 ou maior.
+
+    - Método direto ou estático: usado quando se quer acessar uma porta
+      menor que 256.
+
+        IN AL,10H    ---> lê um byte da porta 10h
+        IN AX,10H    ---> lê uma palavra (word) da porta 10h
+        OUT 0FFH,AL  ---> escreve o valor de AL na porta 0FFH
+
+    - Método indireto ou dinâmico: usado quando se quer acessar uma 
+      porta maior que 256. Usa o registro DX para indicar o número da
+      porta.
+
+        IN AL,DX  ----> lê um byte da porta indicada por DX (antes, 
+                        tivemos que atribuir a DX o endereço da porta).
+        OUT DX,AX ----> escreve a palavra (word) contida em AX na porta
+                        DX.
+
+    Alguns exemplos de portas:
+	
+        60H -------------> aceita entradas pelo teclado.
+        61H -------------> controla o alto-falante.
+        3F0H-3F7H -------> opera sobre a controladora de discos.
+
+
+    No PC, qualquer subsistema, com exceção da memória, é controlado
+    pelo processador através das portas.  
+
+
+    INTERRUPÇÕES (COMUNICAÇÃO COM O HARDWARE II)
+    -------------------------------------------- 
+    
+    As interrupções são os meios nos quais as circuitos externos 
+    informam o microprocessador de que alguma coisa aconteceu (por 
+    exemplo, o pressionamento de uma tecla) e que alguma coisa deve ser
+    feita. Mas não acaba aí sua utilidade, já que as interrupções são
+    também o meio principal de comunicação entre as funções da BIOS e
+    do DOS. Neste segundo caso, são mal chamadas de interrupções.
+    Deviam ser chamadas de funções, já que servem para fazer chamadas a
+    funções BIOS ou DOS, como por exemplo trocar o modo de vídeo, para
+    o qual se utiliza a interrupção 10h (driver ou controlador de vídeo),
+    com o número adequado da função. Mais adiante, veremos como chamar
+    uma função.	
+
+    O primeiro tipo de interrupção são conhecidas como interrupções de
+    hardware, e estas são as interrupções reais. Isto é, durante a
+    execução de um programa, ele é interrompido para executar um trecho
+    de código necesário para atender a um pedido de um dispositivo, como
+    o teclado. Feito isso, volta-se a execução deo programa em questão.
+    São as interrupções que vimos na lição 3, ao falar do PIC.
+	
+    O segundo tipo de interrupção são conhecidas como interrupções de 
+    software, e estas são as 'fictícias', já que não existe nenhum
+    dispositivo pedindo atenção para o processador, e sim um programa
+    que executa uma função BIOS ou DOS, mediante uma interrupção. Neste
+    caso, não se interrompe o programa de forma súbita, mas o programa
+    em questão gera uma interrupção, a qual tem sua rotina de tratamento
+    a interrupção (como visto na lição 3) 'conectada' a um grupo de
+    funções e rotinas.
+	
+    Vejamos as interrupções com mais detalhes:
+	
+      Vetor (ou tabela) de interrupções
+      ---------------------------------
+	  
+      Toda interrupção aceita conduz a execução de um subprograma 
+      específico, como foi visto. Mas como o processador sabe onde se
+      encontra este subprograma ? A resposta é dada pelo vetor de
+      interrupções.
+     
+      Este vetor contém os endereços de início dos subprogramas de
+      tratamento a interrupção. Esta tabela é composta por 256
+      entradas. Quer dizer, são possíveis 256 interrupções diferentes
+      no PC.
+
+      Cada uma destas entradas, contém o endereço de início do código
+      de tratamento a uma interrução, na seguinte forma:
+	  
+      . Os 2 primeiros bytes (palavra-WORD) contém o endereço base do 
+        segmento, e os 2 últimos bytes contém o deslocamento.
+		
+        No total, 4 bytes são usados para indicar o começo de uma 
+        interrupção, na forma SEGMENTO:DESLOCAMENTO.
+ 
+      Já vimos na segunda lição como transformar um endereço segmentado
+      (segmento:deslocamento) num endereço físico ou real.
+
+      Durante a aceitação de uma interrupção, o 8086 carrega o endereço
+      base do segmento no registro CS e o deslocamento no contador de
+      programa IP. Desta forma, a seguinte instrução a ser executada,
+      que vem dada pelos registros CS:IP, será a primeira do subprograma
+      de tratamento da interrupção.
+
+
+      Pinos (linhas do barramento) requeridas para interrupção externa
+      ----------------------------------------------------------------
+	   
+      Existem 3 linhas externas hierarquizadas que são, por ordem de
+      prioridade decrescente: RESET, NMI e INTR. Somente INTR é
+      mascarável (quando um pino de requisição de interrupção está
+      'mascarado' (desabilitado) a ativação deste pino não produz
+      nenhuma interrupção).
+     
+      Quer dizer, que se ativarmos os pinos RESET ou NMI, sempre vamos
+      conduzir a execução de uma interrupção. Mas se ativarmos o pino
+      INTR, temos duas opções (dependendo se ele está mascarado ou não)
+      -- omitir o pedido de interrução ou atender o pedido,
+      respectivamente.	   
+ 
+      . Pino INTR:
+
+      Um pedido de interrução sobre este pino é mascarada mediante o
+      bit IF (bandeira de interrupção) do registro FLAGS ou registro
+      de estado.
+		
+      Este bit IF, é a máscara de INTR. Para saber se ele está 
+      mascarado ou não, olha-se este flag, que pode ter (obviamente)
+      dois valores: 0 ou 1. Mascarado é 0.	      
+		
+      Para manipularmos este bit, dispomos de duas instruções em
+      Assembly: 
+		
+      - CLI (Clear IF, ou desligar flag IF) que põe o valor 0.
+      - STI (Set IF, ou ativar flag IF) que põe o valor 1.
+         
+      O pedido de interrupção se realiza ativando o pino INTR com nível
+      alto (1) devendo ser mantido assim até que pelo pino INTA (pino
+      associado ao pino INTR - está ativo em nível baixo (0), indicando
+      que foi aceita a interrupção solicitada pelo pino INTR), avise ao
+      8086 que ela foi aceita.
+		
+      Então... Contamos como o pino INTR para uma interrupção pedir 
+      atenção ao processador, e com o pino associado INTA que estará com
+      valor (0) quando a interrupção for aceita.
+
+        INTR ---> Interrupt Request (pedido de interrução).
+        INTA ---> Interrupt Accepted (interrupção aceita).
+
+
+      Vejamos como atua a CPU desde que se ativa o pino INTR até quando
+      se retorna do subprograma de tratamento a interrupção:
+		
+      Devido ao fato da interrupção interromper o programa em execução
+      em qualquer uma de suas interrupções, é necessário guardar o 
+      conteúdo do registro de estado (FLAGS), para quando retornar da
+      interrupção, as bandeiras tenham o mesmo valor. E sobretudo, 
+      devemos guardar o endereço da instrução seguinte a ser executada
+      no programa atual.
+
+      Mas, onde são guardados estes dados ?  Numa área de memória
+      denominada PILHA (stack). O ato de introduzir um dado na pilha
+      se denomina empilhar, e retirá-lo da mesma, desempilhar.
+
+      Pois bem, o processador faz o seguinte:
+		
+      - empilha o conteúdo do registro de estado (flags)
+      - empilha o endereço de retorno (conteúdo dos registros CS e IP)
+      - inibe as interrupções (IF-0 e TF-0, mais adiante comentamos a
+        utilidade do flag TF ou TRACE). Isto se faz para que não se
+        produza outra interrupção durante a seqüência de aceitação da
+        interrupção. Isto é muito importante.
+      - ativa o pino INTA (coloca-o em nível baixo). O dispositivo que
+        solicitou a interrupção, ao notar a troca no pino INTA, percebe
+        que a interrução foi aceita.
+      - lê o número do vetor de interrupção do barramento de dados.
+        Anteriormente, o dispositivo colocou-o no barramento em 
+        resposta a ativação do pino INTA.  
+      - obtém o endereço do subprograma de atenção a interrupção. Este
+        endereço se encontra (como vimos antes) armazenado no vetor de
+        interrupção.
+      - o 8086 executa a subrotina que finaliza com a instrução IRET,
+        ou Retorno de Interrupção, cuja execução restitue em CS e IP
+        o endereço de retorno salvo na pilha, e no registro de estado
+        o valor dos flags. Ao restaurar os flags, é anulada a inibição
+        anterior de IF e TF, com a qual novas interrupções serão 
+        aceitas. Podendo assim, ter interrupções em cascata.
+        
+      Repasse o exemplo do pressionamento de uma tecla citado na lição
+      3, e veja se agora entende com mais clareza.
+
+
+      Pino NMI:
+	  
+      Este pino está reservado a acontecimentos graves, que podem ser
+      uma queda de corrente, um erro de memória, de barramento, etc.
+	  	
+      A ativação de NMI não leva a nenhuma leitura no barramento de
+      dados do número do vetor de interrupção, uma vez que a CPU busca
+      diretamente no vetor de interrupção número 2.
+      
+      
+      Pino RESET:
+	    
+      Iniciar o sistema.
+      No pedido de RESET não se armazena nada na pilha nem se acessa
+      o vetor de interrupções para conseguir um endereço. Ao ativar o
+      pino RESET, o registro de estado permanece desligado (0).
+		
+          CS - 0FFFFh
+          IP - 00000h
+		  
+      Desta maneira, a próxima instrução a ser executado pelo
+      processador é a contida a partir de FFFF:0, que é o código de
+      reinício e carga do sistema operacional. São os últimos bytes da
+      ROM. O resto do registro de segmento ficam com valor 0.
+	
+          DS - 0000
+          ES - 0000
+          SS - 0000
+
+      Interrupções internas ou desvios
+      --------------------------------
+
+      O microprocessador 8086 tem duas interrupções internas:
+     'Divisão impossível' e 'Execução passo a passo' (TRACE).
+       	    
+      Divisão impossível:
+	
+        Se produz quando se divide por 0, ou quando o quociente 
+        resultante da divisão não cabe no registro preparado para
+        contê-lo. Em ambos os casos, se executa a interrupção 0.
+       
+      Funcionamento passo a passo: 
+        
+        Se o programador coloca em 1 o bit TF (TRACE) do registro de
+        estado, no final de cada instrução, a CPU desviará (birfurcará)
+        para a posição de memória indicada pelo vetor de interrupção
+        número 1. Isto é utilizado pelos depuradores de código 
+        (debuggers) para seguir um programa, instrução por instrução.
+
+               
+      Mais adiante, quando falarmos sobre programação de utilitários
+      residentes, veremos a programação prática de interrupções. O que
+      dissemos até agora é apenas a base teórica.
+
+
+      A pilha do processador
+      ----------------------
+	  
+      A pilha é uma característica interna do 8086. É uma estrutura de
+      dados situada na RAM. Fornece aos programas um lugar onde possam
+      armazenar dados de forma segura, podendo compartilhá-los com 
+      outros procedimentos ou programas de forma cômoda e prática.
+      	  
+      A função mais importante da pilha é a de manter os endereços de
+      retorno das chamadas de procedimentos e interrupções, assim como
+      guardar os parâmetros passados a estes procedimentos. A pilha 
+      também é utilizada para o armazenamento temporário de dados 
+      dentro de um programa, e para muitas outras coisas que serão 
+      aprendidas com a prática.
+	  
+      A pilha tem seu nome por analogia com um monte de pratos 
+      empilhados. Quando um dados novo é introduzido na pilha, dizemos
+      que foi empilhado (push), uma vez que se encontrará em cima dos
+      demais dados, isto é, no topo da pilha.
+	  
+      Uma pilha trabalha na ordem 'último a entrar, primeiro a sair' -
+      LIFO (Last In First Out).
+	  
+      Isto significa que,  quando a pilha é utilizada para rastrear os 
+      retornos das subrotinas, a primeira chamada de subrotina é a última
+      que se devolve. Desta maneira, a pilha mantém ordenada o funcionamento
+      do programa, as subrotinas e rotinas de tratamento de interrupção, sem
+      importar a complexidade da operação.
+
+	 
+      A pilha cresce em ordem inversa. Quer dizer, a medida que se adicionam
+      novos dados, o topo da pilha se aproxima de posições mais baixas de
+      memória.
+      
+      Existem 3 registros destinados a gerenciar a pilha.
+
+      - Registro de segmento de pilha (SS): indica o endereço base do segmento
+                                            de pilha.
+
+      - Ponteiro de pilha (SP): aponta o topo da pilha.
+
+      - Ponteiro base de pilha (BP): usado para mover-se através da pilha
+                                     sem mudar o topo. Costuma-se utilizar para
+                                     acessar os distintos parâmetros ao chamar
+                                     uma função.
+
+      Os elementos que se armazenam na pilha são do tipo palavra (WORD -
+      2 bytes). Isso quer dizer que, entre outras coisas, que o ponteiro
+      de pilha (SP), assim como o ponteiro de base da pilha (BP), incrementam/
+      decrementam em 2 seu valor para apontar para um novo elemento dentro da
+      pilha, fruto do empilhamento ou desempilhamento de um elemento.
+   
+      Isso ajuda se queremos armazenar um byte na pilha, primeiro devemos
+      converter em palavra (2 bytes), e logo depois armazenar essa palavra.
+      Isso é muito simples, apenas temos que colocar este byte ou registro
+      de 8 bits em um registro de 16 bits e armazená-lo.
+    
+      As instruções para manipulação da pilha são:
+
+        PUSH ---> guarda um dado na pilha. Decrementa SP em duas unidades,
+	           para que aponte para o novo membro a ser introduzido. Ex:
+                  PUSH AX --> empilha o conteúdo de AX no topo da pilha
+            
+         POP ---> obtém um dado da pilha. Incrementa SP em duas unidades,
+                  para que aponte para o novo membro a ser introduzido. Ex:
+                  POP AX --> desempilha o conteúdo do topo da pilha no 
+	           registro AX. Isto é, AX conterá o valor que estava no
+                  topo da pilha, e o ponteiro da pilha será atualizado
+                  incrementando-se em 2.
+
+        PUSHF --> Guarda o conteúdo do registro de estado (FLAGS) na pilha.
+	           Decrementa SP em duas unidades, para que aponte para o
+		    novo elemento a ser introduzido. Não é necessário indicar
+		    sobre o que atua esta instrução; isto já está implícito
+		    no seu nome PUSHF (PUSH FLAGS).
+
+         POPF --> Introduz no registro FLAGS o conteúdo do topo da pilha.
+                  Incrementa SP em duas unidades, para que aponte para o 
+	           novo elemento a ser introduzido. Como a instrução anterior,
+		    não é necessário indicar sobre o que atua esta instrução;
+		    POPF (POP FLAGS).
+				
+
+
+      Convém lembrar o fato que a pilha cresce em ordem inversa, isto é,
+      dos endereços de memória alta para os endereços baixos. Para tanto
+      é necessário ter em conta o uso que vamos fazer da pilha no programa,
+      devido a que se reservamos um espaço no nosso programa para uma pilha
+      pequena, no caso de 'sobrepassá-la' fazendo muitos push's seguidos,
+      estragará nosso programa.
+ 
+      Devemos ter em conta que não apenas nosso programa utiliza a pilha
+      através da instrução PUSH e mediante chamadas a procedimentos, 
+      interrupções, etc. Enquanto nosso programa é executado, estão ocorrendo
+      numerosas interrupções que levam a vários PUSHs. Por exemplo, 18,2
+      vezes por segundo se produz a interrupção de relógio, na qual estão
+      sendo empilhando e desempilhando informações da pilha.
+	  
+      Por regra geral, basta ter uma pilha de uns 2KB, isto é, espaço para
+      armazenar 1024 elementos. É muito difícil que se ultrapasse este
+      tamanho.
+

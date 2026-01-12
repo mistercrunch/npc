@@ -1,0 +1,217 @@
+                              ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+                            ÜßD i s c o r d a n tßÜ
+    ÜßßßßßßßßßßßÜÜÜÜÜÜÜÜÜÜÜßÛ Opposition  Journal ÛßÜÜÜÜÜÜÜÜÜÜÜßßßßßßßßßßßÜ
+   ÞÛ                        ßßßßßßßßßßßßßßßßßßßßß                        ÛÝ
+    Û       Volume: [ 1]          Month: [ Jan]           File:  [03]     Û
+   ÞÛ       Issue:  [10]          Year:  [2001]           Total: [20]     ÛÝ
+    ßÜÜÜÜÜÜÜÜÜÜÜ           ÜÜÜÜÜÜÜÜÜÛßßßßÛÜÜÜÜÜÜÜÜÜÜ           ÜÜÜÜÜÜÜÜÜÜÜß
+                ßßßßßßßßßßß                         ßßßßßßßßßßß
+
+       -: ircx explained part 2 - flaws in microsoft chat service :-
+                                -: fwaggle :-
+
+introduction
+~~~~~~~~~~~~
+
+this text is a continuation of my text in issue #9 of the discordant opposition
+ournal, which detailed ircx servers (mainly microsoft's crappy effort) and some
+of the features. this issue, i've decided we'll take it one step further, and
+examine common flaws and problems with the ircx protocol.
+
+as always, it's not just enough for me to know that something works. i have to
+know how it works as well. so, we'll explain these flaws in such a way that
+you will know exactly what's going on behind the scenes, bringing you slightly
+above script kiddie level.
+
+this text is not intended as an introduction to irc/ircx warfare. i don't
+believe in these things at all. it's just interesting to know how these things
+work (and can be quite entertaining when you explain to a script kiddie how
+something works heh). i don't believe there is sufficient information in this
+text for anyone to start irc warfare who wasn't already sufficiently lame
+anyways...
+
+the problem with ip masking
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+i'm not certain which ircx daemons include this bug, but i am certain that
+it is present in microsoft's exchange chat service. because that's the ircx
+server that i commonly use, that's what this text will mainly be centered
+around :) anyway....
+
+last issue we detailed how ircx servers mask your ip address to prevent
+script kiddies from nuking or using denial of service. well, there is a way
+to "unmask" the ip address (and this is commonly known amongst ircx script
+kiddies, trust me).
+
+--> fwaggle (~fwaggle@123.456.789.XXX) has joined #hacking
+
+see how the ip address is masked? well, ircx also includes support for the
+ircu WHO command, which allows users to search for other users via ip
+address, as shown below (assuming fwaggle's ip was 123.456.789.123)
+
+/WHO 123?456?789?123
+#hacking ~fwaggle 208.25.54.XXX irc1 fwaggle G@ :0 fwaggle
+123?456?789?123 End of /WHO list.
+
+as you can see, the value returned is similar to a whois command, only not
+quite so user friendly to read. as you can see, the ip address shows up in a
+/who command, which allows brute force guessing of the ip address.
+
+for example, if the ip address was still unknown, we would go /WHO
+123?456?789?1*. this would return the user fwaggle if the first digit of the
+ip address was a 1. it is, so we keep going. we try 123?456?789?10*,
+123?456?789?11*, and 123?456?789?12*, before we finally get another result. 
+
+finally, we test for 123?456?789?120, 123?456?789?121, 123?456?789?122, and
+we get an aswer at 123?456?789?123. congratulations, replace the question
+marks with period and we have the victims ip address. depending on your
+script configuration it can take anywhere between 5-7 seconds (i LiKe CoWs
+unmasker), and 1-3 minutes (older ircx unmaskers).
+
+so, this would be quite easily patched if in microsoft's case, that /WHO
+commands only returned masked ip addresses if you were a host or similar.
+
+channel cloning and it's problems
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+microsoft chat service (and some other irc/ircx servers) support a technique
+known as channel "cloning". this means that when a channel reaches a set limit
+(set with the +l mode) where the channel founder has deemed the channel to
+be unmanagable, any subsequent joins to that channel will be redirected to
+a child channel. 
+
+for example, if you set mode d (cloneable channel) and a limit of 2, then
+two people can join #channel. when the third person tries to join #channel,
+they go to #channel2.. and so ond.. #channel2 will be created with the same
+modes, properties, etc, as #channel, except it will have mode +e instead of
+mode +d. mode +e indicates a clone child.
+
+the problem with this is that channels which end in a number are overridden
+or "collided" by the clone's children. therefore, any channel which ends in
+a number, such as #fwagglechat97 or #teenchat2 is at risk at any time.
+
+let's take for example #teenchat2. it's being run quite peacefully by little
+johnny (everyone loves little johnny stories)... now billy the script kiddie
+comes along and sees this nice neat channel.. he notices that #teenchat has
+long since died out.
+
+he creates (using the /CREATE channel, which allows you to create a channel
+and set modes for it, necessary for channel modes such as clonable, and
+auditoriums) the channel #teenchat, and sets a limit of 1.. finally, he
+fires up a few clones, and they all join the channel... overrunning the
+limit, and spilling into the next clone, which just happens to be johnny's
+#teenchat2. all the users in #teenchat2 get collided out.... billy repeats
+as necessary...
+
+as far as i know, this doesn't work any more (with up to date versions of
+chat service), as you have to have ircop privilidges to create cloneable
+channels.
+
+how many clones ya got?
+~~~~~~~~~~~~~~~~~~~~~~~
+
+the auto-kline function of microsoft chat service (automatically inserts
+temporary klines on an IP address for repeated clone violation), which i
+believe is included in the sdk or someplace (don't use nt any more, can't
+verify) serves an incredibly important purpose. you see, chat service's
+clone detection system is poorly designed and built.
+
+chat service checks for the number of clones when the user logs in, not
+when the tcp connection is established. therefore, if one is able to login
+multiple clients at a time, one can defeat the clone detection process (to
+a point).
+
+for example, if there is no auto-kline for clone detection, the average 56k
+modem user can get around 15 clones on a chat service server, from opening
+up 50 sockets and simultaenously attempting to log them in.
+
+this can be used for any number of purposes. it doesn't take much
+imagination.
+
+also on the subject of clones, you may want to keep network splits to an
+absolute minimum. well. that stands to reason, but check this shit out...
+
+when a microsoft chat service starts, it begins to accept connections
+before it has finished initializing. in fact, on slow servers there can be
+a substantial opening before the connection classes are enforced and
+plugins are initialized. this means that when a server restarts, by
+bombarding it with connections as shown above, one can get a substantial
+number of clones on the server without getting klined. this includes WHEN
+the auto-kline function is active.
+
+it's risky though, you risk getting klined yourself....
+
+"hexxing" - no it's not curses
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+something else that's interesting about ircx and microsoft chat service is
+it's ability to use unicode for nicknames. ie, you can include all sorts
+of characters, as well as spaces (represented by \b) in nicknames.
+
+how's this work? well, the nickname begins with a single-quote character
+' and a caret ^, which tells it that it's a unicode nickname. next, the hex
+values of each character are used to represent the nickname.
+
+for example, '^66776167676C65 is the "hex" version of the nickname fwaggle.
+as you can see, it's just alphanumeric characters, a single-quote and a
+caret. but things which would normally violate irc protocol can now be
+included in nicknames such as @ signs and such. 
+
+however, some clients don't correctly handle hex nicks. i'm not exactly
+sure of the reasons why, but they seem to get hexxed nicks and regular
+nicks messed up. i'm pretty sure it has something to do with the fact
+that unless you're in ircx mode, the single quote doesn't show up, or
+something.
+
+anyway, say i'm in a channel with the nickname fwaggle, and i bring in a
+clone with the hex nickname of fwaggle, which is '^66776167676C65. now, i
+have ops, but i'm not in ircx mode. i right click on the hex nick, and click
+kick. for some reason, my client gets confused, and thinks i meant "kick
+fwaggle", when i actually meant "kick 'fwaggle". i end up kicking myself.
+
+this has been exploited a million ways on different ircx networks, but it's
+not so bad now that more and more people's clients better support ircx.
+however, there was an interesting case which i actually found myself
+(although a select few knew it before me, and i told a little punk bitch
+who told everyone under the sun and actually wrote a mirc script to
+exploit it using someone else's ripped socket bot script and then claimed
+he found it but we wont talk about that little punk ass mother fucker),
+in which microsoft's sysop helper bots were actually vulnerable to this.
+
+this exploit utilized the fact that the bots searched the network
+periodically for usernames with bad words in them. such as "sex". so, if
+you set your username as sex, and your nickname as the hex of the target,
+the sysop bots will detect your illegal nickname... they weren't fully
+ircx compatible, so they would /KILL your target instead of your bot.
+
+games to play with temporary splits
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+temporary splits can be incredibly useful to the budding script kiddie. for
+example, if one manages to find (by means of bending over for an irc
+administrator, or probing over a period of time with splits) the lowest
+server id, and sit on that server... during netsplits, if you find yourself
+alone and without ops, you can cycle, recreate the channel, and get ops. 
+
+all well and good you might think. but the thing is, with ms chat service,
+it's not like ircd. when two channels collide, you don't both keep ops.
+person with the lowest server id wins. period. so, if you're on the server
+with the lowest server id, when the network rejoins, you collide them out
+of the channel (the server kicks them all out and they must rejoin).
+
+the end
+~~~~~~~
+
+that's about all i feel like writing right now. i guess you could say this
+is my script kiddie release until i get off my ass and write a new version
+of my irc script "i LiKe CoWs". you might have seen it lurking around
+someplace (over 4000 downloads, that i know of).
+
+until next time, talk to me on irc.subterranea.net or irc.fwaggle.net (same
+thing, but the second address may not be working when you read this), in
+#bored or #hacking or something... why you would want to talk to me, i have
+no idea. but anyway. and if you ask me to teach you how to hack irc, i'll
+tear your fingernails out with a pair of pointy-nose pliers.
+
+fwaggle
+fwaggle@subterranea.net

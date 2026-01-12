@@ -1,0 +1,496 @@
+==============================================================================
+-------------[ BFi numero 7, anno 2 - 25/12/1999 - file 6 di 22 ]-------------
+==============================================================================
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ FiLTRiAM0 iL NETFiLTER - |scacco|
+
+
+NetFilter e' il sistema di firewalling/filtraggio pacchetti adottato nei nuovi
+kernel sperimentali della serie 2.3.x . Questo nuovo sistema verra' adottato 
+sul futuro kernel stabile 2.4 ed andra' a sostituire il vecchio ipchains. 
+La particolarita' di questo sistema e' il concetto di hook. L'hook e' 
+sostanzialmente un pin point all'interno dello stack tcp/ip di linux. Gli 
+hook point non sono punti casuali, ma vengono definiti dallo stesso 
+protocollo tcp/ip versione 4 cioe' quella corrente. Cosa succede quando un 
+determinato pacchetto attraversa lo stack? Semplice, ogni qual volta 
+attraversa un hook, netfilter controlla se a quel determinato hook/protocollo 
+e' stata assegnato una funzione di gestione altrimenti passa il pacchetto 
+avanti all'hook successivo.
+Come e' chiaro questo nuovo metodo di trattare i pacchetti rende la gestione 
+del filtraggio assolutamente modulare ed indipendente. La funzione di 
+gestione dell'hook riceve in ingresso tutto il paccketto sottoforma di una 
+struttura skbuff: cio' consente oltre al controllo anche la modifica e la 
+variazione della struttura stessa. Pensate quando si voglia implementare 
+un masquerade o meglio ancora una infrastruttura di NAT, tutto risulta 
+agevole alle funzioni di connection tracking all'interno del pacchetto stesso.
+Molte di queste informazioni derivano dall'howto ufficiale di netfilter che a
+mio parere risulta poco chiaro nella descrizione degli hook. Proviamo a
+correggere il tutto confrontando la documentazione corrente e il codice vero 
+e proprio. Il sistema di hooking puo' essere rappresentato come in figura 
+seguente:
+
+     A      __________      B       ___________     
+---------->|          |----------->|           |
+           |SAN CHECK |            |PRE ROUTING|            
+           |__________|            |___________|             
+                                         |                    
+                                       C |                    
+                                     ____|____
+                                   /          \       D       ___________                                   
+                                  / EXT ROUTE  \ ----------->|           |            
+                                  \            /             | LOCAL IN  |
+                                   \ ________ /              |___________| 
+                                          ________                 |
+                                        /          \        F      |
+                                       /  IP FORW   \ <----------->| E
+                                       \            /              |
+                                        \ ________ /               |
+                                                              _____|_____
+                                                       G     |           |
+                                                  <----------|POST ROUTE |
+                                                             |___________|
+                                
+Cerchiamo ora di analizzare il flusso di un pacchetto tcp/ip all'interno di
+questa struttura. Il pacchetto arriva all'interno del netfilter tramite il
+punto A dove avviene un sanity check riguardante il fatto che sia troncato, 
+il checksum sia invalido e che il pacchetto non provenga da un'interfaccia in
+modalita' promiscua (fate riferimento agli articoli di FuSyS sull'argomento). 
+Se supera questi check arriva al primo hook attraverso il punto B. Qui viene
+eseguito il check sul pre routing ( NF_IP_PRE_ROUTING ), risultera' 
+fondamentale quando si passera' ad un sistema NAT in cui il routing in 
+ingresso puo' essere modificato a discrezione del sistema. Tramire il punto C 
+si arriva all'external routing: questo non e' un hook, ma semplicemente viene 
+stabilito se il pacchetto debba essere trattenuto o se il destinatario e' 
+esterno al sistema e quindi si debba procedere al reinstradamento del 
+pacchetto stesso. Se il pacchetto e' locale passa tramite il punto D ad 
+un altro hook di local input ( NF_IP_LOCAL_IN ).
+Tramite questo hook e' possibile effettuare il vero e proprio filtraggio del
+pacchetto andando a controllare i singoli flag e le autorizzazioni. Se il
+pacchetto supera questo primo livello di filtraggio viene eseguito un check 
+per determinare se debba essere passato su un'altra interfaccia del sistema: 
+questo avviene attraversando F per arrivare all'hook ip forward 
+( NF_IP_FORWARD ).
+Il pacchetto era per questa interfaccia? Ok, allora sara' diretto tramite E 
+ad un successivo hook denonominato post routing ( NF_IP_POST_ROUTING ). 
+A questo punto il nostro pacchetto e' pronto ad uscire dal sistema. Da non 
+dimenticare che esiste un ulteriore hook chiamato ip local out 
+( NF_IP_LOCAL_OUT ) e viene chiamato in causa quando un pacchetto e' generato 
+dall'interno.
+Una volta analizzato il pacchetto ovviamente deve essere possibile informare
+il sistema sulle azioni da intraprendere e a questo scopo NetFilter mette a
+disposizione 4 possibili valori di ritorno, rispettivamente:
+NF_ACCEPT
+NF_DROP
+NF_STOLEN
+NF_QUEUE                                 
+L'utilizzo di questi valori di ritorno non e' intuitivo: infatti, se si 
+specifica NF_ACCEPT, il pacchetto passera' l'hook corrente e si indirizzera' 
+verso il successivo, mentre la se la funzione restituisce NF_DROP il 
+pacchetto e' semplicemente scartato dal kernel senza nessuna notifica. 
+E' possibile tuttavia utilizzare NF_STOLEN per specificare che il pacchetto 
+non e' stato scartato, semplicemente non deve proseguire verso i prossimi 
+hook. Questo risulta estremamente utile nel caso in cui si voglia utilizzare 
+il NAT/masquerading, infatti e' possibile modificarlo e reinstradarlo a 
+piacere; lo stesso discorso vale nel caso in cui si voglia agire in modo 
+personalizzato sul pacchetto stesso.
+L'utilizzo di NF_QUEUE e' estremamente particolare, infatti tramite netfilter
+e' possibile mettere in coda i pacchetti perche' poi siano esaminati in un
+secondo momento sia all'interno del kernel che in user land. Anche queste 
+nuove caratteristiche lo rendono estremanente flessibile rispetto al sistema
+precendente. Chi ha gia' lavorato in passato con il kernel di linux e in
+particolare con lo stack tcp/ip avra' notato una certo caos dovuto alla
+scarsissima modularita' del masquerading: in questo nuovo sistema il tutto
+risulta indipendente.
+Ora entriamo nella parte calda ed andiamo ad analizzare in dettaglio come il
+tutto viene implementato nella realta' usando il codice scritto da antirez
+come cavia:
+
+1:  /* netfilter hooks example
+2:  * (C) 1999 by Salvatore Sanfilippo <antirez@invece.org>
+3:  * This code comes under GPL version 2
+4:  * see http://www.opensource.org/licenses/gpl-license.html
+5:  * for more information.
+6:  *
+7:  * Compile with: gcc -O -c -Wall nfexample.c
+8:  * (note that -O is needed)
+9:  * Insert this module using `insmod nfexample'
+10: */
+
+11: #define __KERNEL__
+12: #define MODULE
+
+13: #include <linux/module.h>
+14: #include <linux/kernel.h>
+15: #include <linux/mm.h>
+16: #include <asm/uaccess.h>
+17: #include <linux/string.h>
+
+18: #include <linux/socket.h>
+19: #include <linux/ip.h>
+20: #include <linux/tcp.h>
+21: #include <linux/icmp.h>
+
+22: #include <linux/netfilter.h>
+23: #include <linux/netfilter_ipv4.h>
+
+24: #include <linux/proc_fs.h>
+
+25: #include <linux/interrupt.h>
+26: #include <linux/spinlock.h>
+
+27: #define PROC_BUFFER 4096
+
+28: static ssize_t nfdemo_proc_read(struct file* file, char* buf, size_t count,
+                                loff_t *ppos);
+29: static int info_read_proc(char* buf, char** start, off_t offs, int len);
+30: static int last_read_proc(char* buf, char** start, off_t offs, int len);
+
+31: struct nf_hook_ops input_filter;
+32: struct nf_hook_ops output_filter;
+33: struct proc_dir_entry *proc_nfdemo = NULL;
+34: struct proc_dir_entry *proc_info = NULL;
+35: struct proc_dir_entry *proc_last = NULL;
+
+36: static rwlock_t last_lock = RW_LOCK_UNLOCKED;
+
+37: static struct file_operations nfdemo_fops =
+38: {
+39:         NULL,                   /* lseek   */
+40:         nfdemo_proc_read,       /* read    */
+41:         NULL,                   /* write   */
+42:         NULL,                   /* readdir */
+43:         NULL,                   /* select  */
+44:         NULL,                   /* ioctl   */
+45:         NULL,                   /* mmap    */
+46:         NULL,                   /* no special open code    */
+47:         NULL,                   /* flush */
+48:         NULL,                   /* no special release code */
+49:         NULL                    /* can't fsync */
+50: };
+
+51: static struct inode_operations nfdemo_inode =
+52: {
+53:         &nfdemo_fops,
+54:         NULL,                   /* create */
+55:         NULL,                   /* lookup */
+56:         NULL,                   /* link */
+57:         NULL,                   /* unlink */
+58:         NULL,                   /* symlink */
+59:         NULL,                   /* mkdir */
+60:         NULL,                   /* rmdir */
+61:         NULL,                   /* mknod */
+62:         NULL,                   /* rename */
+63:         NULL,                   /* readlink */
+64:         NULL,                   /* follow_link */
+65:         NULL,                   /* get_block */
+66:         NULL,                   /* readpage */
+67:         NULL,                   /* writepage */
+68:         NULL,                   /* truncate */
+69:         NULL,                   /* permission */
+70:         NULL                    /* revalidate */
+71: };
+
+72: static int counter_input_dropped = 0;
+73: static int counter_input_processed = 0;
+74: static int counter_output_dropped = 0;
+75: static int counter_output_processed = 0;
+76: static char *last_packet_data = NULL;
+
+77: /* input_handler is called when a packet hits specified hook point */
+78: unsigned int input_handler(     unsigned int hooknum,
+                                struct sk_buff **skb,
+                                const struct net_device *in,
+                                const struct net_device *out)
+79: {
+80:         struct iphdr *ip;
+81:         struct tcphdr *tcp;
+82:         int packet_size;
+
+83:         /* inc processed counter */
+84:         counter_input_processed++;
+
+85:         /* IP filtering */
+86:         /* as you can see the function receives a pointer to the
+87:          * struct sk_buff pointer, so it's possible to replace the
+88:          * sk_buff with another one. This can be used to rebuild
+89:          * from scratch the packet (the example don't use this) */
+90:         ip  = (*skb)->nh.iph;
+
+91:         /* save the packet -- for /proc/nfdemo/last */
+92:         write_lock_bh(&last_lock);
+93:         if (last_packet_data != NULL)
+94:                 kfree(last_packet_data);
+
+95:         packet_size = ntohs(ip->tot_len);
+
+96:         last_packet_data = kmalloc(packet_size, GFP_KERNEL);
+97:         if (last_packet_data)
+98:                 memcpy(last_packet_data, ip, packet_size);
+99:         write_unlock_bh(&last_lock);
+
+100:         /* drop IP packets with options */
+101:         if (ip->ihl != 5)
+102:                 goto drop;
+
+103:         /* TCP filtering */
+104:         if (ip->protocol != 6)
+105:                 goto accepted;
+
+106:         tcp = (struct tcphdr*)((__u32 *)ip+ip->ihl);
+
+107:         /* TCP flags sanity check */
+
+108:         /* drops Xmas || Ymax */
+109:         if (tcp->res2 != 0)
+110:                 goto drop;
+
+111:         /* drops SYN without ACK but with others flags set */
+112:         if ((tcp->syn && !tcp->ack)
+                && (tcp->fin || tcp->rst || tcp->psh || tcp->urg))
+113:                 goto drop;
+
+114:         /* drops SYN/ACK with RST and/or FIN set */
+115:         if ((tcp->syn && tcp->ack) && (tcp->fin || tcp->rst))
+116:                 goto drop;
+
+117:         /* drops TCP packets with no-sense flags (or without flags set) */
+118:         if (!tcp->fin && !tcp->syn && !tcp->rst && !tcp->ack)
+119:                 goto drop;
+
+120: accepted:
+121:         return NF_ACCEPT;
+
+122: drop:
+123:         counter_input_dropped++;
+124:         return NF_DROP;
+125: }
+
+126: /* output_handler is called when a packet hits specified hook point */
+127: unsigned int output_handler(    unsigned int hooknum,
+                                struct sk_buff **skb,
+                                const struct net_device *in,
+                                const struct net_device *out)
+128: {
+129:         struct iphdr *ip;
+130:         struct tcphdr *tcp;
+131:         struct icmphdr *icmp;
+
+132:         /* inc processed counter */
+133:         counter_output_processed++;
+
+134:         /* IP filtering */
+135:         ip  = (*skb)->nh.iph;
+
+136:         /* TCP filtering */
+137:         if (ip->protocol != 6)
+138:                 goto icmp_init;
+
+139:         tcp = (struct tcphdr*)((__u32 *)ip+ip->ihl);
+
+140: icmp_init:
+141:         /* ICMP filtering */
+142:         if (ip->protocol != 1)
+143:                 goto accepted;
+
+144:         icmp = (struct icmphdr*)((__u32 *)ip+ip->ihl);
+
+145:         if (icmp->type == 0) /* icmp echo request */
+146:                 goto drop;
+
+147: accepted:
+148:         return NF_ACCEPT;
+
+149: drop:
+150:         counter_output_dropped++;
+151:         return NF_DROP;
+152: }
+
+153: int init_module(void)
+154: {
+155:         int result;
+
+156:         /* input hook */
+157:         input_filter.list.next = NULL;
+158:         input_filter.list.prev = NULL;
+159:         input_filter.hook = input_handler;
+160:         input_filter.flush = NULL; /* still unused */
+161:         input_filter.pf = PF_INET; /* IPv4 */
+162:         input_filter.hooknum = NF_IP_LOCAL_IN;
+
+163:         /* output hook */
+164:         output_filter.list.next = NULL;
+165:         output_filter.list.prev = NULL;
+166:         output_filter.hook = output_handler;
+167:         output_filter.flush = NULL; /* still unused */
+168:         output_filter.pf = PF_INET; /* IPv4 */
+169:         output_filter.hooknum = NF_IP_LOCAL_OUT;
+
+170:         /* proc fs */
+171:         proc_nfdemo = proc_mkdir("nfdemo", &proc_root);
+172:         if (!proc_nfdemo)
+173:                 goto proc_failed;
+
+
+174:         proc_info = create_proc_entry("info", 00400, proc_nfdemo);
+175:         if (!proc_info)
+176:                 goto proc_failed;
+
+177:         proc_info->ops = &nfdemo_inode;
+178:         proc_info->get_info = info_read_proc;
+
+179:         proc_last = create_proc_entry("last", 00400, proc_nfdemo);
+180:         if (!proc_last)
+181:                 goto proc_failed;
+
+182:         proc_last->ops = &nfdemo_inode;
+183:         proc_last->get_info = last_read_proc;
+
+184:         /* hooks registration */
+185:         result = nf_register_hook(&input_filter);
+186:         if (result) goto hook_failed;
+
+187:         result = nf_register_hook(&output_filter);
+188:         if (result) goto hook_failed;
+
+189:         /* OK */
+190:         printk(KERN_INFO "demo netfilter module loaded\n");
+191:         return 0;
+
+192: proc_failed:
+193:         printk(KERN_INFO "nfdemo: error registering proc entry\n");
+194:         return 1; /* error registering proc entry */
+
+195: hook_failed:
+196:         printk(KERN_INFO "nfdemo: error registering hook (%d)", result);
+197:         return result; /* error registering hooks */
+198: }
+
+199: void cleanup_module(void)
+200: {
+201:         /* unregister hooks */
+202:         nf_unregister_hook(&input_filter);
+203:         nf_unregister_hook(&output_filter);
+
+204:         /* unregister proc fs entry */
+205:         if (proc_last)
+206:                 remove_proc_entry("last", proc_nfdemo);
+207:         if (proc_info)
+208:                 remove_proc_entry("info", proc_nfdemo);
+209:         if (proc_nfdemo)
+210:                 remove_proc_entry("nfdemo", &proc_root);
+
+211:         printk(KERN_INFO "demo netfilter module removed\n");
+212: }
+
+213: /* this function handles /proc/nfdemo/info reading */
+214: static int info_read_proc(char* buf, char** start, off_t offs, int len)
+215: {
+216:         return sprintf( buf,
+217:                         "netfilter demo info:\n"
+218:                         "INPUT:\n"
+219:                         "processed datagrams: %d\n"
+220:                         "dropped   datagrams: %d\n"
+221:                         "OUTPUT:\n"
+222:                         "processed datagrams: %d\n"
+223:                         "dropped   datagrams: %d\n",
+224:                         counter_input_processed,
+225:                         counter_input_dropped,
+226:                         counter_output_processed,
+227:                         counter_output_dropped);
+228: }
+
+229: /* this function handles /proc/nfdemo/last reading */
+230: static int last_read_proc(char* buf, char** start, off_t offs, int len)
+231: {
+232:         struct iphdr *ip;
+233:         int packet_size = 0;
+
+234:         read_lock(&last_lock);
+235:         if (last_packet_data)
+236:         {
+237:                 ip = (struct iphdr*) last_packet_data;
+238:                 packet_size = ntohs(ip->tot_len);
+
+239:                 if (packet_size > PROC_BUFFER)
+240:                         packet_size = PROC_BUFFER;
+
+241:                 memcpy(buf, ip, packet_size);
+242:         }
+243:         read_unlock(&last_lock);
+
+244:         return packet_size;
+245: }
+
+246: /* nfdemo_proc_read() is derived from linux/net/wanrouter/wanproc.c of
+247:    linux 2.3.31. This function should be fixed since it can create some
+248:    inconguence trying to read from /proc/nfdemo/last calling read(2) more
+249:    than one time for packet but since this is just an example it's enought */
+
+250: #define min(x,y) x<y ? x : y
+251: static ssize_t nfdemo_proc_read(struct file* file, char* buf, size_t count,
+                                loff_t *ppos)
+252: {
+253:         struct inode *inode = file->f_dentry->d_inode;
+254:         struct proc_dir_entry* dent;
+255:         char* page;
+256:         int pos, offs, len;
+
+257:         if (count <= 0)
+258:                 return 0;
+
+259:         dent = inode->u.generic_ip;
+260:         if ((dent == NULL) || (dent->get_info == NULL))
+261:                 return 0;
+
+262:         page = kmalloc(PROC_BUFFER, GFP_KERNEL);
+263:         if (page == NULL)
+264:                 return -ENOBUFS;
+
+265:         pos = dent->get_info(page, dent->data, 0, 0);
+266:         offs = file->f_pos;
+267:         if (offs < pos)
+268:         {
+269:                 len = min(pos - offs, count);
+270:                 if(copy_to_user(buf, (page + offs), len))
+271:                         return -EFAULT;
+272:                 file->f_pos += len;
+273:         }
+274:         else
+275:                 len = 0;
+276:         kfree(page);
+277:         return len;
+278: }
+
+Analizziamo in dettaglio il codice per capire come si fa a costruirsi un mini
+sistema di filtraggio pacchetti in modo abbastanza semplice. Partiamo dalla 
+parte interessante cioe' il filtro diretto sugli hook ovvero la funzione di 
+gestione dell'hook NF_IP_LOCAL_IN. Notate alla riga 78 che in input a questa 
+funzione abbiamo la struttura skb del pacchetto in ingresso. Alla riga 90 
+andiamo ad estrarre da skb l'ip header del pacchetto per poterlo analizzare 
+separatamente. 
+Dalla riga 106 alla riga 119 viene eseguito un controllo TCP contro le normali
+vulnerabilita' come Xmas e Ymas, opzioni illegali e stati erronei. In questo 
+esempio antirez ha usato i valori di ritorno predefiniti di netfilter senza 
+modificare la struttura skb, quindi avremo due possibilita' NF_ACCEPT ed 
+NF_DROP. Allo stesso modo alla riga 127 viene dichiarata la procedura di 
+gestione dell'hook NF_IP_LOCAL_OUT.
+Come precedentemente viene estratto l'ip header ed analizzata la parte tcp,
+notate che alla riga 147 viene eseguito un check sul protocollo ICMP per 
+evitare ping flood. Alla riga 153 viene inizializzato il module e vengono 
+riempite due strutture, rispettivamente input_filter(157-162) ed 
+output_filter(164-169). 
+Notate in particolare le righe 162 e 169 dove viene dichiarato l'hook di
+riferimento e le righe 159 - 166 dove vengono rispettivamente dichiarate le
+funzioni di handling (gestione). 
+Questo e' un esempio semplicissimo di come si possa realizzare un packet 
+filter sotto i futuri kernel. Con questo passo e chiudo ricordandovi di 
+provare il SINUS Firewall, lo potete trovare all'url: 
+http://www.sinusfirewall.org .
+Per qualunque domanda potete scrivermi a scacco@s0ftpj.org .
+
+
+==============================================================================
+---------------------------------[ EOF 6/22 ]---------------------------------
+==============================================================================

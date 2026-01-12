@@ -1,0 +1,112 @@
+#!/usr/bin/tcl
+
+# VRFY Bruteforce en TCL por dex (Noviembre 9 del 2001)
+# Modificado el 21 de noviembre del 2001.
+
+# Tienes tcl en tu sistema?, sino no va a correr este programa :)
+
+global coneccion
+global i
+
+set version 0.2
+
+set noexiste 550
+set existe 250
+set bannernum 220
+set bloqueado 252
+
+set num 0
+
+puts "\[*\] Vrfybrute $version por DeX <-> dex@raza-mexicana.org <-> www.raza-mexicana.org"
+puts "-------------------------------------------------------------------------------"
+
+if { $argc < 2} {
+puts "\[X\] Uso: $argv0 <host> <wordlist> <logfile>"
+break
+}
+
+set host [lindex $argv 0]
+set wordlist [lindex $argv 1]
+set logfile [lindex $argv 2]
+
+if { [catch "socket $host 25"] != 0 } {
+ puts "\[ \] Error conectando al host!"
+ break
+}
+
+if { [catch "open $wordlist r 0555"] != 0 } {
+ puts "\[ \]Error abriendo la wordlist!"
+ break
+}
+
+if { [catch "open $logfile w 0755"] != 0 } {
+ puts "\[ \] Error al tratar de abrir/escribir en el logfile!"
+ break
+}
+ 
+set coneccion [socket $host 25]
+set wordlist [open $wordlist r 0555]
+set logfile [open $logfile w 0755]
+puts $logfile "\[*\] Vrfybrute $version por DeX <-> dex@raza-mexicana.org <-> www.raza-mexicana.org"
+puts $logfile "-------------------------------------------------------------------------------"
+
+proc putserv string {
+ global coneccion
+ catch "puts $coneccion \"$string\"" r
+ catch "flush $coneccion"
+ return $r
+}
+
+proc waitgets {} {
+ global coneccion
+ global i
+ while { [gets $coneccion i] != 1 } {
+ break
+ }
+}
+
+puts -nonewline "\n\[X\] Obteniendo banner... "
+waitgets
+
+if {[string compare [lindex $i 0] $bannernum] != 0 } {
+ puts "\[ \] No se pudo obtener el banner, error fatal"
+ break
+} else { puts -nonewline "Obtenido. \(" }
+
+puts "[lindex $i 3] [lindex $i 4]\)"
+
+putserv "vrfy root"
+waitgets
+
+if { [string compare [lindex $i 0] $bloqueado] == 0 } {
+ puts "\[ \] ERROR: Fatal: La opcion vrfy esta bloqueada o no es soportada."
+ break
+}
+
+puts "\nEmpezando..."
+puts "====================================================="
+set linea 0
+while { $linea != "" } {
+ set linea [gets $wordlist]
+ putserv "vrfy $linea"
+ waitgets
+ if {[string compare [lindex $i 0] $existe] == 0 } {
+  set num [expr $num +1]
+  puts "\[X\] Encontrado: $i"
+  puts $logfile "Encontrado: $i"
+ }
+}
+
+puts "====================================================="
+
+puts $logfile "-------------------------------------------------------------------------------"
+
+puts $logfile "Terminado, $num usuarios encontrados."
+puts "Terminado, $num usuarios encontrados."
+
+close $logfile
+close $wordlist
+close $coneccion
+
+break
+

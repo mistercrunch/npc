@@ -1,0 +1,393 @@
+==============================================================================
+-------------[ BFi numero 9, anno 3 - 03/11/2000 - file 17 di 21 ]------------
+==============================================================================
+
+
+-[ REVERSiNG ]----------------------------------------------------------------
+---[ L.L.H.M. - Low Level Header Manipulation
+-----[ valv{0} <valvoline@tiscalinet.it>
+
+
+consumo   : 4/5l. di te' freddo
+	    1 + 1/2 l. di caffe'
+	    3bigburger + 2cheeseburger
+
+dedicato a: tutti quelli che ankora provano a sovvertire
+            this world. resistete fratelli.
+
+X-warning : non tentate di divulgare messaggi in codice alla
+            vostra amante, al vecchio saddam o a qualche 
+            gruppo sovversivo israeliano. Con una buona dose
+            di probabilita', l'algoritmo sara' crackato nel
+            giro di 10mins, e voi vi ritroverete con il culo
+            per terra. meglio leggersi l'articolo e capirci
+            qualcosa, prima...
+
+
++) intro-
+
+L'estate vi fa' pensare a rilassarvi, le difese immunitarie si abbassano, e
+voi nudi come vermi a prendere il sole su qualche spiaggia affollata, magari
+non pensate neanche che la prossima chiusura di Napster sia un ulteriore
+attacco alla privacy personale di chi cavalca quest'onda ancora in piena che
+e' Internet. Poco importa dira' qualcuno; morto un papa se ne fa' un altro.
+Peccato che non e' cosi'. Cercano di manipolarci, cercano di sapere chi siamo
+cosa facciamo e dove andiamo. Quante volte al gioro scopiamo, cosa beviamo,
+che sigarette fumiamo, cosa ci piace fare... Raccolgono informazioni, le
+conservano in un server, pronti a venderle al migliore offerente. Questo e' il
+disastroso quadro ke abbiamo di fronte. E poco importa se quella biondona
+dalle tette siliconate ti strizza l'occhio, fratello. Magari e' stata messa
+li' proprio per questo. Con questo non voglio dire di non andare al mare e di
+non fikkare... ci mankerebbe... anzi proprio perche' siamo in questo clima di
+relax estivo, vi propongo quest'articolo da consumare non propriamente in
+spiaggia, ma quasi.
+Buon divertimento.
+
+
++) prefax-
+
+Quando mi son messo a lavorare a questo prodotto, non pensavo che l'avrei
+portato avanti fino a questo punto. L'idea, come tutte, era nata da
+un'esigenza personale di sendare infos in maniera insospettabile ad alcuni
+fratelli in resistenza contro questo cazzo di sistema oramai da troppo tempo.
+"Quale modo migliore per sendare infos, di quello di far credere che in realta'
+siano altro?" mi son detto... Guardandomi intorno mi sono accorto di una gran
+cosa: tutti (o quasi) i files che mi circondano, contengono zone non
+controllate, pronte ad ospitare le mie informazioni in maniera trasparente a
+tutti.
+Cosa mi restava da fare? Iniziai a codare...
+
+
++) sguardo di insieme agli headers-
+
+Ogni file di tipo complesso contiene un header o intestazione dello stesso.
+Una sorta di indice che ci da' alcune preziose informazioni sul tipo di file
+in nostro possesso, sulla sua usabilita', dimensione, etc. Per farci un'idea
+su quello che voglio dire e su dove voglio arrivare, facciamo un esempio.
+Partiamo da un file eseguibile standard (.EXE).
+
+Ogni file .EXE, contiene un Header, grande almeno 512bytes.
+In realta', solo i primi 27bytes di questo header partecipano in maniera
+attiva alla realizzazione dell'header. I restanti bytes continuano a far
+parte dell'header, ma in realta' non contribuiscono alle sue informazioni.
+Queste ultime vengono utilizzate dal sistema per avviare ed eseguire il
+programma. Per comodita' ho riportato come struttura C queste informazioni:
+
+struct EXE {
+  char ID[2]; // MZ, altrimenti NON va'...
+  unsigned last; // numero totale bytes nell'ultimo settore
+  unsigned pages; // numero totale di settori o pagine
+  unsigned reloc_items; // numero di items relocabili
+  unsigned header_size; // grandezza dell'header in paragrafi
+  unsigned minpara; // paragrafi minimi richiesti
+  unsigned maxpara; // paragrafi massimi richiesti
+  unsigned ss; // stack-segment
+  unsigned sp; // stack-pointer
+  unsigned chksum; // checksum per l'header
+  unsigned ip; // instruction-pointer (IP)
+  unsigned cs; // code-segment
+  unsigned first_reloc; // offset del primo item rilocabile
+  unsigned char ovr; // numero di overlay
+};
+
+I piu' conosceranno benissimo quello che c'e' scritto sopra, ma permettetemi
+di spendere due parole per i neofiti (?) dell'EXE.
+In tutta questa grossa struttura, quello che importa sapere e' che un file
+.EXE per partire ha bisogno dei primi due bytes settati ad 'MZ', o 'ZM' e
+cosa ankora piu' importante, che non ne permette la modificabilita'
+'selvaggia', e' quella di un controllo sul numero di pagine presenti.
+Un file .EXE, infatti, viene diviso in pagine virtuali da 512bytes, meno
+l'ultima che puo' essere anche piu' piccola, in modo da evitare dimensioni
+fisse. In pratica per ricavare la dimensione di un .EXE, basta fare un paio
+di conti:
+
+size = ((settori tot. - 1) x 512) + (bytes sull'ultimo settore) - 
+- ( ( item_3 - 1 ) x 512 ) + item_2
+
+E' un conteggio molto spartano che rende bene l'idea pero'.
+In pratica se cominciate a modificare ed aggiungere bytes nel file, ne
+corrompete la validita' oltre che il checksum, rendendolo inutilizzabile. La
+cosa in effetti non e' proprio cosi'... quello di cui parlo sopra riguarda
+si' le dimensioni del file, ma non le dimensioni totali e reali dello stesso,
+ma solo le dimensioni 'virtuali'.
+Per essere brevi, se vi trovate davanti qualcosa del tipo:
+
+........¼{A '¨@
+...............
+..........nome_
+finestra123....
+AfxWnd42s...Afx
+ControlBar42s..
+..AfxMDIFrame42
+s..AfxFrameOrVi
+ew42s...AfxOleC
+ontrol42s....Ge
+tMonitorInfoA.E
+...............
+
+E provate ad aggiungere qualche bytes, magari per cambiare il nome della
+finestra, potete stare sicuri che il vostro prog non andra' mai. Esistono
+pero' altri modi per l'aggiunta di informazioni al file. Una di queste e'
+quella usata dagli editor di risorse, che aggiungono ed aumentano le
+dimensioni del file, ma le modiche apportate da questi ultimi riguardano e
+toccano strutture particolari del file.
+In qualunque caso, questi programmi in generale si occupano di modificare
+di conseguenza anche tutte quelle parti che riportano informazioni
+riguardanti punti di inizio, fine e dimensione del file.
+Spostiamoci adesso alla fine del file, dopo cioe' l'ultima zona indicata dal
+secondo campo della nostra struttura. Quella e' una zona vuota. Il nostro
+programma e' finito un paio di bytes prima.
+Cosa succederebbe se inserissimo dei bytes qui?
+Rispondo io per voi: assolutamente niente, il programma comincera' a
+funzionare in modo perfettamente normale (a meno di controlli sulla dimensione
+da parte del programma in se'), con il suo drappello che noi abbiamo appena
+inserito.
+Rendo l'idea? In pratica dopo quella fatidica zona, possiamo mettere quel che
+vogliamo senza preokkuparci di invalidare il file.
+
+Continuiamo spostando la nostra attenzione sui files stream tipo MP3.
+Piu' precisamente, spostiamoci sull'intestazione e l'header di questi
+particolari file. I file mp3 sono segmentati in milioni di frames, ognuno
+contenente una frazione di un secondo di audio, pronto per essere ricostruito
+dal decoder in uso. Inserito all'inizio di ogni frame dati, si trova il
+fatidico header. Esso registra 32bit di informazioni riguardanti il frame
+seguente. L'header inizia con un blocco di sync, consistente di 11bit.
+Questo blocco permette al player di controllare e posizionarsi sul primo
+frame valido del file.
+Esso inoltre permette di skippare gli eventuali tag ID3 presenti all'inizio
+e/o alla fine del file.
+
++-----+---+---+---+-----+---+---+---+---+---+---+---+---+---------+
+|   A | B | C | D |  E  | F | G | H | I | J | K | L | M |  AUDIO  |
++-----+---+---+---+-----+---+---+---+---+---+---+---+---+---------+
+
+A - frame sync
+B - MPEG audio version
+C - MPEG layer
+D - protezione
+E - bitrate
+F - sampling rate
+G - bit di padding
+H - riservato
+I - modo canali
+J - modo estensione
+K - copyright
+L - original
+M - emphasis
+
+In effetti, per gli scopi di quest'articolo, l'unica parte interessante
+dell'header e' la prima, quella denotata nel grafico con A, e che come
+dicevamo prima si okkupa del sync al primo frame corretto e lo skipping di
+eventuali IDTAG. Diamo un'okkiata piu' da vicino alla struttura di un file
+MP3:
+
+                                                                    \
+FF FB 92 00 00 00 00 00 00 69 00 00 00 00 00 00    ÿû’......i...... |32bits
+0D 20 00 00 00 00 00 01 A4 00 00 00 00 00 00 34    . ......¤......4 |header
+                                                                    /
+80 00 00 00 FF FF FF FF FF FF FF FF FF FF FF FF    €...ÿÿÿÿÿÿÿÿÿÿÿÿ
+FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF    ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ
+FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF    ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ
+
+Quella sopra e' la parte iniziale di un comune file MP3 in standard v2.
+Sono da notare i primi 32bit, che producono la zona di header di cui
+parlavamo. Quello che segue dopo, invece, e' lo stream vero e proprio.
+Spostiamoci, adesso, in calce al file e vediamo cosa troviamo:
+
+00 00 00 00 00 00 00 00 54 41 47 52 69 64 69 6E     ........TAGRidin
+67 20 57 69 74 68 20 54 68 65 20 4B 69 6E 67 20     g With The King 
+20 20 20 20 20 20 20 20 20 42 42 20 4B 69 6E 67     BB King & Eric C
+20 26 20 45 72 69 63 20 43 6C 61 70 74 6F 6E 20     lapton        Ri
+20 20 20 20 20 20 20 52 69 64 69 6E 67 20 57 69     ding With The Ki
+74 68 20 54 68 65 20 4B 69 6E 67 20 20 20 20 20     ng          2000
+68 20 54 6E 68 65 20 69 6E 67 3F 20 20 20 20 20     [VrL][ Ripping 
+20 20 20 20 20 20 20 52 69 64 69 6E 20 20 20 00      Collection    . 
+
+Questa e' la parte finale dello stesso file. Come si puo' notare e' presente
+la keyword TAG seguita da uno standard di testi ke rappresentano titolo,
+autore, copyright, genere, etc. del pezzo in questione.
+
+A fronte di quanto visto, dove inserire allora il nostro file nascosto?
+Le scelte possibili a mio modo di vedere sono due: 
+
+1) Inserirlo frammentato dentro ogni frame del brano, modificando in maniera
+   opportuna i bit di sync e quelli di intestazione del frame corrente.
+
+2) Inserirlo prima della keyword 'TAG', facendo scivolare la stessa alla fine
+   del nostro file da nascondere.
+
+Tutte e due le scelte hanno dei lati positivi ed alcuni negativi. Nel primo
+caso, ci troviamo di fronte a problemi di tipo implementativo: bisognerebbe
+infatti fare una stima del numero di frame presenti nel file, successivamente
+decidere come partizionare il nostro file da nascondere e modificare di
+conseguenza entry-point e start-point di ogni frame.
+Nel secondo caso, l'implementazione e' molto piu' veloce ed efficente, dal
+momento ke lo stream mp3, una volta arrivato al nostro file hide, non
+trovera' un header mp3 valido e lo skippera' semplicemente, arrivando in
+coda, dove trovera' il TAG da noi postposto rendendo in effetti trasparente
+l'inoculazione del file.
+Come avrete capito, la scelta da me effettuata per questa particolare
+implementazione e' la seconda. Cio' non toglie ke una nuova routine del primo
+tipo sarebbe molto utile, perke' permetterebbe di maskerare in modo quasi
+totale il file.
+
+Anche nel caso di un file grafico di tipo .BMP (bitmap win) ci troviamo in
+presenza di un header contenente informazioni su grandezza, colori ed altre
+informazioni rilevanti per la visualizzazione grafica dell'immagine. Di nuovo,
+l'header potrebbe essere rappresentato come una struttura C di questo tipo:
+
+struct BITMAP {
+	BITMAPFILEHEADER bmfh;
+	BITMAPINFOHEADER bmih;
+	RGBQUAD          aColors[];
+	BYTE             aBitmapBits[];
+}
+
+Il primo campo contiene informazioni sul tipo, grandezza e layout del file.
+Il tipo, in realta', contiene all'interno sottostrutture con i vari flag.
+Il secondo campo contiene informazioni riguardo la dimensione, la compressione
+ed il formato dei colori dell'immagine.
+Il terzo campo, definito come un array, contiene tanti elementi quanti sono i
+colori dell'immagine. Questo campo non e' presente nelle bitmap a 24bits,
+poiche' ogni pixel e' rappresentato da valori a 24bit di tipo (RGB).
+L'ultimo campo consiste di un array di valory BYTE, rappresentante
+righe consecutive di dati (scan lines) dell'immagine. Ogni scan line consiste
+di byte consecutivi rapprentanti i pixel nella linea nell'ordine
+sinistra-destra. All'interno della struttura BITMAPINFOHEADER, il secondo
+byte contiene le informazioni sulla grandezza totale della bitmap e sul
+numero di scan lines.
+
+Immaginando un dump in modo testo di queste strutture, ci troveremmo davanti
+qualcosa di questo tipo:
+
+header {
+  BitmapFileHeader
+    Type       19778
+    Size       3118       <- 
+    Reserved1  0
+    Reserved2  0
+    OffsetBits 118
+  BitmapInfoHeader
+    Size            40    <-
+    Width           80
+    Height          75
+    Planes          1
+    BitCount        4
+    Compression     0
+    SizeImage       3000  <-
+}
+
+Le frecce che ho aggiunto spiegano il mio obiettivo. Anche in questo caso ci
+troviamo davanti ad un controllo 'assunto'. In pratica, durante la lettura
+dell'header in fase di decoding, si vanno a prendere queste informazioni che
+saranno utilizzate dal decoder/visualizzatore, per avere un punto di arresto
+e quindi di fine file. In pratica, viene detto al decoder quanto leggere e
+come farlo.
+Anche in questo caso, l'aggiunta di dati alla fine del file non implica la
+corruzzione del file. Quest'ultimo sara' interpretato correttamente, skippando
+di brutto tutto quello che viene dopo i punti di fine file imposti
+dall'header, dandoci in concreto la possibilita' di passare insieme
+all'immagine file nascosti.
+
+Non continuo con divagazioni sui vari headers di files presenti, perche'
+altrimenti non basterebbe un numero intero di BFi!. Quello che volevo
+spiegare (e spero di esserci riuscito) era come, in generale, tutti i formati
+complessi (dati, video, audio ke siano) fanno un controllo 'assunto' e
+'presunto' sulla dimensione, basandosi sulle informazioni contenute
+nell'header, senza preokkuparsi di un check completo del file, permettendo in
+effetti di aggiungere informazioni a noi utili (file o quel che volete).
+Personalmente ho provato con successo completo sui seguenti formati:
+
+.MP3 - tutte le versioni
+.DOC - Wordpad, Word 6.x, Word 7.x
+.GIF - tutte le versioni
+.JPG - tutte le versioni
+.BMP - tutte le versioni
+.EXE - win32, winnt, win2k
+
+Sicuramente i formati vulnerabili a questo tipo di modifica sono moltissimi
+altri per non dir tutti. Ma questo, cari fratelli, e' compito vostro...
+
+
++) l'implementazione-
+
+Il codice fornito con questo articolo e' una dimostrazione semplice e senza
+pretese di come forzare quanto detto e di come utilizzarlo.
+Premessa doverosa e' quella che non e' stata usata nessuna ottimizzazione: il
+codice e' lento tanto quanto il livello cognitivo del mio cane (e credetemi
+ce ne vuole...). Ma qui stiamo a parlare a coder... quindi una volta data
+l'idea ed il codice di partenza, non sara' difficile svolgere modifiche
+performanti a quanto gia' fatto.
+ 
+La ricerca di file nascosti penso sia la prima cosa da andare a modificare; la
+ricerca e' fatta con un construtto case con if annidati (quanto di peggiore
+si possa augurare ad un programma... eheh).
+Come alternativa pensavo ad una ricerca dal basso, con un sistema di verifica
+hash... ad okkio e croce si salirebbe notevolmente di prestazioni.
+
+Per quanto riguarda le due procedure di codifica presenti (hidd, hidd2),
+niente da dire per la seconda, ke si preokkupa soltanto di cryptare ed
+aggiungere header di fine ed inizio del file nascosto al nuovo file. La prima
+procedura, invece, costruisce, oltre che l'header del file nascosto, anche i
+tag necessari per una perfetta emulazione di un file mp3. Nell'attuale
+implementazione, i tag vengono copiati da un file .DAT, ma si potrebbe
+semplicemente prendere il tag del file originale mp3 dove si intende
+nascondere e traslarlo in calce al file di output.
+
+Nota dolente e' il sistema di cryptazione. Come molti di voi avranno visto
+(spero), il sistema non ha nessuna tolleranza e/o resistenza ad un attacco di
+crypto-analisi. In pratica viene sommata la stringa usata come passphrase n
+volte al file da cryptare. Vi chiederete come mai? Dopo che vi ho parlato e
+tormentato con sistemi RSA ottimizzati e sistemi a curve ellittoidali per una
+maggiore sicurezza, perche' usare un sistema cosi' elementare?
+
+Provate a pensare ad un sito che pubblicizza immagini della Kournikova nuda ed
+in realta' dentro ogni immagine ci stanno immagini pedo della specie peggiore,
+impossibili da scovare e decryptare... rendo l'idea?
+Quello che cerco di dire e' che le idee possono viaggiar libere (ankora), il
+codice eseguibile ed il sorgente, NO.
+Rischierei di essere additato e condannato per crimini che non mi son mai
+sognato di perpetrare. Nulla mi vieta di consigliarvi di cambiare la routine
+di crypt e di metterci dentro magari un bel sistema su base IDEA o BLOWFISH,
+giusto? :**
+
+Ultima cosa riguardante l'implementazione e' la routine di lettura/scrittura
+del file di output/input. Una lettura a blocchi sarebbe molto piu' efficente
+di una lettura byte-byte. Questo pero' dipende dal tipo di cryptazione che
+intendete utilizzare.
+
+Il codice sorgente mi sembra abbastanza commentato e comunque il contenuto non
+e' di difficile comprensione. Niente di particolare, solo C ansi.
+
+
++) ringraziamenti-
+
+I piu' sentiti ringraziamenti volano a tutta s0ftpj, in particolare:
+
+\sPIRIT\, B_Berry, smaster, |scacco|, vecna, pIGpEN.
+
+Un saluto ed un grazie per esserci a:
+
+Nello|Z, Kobaiashi, Cavallo.
+
+Saluti personali e ringraziamenti vanno a:
+
+Quest, Mark_B, HellRider, Solster, Tyberuan, \\Ken, JoKer/aVt, dunric, yap,
+yattamen, KC, ViPer...
+
+Un saluto particolare a ins4ne, per l'aiuto nella correzione dell'articolo,
+prima di portarlo online...
+
+...e tutti quelli che non vengono alla mente in questo momento...
+
+
++) per contattarmi-
+
+valvoline@tiscalinet.it
+valvoline@immagika.org
+valvoline@s0ftpj.org
+
+
+==============================================================================
+---------------------------------[ EOF 17/21 ]--------------------------------
+==============================================================================

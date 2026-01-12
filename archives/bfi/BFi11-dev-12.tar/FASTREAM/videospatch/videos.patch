@@ -1,0 +1,255 @@
+--- A-team.c	2002-03-22 00:00:00.000000000 +0100
++++ A-team.c.patched	2002-09-02 09:59:28.000000000 +0200
+@@ -5,7 +5,15 @@
+ *                     / _ \ _____| __/ _ \/ _` | '_ ` _ \                      *
+ *                    / ___ \_____| ||  __/ (_| | | | | | |                     *
+ *                   /_/   \_\     \__\___|\__,_|_| |_| |_|                     *
+-*                                                                              *
++*                                     _                                        *
++*                                   _| |_                                      *
++*                                  |_   _|                                     *
++*                 _     __           |_|                __       __            *
++*          _   __(_)___/ /__  ____  _____  ____  ____ _/ /______/ /_           *
++*         | | / / / __  / _ \/ __ \/ ___/ / __ \/ __ `/ __/ ___/ __ \          *
++*         | |/ / / /_/ /  __/ /_/ (__  ) / /_/ / /_/ / /_/ /__/ / / /          *
++*         |___/_/\__,_/\___/\____/____(_) .___/\__,_/\__/\___/_/ /_/           *
++*                                      /_/                                     *
+ *                                                                              *
+ *        based on HEAT - Half Ethernet Address Translation tecnology           *
+ *                   tHE rECIdjVO - recidjvo@pkcrew.org                         *
+@@ -13,7 +21,7 @@
+ *                                                                              *
+ *      Libraries needed:                                                       *
+ *      - libpcap - http://www.tcpdump.org/                                     *
+-*      - Libnet  - http://libnet.sourceforge.net/                              *
++*      - Libnet  - http://www.packetfactory.net/libnet/ (1.0.2a)               *
+ *                                                                              *
+ *   compile with:                                                              *
+ *   # cc -o A-team A-team.c `libnet-config --defines --libs` -lpcap -pthread   *
+@@ -21,7 +29,10 @@
+ *                                                                              *
+ *******************************************************************************/
+ 
+-#define PROGNAME "A-team"
++#define CODE1 "000000000000"
++#define CODE2 "00:00:00:00:00:00"
++#define CODE4 "000000000000000"
++
+ #define ERRBUF_SIZE ((PCAP_ERRBUF_SIZE > LIBNET_ERRBUF_SIZE) ? PCAP_ERRBUF_SIZE : LIBNET_ERRBUF_SIZE)
+ #define READ_TIMEOUT 1000
+ #define STACK_TIMEOUT 2
+@@ -32,6 +43,15 @@
+ #define LOOP -1
+ #define debugf(x...); if(debug) { printf(x); fflush(stdout); }
+ 
++#define RUNPATCH 0
++#define TOK1 "WebDVD=STBsn="
++#define TOK2 "&MAC="
++#define TOK3 "&IP="
++#define TOK4 "&HR="
++#define LEN1 0x0c
++#define LEN2 0x11
++#define LEN4 0x0f
++
+ #include <pcap.h>
+ #include <libnet.h>
+ #include <pthread.h>
+@@ -58,7 +78,8 @@
+ struct ether_addr *ext_hw_addr = (struct ether_addr *)NULL;
+ struct interface internal, external;
+ char debug = DEBUG;
+-
++char runpatch = RUNPATCH;
++unsigned char *video_hw_addr = (unsigned char *)NULL;
+ extern char pcap_version[];
+ 
+ int main(int argc, char *argv[]);
+@@ -69,6 +90,7 @@
+ void heat(char *id, struct pcap_pkthdr *pcap_h, u_char *out_packet);
+ void push(char *packet, int len, int id, struct timeval *tv);
+ int pop(char *packet, int len, int id);
++unsigned char *replace(unsigned char *buf, int len);
+ 
+ int main(int argc, char* argv[]) {
+         /* Set id flags */
+@@ -77,8 +99,7 @@
+ 
+         /* Blank record structures */
+         bzero(int_recs, sizeof(struct stack_packet) * STACKLEN);
+-        bzero(int_recs, sizeof(struct stack_packet) * STACKLEN);
+-
++        bzero(ext_recs, sizeof(struct stack_packet) * STACKLEN);
+         /* Get command line params */
+         getparms(argc, argv);
+ 
+@@ -86,6 +107,8 @@
+         initialize(&internal);
+         initialize(&external);
+ 
++        debugf(" * videos.patch detected.. turned %s\n", ((runpatch) ? "ON" : "OFF"));
++
+         /* Fork && go! */
+         if(!debug) {
+                 /* Go in the daemon land */
+@@ -95,7 +118,7 @@
+                 setsid();
+         }
+ 
+-        debugf("Logging traffic ( . -> from external to internal | o -> from internal to external)\n");
++        debugf("Logging traffic ( . -> from external to internal | o -> from internal to external | * -> videospatched packet)\n");
+         pthread_create(&external.pthread, NULL, threadloop, (void *)&external);
+         threadloop((void *)&internal);
+ 
+@@ -107,7 +130,7 @@
+         char optc;
+ 
+         /* Parse command line params */
+-        while((optc = getopt(argc, argv, "i:e:dh")) != EOF) {
++        while((optc = getopt(argc, argv, "i:e:a:dvh")) != EOF) {
+                 switch(optc) {
+                         case 'i':
+                                 internal.name = optarg;
+@@ -115,9 +138,20 @@
+                         case 'e':
+                                 external.name = optarg;
+                                 break;
++                        case 'a':
++                                video_hw_addr = (unsigned char *)malloc(ETHER_ADDR_LEN * sizeof(unsigned char));
++                                if(sscanf(optarg, "%x:%x:%x:%x:%x:%x", &video_hw_addr[0], &video_hw_addr[1], &video_hw_addr[2],
++                                                         &video_hw_addr[3], &video_hw_addr[4], &video_hw_addr[5]) == 6) {
++                                        break;
++                                }
++                                usage(argv[0]);
++                                exit(0);
+                         case 'd':
+                                 debug = 1;
+-                                 debugf("Set verbose mode ON\n");
++                                debugf("Set verbose mode ON\n");
++                                break;
++                        case 'v':
++                                runpatch = 1;
+                                 break;
+                         case 'h':
+                                 usage(argv[0]);
+@@ -132,6 +166,12 @@
+         }
+         debugf("Set internal interface to: %s\n", internal.name);
+         debugf("Set external interface to: %s\n", external.name);
++        if(video_hw_addr == (unsigned char *)NULL) {
++                debugf("No video hardware address detected, applying to all traffic.\n");
++        } else {
++                debugf("Set video hardware address to: [%02x:%02x:%02x:%02x:%02x:%02x]\n", video_hw_addr[0], video_hw_addr[1],
++                                                        video_hw_addr[2], video_hw_addr[3], video_hw_addr[4], video_hw_addr[5]);
++        }
+ 
+         return;
+ }
+@@ -139,7 +179,7 @@
+ void usage(char *progname)
+ {
+         /* Program usage */
+-        fprintf(stderr, "usage:\t%s -i internal_interface -e external_interface [-d]\n\t%s -h\n\n", progname, progname);
++        fprintf(stderr, "usage:\t%s -i internal_interface -e external_interface [-d] [-v] [-a video_hw_addr]\n\t%s -h\n\n", progname, progname);
+         return;
+ }
+ 
+@@ -203,13 +243,16 @@
+ 
+ void heat(char *id, struct pcap_pkthdr *pcap_h, u_char *out_packet) {
+         struct interface *iface;
+-        
++        u_char *payload;
++        u_char packetcp[SNAPLEN];
++        struct libnet_ip_hdr *iphdr;
++        struct libnet_tcp_hdr *tcphdr;
++
+         /* Check where the packet is coming from */
+         if((int)id) {
+                 /* From external interface to internal interface */
+                 iface = &internal;
+ 
+-                /* Check for duplicates */
+                 pthread_mutex_lock(&ext_packet_mutex);
+                 if (pop(out_packet, pcap_h->len, (int)id)){
+                         /* packet is duplicate */
+@@ -217,8 +260,9 @@
+                         return;
+                 }
+                 push(out_packet, pcap_h->len, (int)id, (struct timeval *)&pcap_h->ts);
+-                pthread_mutex_unlock(&ext_packet_mutex);
+ 
++                /* Check for duplicates */
++                pthread_mutex_unlock(&ext_packet_mutex);
+         } else {
+                 /* From internal interface to external interface */
+                 iface = &external;
+@@ -230,10 +274,28 @@
+                         pthread_mutex_unlock(&int_packet_mutex);
+                         return;
+                 }
++
++                if(runpatch) {
++                        if((video_hw_addr == (unsigned char *)NULL) || !memcmp(((struct libnet_ethernet_hdr *)out_packet)->ether_shost, video_hw_addr, ETHER_ADDR_LEN)) {
++                                iphdr = (struct libnet_ip_hdr *)(out_packet + LIBNET_ETH_H);
++                                if(iphdr->ip_p == IPPROTO_TCP) {
++                                        memcpy(packetcp, out_packet, pcap_h->len);
++                                        tcphdr = (struct libnet_tcp_hdr *)((int)packetcp + LIBNET_ETH_H + LIBNET_IP_H);
++                                        payload = packetcp + LIBNET_ETH_H + LIBNET_IP_H + (tcphdr->th_off << 2);
++                                        if(replace(payload, pcap_h->len - LIBNET_ETH_H - LIBNET_IP_H - tcphdr->th_off) != NULL) {
++                                                out_packet = packetcp;
++                                                debugf("*");
++                                                libnet_do_checksum(out_packet + 14, IPPROTO_TCP, pcap_h->len - LIBNET_ETH_H - LIBNET_IP_H);
++                                        }
++                                }
++                        }
++                }
++
+                 memcpy(((struct libnet_ethernet_hdr *)out_packet)->ether_shost, ext_hw_addr->ether_addr_octet, ETHER_ADDR_LEN);
++
+                 push(out_packet, pcap_h->len, (int)id, (struct timeval *)&pcap_h->ts);
+                 pthread_mutex_unlock(&int_packet_mutex);
+-        }        
++        }
+ 
+         /* Write the packet */
+         libnet_write_link_layer(iface->net_link, iface->name, out_packet, pcap_h->len); 
+@@ -292,4 +354,38 @@
+         return 0;
+ }
+ 
+-/******************************************************************************/
++unsigned char *replace(unsigned char *buf, int len)
++{
++        int i;
++        char status = 0;
++
++        if(len < strlen(TOK1) + LEN1 + strlen(TOK2) + LEN2 + strlen(TOK3) + strlen(TOK4) + LEN4) {
++                return(NULL);
++        }
++
++        for(i = 0; i <= len - strlen(TOK1) + LEN1 + strlen(TOK2) + LEN2 + strlen(TOK3) + strlen(TOK4) + LEN4; i++) {
++                if(memcmp(buf + i, TOK1, strlen(TOK1))) {
++                        continue;
++                }
++                if(memcmp(buf + i + strlen(TOK1) + LEN1, TOK2, strlen(TOK2))) {
++                        continue;
++                }
++                if(memcmp(buf + i + strlen(TOK1) + LEN1 + strlen(TOK2) + LEN2, TOK3, strlen(TOK3))) {
++                        continue;
++                }
++
++                memcpy(buf + i + strlen(TOK1), CODE1, LEN1);
++                memcpy(buf + i + strlen(TOK1) + LEN1 + strlen(TOK2), CODE2, LEN2);
++                status = 1;
++
++                i += strlen(TOK1) + LEN1 + strlen(TOK2) + LEN2 + strlen(TOK3);
++                while(memcmp(buf + i++, TOK4, strlen(TOK4))) {
++                        if(i > len - LEN4) {
++                                return(NULL);
++                        }
++                }
++                memcpy(buf + i + strlen(TOK4) - 1, CODE4, LEN4);
++        }
++
++        return(status ? buf : NULL);
++}

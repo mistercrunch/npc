@@ -1,0 +1,416 @@
+<HTML>
+<HEAD>
+</HEAD>
+<BODY  bgcolor=#FFFFFF HEIGHT=100 WIDTH=89 TEXT=#000000 LINK=#0000FF VLINK=#FF0000>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<A NAME="section-1"><H1>CLASS 18</H1></A>
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+
+<center>
+<H2>Subroutines</H2>
+</center>
+<hr>
+
+<H3>Extending the Instruction Set.</H3>
+
+The modern computer is a layered set of virtual machines, as discussed
+in the first lecture.  This idea of building virtual machines based on
+new instruction sets is as useful to the everyday programmer as it is to
+the computer system builder.   In fact, it is so useful that any modern
+computer must give a programmer a way to create <I>new instructions</I>.  
+These new instructions are called <I>subroutines.  </I>
+
+ <P>
+Using subroutines, programmers create new instructions, and therefore
+new virtual machines, that are specifically designed to solve the
+problem at hand.  This allows the programmer to "raise the abstraction
+level" when solving a problem in the same way that system designers
+raise the abstraction level to bridge the semantic gap between gates and
+wires on one hand and high level languages on the other hand.
+
+ <P>
+Subroutines are so important and are used so often that we have fairly
+complicated instructions in assembly and machine language to support
+them.  That is, the mechanisms necessary to implement a subroutine are
+fairly complicated, and even though we want assembly language to be
+simple (flexible and fast), subroutines are important enough that we
+are willing to have fairly complex instructions to support them.
+
+ <P>
+What mechanisms do we need to support subroutines?  More fundamentally,
+what characteristics should a subroutine have?
+
+ <P>
+A subroutine is intended to add a new instruction to our instruction
+set.  Therefore, it should exhibit:
+<UL>
+<LI> <B>In-line execution.</B> It should follow other instructions and
+        precede other instructions in sequence.   That is, control should
+        flow naturally to and from it just like any other instruction.
+        It should "look" like an instruction to the programmer.
+<LI>  <B>No unintended side effects.</B>  Executing a subroutine shouldn't 
+        affect other parts of our program if we don't want it to.  For example,
+        the data that are in our registers shouldn't change just because
+        we execute a subroutine.
+</UL>
+
+Additionally, we like to generalize the notion of instruction a little
+bit for subroutines:
+<UL>
+<LI> Subroutines should be allowed a <B>varying number of arguments</B> (rather
+     that just 1, 2, or 3 as in SPARC assembly). 
+</UL>
+
+
+<b>What do we need to support these three characteristics?</b>
+ <P>
+
+<ol>
+ <P>
+<LI> For in-line execution, we need a mechanism to jump to a new location,
+execute a bunch of instructions, and then jump right back to where we
+came from.  Normal branch instructions don't provide this:  we could
+always branch to the beginning of a subroutine, but when we get the end,
+how do we know where to branch back to?  After all, the subroutine could
+be called from many different locations.
+ <P>
+Need: a <B>call/return mechanism</B>
+ <P>
+<LI> For isolating unintended side-effects, we need a way to protect the
+contents of our registers so that they are unchanged by subroutine
+execution.  We can save and restore the contents of registers, or we can
+get new registers for the subroutine (which is what SPARC does).
+ <P>
+Need: a <B>register protection mechanism</B>
+ <P>
+<LI> For passing a variable number of arguments, we need an agreement
+between the caller and the callee on how arguments are to be passed.
+ <P>
+Need: an <B>argument passing convention</B>
+</ol>
+ <P>
+
+The solution that any particular machine architecture takes to these
+problems is called the machine's method of <I> subroutine linkage</I>.  Note
+that subroutine linkage should and must be defined at the assembly
+language level.  It should be defined there because subroutine linkage is
+important enough to require hardware implementation.  It must be defined
+there because subroutines are common to many languages and we want to be
+able to call subroutines written in different languages.
+ <P>
+To look at each of these three requirements, we will now describe
+subroutine linkage on the SPARC.
+The three requirements for implementing subroutines derive from their
+role as new instructions.  They are:
+<ol><b>
+<LI> a call/return mechanism
+<LI> a register protection mechanism
+<LI>  an argument passing convention
+</b></ol>
+
+Here's how these three requirements are met on the SPARC.
+
+<hr>
+<center>
+<H2>SPARC Subroutine Linkage</H2>
+</center>
+
+<B>1. Call/Return mechanism.</B>   The SPARC architecture provides two special
+instructions to implement call/return -- named, oddly enough, "call" and
+"ret". 
+ <P>
+The call instruction does two things: it branches to the location
+specified, and it saves the current program counter into a special
+register, %o7.  The call instruction is a control transfer instruction,
+so it is followed by a delay slot.
+ <P>
+The ret instruction simply branches to the location stored in %o7 + 8. 
+Why the "+ 8"?  Each instruction is four bytes long, and we want to
+branch back the instruction following the delay slot following the
+original call.
+ <P>
+<B>2. Register protection mechanism.</B>   One way to protect the contents of
+registers during a subroutine call would be to save all of the registers
+by storing their contents in main memory before the subroutine starts,
+then copy them back from main memory when the subroutine finishes.
+This is the method that is used in most modern processors.
+ <P>
+
+The SPARC architecture adopts a slightly different solution.  Recall
+that the programmer has access to 32 registers in four groups: global,
+in, out, and local.  In fact, these registers are only part of a much
+larger group, typically 128.  This larger group is called the
+<I>register file</I> and is arranged into sets of 16 registers, called
+<I>windows</I>.  At any point in time, the processor is using one
+particular register window.  Each window has a number, and the number of
+the current window is stored in a special register called the CWP
+(current window pointer).
+ <P>
+The scheme looks like this:
+<PRE>
+        ==================
+        |                |    <- 8 registers
+        -----window 7-----
+        |                |    <- 8 registers
+        ==================
+        |                |    <- 8 registers
+        -----window 6-----
+        |                |    <- 8 registers
+        ==================
+        |                |    <- 8 registers
+        -----window 5-----
+        |                |    <- 8 registers
+        ==================
+                .
+                .
+                .
+
+        ==================
+        |                |    <- 8 registers
+        -----window 0-----
+        |                |    <- 8 registers
+        ==================
+</PRE>
+
+Say the contents of the CWP is 6.  Then, the registers being used are
+taken from window 6 and half of window 5:
+<PRE>
+
+        ==================
+        |                |    
+        -----window 7-----
+        |                |    
+        ==================
+        |                |    <- in registers (%i0 - %i7)
+CWP ==> -----window 6-----
+        |                |    <- local registers (%l0 - %l7)
+        ==================
+        |                |    <- out registers (%o0 - %o7)
+        -----window 5-----
+        |                |    
+        ==================
+                .
+                .
+                .
+
+        ==================
+        |                |    
+        -----window 0-----
+        |                |    
+        ==================
+
+</PRE>
+
+Register windows are used for register protection as follows.  To get a
+new set of registers for use in a subroutine, one executes a "save"
+instruction.  The save instruction decrements the CWP by one.  The
+effect is to:
+<UL>
+<LI> provide a new set of local registers
+<LI> provide a new set of out registers
+<LI> make the old "out" registers into the new "in" registers.
+</UL>
+
+We'll discuss why the "out"s become the "in"s in a little bit.
+Note that what we have done with the save instruction is simply <I>rename</I>
+registers so that we are accessing new registers using the same old
+names.
+ <P>
+Where are the global registers (%g0 - %g7)?  They don't participate in
+this scheme at all.  Therefore global registers are NOT protected across
+subroutine calls -- they may be changed unexpectedly by a subroutine
+call.
+ <P>
+This process is reversed by the <TT>restore</TT> instruction, which increments
+the CWP by one.  So upon entry to a subroutine, the program should execute
+a <TT>save</TT> instruction, which gets a new register set for use in the
+subroutine.  Before returing from a subroutine, the program should
+execute a <TT>restore</TT> instruction, which returns to the old register set,
+with their contents still intact.
+ <P>
+Thus, a subroutine call gets executed as follows:
+<PRE>
+        caller          callee
+        ------          ------
+          *
+          *
+        call foo
+        <delay slot>
+                        foo: save %sp, -64, %sp
+                                *
+                                *
+                                *
+                                *
+                             ret
+                             restore
+          *
+          *
+          *
+</PRE>
+Don't worry about the arguments to "save" right now.  Note that a "ret"
+is a control transfer, so has a delay slot, which is always conveniently
+filled by the "restore" instruction.
+
+<H4>Window Overflow and Measurement-Based Design</H4>
+
+The previous operation works fine, up to a point.  We get sixteen new registers every time
+we execute a save instruction, and we get our old registers back just by
+executing a restore instruction.   However ... what happens when we run
+out of register windows?
+
+ <P>
+How would we run out of register windows?  When the program is started,
+the ID of the last free register window (the one right before the first
+register window used) is stored in another special register, the WIM
+(window invalid mask).   The CWP is always incremented and decremented
+modulo the number of windows -- that is, the CWP "wraps around" from 7
+to 0 and from 0 to 7 whenever necessary.   However, if incrementing the
+CWP will ever cause it to be equal to the WIM, then we have run out of
+register windows.
+
+ <P>
+This could happen whenever subroutine calls are deeply nested.  Thus it
+is quite likely to happen when executing recursive subroutines.
+
+ <P>
+To handle window overflow, the CPU transfers control to the operating
+system.  This is the first example we have encountered of an operating
+system function.  We will discuss later on exactly what the operating
+system is, and how the request is made to handle the window overflow.
+For now, just note that the OS does the following:
+<UL>
+<LI> it copies the contents of the register window pointed to by
+     the WIM into main memory,
+<LI> it increments the WIM, and
+<LI> it returns control to the point in the program where
+     the window overflow occurred.
+</UL>
+
+So, window overflow is handled by storing register contents in memory
+and the letting the program continue, using the newly-emptied, new
+register window. 
+
+ <P>
+You can imagine that it takes a significant amount of time to handle a
+window overflow.   The process of transferring control to the operating
+system, and storing register contents into memory takes time.  If window
+overflow is slow, why use register windows?
+
+ <P>
+The answer is that the designers of the SPARC architecture determined
+that window overflow would occur relatively rarely, if there were enough
+register windows.  How many is enough?  There is a tradeoff here.  More
+register windows would make the processor execute faster in some cases,
+but more register windows would make the chip cost more also.
+
+ <P>
+To answer this, the SPARC designers measured real programs.  They
+determined the maximum nesting depth of subroutines in a majority of
+programs.  This was determined to be about 8 (although later designs
+have more windows just for good measure).  As mentioned, recursive
+routines will often exceed this nesting depth, but in practice recursive
+routines aren't all that common.
+
+ <P>
+This sort of design is called measurement-based design. The SPARC
+designers measured real programs to guide their designs.   Based on the
+measurements of real programs, they determined that 8 register windows
+would be enough to handle most programs most of the time.  This is a
+very effective way to solve a difficult tradeoff decision, because it
+ensures that the resulting design will get the most performance for the
+least expense.
+
+ <P>
+Note that using this mechanism, we allow subroutine calls to nest
+arbitrarily deep;  it's just that subroutine calls that are nested less
+than 8 deep will occur much more quickly than those that are nested
+deeper.   We are providing an "infinite" capability, but only making
+efficient a very limited, finite part of that capability.   We gain the
+flexibility of an unlimited capability, that nearly always is very
+efficient, while only paying for a limited capability.   In system
+design this is called<B> optimizing the common case.</B> This is a
+<I>very</I> important notion - we will return to it again and again.
+
+ <P>
+<B>3. Argument passing convention.</B>
+ <P>
+Finally, we need to look at the convention for passing arguments to
+subroutines (and getting return values) in the SPARC architecture.
+ <P>
+In most architectures, argument passing is performed using main memory.
+That is, before a subroutine call, the arguments are placed in memory.
+Once the subroutine starts, it must then fetch the arguments from memory
+to operate on them.
+ <P>
+The SPARC designers noted that, since data need to be in registers in
+order to be used by the CPU, it is wasteful to store data into memory
+before a subroutine call only to immediately fetch them back again from
+memory during the subroutine.  To address this they designed register
+windows so that they "overlap".
+ <P>
+As shown above, when a subroutine call is made, the "out" registers of
+the caller become the "in" registers of the callee.  This is the
+principal method of passing arguments to subroutines.  Before a
+subroutine call, the caller must place any arguments into registers %o0
+through %o5.  After the save instruction is executed, these become
+registers %i0 through %i5 to the subroutine.  The subroutine simply uses
+those registers for its arguments.  
+ <P>
+Most languages allow a subroutine to have a return value.  Return values
+are placed by the subroutine in register %i0, which becomes %o0 after
+the restore instruction.  So to the caller, the return value from a
+subroutine appears in %o0.
+ <P>
+By the way - only %o0 through %o5 are used to pass arguments to
+subroutines.  %o6 is used for another purpose which we'll cover soon;
+and %o7 holds the return address of the subroutine as discussed above.
+ <P>
+There is a convention for argument passing in C that you should know.
+The arguments are placed in %o0 through %o5 in order, when reading the
+C argument list from left to right.
+ <P>
+<H5>Another Example of Optimizing the Common Case.</H5>
+
+What about the case in which a subroutine has more than six arguments?
+In that case, the SPARC architecture specifies that the extra arguments
+be placed in memory before the call, and retrieved from there during the
+subroutine.   So, if we are going to use memory anyway, why pay the cost
+of implementing argument passing in register windows -- why not use
+memory all the time?
+ <P>
+The answer: "optimize the common case."  The SPARC designers determined
+that most subroutines in most programs had six arguments or less.
+Therefore, almost all the time the arguments will fit into the six out
+registers, and no data will need to be stored into memory.  Once again,
+we gain the flexibility of an unlimited capability, that nearly always
+is very efficient, while only paying for a limited capability.
+ <P>
+
+<hr>
+<H3>Summary</H3>
+
+The mechanisms for subroutine linkage are complicated, but the expense
+is justified because of the importance of subroutines as an abstraction
+mechanism.  We want subroutines to be fast so that they will be widely used,
+and because there is a strong demand for them.
+ <P>
+We also want subroutine linkage to be defined at the assembly language
+layer, rather than at a higher layer.  This allows different programming
+languages to call subroutines ("virtual instructions") written in other
+languages.   In fact, subroutines are the main method for combining code
+written in different languages.
+
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<H3>
+For class 19 notes, <A HREF="class19.html">click here</A>
+</H3>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<H3>
+For more information, contact me at <A HREF="mailto:tvohra@mtu.edu">tvohra@mtu.edu</A>
+</H3>
+
+</BODY>
+</HTML>

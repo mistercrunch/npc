@@ -1,0 +1,96 @@
+
+ Checksummen
+
+  by SnakeByte [SnakeByte@kryptocrew.de]
+
+
+Checksummen sind Algorithmen, die größere Datenmengen auf einfache Zahlen abbilden.
+Dies kann hilfreich sein um zum Beispiel einen Textbereich eindeutig zu identifizieren.
+Checksummen sind normalerweise so gestaltet, das man von der Summe nicht auf den
+Datenbereich schließen kann, den die Checksumme abbildet. So kann man dies zum Beispiel
+nutzen um Passwörter zu kontrollieren. Gespeichert wird in diesem Fall nur die
+Checksumme und nach Eingabe eines Passwortes wird die dazugehörige Summe erstellt und
+das Ergebnis mit dem gespeicherten verglichen. Sind diese identisch ist das Passwort
+richtig.  Auch kann man mit neueren ( CRC32 ) Checksummen einen String so gut
+wie 100%ig identifizieren, es ist bisher keine Methode bekannt, wie man einen
+Buchstaben eines Strings verändern und die Checksumme beibehalten kann. Deshalb schützen
+Checksummen auch vor Manipulation während der Übertragung. Da es natürlich
+für jede Checksumme mehr als nur einen String geben kann, sollte man die ersten paar
+Buchstaben speichern um eine 99,9%ige Wahrscheinlichkeit zu erreichen, wenn man
+Checksummen zum erkennen von Viren oder Trojanern einsetzt, wie dies nahezu alle
+Antivirenprogramme tun. Eine einfache Art der Checksummenberechnung ist zum Beispiel
+das simple aufaddieren aller Zeichen. Diese Methode ist allerdings nicht sehr
+zuverlässig. Etwas ähnlich simples ist die Aufaddierung der Zahlen und das anschließende
+Teilen des Ergebnisses durch 100. Der Rest der Division wird nun als Prüfsumme verwendet,
+was den Vorteil hat, das die Prüfsumme nur im Bereich von 0-99 liegt.
+
+Wenn man Prüfsummen dafür verwenden will um genau zu sehen, welche Bytes verändert
+wurden, muss man für n Bytes genau n-1 Checksummen erstellen ( möglichst  kleine, am Besten
+4 Bits ). Wenn es egal ist welches Byte genau defekt ist, kann man natürlich auch für
+größere Bereiche diese Checksummen verwenden. Hier ein Beispiel:
+
+A1, A2, A3 und A4 sind die zu übertragenden Bytes. C1, C2 und C3 unsere Checksummen.
+
+ C1 = A1 + A2 + A3
+ C2 = A2 + A3 + A4
+ C3 = A3 + A4 + A1
+
+Stimmen nun C1 und C2 aber nicht C3 mit den ermittelten Ergebissen überein,
+weiß man, das A2 defekt ist. Sind C1, C2 und C3 falsch, muss der Fehler bei A3 liegen etc.
+Dadürch kann man schnell Übertragungsfehler erkennen und die entsprechenden Bereiche
+neu laden, bzw anfordern. Man kann hierfür auch Checksummen verwenden, die pro Fehler,
+den man entdecken möchte um ein Vielfaches länger als das Original sind.
+Wenn man eine Nachricht von n Bytes verschicken, und m Fehler entdecken will,
+so ist m*n die Länge der codierten Nachricht. Dies will ich hier nicht im Detail
+erklären, nur soviel, das man an jeden Block der Nachricht einen Codeblock anhängt, der 
+für diesen Teil der Nachricht spezifisch ist. Wer mehr dazu wissen möchte, sollte
+mal nach dem Stichwort "Reed-Muller Codes suchen".
+
+CRC32 hat sich mitlerweile gut gehalten, deshalb werde ich hier diesen
+Algorithmus erläutern. Hauptsächlich basiert CRC32 auf Exclusiven Oder Verknüpfungen.
+Hierbei wird einfach eine Bitweise Verknüpfung erstellt, wenn beide Bits gleich sind kommt
+eine 0 raus, wenn beide ungleich sind eine 1.
+
+Zuerst wird das ganze initialisiert, wir erstellen eine Tabelle ( Crc32Table(i) )
+mit 256 Einträgen, die wir nach folgendem Schema füllen:
+
+  For i = 0 To 255                        'Schleife für alle Einträge
+  lCrc32 = i
+
+    For iBits = 0 To 7                    'für alle 8 Bits
+     TempCrc = lCrc32 And &HFFFFFFFE      'logische UND Verknüpfung mit -2
+     TempCrc = TempCrc \ &H2              'teilen durch 2
+     TempCrc = TempCrc And &H7FFFFFFF     'UND Verknüpfung mit 2147483647
+     
+     If (lCrc32 And &H1) <> 0 Then        'für alle ungeraden Zahlen wird ein
+      lCrc32 = TempCrc Xor &HEDB88320     'exclusives ODER mit 3988292384 durchgeführt
+     Else                                 'ansonsten
+      lCrc32 = TempCrc                    'ist der Wert ok
+     End If
+    Next
+    
+    Crc32Table(i) = lCrc32                'dieser wird nun in unsere Tabelle geschrieben
+   Next
+
+Nun können wir unsere Checksumme erstellen:
+
+ CRC32 = -1
+ lTableValue = 0
+
+ For i = 1 To Len(Unser_String)             'für jedes Bytes des Strings
+
+  bCharValue = Asc(Mid$(Item, iCounter, 1)) 'ermitteln wir den Hexwert
+  
+  AccValue = Crc32 And &HFFFFFF00           'wir löschen alle Stellen bis auf die letzten
+  AccValue = lAccValue \ &H100              'teilen durch 256 und löschen
+  AccValue = lAccValue And &HFFFFFF         'die ersten beiden Stellen
+  
+  lIndex = Crc32 And &HFF                   'Die letzten 2 Stellen löschen
+  lIndex = lIndex Xor bCharValue            'XOR mit dem Buchstaben
+  lTableValue = Crc32Table(lIndex)          'mit dem Initialisationswert der Tabelle XOR'en
+  
+  Crc32 = AccValue Xor lTableValue
+ Next
+
+ AddCrc32 = Crc32                           'AddCrc32 ist nun die Checksumme
+

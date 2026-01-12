@@ -1,0 +1,16 @@
+Readme for spe2.dpr - Extract share passwords from registry
+Sigma <sigma@mdma.za.net>
+-----------------------------------------------------------
+
+Yes, so as you might know, M$ uses a XOR cypher to encrypt the share passwords
+that Windoze stores in its registry. I was looking around insecure.org when
+I came accross it in the exploits section, and so I decided to code this proggy.
+It compiles as a 32bit console app under Delphi 3.
+
+New in version 2.0 (28/04/2000)
+
+- Wyzewun bitched that I should comment my code, so I made an attempt this time.
+- HUGE code cleanup, version 1.0 was about 400 lines long, due to my stupidity,
+  now its under 150 lines.
+- Now you can sort of see whats going on here.
+- Gives the path of the share.

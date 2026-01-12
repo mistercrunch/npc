@@ -1,0 +1,222 @@
+===============================================================================
+
+Interessante thread sullo SMURF nella ML dello SLUG
+
+===============================================================================
+
+Metto su un quesito (almeno per me) interessante.... 
+non so se sapete cos'è uno smurf.... praticamente un flood di ping.... 
+C'è modo (con ipchains, portsentry, altro software) di dire: 
+"se mi arrivano + di n richieste sulla tale porta dal tale ip, rifiutale"...
+...fatemi sapere... 
+aaltra domanda: configurazione di ipchains per un pc singolo (non in lan) 
+connesso a internet... 
+il mio interesse sarebbe di accettare solo pacchetti provenienti da certi 
+servizi e rejectare tutti gli altri...
+ovvero fare un firewall.... non ho voglia (nè sopratutto tempo) di leggermi 
+il man.... mi dite un po' velocemente qualcosina su inpchains?!?!?!? 
+
+RedLance
+
+--------------------------------------------------------------------------------------------------------------------
+per la prima domanda, non so se ipchains permette di bloccare dei pacchetti 
+che superino un certo numero.
+Per le nozioni generali funge così:
+ 
+ipchains funziona per "rules", cioè guarda ogni pacchetto che passa e decide 
+se rientra nel primo criterio che ha. 
+Se ci rientra, si comporta come stabilito dal criterio, sennò passa a 
+verificare l'eventuale appartenenza al criterio successivo, e così via fino 
+alla fine dei criteri stabiliti.
+ 
+Per aggiungere alla lista un criterio si usa lo switch -A, per cancellare un 
+criterio si usa -D e per avere la lista dei criteri si usa -L .
+ 
+per esempio:
+ 
+ipchains -A input -p tcp -d 127.0.0.1  21 -j DENY
+ 
+ 
+d'ora in poi ipchains bloccherà (-j DENY) SENZA dire al mittente che il 
+pacchetto non è arrivato tutti i pacchetti 
+che 1) siano in entrata (input), 2) usino il protocollo tcp E 3) abbiano 
+come destinazione la porta 21 del loopback 
+device (-d 127.0.0.1 21). Da notare che le condizioni sono legate da un 
+AND logico, quindi un pacchetto, per essere 
+bloccato, deve soddisfarle tutte e tre. un pacchetto UDP passerà, come 
+passerà anche un pacchetto che, pur essendo 
+tcp e passando dalla porta 21, sia in uscita. Oltre a bloccare il pacchetto 
+che passa lo si può respingere 
+(-j REJECT) che ha lo stesso effetto di DENY, ma risponde al mittente con 
+un pacchetto ICMP. 
+l'ultima possibilità è di farlo passare (-j ACCEPT) che non solo lascerà 
+passare il pacchetto, ma gli eviterà anche 
+di essere sottoposto ad ulteriori verifiche. Si possono vagliare anche i 
+messaggi in uscita, sostituendo a "input" "output", o quelli forwardati, 
+sustituendo "forward".
+Se vuoi blocchare un ping flood puoi usare il comando 
+ 
+ipchains -A input -p icmp --icmp-type echo-request -j DENY
+ 
+Questo però non bloccherà solo i ping in eccesso, ma TUTTE le richieste di 
+ping verso di te. Questo non toglie che tu possa pingare gli altri. 
+Sinceramente non so se si possa specificare una soglia massima di echo-request
+da accettare...
+ 
+per questo dovrai chiedere a qualcuno un po' + meglio assai... :-)
+ 
+Felinux
+--------------------------------------------------------------------------------------------------------------------
+Metto appena poss in pratica. E' già qlc avere un minimo firewall... Solo che 
+il mio obiettivo è di andare oltre... 
+Non posso di certo bloccare tutte le ECHO-REQ, altrimenti il mio ISP mi 
+considera defunto e mi sconnette... eheheh... 
+devo solo bloccare i flood di echo-req.... adesso mi informo anche da altri, 
+cmq chi ne sa qualcosa mi faccia sapere... 
+credo sia un argomento che interessa a molti quello del firewalling.... 
+Byez 
+
+RedLance 
+--------------------------------------------------------------------------------------------------------------------
+>  Allora... 
+> interessante.... 
+> non so se sapete cose' uno smurf.... praticamente un flood di
+ping.... 
+>C'e' modo, se mi arrivano + di n richieste sulla tale porta dal tale ip,
+>rifiutale".... fatemi sapere... 
+
+Si possono contare i pacchetti, e si possono rifiutare i pacchetti con
+certe caratteristiche, ma non puoi mischiare le due cose.
+
+>  connesso a internet... il mio interesse sarebbe di accettare solo
+>pacchetti provenienti da certi servizi e rejectare tutti gli altri...
+
+Si, questo si.
+Leggi ipchains-HOWTO in italiano, è breve e facile. Io ho imparato tutto da
+lì.
+Lo trovi sul sito del pluto.
+
+Ciao!!______________
+Dinogen
+--------------------------------------------------------------------------------------------------------------------
+Premesso che non sono un esperto in materia reti...
+
+Una valida spiagazione sull'argomento SMURF si trova qui (In Inglese purtroppo):
+
+http://users.quadrunner.com/chuegen/smurf.txt
+
+Quello che ho capito e' che, il problema dello SMURF, deriva dal fatto che il 
+flood di ping satura la banda della macchina 'vittima' creando un DOS.
+Ora, anche se metti un firewall che decide di ignorare anche TUTTI i 
+pacchetti di tipo ICMP echo request, comunque la macchina firewall li
+deve processare prima di ignorarli; quindi se sono 'troppi' il firewall
+COMUNQUE soffre di DOS, per lo meno parziale, cioe' con grave deperimento 
+delle performance.
+Lo stesso per le macchine "a monte" rispetto al Firewall verso Internet.
+
+Vi vendo una spiegazione semplice che mi e' stata fornita quando mi interessai
+ del problema:
+
+"Se ad un concerto di musica leggera, di cui sono stati venduti 1.000 biglietti
+, si presentano 11.000 persone, di cui 10.000 senza biglietto, 
+l'organizzazione puo' anche mettere dei poliziotti all'ingresso che respingano
+le persone senza biglietto, ma occorre del tempo, e puo' capitare 
+che persone con il biglietto siano fatte entrare quando ormai il concerto e'
+finito...."
+
+Come si legge nei documenti in giro, esisistono patch e configurazioni per 
+evitare che i router di una sottorete rispondano a richieste di ping 
+sull'indirizzo di Broadcast, e quindi che venga "generato" uno smurf, non ho 
+mai trovato roba per respingere o ignorare uno smurf da vittima.
+C'e' da dire che, normalmente, il DOS, oltre che sulla macchina vittima, 
+si fa' sentire parzialmente anche nella rete "complice ignara" dell'attacco 
+e quindi,se l'amministratore di sistema di tale rete e' una persona 
+responsabile e capace, configura il tutto per benino al fine di evitarlo. 
+(Nel doc del link si parla appunto di come si configurano i vari server router
+ cisco, ibm, linux, NT, ecc.)
+
+Come soluzione al problema, infatti, si parla di analizzare i pacchetti per 
+capire l'origine e contattare il sysad dell'origine per informarlo che 
+il suo sistema e' stato usato per generare un attacco Smurf.
+Pero' nel frattempo lo smurf te lo ciucci tutto per benino....
+
+
+Spero di non aver detto troppe bischerate, nel caso ditemelo, anche perche' 
+l'argomento mi interessa molto.
+
+Ciao
+XDatap1 - Paolo Sammicheli
+--------------------------------------------------------------------------------------------------------------------
+> Ora, anche se metti un firewall che decide di ignorare anche TUTTI i
+> pacchetti di tipo ICMP echo request, comunque la macchina firewall li deve
+> processare prima di ignorarli;
+ 
+vero, ma se a ipchains dai lo switch "-j DENY" per lo meno ti risparmi la 
+larghezza di banda dei pacchetti di risposta... è pur sempre un 50%!
+
+Felinux
+--------------------------------------------------------------------------------------------------------------------
+-Xdatap1 diceva:
+>> Ora, anche se metti un firewall che decide di ignorare anche TUTTI i
+>> pacchetti di tipo ICMP echo request, comunque la macchina firewall li deve
+>> processare prima di ignorarli;
+
+
+
+-Felinux rispondeva:
+>vero, ma se a ipchains dai lo switch "-j DENY" per lo meno ti risparmi la 
+larghezza di banda dei pacchetti di risposta... è pur sempre un 50%!
+
+
+
+-XDatap1 Aggiunge:
+Certo, infatti nel mio mail aggiungevo:
+
+"quindi se sono 'troppi' il firewall COMUNQUE soffre di
+DOS, per lo meno parziale, cioe' con grave deperimento delle performance"
+
+parlo, appunto, di Dos parziale... :-)
+Questo poi e' da vedere, nel senso che se chi attacca ha una bella banda 
+(moltiplicata per il numero di macchine che rispondono al ping "spooffato" 
+sul broadcast, diviso per la banda complessiva dei "complici ignari") e la 
+vittima ha un modem 56k senza passare da shell varie...."te saluto amigo"!!! ;-)
+
+Un sistema preventivo, appunto, potrebbe essere quello di anonimizzare 
+l'indirizzo ip passando da una shell...se ci accorgiamo dell'attacco usciamo 
+dalla shell ed entriamo in un'altra.
+Qualcuno allo Slug mi ha parlato di shell gratuite dove pero' non e' possibile
+lasciare processi in background (quindi No BOT :( ).... per questo scopo 
+possono servire! ;)
+
+Qualcuno ha esperienze a riguardo?
+
+(un ultimo sistema efficacemente preventivo dello Smurf e' quello di non 
+collegarsi a Internet ed uscire con la ragazza!!! ;-))))) )
+
+
+Saluti
+
+XDatap1 - Paolo Sammicheli
+--------------------------------------------------------------------------------------------------------------------
+> Xdatap1 wrote: 
+> Un sistema preventivo, appunto, potrebbe essere quello di anonimizzare 
+> l'indirizzo ip passando da una shell...se ci accorgiamo dell'attacco usciamo 
+> dalla shell ed entriamo in un'altra.
+> allora: shell gratis:   telnet   shellyeah.org 
+> Qualcuno allo Slug mi ha parlato di shell gratuite dove pero' non e' 
+> possibile lasciare processi in background (quindi No BOT :( ).... per questo 
+> scopo possono servire! ;)
+
+certo, ci metti sopra un bel BNC... 
+[spiegazione:    BNC = BOUNCER... programma che ti permette di collegarti ai 
+server IRC passando dalla shell, per cui l'IP che si ottiene è quello 
+della shell... poi se la shell ha anche  dei VHOST, permette di usarli... 
+nelle shell mie e di luca [a pagamento] c'è un vhost spettacolare:  
+red.majic.org... non per niente mi chiamo redlance ^_^    a parte gli scherzi,
+se l'argomento BNC interessa, posso parlarne, ne so abbastanza 
+(ma c'è chi ne sa + di me per cui anche io vorrei imparare....)] 
+Qualcuno ha esperienze a riguardo?
+io e luca ci siamo connessi da bnc 
+
+RedLance
+--------------------------------------------------------------------------------------------------------------------

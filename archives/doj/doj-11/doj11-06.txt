@@ -1,0 +1,220 @@
+pooooopooooooooooppoooooopoopooooooooooooppooooooooopooooooopoooooooppoooooopoop
+p           Discordant Opposition Journal - Issue 11 - December 2001           o
+p                               File 6 of 13                                   o
+poooooooopoooooooooooopoooopooooooopoooooopooooooooooooopooooooppooooooopoooooop
+
+
+The GreyHat Guide to: cracking .htaccess/.htpasswd passwords
+------------------------------------------------------------
+
+/* foreword */
+this article is intended to be an almost complete guide to cracking and
+protecting websites which utilize the .htaccess/.htpasswd method for
+controlling access to data. it's not intended to be a how-to guide for hacking
+websites. if you're looking for a simple howto and not interested in reading
+in-depth information, then this isn't the text for you.
+
+i'm considering writing a series of guides which for now i'm calling "grey hat
+guides", since i consider myself half white hat and half black hat hacker. i do
+have my malicious streaks (mainly on my own stuff though, i enjoy breaking my
+own machines), but i am mostly white hat. i guess these guides will basically
+aim to give white hat hackers a security lecture from a black hat perspective.
+i dunno. *shrugs*
+
+/* basic access control in apache */
+at it's most basic level, access control in apache is specified in the
+httpd.conf (or equivalent file. these were previously three files, now merged
+into one for simplicity's sake). the most basic directives are allow from and
+deny from. the default permissions for any given directory is allow from all
+(which will allow any client to get pages from that directory).
+
+the format for these directives is as follows:
+
+<Directory />
+     Order Deny,Allow
+     Deny from All
+</Directory>
+
+This will disallow any client from retrieving any file on your server, unless
+you explicitly allow files further up the tree. However, since sometimes normal
+users will want to control their own web directories, and it's impractical (at
+least, at most, unsafe) to allow webmasters to modify the httpd.conf, we can
+specify to allow users to override certain directives using the allowoverride
+directive. [http://httpd.apache.org/docs/mod/core.html#allowoverride]
+
+/* allowoverride */
+allowoverride (as stated above) allows non-root users to override access
+controls on a directory. you simply specify which directives you want the user
+to be able to override (the default is everything), and then apache looks in
+each directory for a .htaccess file (or other, specified with the AccessFilename
+[http://httpd.apache.org/docs/mod/core.html#accessfilename] directive) and
+applies the contents of that to it's access control.
+
+part of the access control, the part which we will be covering (given the scope
+of this document) is the authconfig directives. below we'll view a typical
+.htaccess file for most sites with moderate to poor security (most porn sites
+simply use these, porn sites can actually be great practice to crack passwords).
+
+/* a typical .htaccess file */
+AuthName "Marvin Martian's Porn Emporium"
+AuthType Basic
+AuthUserFile /home/marvin/public_html/members/.htpasswd
+require valid-user
+
+as you can see above, there aren't many directives required to provide password
+protection to a directory. as you can see, in this case, the webmaster has
+been pretty lazy and stuck the .htpasswd file inside the same directory. the
+format of the .htpasswd file is simple: <user>:<encryptedpassword>
+
+/* a bad case */
+on a poorly secured server, there are no access restrictions on the .htpasswd
+file. since the .htpasswd file is in a web-accessible directory, and user which
+is able to authenticate to the directory is able to obtain the password list.
+
+simply enter the url /members/.htpasswd, and you should receive a full userlist
+as well as all the encrypted passwords. very silly indeed. if the file doesn't
+exist, on a poorly configured server one merely has to read the .htaccess file
+to obtain the location. if it is below the "web-root", then it would require a
+cgi-exploit of some sort to obtain the file. but on any other directory, simply
+use the browser to obtain the file:
+
+webmaster:TTn.VQRliM8c2
+hornyguy:ZpgNeARi106aM
+fatmike69:drXj18zVxxBVc
+
+unfortunately, these passwords aren't of much use in their current form. they
+require cracking.
+
+/* cracking passwords */
+most unix passwords are encrypted using a "one way hash" or "trapdoor hash" -
+which entails actually losing data from the password in such a way that the
+original password simply cannot be obtained by reversing the algorithm.
+
+the only way to crack such passwords is using brute force guessing attacks. a
+simple perl script can be used to achieve this:
+
+#! /usr/bin/perl
+# crack.pl by fwaggle <root@fwaggle.net>
+
+open (PASSFILE, ".htpasswd");
+my @passfile = <PASSFILE>;
+close PASSFILE;
+
+open (DICTFILE, "dictionary.txt");
+my @dictfile = <DICTFILE>;
+close DICTFILE;
+
+foreach $line (@passfile) {
+  my ($username, $encpass) = split(/:/, $line);
+  foreach $attempt (@dictfile) {
+    if ($encpass eq crypt($attempt, $encpass)) {
+      print("Cracked: ${username}:${attempt}\n");
+    }
+  }
+}
+
+the above perl script is a simple brute force password cracker. it may or may
+not work, i didn't actually test it before writing this article - but it
+closely resembles one i released to alt.hacking quite a while ago. whether it
+works or not, you should hopefully be able to see the process which password
+cracking requires (even for perl, the syntax is almost plain english).
+
+/* better cracking performance */
+perl isn't the quickest of languages, and using the standard crypt() calls
+aren't exactly optimized for high speed cracking. a far better solution is to
+download a purpose-built, c coded password cracker such as john the ripper.
+john the ripper is optimized to crack passwords extra fast, as well as it
+includes an "incremental mode" in case your dictionary should fail to crack
+a password. ie, in the above example, if the user's password doesn't happen
+to be in the dictionary, then you won't be able to crack it.
+
+using an incremental password cracker, every character combination is tried, in
+an intelligent order (in a vain attempt to save time in something that is
+wholely unpredictable), so that absolutely any password will be cracked,
+eventually.
+
+the one problem with john the ripper is that it's picky about the files that
+it gets inputted. in order to crack the .htpasswd files, you must edit them to
+make them appear like regular unix /etc/passwd files. this means adding extra
+fields, like this:
+
+<username>:<password>:1:1:user:/bin/sh:/root
+
+for example, the entries above could look like this:
+
+webmaster:TTn.VQRliM8c2:1:1:webmaster:/bin/sh:/root
+hornyguy:ZpgNeARi106aM:3:3:hornyguy:/bin/sh:/root
+fatmike69:drXj18zVxxBVc:3:3:hornyguy:/bin/sh:/root
+
+the windows version doesn't seem to require this for some reason, so you can
+just feed it a regular .htpasswd file. note that the windows version may have
+markedly poor performance when compared to the unix versions.
+
+/* finding vulnerable servers */
+now that we've discussed how to break these passwords, it's almost time to
+talk about securing them. if you're only interested in hax0ring passwords
+from sites, chances are you're probably well equipped to crack any password
+files you might stumble accross. if you're just looking to hack anything, try
+searching in google [http://www.google.com] or altavista
+[http://www.altavista.com] for a phrase like .htpass, and wade through the
+results and see if you find a file that says "Index of /something" that
+contains a .htpasswd file.
+
+if you have permission to read the file, you've basically hacked it already.
+this is admittedly a lame hack, but if you're bored - do the net in general a
+favour. crack the passwords, and email them to the admin. that's all i ever
+used to do, and you get the same sense of achievement and hacker cred, without
+the legal problems of defacements.
+
+on a side note, the same results can be achieved by searching for service.pwd.
+this is the password file for fp-apache, the frontpage server extensions for
+apache. some really lame admins don't check permissions on this file, and you
+can easily gain access to these kinds of systems (and if you're feeling
+particularly malicious, just connect with a frontpage client and upload a
+defacement).
+
+/* putting an end to this nonsense */
+if you're running your own site, then here's the section you'll really be
+interested in - stopping someone from doing this to you. the first thing you
+need to do is prevent users from reading your .ht* files. the easiest way to
+hinder this is to put the .htpasswd file someplace that's not web-accessible
+(such as your home dir, out of ~/public_html).
+
+the next step, as an admin of a server, is to prevent apache from serving these
+pages from the web. there is no (i repeat NO) reason that a web client should
+ever need to see these pages, they are for server side configuration only.
+
+so, we can easily accomplish this using the <Files> directive, and a nifty
+little regular expression:
+
+<Files ~ "^\.ht">
+    Order allow,deny
+    Deny from all
+</Files>
+
+this particular example (taken from apache's httpd.conf, now thankfully
+included in default distributions to keep lame admins from unknowingly putting
+themselves at risk) prevents the server from serving any files that begin with
+.ht. thus, .htaccess and .htpasswd are both protected.
+
+the final step from here is to ensure that the files are protected on the
+server - meaning file permissions. the ideal situation is to have suEXEC for
+apache running, and to have the files accessible only by the httpd (but still
+owned by you). that way, you can chmod the files when you need to edit them,
+but cgi exploits will not allow users to read the files.
+
+/* wrapping it up */
+well, this concludes my little rant about .htpasswd and .htaccess files.
+hopefully you learnt something from this. comments are always welcome, just
+email me. also, if you're looking for a unix/unix-like irc channel to lurk on,
+come on my irc network (irc.mooircd.org) and join #unix - it's lag free,
+packet kiddie free, and quite nice. 
+
+that about does it i think. maybe i'll write some more of these files if i
+think about it.
+
+--
+fwaggle
+email: root@fwaggle.net
+web: http://fwaggle.net/
+irc: irc.mooircd.org/#unix

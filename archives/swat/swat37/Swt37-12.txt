@@ -1,0 +1,175 @@
+	       _________  SWAT MAGAZINE ISSUE THIRTY SEVEN JANUARY  __________
+
+
+		   	             -----////\\\\-----
+		                ----------\\\\////----------
+		          -----------------\\\///-----------------
+		                       -----\\//-----
+			                  ---\/---
+
+
+			      --- [SpeC]Overlord presents ---
+
+			   --- a reverse engineering tutorial ---
+
+
+		    r e v e r s i n g   i c q ' s   n d e t e c t . e x e
+
+
+
+	
+	_____________[ iNtr0ducTi0n ]_____________________________________________________
+
+	welcome to my first reverse engineering tutorial !!
+	i'm actually very new to reverse engineering -so don't expect anything brilliant
+	in this tut- but i find reversing quite interesting. again, if you're no beginner
+	stop reading this and head on to fravia.org to find more advanced stuff. well, you
+	are perhaps asking yourself what the hell reverse engineering actually is, so i'll
+	give you a short explanation. reverse engineering or reversing means messing with 
+	a programs code to add functionality to the program. i think reversing is mostly
+	done by crackers or former crackers, because they already have the knowledge they
+	need to do this. maybe there are also some old school programmers and
+	hardcore-asm-coders who became reversers. anyway, let's take a look at a simple
+	example of reverse engineering !!
+	before we can start, there are two things to think about first:
+
+	A)  do you have enough skills to master this?
+	    well, in fact you don't need that much knowledge and skillz, but you have to...
+	    * have a basic knowledge of assembler
+	    * know how to disassemble programs and how to patch their code with a hex editor
+	    * have some understanding how windows programs work
+	    * have a disassembler(w32dasm) and a hexeditor(hiew)
+	    * have a copy of icq2000a
+
+	B)  what bugs us with that program, what do we want to change and what can we
+	    change? (potentially you can change everything, what you can actually change
+	    depends very much on your programming and cracking skills)
+
+            well, here is what i don't like at ndetect: when you install icq it puts an
+	    entry in the registry that runs ndetect.exe on every start of windows and it
+	    is not possible to close ndetect except pressing [crtl + alt + del] and forcing
+	    it to quit. "then, why not just kill that registry entry!" you were thinking,
+	    weren't you? well, the case is i use icq very much and i like to have it
+	    starting automatically when i go online but i hate to always have to kill
+	    ndetect with crtl-alt-del when i want to free all resources because i'm going
+	    to play q3a. countless times i thought, why didn't those idiot programmers put
+	    a little 'quit' menu entry in ndetect's menu ?? why? well, they didn't add that
+	    feature, now we'll do it.
+
+	
+	_____________[ ReV3rsiNG ]_____________________________________________________
+	
+	ok. so we want to add an entry to ndetect's menu which allows us to quit it.
+	how can we do that?? well, you could add the menu resource with borland's
+	resource workshop and add your code to the program to handle that new menu entry
+	but that would mean MUCH work. it is much easier if there's a menu entry that
+	is mostly useless which we could overwrite. let's look at the programs menu.
+	the thing i consider most useless is the 'What is this'-thing. click on it. it
+	opens a help window showing some even more useless information about icq. let's
+	use that menu entry to make the program quit. we'll first alter it's appearance
+	and then it's functionality. make a backup copy of ndetect.exe (in case some-
+	thing goes wrong) and open ntdetect.exe in your favorite hex-editor. search for
+	W.h.a.t. .i.s. .t.h.i.s (a . represents a hex value of 00) so the search string
+	in hex would be 5700 6800 6100 7400 2000 6900 7300 2000 7400 6800 6900 7300
+	found it?`good! now change it to Q.u.i.t. . . . . . . . .
+	be careful not to change the 00 bytes! only change the letters! the new text can
+	not be longer or shorter than the original one. (you are filling the bytes you
+	don't need with spaces) ok, if you run the program (you should to that to verify
+	that it still works correctly). you should see 'Quit' instead of 'What is this ?'
+	in the menu.
+
+	now, on to step two. adding functionality to the program. first you have to find
+	the place where you have to add the code so it is executed when the helpfile
+	should be displayed. knowing that the menu entry we use opens a helpfile is very
+	important, because knowing this, we can easily find the right place for our code.
+	whenever windows displays a help-file the api-function WinHelpA is executed.
+	this means, when we click on our menu entry this function is called. disassemble
+	ndetect.exx (backup copy of ndetect.exe) with w32dasm and look at the imported
+	functions window. doubleclick on WinHelpA and you'll be at the only location in
+	ndetect.exe where this function is called. (verify this by doubleclicking again
+	on WinHelpA in the imported functions. you'll still be at the same place in the
+	code.) 
+	write down the hex offset shown in the status bar and open ndetect.exe in a hex
+	editor. go to the offset you wrote down and take a look at the code:
+
+	
+	* Possible StringData Ref from Data Obj ->"NetDetect.hlp"
+        	                          |
+	:004029D0 68DCA24000              push 0040A2DC		; parameters for
+	:004029D5 51                      push ecx		; WinHelpA
+	
+	* Possible Reference to String Resource ID=00001: "ICQ NetDetect Agent"
+        	                          |
+	:004029D6 C70544B1400001000000    mov dword ptr [0040B144], 00000001	; better leave this
+										; one alone
+	* Reference To: USER32.WinHelpA, Ord:02A6h
+	                                  |
+	:004029E0 FF1538914000            Call dword ptr [00409138]		; call WinHelpA
+	:004029E6 C70544B1400000000000    mov dword ptr [0040B144], 00000000
+	:004029F0 33C0                    xor eax, eax
+	:004029F2 5E                      pop esi
+	:004029F3 C21000                  ret 0010
+
+
+	here's where asm and windows programming knowledge come handy. i'll try to explain
+	it as easy as possible. the parameters for the function WinHelpA are PUSHed on the
+	stack before the function is called. (enough people already explained, what a stack
+	is, i won't waste my time doing it.) well, the rest is easy. we want to make the
+	program quit, so we have to call the function ExitProcess with the parameter 0.
+	coded in Win32Asm it would look like this:
+
+	push 0
+	call ExitProcess
+
+	but if we modify an already compiled program it's not that easy. to call the
+	function a special dword ptr (see code listing above) is called. we need to
+	know this dword ptr to be able to call the function. to find out what dword ptr
+	we need to use for ExitProcess have a look at the imported functions of
+	ndetect.exe again. look for ExitProcess and doubleclick on it. you should
+	see this code:
+
+	:00403755 FF15FC904000            Call dword ptr [004090FC]
+
+	ok, now we know the dword pointer and we know the code-location to patch, so
+	let's do it !!
+	what we'll do is simply overwrite the push instructions for WinHelpA with a
+	push 0 for ExitProcess and then call ExitProcess dword ptr.
+	in asm code it look like this:
+
+	:004029D0 6A00                    push 00000000		; parameter 0
+	:004029D2 90                      nop			; do nothing
+	:004029D3 90                      nop			; ''
+	:004029D4 90                      nop			; ''
+	:004029D5 90                      nop			; ''
+
+	* Possible Reference to String Resource ID=00001: "ICQ NetDetect Agent"
+	                                  |
+	:004029D6 C70544B1400001000000    mov dword ptr [0040B144], 00000001	; don't care about this
+	
+	* Reference To: KERNEL32.ExitProcess, Ord:007Dh
+	                                  |
+	:004029E0 FF15FC904000            Call dword ptr [004090FC]		; call ExitProcess
+
+	why all those nop's ? well, look at the original code. the push 0 *must* be
+	the last push instruction before the call to ExitProcess. there mustn't be
+	any pushes between them. to have enough space for our push instruction which
+	takes up 2 bytes we need to overwrite both pushes completely because the last
+	one is only one byte long and overwriting only parts of the other push would
+	lead to very bad results. we fill the empty space with nops (=no operation)
+	because we don't need it anymore. save the file and quit your hex editor.
+	run ndetect.exe and right click on the icon in the taskbar. there's a nice
+	little quit entry and the program is closed when you click it.
+	good job, dude !! :)
+
+
+
+	_____________[ cL0siNG ]_____________________________________________________
+
+	i hope you liked my tutorial and learned from it. if you have problems,
+	suggestions, improvements or found errors please email them to Overlord11k@gmx.net
+	please send any flames, death threats and other lame stuff to /dev/null.
+	thx for reading and cya in later tuts,
+	Overlord
+
+	- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+	(c)opyright[SpeC]Overlord

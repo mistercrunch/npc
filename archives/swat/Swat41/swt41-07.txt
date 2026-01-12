@@ -1,0 +1,301 @@
+     :'######::'##:::::'##::::'###::::'########:
+     '##... ##: ##:'##: ##:::'## ##:::... ##..::
+      ##:::..:: ##: ##: ##::'##:. ##::::: ##::::
+     . ######:: ##: ##: ##:'##:::. ##:::: ##::::
+     :..... ##: ##: ##: ##: #########:::: ##::::
+     '##::: ##: ##: ##: ##: ##.... ##:::: ##::::
+     . ######::. ###. ###:: ##:::: ##:::: ##::::
+     :......::::...::...:::..:::::..:::::..:::::
+___  ___  ___  _____   ___   ___________ _   _  _____ 
+|  \/  | / _ \|  __ \ / _ \ |___  /_   _| \ | ||  ___|
+| .  . |/ /_\ \ |  \// /_\ \   / /  | | |  \| || |__  
+| |\/| ||  _  | | __ |  _  |  / /   | | | . ` ||  __| 
+| |  | || | | | |_\ \| | | |./ /____| |_| |\  || |___ 
+\_|  |_/\_| |_/\____/\_| |_/\_____/\___/\_| \_/\____/ 
+                                                      
+ 
+  .'`-_-`',.`'-_ Issue 41 Article 7 _-'`,.'`-_-`',
+(____________________________________________________)
+|                  Cracking Mirc                     |
+(____________________________________________________)
+                      solidox
+[x--------------------------------------------------x]
+
+Intro
+-----
+
+well... this is gunna be a long tutor i feel. the target is the wonderful irc client
+mirc :) it's not like it needs to be cracked cos all it really does is goto the mirc
+website once every now and again, but it can be used to demonstrate diffrent cracking
+procedures. gives u summin' to do when ur bored aswell.
+
+i'll be showing u several ways to crack, patching, serial fishing and
+writing a keygen :). u should manage to follow this one thru, it ain't too difficult
+i'll be assuming u know a little bit of assembly, w32dasm is setup and u know how
+to use it, softice is setup and u know how to use it and (altho not essential) ida is
+setup and u know how to use it. i really recommend u get IDA as it is an excellent
+disassembler and most of my listing will be taken from it so it will look slightly
+diffrent to w32dasm listings.
+
+Tools Needed
+------------
+
+Mirc v5.91t - the target - www.mirc.co.uk
+w32dasm - dissassembler
+ida - not essential but a MUCH better disassembler than w32dasm
+softice - debugger
+hex editor - get hex workshop from www.bpsoft.com
+
+u can get w32dasm, ida, and softice from www.exetools.com or protools.cjb.net
+or suddendischarge (can't remember url) these sites have plenty of resources for
+cracking and reversing.
+
+Setup
+-----
+
+ok run download mirc if u dun have it already, install, run. goto help/register
+enter solidox for the name and 12345 for the serial. "the registration name and
+number.... blah" ok, fire up w32dasm or ida and disassemble mirc32.exe.
+
+Patching
+--------
+
+ok in w32dasm (there is no option for this in IDA so u'll have to use w32dasm aswell)
+goto the SDR window and look for the string, it's one of the resource strings.
+you'll land at 4b0bcf. ok scroll up till ya find a refrenced by jump at address 4b0ace.
+goto that address. u should find:
+.text:004B0ABD                 push    00569F83    ; push serial
+.text:004B0AC2                 push    00569B9C    ; push name
+.text:004B0AC7                 call    004B0655    ; call 1st bit of check
+.text:004B0ACC                 test    eax, eax    ; test return
+.text:004B0ACE                 je      004B0B8B    ; if 1 jump to bad boy
+this listing has been taken and edited from IDA so w32dasm ones might look slightly
+diffrent. anyways, what we find here is mirc calls a function with 2 paramiters then
+tests the result to see if it's positive, if it is it jumps to bad boy. lets try
+the any name/serial trick. we change the je to nops. the je bytes look like this
+0F84B7000000 so 6 bytes, that means 6 nops. so highlite the je line in w32dasm or IDA
+and get the offset from the status bar, which is B00CE. whip out ur hex editor and
+goto that offset and change the 6 bytes into 0x90's, save and load mirc enter any name
+and serial "your registration has been entered sucessfully" ok looks registered, but...
+close mirc and reopen it, aww it's still unregistered because it writes the info u've
+entered into the registry and not the correct stuff. no biggy, just means we're gunna
+have to patch the startup checkingness. just before the test and the jump there's a call,
+this is the 1st bit of the serial checking routine, highlite it and hit the call button
+(or press enter in IDA), u see it's refrenced by 3 address' one of them we need to patch
+so goto the 1st one, 4b07f3, we see that we've got the call, a test and then a je. if u
+scroll up a bit u'll see the string "Software\\Mirc" this looks like registry stuff so
+we're in the right place. highlite the je instruction after the call and test and note
+the offset, AFDFA, and the bytes 7418. now the function returns 0 if the serial was
+correct so we don't want it to jump so we replace it with nops, change the 7418 to 9090
+ok back in our disassembler go back up to 4b0655 where the 1st serial check is and check
+the next address 4b08cd, goto that. looks similar to the last one, take the offset of
+the je instruction after the test and change the bytes to a double nop (9090) once u've
+done that, saved etc. boot up mirc, try to register, "your reg has been sucessful" close
+mirc, reopen and piching... still regged :)
+ok that's all very nice and that but not a great deal of ppl can be arsed patching,
+so we move onto our next section...
+
+Serial Fishing
+--------------
+
+patching ain't always the best idea, ppl would much perfer a simple easy serial.
+we're going to get that serial :) for this we will be using softice, now remembering
+back to the disassembly listings in the 1st bit of the serial check at 4b06dd it calls
+the 2nd bit of the serial check. follow it in the disassembler, u'll end up at 4b0562.
+this is the addy we need to set a breakpoint on, so open a clean copy (non patched) of
+mirc goto help/register (to unregister go into the registry find the mirc key and delete
+the registered stuff) enter solidox for name and 12345 for the serial, but don't click
+ok yet, jump into softice (ctrl+d) and do bpx MessageBoxA this will set a breakpoint
+on the messagebox, ctrl+d out of softice again and click ok. softice will pop up, hit
+F11 to get the calling process, now that ur in the mirc process u can set a breakpoint,
+type bpx 4b0562 and leave softice, enter solidox again for name and 12345 for serial.
+click ok and u should land in softice at 4b0562 with push ebp as the current instruction.
+so, press F10 until to get to 4b0577 with instruction cmp eax, 05 the call above it is
+a strlen, this just checks to see if the name is longer than 5 chars, which it is. so
+continue with F10 till ya get to 4b0586, this is a call to strchr looking for the value
+0x2d which in ascii is a hyphen '-', oh oh... we don't have a hyphen in our serial
+problemo... exit softice, reenter solidox for name and put 123-45 as the serial. once again
+u should break into softice, now trace down (F10) past the name length check and past
+the hyphen check until ya get to 4b05e2, movzx esi, byte ptr [ebx] this bit will loop
+a few times so let it do that, once it breaks from the loop keep tracing till 4b05fe
+cmp ebx, [ebp-4] at this point type '? ebx' into softice and the number u'll get is...
+the 1st bit of the serial! should be 5082, note this down. continue tracing till ya
+get to 4b061b, another loop... let it loop and when it breaks trace to 4b063e, 
+cmp ebx, [ebp-8] do another '? ebx' and u've got the 2nd part of the serial. should be
+536280... ok we're finished with softice, type 'bc *' and ctrl+d out of it. enter
+solidox for the serial and 5082-536280 as the serial and bingo! it's registered. ain't
+that nice :)
+however... there's still a better way and that is...
+
+Keygen
+------
+
+ppl would much perfer to register software with there own name and serial rather than
+someone else's, this is why keygens should be made if possible. this is where it become
+reverse engineering and not cracking...
+shouldn't need softice for this one it's simple(ish) disassembly listing analysis.
+ida is much perfered for this one as it's a lot easier to understand than w32dasm,
+all the listings i paste are from IDA and there modified slightly so things won't
+always look the same but it'll be easier to understand.
+
+we start off at the 2nd part of the serial checking routine, 4b0562, goto it.
+there are 2 arguments that are passed to this function, the name and the serial.
+[ebp+arg_4] (or [ebp+0C] in w32dasm) is the serial, [ebp+s] ([ebp+8]) is the name.
+
+.text:004B056B                 mov     esi, [ebp+arg_4] ; [ebp+arg_4] == serial
+.text:004B056E                 push    [ebp+s]         ; this is where the name is stored
+.text:004B0571                 call    _strlen         ; check length of name
+.text:004B0576                 pop     ecx
+.text:004B0577                 cmp     eax, 5          ; check if name is >= 5 chars
+.text:004B057A                 jnb     short loc_4B0583 ; goodboy
+.text:004B057C                 xor     eax, eax         ; badboy
+.text:004B057E                 jmp     Fin
+
+this is the first bit of checking, it makes sure that the name entered is more than
+5 chars long. the jmp Fin jumps to a bit which basically returns from the function,
+xor eax, eax makes eax = 0, we don't want this. we want eax to be 1 when we return.
+assuming all it well and the name is longer than 5 chars it jumps to 4b0583.
+
+.text:004B0583 loc_4B0583:
+.text:004B0583                 push    2Dh             ; '-'
+.text:004B0585                 push    esi             ; esi = name
+.text:004B0586                 call    _strchr         ; check to see if there is a '-'
+                                                       ; in the serial
+.text:004B058B                 add     esp, 8
+.text:004B058E                 mov     ebx, eax        ; ebx is now a pointer to the 
+                                                       ; '-' in the serial
+.text:004B0590                 test    ebx, ebx
+.text:004B0592                 jnz     short loc_4B059B ; goodboy
+.text:004B0594                 xor     eax, eax ; badboy
+.text:004B0596                 jmp     Fin
+
+ok in this we have a check to see if there is a hyphen ('-') in the serial
+if it dosn't exist goto badboy.
+
+there is now some code which splits up the number before and after the hyphen, ain't
+really of intrest to us. next intresting bit is: (note: i've stripped out the address'
+to make fit better)
+
+                push    [ebp+s]         ; s
+                call    _strlen         ; check then name length again (?)
+                pop     ecx
+                mov     [ebp+var_C], eax ; var_c is the length of the name
+                xor     eax, eax        ; clear eax
+                xor     ebx, ebx        ; clear ebx
+                mov     edx, 3
+                mov     ecx, [ebp+s]
+                add     ecx, 3          ; move along 3 chars in the string
+                cmp     edx, [ebp+var_C] ; compare the name length with 3
+                jge     short loc_4B05FE ; compare ebx with serial
+
+loc_4B05E2:
+                movzx   esi, byte ptr [ecx]
+                imul    esi, LookupTable[eax*4] ; multiply current char in the name by
+                                        ;          a number in the lookup table
+                add     ebx, esi
+                inc     eax
+                cmp     eax, 26h
+                jle     short loc_4B05F7 ; resets eax if > 26h
+                xor     eax, eax
+
+loc_4B05F7:
+                inc     edx
+                inc     ecx
+                cmp     edx, [ebp+var_C] ; compare the name length with edx
+                jl      short loc_4B05E2 ; if < jump up to the movzx instruction
+
+loc_4B05FE:
+                cmp     ebx, [ebp+var_4] ; compare ebx with serial
+                jz      short loc_4B0607 ; if equal then jump
+                xor     eax, eax
+                jmp     short Fin
+
+so... what happens here? well... this is the bit which generates the 1st part of the serial
+(numbers before the hyphen) how does it do it? the mov ecx,[ebp+s] makes ecx a pointer
+to the name it then moves along 3 chars of it.
+solidox
+0123456
+   ^--- first to work on
+it takes the current char, multiplys it by the nth number of the lookuptable, where n is
+eax. it then adds the number to ebx and loops until the last char in the string is reached.
+
+so... C code for this would be:
+
+int lookupoffset = 0;
+for(int i = 3, i < name_length; i++)
+{
+	seriala += name[i] * LookupTable[lookupoffset * 4];
+	lookupoffset++;
+	if(lookupoffset > 0x26)
+		lookupoffset = 0;
+}
+
+this will generate the 1st part of the serial for us. now all we need is the 2nd part.
+
+                mov     edx, 3
+                mov     ecx, [ebp+s]    ; ecx is now pointer to name
+                add     ecx, 3          ; ecx is now pointer to 3rd char in the name
+                cmp     edx, [ebp+var_C] ; compare edx with name length
+                jge     short loc_4B063E ; jump if greater
+
+loc_4B061B:
+                movzx   esi, byte ptr [ecx] ; esi = current char
+                movzx   edi, byte ptr [ecx-1] ; edi = char b4 the current one
+                imul    esi, edi        ; multiply current by previous char
+                imul    esi, LookupTable[eax*4] ; multiply current char by lookup 
+                                                ; table * eax
+                add     ebx, esi        ; add up numbers
+                inc     eax
+                cmp     eax, 26h
+                jle     short loc_4B0637 ; this resets eax if it's > 26h
+                xor     eax, eax
+
+loc_4B0637:
+                inc     edx
+                inc     ecx
+                cmp     edx, [ebp+var_C] ; compare edx to name length
+                jl      short loc_4B061B ; esi = current char
+
+loc_4B063E:
+                cmp     ebx, [ebp+var_8]
+                jz      short GoodBoy
+                xor     eax, eax
+                jmp     short Fin
+
+ok once again... start with the 4th name char. this time... we multiply the current char
+by the previous one then multiply that number by summin' in the lookuptable. add em up
+for all the chars and we got the 2nd part of the serial.
+
+so we change the C function above and add 2nd bit generating to it.
+
+int lookupoffset = 0;
+for(int i = 3, i < name_length; i++)
+{
+	seriala += name[i] * LookupTable[lookupoffset * 4];
+	serialb += (name[i] * name[i-1]) * LookupTable[lookupoffset*4];
+	lookupoffset++;
+	if(lookupoffset > 0x26)
+		lookupoffset = 0;
+}
+("%s-%s", seriala, serialb) is ur serial in nice looking ness :)
+and this will generate our serial. now we ain't discussed what the lookup table is, well
+at 0x555668 there is an array of 32bit ints, 38 of em in total, so we get the offset of it
+make it into an byte array in code etc and that's it. i ain't gunna tell ya excactly how
+u can do it, work it out for yourself.
+
+Fin
+---
+
+ok now unreg mirc and go and buy it if u really like it and use it. the point of this 
+is not to get free software but to learn about how programs work and how to reverse
+engineer them. if u've understood then and could do it to another program then u have
+succeded in learning. 
+if u wish to contact me then find me on irc: hub.cocytusuk.org / #cocytusuk
+
+Disclaimer
+----------
+
+i accept no responsibility for this, anything that happens as a result of anything to
+do with this article is your own fault, not mine. this article was provided to educate
+people and thus is provided for educational purposes only, NOT to get free software.
+if u like it, pay for it, support the authors.

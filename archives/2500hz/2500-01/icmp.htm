@@ -1,0 +1,759 @@
+<HTML>
+<HEAD>
+<TITLE>SJF PROJECT - Protocolo ICMP</TITLE>
+</HEAD>
+<BODY BGCOLOR="black" TEXT="white" LINK="lime" VLINK="lime" ALINK="lime">
+<FONT SIZE=3 COLOR="white">
+<P ALIGN="Justify">
+<P ALIGN="left"><FONT SIZE=2 COLOR="yellow">
+<PRE>  PROTOCOLO ICMP                                                                         uCaLu 1999
+<HR WIDTH=98%>
+</PRE>
+<CENTER><FONT SIZE=6 COLOR="#00FFFF">
+<B><U>PROTOCOLO ICMP</U></B>
+</CENTER>
+<BR><BR>
+<FONT SIZE=3 COLOR="white">
+<A HREF="#1">Introducción</A><BR>
+<A HREF="#2">Mensaje de error de ICMP</A><BR>
+<A HREF="#3">Tipos de mensajes de error</A><BR>
+<A HREF="#4">Menajes entrantes de ICMP</A><BR>
+<A HREF="#5">Cuándo no enviar mensajes de ICMP</A><BR>
+<A HREF="#6">Formato de mensajes de ICMP</A><BR><br><BLOCKQUOTE>
+<A HREF="#61">Mensaje Destino Inalcanzable</A><BR>
+<A HREF="#62">Mensaje de Plazo Superado</A><BR>
+<A HREF="#63">Mensaje Problemas de Parámetros</A><BR>
+<A HREF="#64">Mensaje Problemas de Congestión</A><BR>
+<A HREF="#65">Mensaje Acallamiento de Origen</A><BR>
+<A HREF="#66">Mensaje Redirección</A><BR></blockquote>
+<A HREF="#7">Tratamiento de los mensajes de error de ICMP entrantes</A><BR>
+<A HREF="#8">Obtención de la MTU de una ruta</A><BR>
+<A HREF="#9">Mensajes de Petición de ICMP</A><BR><blockquote>
+<A HREF="#91">Petición y respuesta de eco</A><BR>
+<A HREF="#92">Máscara de dirección</A><BR>
+<A HREF="#93">Marca de tiempo y su respuesta</A><BR></blockquote>
+<A HREF="#10">Obtención de la actividades de ICMP</A><BR>
+<A HREF="#11">Descubrimiento de ruta</A><BR><blockquote>
+<A HREF="#111">Encaminadores muertos</A><BR></blockquote>
+
+<A NAME="1">
+<font color="red">INTRODUCCION</font><br>
+<P ALIGN="Justify">El protocolo IP es un protocolo que solo se encarga de encaminar los datagramas hasta su destino, sin preocuparse si van
+ha llegar bien o mal, solo los encamina y que "se busquen la vida". Para eso tenemos el protocolo ICMP.
+El <i>protocolo de Internet de mensajes de control</i> como abreviatura ICMP (Internet Control Message Protocol) ofrece remedio
+a estos problemas. ICMP tambien desempeña un papel fundamental de asistente en la red, ayudando a los host con su encaminamiento
+de IP y permitiendo que los administradores de red comprueben el estado de los nodos de la red. Los mensajes de ICMP se
+transmiten como datagramas de IP con una cabecera normal de IP, con el campo de <i>Protocolo</i> con el valor 1.<br><br>
+<font color="red">MENSAJES DE ERROR DE ICMP</font><br>
+Ha veces cuando trabajamos en red, puede que la conexión que hemos realizado con algun host quede paralizada o se rompa por
+distintas cuestiones... Cuando se tiene que descartar un datagrama se tiene que informar de alguna forma al host de origen
+de que la trama que envio esta mal, ¿como se hace? pues muy simple, con el protocolo ICMP :P Cuando hay un error en la red, enseguida
+el protocolo ICMP notifica del fallo. <br><br>
+<font color="red">TIPOS DE MENSAJES DE ERROR</font><br>
+<table border=1>
+<tr>
+	<td>MENSAJE</td>
+	<td>DESCRIPCIÓN</td>
+</tr>
+<tr>
+	<td>Destino inalcanzable (Destination Unreachable)</td>
+	<td>Un datagrama no puede llegar a su host, utilidad o aplicación de destino</td>
+</tr>
+<tr>
+	<td>Plazo superado (Time Exceeded)</td>
+	<td>El tiempo de vida ha expirado en un encaminador o el plazo de reensamblado ha expirado en un host de destino</td>
+</tr>
+<tr>
+	<td>Problema de los parámetros (Parameter Problem)</td>
+	<td>Existe un parámetro erróneo en la cabecera de IP</td>
+</tr>
+<tr>
+	<td>Acallado de origen (Source Problem)</td>
+	<td>Un encaminador o un destino está congestionado. Se recomienda que los sistemas no envíen mensajes de acallado</td>
+</tr>
+<tr>
+	<td>Redirigir (Redirect)</td>
+	<td>Un host ha enviado un datagrama al encaminador local equivocado</td>
+</tr>
+</table><br>
+<font color="red">OBLIGACIÓN DE ENVIAR MENSAJES DE ICMP</font><br>
+<P ALIGN="Justify">El protocolo ICMP especifica que los mensajes de ICMP deberían o podrían enviarse en todos los lugares. No requiere que todos los errores tengan que generar un mensaje
+de ICMP. Tiene sentido, la prioridad de un encaminador en una red es reenviar datagramas. Y un host receptor congestionado debería
+prestar más atención a la entrega de datagramas a sus aplicaciones que a la notificación remota de errores. No es un gran problema si algunos datagramas se descartan y no se indica.<br><br>
+<font color="red">MENSAJES ENTRANTES DE ICMP</font><br>
+¿Qué ocurre cuando un HOST recibe un mensaje de ICMP?... Lo haremos practico, intentemos conectar a una dirección
+que no existe:<br><br>
+<font color="green">
+<pre>
+	c:\> telnet 10.10.10.1
+	Trying 10.10.10.1 ...
+	telnet: connect: Host is unreachable
+</pre></font><br>
+<P ALIGN="Justify">Y si lo que hemos hecho no te vale... pues lo haremos con el ping de WINDOWS que nos dice 
+exactamente lo que nos manda el protocolo ICMP.<br><br>
+<font color="green">
+<pre>
+	C:\WINDOWS>ping 10.10.10.1
+
+	Haciendo ping a 10.10.10.1 con 32 bytes de datos:
+
+	Host de destino inaccesible.
+	Host de destino inaccesible.
+	Host de destino inaccesible.
+	Host de destino inaccesible.
+</pre></font><br>
+<P ALIGN="Justify">Fijate que nos a indicado exactamente lo que ocurre. Ahora para descubrir que encaminador
+fue el que nos mando ese mensaje a nuestra maquina podemos utilizar una herramienta muy
+util, como es el <i>traceroute(en linux)</i> o <i>tracert(en windows)</i>. En este caso lo
+hemos hecho en una maquina sin trabajar en inet, tonces el que nos manda el mensaje de control
+es la propia maquina (127.0.0.1 o localhost). Si estuvieramos en inet pasaria algo parecido a
+esto:<br><br>
+<font color="green">
+<pre>
+	c:\> traceroute 10.10.10.1
+	traceroute to 10.10.10.1 (10.10.10.1), 30 hops max. 40 byte packets
+	1 nomad-gateway (128.121.50.50) 2 ms 2 ms 2 ms
+	2 liberty-gateway (130.94.40.250) 91 ms 11 ms 78 ms
+	3 border2-hssi2-O.NewYork.mci.net (204.70.45.9) !H !H !H
+</pre></font><br>
+<P ALIGN="Justify">El encaminador de New York ha enviado mensajes de Destino inalcanzable, que se muestran
+en la pantalla con las respuestas <i>"!H"</i>. La propia función traceroute utiliza los 
+mensajes de <i>Plazo superado</i> de ICMP. El procedimiento es:<br><br>
+* Se construye un mensaje de UDP. Se le da una cabecera de IP cuyo tiempo de vida sea 1.<br>
+* Se transmite el datagrama tres veces.<bR>
+* El primer encaminador, nomad-gateway en el ejemplo anterior, decrementa el tiempo de vida
+al valor 0, descarta el datagrama y envía de vuelta un mensaje de <i>Plazo superado</i> de ICMP al origen.<bR>
+* La función traceroute identifica al encaminador que envió el mensaje e imprime los tres
+tiempos de ida y vuelta.<br>
+* Se pone el tiempo de vida a 2 y se envían de nuevo los mensajes.<br>
+* El proceso se repite, aumentando el tiempo de vida en cada paso.<br><bR>
+Si se pudiera llegar al destino, se mostrara toda la ruta perfectamente :) Ahora ya podeis
+jugar con este comando para ver por donde pasa un datagrama cuando lo envies a un destino.<br><br>
+<font color="red">CUÁNDO NO ENVIAR MENSAJES DE ICMP</font><br>
+Se puede esperar que los mensajes de ICMP se envíen cuando una red tiene problemas. Es importante
+asegurar que el tráfico de ICMP no inunda la red, empeorando la situación. Hay que imponer
+algunos límites obvios al protocolo. ICMP debe informar de los problemas causados por:<br><br>
+* El encaminamiento o el envío de mensajes de ICMP.<br>
+* La difusión o multienvío de datagramas.<br>
+* Fragmentos de datagrama distintos del primero.<br>
+* Mensajes cuya dirección de origen no identifique a un host único, como por ejemplo las direcciones
+de IP como 127.0.0.1 o 0.0.0.0.<br><br>
+<font color="red">FORMATO DE MENSAJES DE ICMP</font><br>
+Recuerde que los mensajes de ICMP se transmiten en la parte de datos de un
+datagrama de IP. Cada mensaje de ICMP empieza con los mismos tres campos:
+un campo de Tipo, un campo de Código que a veces ofrece descripción concreta
+del error y un campo Suma de control. El formato del resto del mensaje viene determinado
+por el tipo. Los mensajes de error de ICMP incluyen la cabecera de ip y los
+8 primeros octetos del datagrama que ocasionó el error. Esta información se
+puede utilizar para resolver el problema, ya que incluye datos como el destino
+previsto y protocolo destino de la capa 4. Al mensaje de ICMP se le aplica
+la suma de control de ICMP, empezando desde el campo Tipo.<br><br>
+<font color="red">MENSAJE DESTINO INALCANZABLE</font><br>
+La entrega de un datagrama puede fallar en muchos momentos. Debido a un enlace
+roto, a un encaminador físicamente incapaz de llegar a una subred de destino o
+para ejecutar el siguiente salto de encaminamiento. El destino puede estar
+fuera de servicio por labores de mantenimiento. Todos sabemos que en esta tiempo
+podemos encontrar dispositivos inteligentes que corten el paso a host de la red
+por administración segura de sus redes, pues entonces tambien estariamos con
+un mensaje de control de este tipo. El tipo de ICMP es el 3 y en el campo codigo
+pueden haber distintos valores que expondremos ahora mismo:<br><br>
+<center>
+<table border=1>
+<tr>
+	<td><pre>Tipo = 3	"Código"	Suma de control</pre></td>
+</tr>
+<tr>
+	<td><center>No usado</center></td>
+</tr>
+<tr>
+	<td>Cabecera de Internet + 8 octetos de los datos del datagrama original</td>
+</tr>
+</table>
+</center><br>
+<table border=1>
+<tr>
+	<td>Código</td>
+	<td>Significado</td>
+</tr>
+<tr>
+	<td>0</td>
+	<td>No se puede llegar a la red.</td>
+</tr>
+<tr>
+	<td>1</td>
+	<td>No se puede llegar al host.</td>
+</tr>
+<tr>
+	<td>2</td>
+	<td>El destino no dispone del protocolo solicitado.</td>
+</tr>
+<tr>
+	<td>3</td>
+	<td>No se puede llegar al puerto. Puede que la aplicación de destino no esté libre.</td>
+</tr>
+<tr>
+	<td>4</td>
+	<td>Se necesita realizar fragmentación, pero se ha establecido la bandera "No fragmentar".</td>
+</tr>
+<tr>
+	<td>5</td>
+	<td>La ruta de origen no es correcta.</td>
+</tr>
+<tr>
+	<td>6</td>
+	<td>No se conoce la red de destino.</td>
+</tr>
+<tr>
+	<td>7</td>
+	<td>No se conoce el host de destino.</td>
+</tr>
+<tr>
+	<td>8</td>
+	<td>El host origen está aislado.</td>
+</tr>
+<tr>
+	<td>9</td>
+	<td>La comunicación con la red de destino está prohibida por razones administrativas.</td>
+</tr>
+<tr>
+	<td>10</td>
+	<td>La comunicación con el host de destino está prohibida por razones administrativas.</td>
+</tr>
+<tr>
+	<td>11</td>
+	<td>No se puede llegar a la red debido al Tipo de servicio.</td>
+</tr>
+<tr>
+	<td>12</td>
+	<td>No se puede llegar al host debido al Tipo de servicio.</td>
+</tr>
+</table><br><br>
+<font color="red">MENSAJE DE PLAZO SUPERADO</font><br>
+<P ALIGN="Justify">Un datagrama puede expirar porque su tiempo de vida ha llegado a cero mientras se encontraba
+en tránsito. Otra razón es cuando el plazo de reensamblado del host expira antes
+de que lleguen todos los fragmentos. En cualquier caso, se envía un mensaje de ICMP
+de Plazo expirado al origen del datagrama. El formato del mensaje es el siguiente:<br><br>
+<center>
+<table border=1>
+<tr>
+	<td><pre>Tipo = 11	"Código"	Suma de control</pre></td>
+</tr>
+<tr>
+	<td><center>No usado</center></td>
+</tr>
+<tr>
+	<td>Cabecera de Internet + 8 octetos de los datos del datagrama original</td>
+</tr>
+</table>
+</center><br><br>
+<P ALIGN="Justify">Los valores de los códigos indican la naturaleza del plazo, y se pueden ver en la
+siguiente tabla:<br>
+<center><table border=1>
+<tr>
+	<td>Código</td>
+	<td>Significado</td>
+</tr>
+<tr>
+	<td>0</td>
+	<td>Se ha excedido el tiempo de vida</td>
+</tr>
+<tr>
+	<td>1</td>
+	<td>Ha expirado el plazo de reensamblado</td>
+</tr>
+</table></center><br><br>
+<font color="red">MENSAJE PROBLEMAS DE PARÁMETROS</font><br>
+<P ALIGN="Justify">El mensaje de ICMP Problemas de parámetros se usa para informar de otros problemas
+que no se cubre con ningún otro mensaje de error. Por ejemplo, puede existir
+información inconsistente en un campo de opciones que que sea imposible procesar
+el datagrama correctamente, por lo que hay que descartarlo. Lo más habitual
+en cuanto a problemas de parámetros se debe a errores de implementación en el
+sistema que escribió los parámetros en la cabecera de IP. En el formato del mensaje
+que estamos explicando, aparece un nuevo campo, "Apuntador", te dice en que
+octeto a detectado el fallo. El formato del mensaje es:<br><br>
+<center>
+<table border=1>
+<tr>
+	<td><pre>Tipo = 12	"Código"	Suma de control</pre></td>
+</tr>
+<tr>
+	<td><center><pre>Apuntador		No usado</pre></center></td>
+</tr>
+<tr>
+	<td>Cabecera de Internet + 8 octetos de los datos del datagrama original</td>
+</tr>
+</table>
+</center><br><br>
+<center><table border=1>
+<tr>
+	<td>Código</td>
+	<td>Significado</td>
+</tr>
+<tr>
+	<td>0</td>
+	<td>El valor del campo apuntador indica el octeto donde se detectó el error.</td>
+</tr>
+<tr>
+	<td>1</td>
+	<td>Falta una opción obligatoria, se indica en la comunidad militar para indicar que falta una opción de seguridad.</td>
+</tr>
+<tr>
+	<td>2</td>
+	<td>Tamaño incorrecto</td>
+</tr>
+</table></center><br><br>
+<font color="red">ACALLAMIENTO DE ORIGEN</font><br>
+<P ALIGN="Justify">Este mensaje no es muy efectivo, ya que ¿Cuándo, y quién, debería enviar
+un mensaje de acallamiento de origen?. Cuando un encaminador se ve colapsado
+puede que el datagrama que descarte no sea del origen que lo esta colapsando, por
+eso se esta intentando encontrar algo más efectivo que un Acallamiento de origen.
+El formato del mensaje es el siguiente:<br><br>
+<center>
+<table border=1>
+<tr>
+	<td><pre>Tipo = 4	"Código"	Suma de control</pre></td>
+</tr>
+<tr>
+	<td><center>No usado</center></td>
+</tr>
+<tr>
+	<td>Cabecera de Internet + 8 octetos de los datos del datagrama original</td>
+</tr>
+</table>
+</center><br><br>
+<font color="red">MENSAJE REDIRECCIÓN</font><br>
+<P ALIGN="Justify">Puede que haya mas de un encaminador conectado a la LAN. Si el host local envía
+un datagrama al encaminador equivocado, el encaminador reenviará el datagrama y un 
+mensaje Redirección (Redirect) al host origen, como se muestra en la Figura 7.8.
+El jost debería enviar el tráfico siguiente al encaminador con la ruta más corta.
+Los mensajes Redirección se pueden usar para reducir el trabajo manual de administración.
+Se puede configurar un encaminador con un único encaminador por defecto y que aprenda dinámicamente sobre las
+rutas que van por otros encaminadores. Algunos protocolos de encaminamiento pueden elegir
+el camino de entrea según el campo Tipo de servicio (TOS). Los codigos 2 y  son consejos que
+reflejan estas consideraciones. El formato de los mensajes Redirección es:<br><br>
+<center>
+<table border=1>
+<tr>
+	<td><pre>Tipo = 5	"Código"	Suma de control</pre></td>
+</tr>
+<tr>
+	<td><center>Dirección del encaminador a usar</center></td>
+</tr>
+<tr>
+	<td>Cabecera de Internet + 8 octetos de los datos del datagrama original</td>
+</tr>
+</table>
+</center><br>
+Y la tabla con los codigos y su significado es:<br><br>
+<center><table border=1>
+<tr>
+	<td>Código</td>
+	<td>Significado</td>
+</tr>
+<tr>
+	<td>0</td>
+	<td>Redirigir los datagramas debido a la red.</td>
+</tr>
+<tr>
+	<td>1</td>
+	<td>Redirigir los datagramas debido al host.</td>
+</tr>
+<tr>
+	<td>2</td>
+	<td>Redirigir los datagramas debido al Tipo de servicio (TOS) y a la red.</td>
+</tr>
+<tr>
+	<td>3</td>
+	<td>Redirigir los datagramas debido al Tipo de servicio (TOS) y al host.</td>
+</tr>
+</table></center><br><br>
+<font color="red">TRATAMIENTO DE LOS MENSAJES DE ERROR DE ICMP ENTRANTES</font><br>
+<P ALIGN="Justify">¿Qué se hace cuando llega un mensaje de error de ICMP a un host de origen?
+Cada fabricante implementa su software de red de forma variada a los demas, pero
+como el protocolo TCP/IP es muy libre, puede existir muchos modos de actuar 
+con un mensaje de ICMP. Las guías que se dan para los distintos tipos de 
+mensajes son:<br><br>
+<table border=1>
+<tr>
+	<td>Destino inalcanzable</td>
+	<td>Entregar el mensaje de ICMP a la capa de transporte. La acción
+depende de si la razón es permanente o transitoria</td>
+</tr>
+<tr>
+	<td>Redirect</td>
+	<td>El host debe actualizar la tabla de encaminamiento</td>
+</tr>
+<tr>
+	<td>Acallamiento de origen</td>
+	<td>Entregar el mensaje a la capa de transporte o a un módulo de 
+procesamiento de ICMP</td>
+</tr>
+<tr>
+	<td>Plazo superado</td>
+	<td>Entregar el mensaje a la capa de transporte</td>
+</tr>
+<tr>
+	<td>Problema de parámetros</td>
+	<td>Entregar el mensaje a la capa de transporte; opcionalmente
+notificar al usuario</td>
+</tr>
+</table><br>
+<P ALIGN="Justify">A veces, se pueden tratar las condiciones de error mediante la cooperación
+entre el sistema operativo, el software de comunicaciones y la aplicación
+que realiza la comunicación.<br><br>
+<font color="red">OBTENCIÓN DE LA MTU DE UNA RUTA</font><br>
+Cuando se realiza una operación que transmite gran cantidad de información entre
+dos host, como una transferencia de archivos, el tamaño de datagrama puede tener
+un gran impacto en el rendimiento del sistema. Las cabeceras IP y de TCP aportan
+una sobrecarga de al menos 40 bytes.<br>
+<blockquote>* Si se envían los datos en datagramas de 80 bytes, la sobrecarga
+es del 50 por ciento</blockquote>
+<blockquote>* Si se envían los datos en datagramas de 400 bytes, la sobrecarga
+es del 10 por ciento</blockquote>
+<blockquote>* Si se envían los datos en datagramas de 4000 bytes, la sobrecarga
+es de un 1 por ciento</blockquote>
+<P ALIGN="Justify">Para minimizar la sobrecarga, se desearía enviar los mayores datagramas posibles.
+Pero hay que recordar que existe cierto límite en el tamaño del datagrama en
+un medio dado, la Unidad máxima de transmisión (MTU). Si los datagramas son demasiado
+grandes, se fragmentarán, y la fragmentación reduce el rendimiento del sistema.<br>
+Durante muchos años, los host evitaban la fragmentación fijando la "MTU efectiva de envío"
+en 576 bytes para el tráfico a cualquier lugar que no fuese local. A menudo, 
+distorsionaba innecesariamente el rendimiento.<br>
+Sabiendo esto, sería muy util predecir el mayor datagrama que se puede enviar por
+una ruta especifica para que no baje el rendimiento en el sistema. Existe un
+mecanismo, el de Obtención de la MTU de una ruta (Path MTU discovery) que permite
+determinar este tamaño. Su modo de funcionamiento es el siguiente:<br>
+<blockquote>* Se fija 1 la bandera "No fragmentar" de las cabeceras de IP.</blockquote>
+<blockquote>* Se empieza con un tamaño de MTU de la ruta como el de la MTU de la
+interfaz local.</blockquote>
+<blockquote>* Si el datagrama es demasiado grande para que lo reenvíe algún
+encaminador, le devolverá un mensaje de ICMP de Destino inalcanzable con el
+código = 4.</blockquote>
+<blockquote>* El host reduce el tamaño del datagrama y lo intenta de nuevo.</blockquote>
+<P ALIGN="Justify">Entonces, sabiendo esto, se deduce que si el software es lo bastante actualizado,
+el mensaje Destino Inalcanzable tendra un campo que contendra el MTU con el
+que se deberia transmitir. Como la ruta pueden cambiar dinámicamente, la bandera
+"No fragmentar" se puede mantener durante toda la comunicación. Los encaminadores enviarán
+correcciones si se necesita. Si en el caso de que el software del encaminador
+sea antiguo, el encaminador no indicara el tamaño de la MTU del siguiente
+salto. Un host puede hacer un supuesto razonable eligiendo el siguiente nivel
+inferior de la lista de tamaños estándar de MTU. El procedimiento de cambio
+de tamaño continúa hasta que se encuentra un valor con el que se alcanza el destino.
+Por supuesto, si ocurre un cambio en la ruta existe la posibilidad de cambiar a una
+MTU mayor. Un sistema que haya tenido que elegir una MTU pequeña puede intentar,
+periódicamente, enviar una de mayor tamaño para comprobar si se puede conseguir
+alguna mejora.<br>
+<center>
+<table border=1>
+<tr>
+	<td><pre>Tipo = 3	"Código"	Suma de control</pre></td>
+</tr>
+<tr>
+	<td><pre>No usado		MTU del siguiente salto</pre></td>
+</tr>
+<tr>
+	<td>Cabecera de Internet + 8 octetos de los datos del datagrama original</td>
+</tr>
+</table>
+</center><br>
+<font color="red">MENSAJES DE PETICIÓN DE ICMP</font><br>
+<P ALIGN="Justify">No todos los mensajes ICMP son señales de error. Algunos se usan para obtener
+información útil de la red. ¿está vivo el host?¿Está ejecutando el host Y? ...
+Concretamente, entre los mensajes de petición de ICMP están:<br>
+<blockquote>* Mensajes de petición y respuesta de ECO (ECHO) que pueden
+intercambiar con los host y con los encaminadores.</blockquote>
+<blockquote>* Mensajes de petición y respuesta de la Máscara de dirección que
+permite a un sistema descubrir la máscara de dirección que debería asignar a una
+interfaz.</blockquote>
+<blockquote>* Mensajes de petición y respuesta de Marca de tiempo que lee el
+reloj de un sistema dado.</blockquote>
+<P ALIGN="Justify">El objetivo es que la respuesta dé una idea de cuanto tiempo le lleva al sistema
+procesar un datagrama.<br><br>
+<font color="red">PETICIÓN Y RESPUESTA DE ECO</font><br>
+<P ALIGN="Justify">La petición de ECO y la respuesta de ECO se usan para comprobar
+si un sistema está activo. Se usa Tipo = 8 para la petición y Tipo = 0 para la
+respuesta. El número de octetos del campo de datos es variable y se selecciona en
+el origen. El destino debe enviar de vuelta el mismo mensaje recibido. El campo
+"Indentificador" se usa para hacer coincidir la respuesta con la petición original. Se
+puede enviar una secuencia de ocho mensajes para comprobar si la red está
+tirando mensajes y estimar el tiempo medio de ida y vuelta. Para ello, se deja
+fijo el identificador y el número de secuencia se incrementa con cada mensaje, 
+empezando en cero. Formato de ECO:<br><br>
+<center>
+<table border=1>
+<tr>
+	<td><pre>Tipo = 8 o 0	"Código"	Suma de control</pre></td>
+</tr>
+<tr>
+	<td><pre>Identificador		Número de secuencia</pre></td>
+</tr>
+<tr>
+	<td><center>DATOS</center></td>
+</tr>
+</table>
+</center><br>
+El famoso comando ping, que existe en casi todos los sistemas operativos con
+TCP/IP está programado usando los mensajes de petición y respuesta de ECO. En
+el diálogo que sigue, en primer lugar se comprueba si el host 127.0.0.1 está activo
+(tuve que hacerlo con esta host, ya que no estaba conectado en ese momento a inet).
+A continuación se envía una secuencia de 14 mensajes, cada uno con 64 bytes de
+datos. Fíjese que los mensajes 0, 1 y 2 han desaparecido. En la parte derecha
+se muestra el tiempo de ida y vuelta.<br><br>
+<font color="green">
+<pre>
+	C:\WINDOWS>ping -n 14 -l 64 127.0.0.1
+
+	Pinging 127.0.0.1 with 64 bytes of data:
+
+	Reply from 127.0.0.1: bytes=64 time=1ms TTL=32
+	Reply from 127.0.0.1: bytes=64 time=10ms TTL=32
+	Reply from 127.0.0.1: bytes=64 time=10ms TTL=32
+	Reply from 127.0.0.1: bytes=64 time=1ms TTL=32
+	Reply from 127.0.0.1: bytes=64 time=1ms TTL=32
+	Reply from 127.0.0.1: bytes=64 time=10ms TTL=32
+	Reply from 127.0.0.1: bytes=64 time=10ms TTL=32
+	Reply from 127.0.0.1: bytes=64 time=1ms TTL=32
+	Reply from 127.0.0.1: bytes=64 time=10ms TTL=32
+	Reply from 127.0.0.1: bytes=64 time=10ms TTL=32
+	Reply from 127.0.0.1: bytes=64 time=10ms TTL=32
+	Reply from 127.0.0.1: bytes=64 time=10ms TTL=32
+	Reply from 127.0.0.1: bytes=64 time=10ms TTL=32
+	Reply from 127.0.0.1: bytes=64 time=10ms TTL=32
+
+</pre></font>
+<p align="justify">Donde pone time=?? aparece el tiempo de ida y vuelta que ha transcurrido
+a enviar el paquete, tambien puede aparecer time<?? o time>??.<br><br>
+<font color="red">MASCARA DE DIRECCIÓN</font><br>
+Recuerde que una organización puede decidir dividir sus campos de direcciones
+locales en parte de subred y parte de host. Cuando se arranca un sistema puede que no
+esté configurado para conocer cuantos bits se le han asignado al campo de dirección de
+subred. Para obtenerlo, el sistema puede difundir una petición de Máscara de Dirección.
+La respuesta debería enviarla un servidor autorizado de Máscaras de Dirección. Normalmente,
+se supone que el servidor sea un encaminador, pero a veces puede usarse un host.
+La respuesta pondrá a uno los campos de red y subred del camo de Máscara de dirección
+en cuanto esté activo de nuevo. Se hace así en beneficio de los sitemas que hayan
+arrancado mientras no estaba disponible el servidor.<br>
+El tipo 17 es para la petición y el Tipo 18 para la respuesta. Generalmente se
+pueden ignorar los campos de número de secuencia. En la actualidad el metodo
+preferido para determinar la Máscara de Dirección es utilizando un protocolo
+de arranque como el Protocolo Dinámico de Configuración de host, o BOOTP. Estos
+procesos son más eficientes ya que disponen de un amplio conjunto de parámetros
+de configuración. También son, a menudo, más precisos. Por ejemplo, una estación
+Unix puede estar desconfigurada y responder erróneamente a los mensajes de petición
+de Mascara de Dirección. El resultado es que su sistema recibirá varias respuestas y algunas
+de ellas serán erróneas.<br><br>
+<center>
+<table border=1>
+<tr>
+	<td><pre>Tipo = 17 o 18		"Código"	Suma de control</pre></td>
+</tr>
+<tr>
+	<td><pre>Identificador		Número de secuencia</pre></td>
+</tr>
+<tr>
+	<td><center>Máscara de Dirección</center></td>
+</tr>
+</table>
+</center><br><br>
+<font color="red">MARCA DE TIEMPO Y SU RESPUESTA</font><br>
+Los mensajes de Marca de Tiempo indican la hora de un sistema y su objetivo
+es ofrecer una apreciación de lo que tarda el sistema remoto en el proceso
+del búfer y del procesamiento de un datagrama. Tenga en cuenta estos campos:<br>
+<table border=1>
+<tr>
+	<td><i>Marca de Tiempo Original</i></td>
+	<td>La marca de tiempo en que el origen tocó por última vez el mensaje.</td>
+</tr>
+<tr>
+	<td><i>Marca de Tiempo de recepción</i></td>
+	<td>La marca de tiempo en que el destino lo tocó por primera vez.</td>
+</tr>
+<tr>
+	<td><i>Marca de tiempo de transmisión</i></td>
+	<td>La marca de tiempo en que el destino lo tocó por última vez.</td>
+</tr>
+</table><br><br>
+Si es posible, el tiempo devuelto debería medirse en milisegundos después de
+medianoche, en Tiempo Universal, anteriormente Tiempo medio de Greenwich. La
+mayor parte de las implementaciones actuales devuelven la misma marca de tiempo en los
+campos Marca de tiempo de recepción y Marca de tiempo de transmisión. Este 
+protocolo podría ser un método sencillo para sincronizar los relojes con otros. Por
+supuesto que la sincronización sería un poco absurda debido a los posibles retardos
+de la red. Existe un protocolo mejor, el Protocolo de Tiempo de Red definido
+para la sincronización de la hora en internet. Se usa el Tipo 13 para la petición
+de Marca de Tiempo y el tipo 14 para la respuesta de Marca de Tiempo.<br><br>
+<center>
+<table border=1>
+<tr>
+	<td><pre>Tipo = 13 o 14		"Código"	Suma de control</pre></td>
+</tr>
+<tr>
+	<td><pre>Identificador		Número de secuencia</pre></td>
+</tr>
+<tr>
+	<td><center>Marca de tiempo de generación</center></td>
+</tr>
+<tr>
+	<td><center>Marca de tiempo de recepción</center></td>
+</tr>
+<tr>
+	<td><center>Marca de tiempo de transmisión</center></td>
+</tr>
+</table>
+</center><br><br>
+<font color="red">OBTENCIÓN DE LAS ACTIVIDADES DE ICMP</font><br>
+A continuación se muestra la parte de ICMP de un informe de netstat sobre
+estadísticas de red. Este informe muestra la actividad de ICMP desde la
+última inicialización. Veremos la estadistica de un netstat en windows y
+en Unix.<br><br>
+Windows:<br>
+<font color="green">
+<pre>
+ICMP Statistics
+
+                            Received    Sent
+  Messages                  19          31
+  Errors                    0           0
+  Destination Unreachable   3           3
+  Time Exceeded             0           0
+  Parameter Problems        0           0
+  Source Quenchs            0           0
+  Redirects                 0           0
+  Echos                     8           20
+  Echo Replies              8           8
+  Timestamps                0           0
+  Timestamp Replies         0           0
+  Address Masks             0           0
+  Address Mask Replies      0           0
+
+</pre></font><br>
+Como veis, se han recibido 19 mensajes ICMP y se han enviado 31. Vemos que
+se han recibido 3 mensajes de Destino inancanzable, igual que se han enviado.
+Se enviaron 20 ECO y se recibieron 8. Y se enviaron 8 ECHO REPLIES y se recibieron
+los 8 que se enviaron. Esta estadistica es muy pobre ya que el envio de ICMP
+se realizo en una maquina unica, si estuviera metido en inet, esta estadistica
+hubiera subido mucho más.<br><br>
+Unix:<br>
+<font color="green">
+<pre>
+icmp:
+  1075 calls to icmp_error
+
+  Output histogram:
+    echo reply: 231
+    destination unreachable: 1075
+
+  2 messages with bad code fields
+  0 messages (menor) minimum length
+  21 bad checksums
+  0 messages with bad length
+
+  Input histogram:
+    echo reply: 26
+    destination unreachable: 1269
+    source quench: 2
+    echo: 231
+  231 message responses generated
+
+</pre></font><br>
+El sistema ha enviado 1075 mensajes de Destino inalcanzable (destination unreachable).
+Se recibieron 231 Peticiones de eco (echo reply) y se respondieron todas. Se recibieron
+26 Respuestas de eco (echo reply). El sistema local tiene un registro de que
+se recibieron 21 mensajes de ICMP con una suma de ICMP errónea.
+Se recibieron 1269 mensajes de Destino inalcanzable y dos Acallamiento de origen (source quench)
+en este sistema.<br>
+El informe que dare a continuación incluye información de encaminamiento.
+A partir de este informe se puede ver cómo se descubren dinámicamente los encaminadores
+mediante los mensajes de Redirección. Hubo 12 destinos a los que no se pudo
+llegar que se indican con mensajes de Destino inalcanzable. Se usaron comodines (wildcard)
+349 veces, lo que indica, seleccionar la ruta por defecto.<br><br>
+<font color="green">
+<pre>
+$ netstat -rs
+
+routing:
+  0 bad routing redirects
+  0 dynamically created routes
+  2 new routers due to redirects
+  12 destinations found unreachable
+  349 uses of a wildcard route
+
+</pre></font><br>
+<font color="red">DESCUBRIMIENTO DE RUTA</font><br> 
+Aunque muchas LAN tienen un único encaminador por defecto, existe un
+número substancial de LAN con dos o más encaminadores. ¿Qué ocurre cuando
+se añade un encaminador a una LAN? Los mensajes de redirección indicarán a
+los sistemas las nuevas rutas. Pero supohga que el encaminador por defecto
+queda fuera de servicio. El protolo de Descubrimiento de ruta (Router Discovery)
+proporciona un método robusto, usando mensajes de ICMP, para mantener un seguimiento
+de las rutas de LAN. La idea básica es que los encaminadores avisen periódicamente de
+su presencia. Los host necesitan escuchar estos avisos. El metodo preferido
+de un encaminador para anunciar su presencia suele ser enviar avisos a direcciones
+de multienvio, por ejemplo una dirección de multienvio todos-los-sistemas como
+es la 224.0.0.1. Pero el problema es que todos los sistemas no tienen direccioenes
+de multienvio, y se soluciona enviando el paquete a una direccion de difusion como
+es la 255.255.255.255 (que tambien es, a todos los equipos). Un escenario
+típico para un encaminador es el siguiente:<br><br>
+<blockquote>* Se configura la interfaz de los encaminadores con la dirección de
+aviso, o 225.0.0.1 o 255.255.255.255, para la LAN a la que está conectada.</blockquote>
+<blockquote>* Cuando el encaminador se inicializa, si se puede usar multienvío
+el encaminador empieza a escuchar en la dirección de multienvío todos-los-encaminadores,
+que es la 224.0.0.2. Tambien escucha posibles difusiones.</blockquote>
+<blockquote>* El encaminador anuncia su presencia a los host conectados a la
+LAN transmitiendo un Aviso de encaminador a la dirección de aviso de esa LAN.
+El aviso lista todas las direcciones de IP de ese encaminador para esa interfaz.</blockquote>
+<blockquote>* El encaminador demuestra que aun está vivo, enviando periódicamente por
+multienvío otro Aviso de encaminador. Se sugiere un período de entre 7 y 10 min.</blockquote>
+<blockquote>* El encaminador envía un aviso cuando un host lo solicita.</blockquote>
+Para un host el escenario es el siguiente:<br><br>
+<blockquote>* Se configuran las interfaces del host con la Dirección de solicitud, bien
+224.0.0.2 o 255.255.255.255.</blockquote>
+<blockquote>* Cuando se inicializa el host, empieza escuchando Avisos de encaminador.</blockquote>
+<blockquote>* Al arrancar, el host puede, opcionalmente, enviar un mensaje de
+Solicitud de Encaminador a la dirección de solicitud. Los encaminadores responden a la
+dirección de IP del host o a la dirección de aviso.</blockquote>
+<blockquote>* Cuando un host escucha a un nuevo encaminador, el host añade una ruta
+default a su tabla de encaminamiento. Se asigna a la entrada un tiempo de vida
+del valor del plao, normalmente 30 minutos, que se anunciaba en el Aviso del encaminador.</blockquote>
+<blockquote>* El tiempo de vida del plazo se reinicia siempre que se recibe un nuevo
+aviso del encaminador. Si el plazo expira, se elimina la entrada del encaminador 
+de la tabla de encaminamiento del host.</blockquote>
+<blockquote>* Para indicar al resto del mundo que se va a apagar, un encaminador puede
+enviar un aviso con un tiempo de vida de valor 0.</blockquote>
+Si hay más de un encaminador, ¿como elige el host el encaminador al que debe
+enviar un determinado datagrama?, Pues muy facil, añadiendo al datagrama un numero
+de nivel de preferencia. Si no se especifica información de encaminamiento en la tabla
+de encaminamiento del host, el host elige el encaminador con el mayor nivel de preferencia.
+Si este encaminador no proporciona la mejor ruta, enviará de vuelta un mensaje de 
+redirección de ICMP. Los avisos de encaminador son mensajes de ICMP de Tipo 9
+y las Solicitudes de encaminador son de Tipo 10.<br><br>
+<font color="red">ENCAMINADORES MUERTOS</font><br> 
+El descubrimiento de encaminadores ayuda a descubrir que un encaminador local ha
+muerto, pero sólo tras un plazo muy largo, posiblemente de 30 min. Se supone
+que las implementaciones de TCP/IP incluyen algoritmos de detección incorporados para
+detectar la muerte de un encaminador. Algunas pruebas de que está vivo son
+sencillas. Por ejemplo:<br><br>
+<blockquote>* La existencia de sesiones de TCP activas en el encaminador</blockquote>
+<blockquote>* La recepción de un mensaje de redirección del encaminador</blockquote>
+Algunas pruebas de que está muerto son:<br><br>
+<blockquote>* Falla la respuesta a peticiones de ARP o ECHO REPLY</blockquote>
+<blockquote>* Hay muchos plazos de retransmisión de TCP consecutivos</blockquote>
+Si existe la evidencia de que un encaminador está fuera de servicio, la prueba
+definitiva es enviar una petición de ping.<br><br>
+<font color="red">INFORMACIÓN</font><br> 
+Como todos supondreis, esto no lo he sacado de mi cabeza, me he apollado en
+fuentes que me han dado bastante apollo, casi todo lo he sacado del libro que
+os pongo a continuación, eso no significa que hayan mejores, sino que este
+lo veo muy interesante:<br><br>
+* TCP/IP de Dr. Sidnie Feit, Editorial Osborne McGraw-Hill<br><br>
+Sitios donde sacar información sobre el protocolo ICMP:<br><br>
+* rfc 792. rfc 1122 (requisitos de host). rfc 1812 (requisitos de host 2).
+en el rfc 1256 se describe el descubrimiento de rutas. En el rfc 1191 el 
+descubrimiento de la MTU y si quieres algunos consejos, los puedes encontrar
+en el rfc 1435.<br><br>
+</P>
+</HTML>
+
+
+
+

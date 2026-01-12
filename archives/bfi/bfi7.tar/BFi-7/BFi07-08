@@ -1,0 +1,403 @@
+==============================================================================
+-------------[ BFi numero 7, anno 2 - 25/12/1999 - file 8 di 22 ]-------------
+==============================================================================
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ SP00FiNG & SP00FiNG DETECTi0N ViA LKM FR0M A LiNUX B0X - pIGpEN
+
+
+Oggetti particolari:
+		       Una bottiglia di cocacola versata in tazzina 
+		       tekno-cola-sciamana con porcellino disegnato e scritta
+		       BIG PIG ... presto disponibile in jpg su www.s0ftpj.org
+		       Tastiera tekno-geo-lunare tratta dal sudato libro 
+		       scolastico: Scienze della TERRA ridotto volontariamente
+		       ad un collage
+
+Eventi particolari:    Nella scrittura del syslog.c che risale a prima dello 
+		       scopo di questo articolo mi sono imbattuto in un
+		       baiocco, lasciato su una delle due casse, che e' stato
+		       prontamente mangiato...
+		       Visto che non avevo comprato baiocchi nella settimana
+		       dell'accaduto e che non ci sono tracce in cucina di 
+		       altri suoi compari suppongo che sia stato vecchio
+
+IMPORTANTE!!!! CONCORSO BiSCOTTi PIU' MANGIATI DAL S0FTPJ:
+		       - Primo premio attribuito al PALICAO!
+		       - Ultimo premio alle fottute pannocchie mangiate da
+		         nellozzolo e kobino :P
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+Questo semplice articolo dimostra in poco spazio (perche' tra poco sono a 
+cena) come sia possibile spoofarsi direttamente dal kernel tramite lkm e
+come sia possibile scoprire un tentativo di spoofing nel proprio sistema
+da parte di un utente...
+
+Entrambi questi metodi si basano sulla struttura sk_buff utilizzata prima di
+me gia' da kossak, lifeline e chissa' quanti altri a cominciare ovviamente
+dagli sviluppatori del kernel stesso (Alan Rulez!!)
+In particolare tale struttura serve in questi 2 casi per agire sul livello di
+rete che, basandosi sui protocolli utilizzati comunemente su internet, sara'
+un iphdr...
+
+struct sk_buff {
+
+ ......
+
+// NETWORK LAYER
+
+        union
+        {
+                struct iphdr    *iph;        
+                struct ipv6hdr  *ipv6h;
+                struct arphdr   *arph;
+                struct ipxhdr   *ipxh;
+                unsigned char   *raw;
+        } nh;
+
+......
+
+};
+
+Useremo quindi per i nostri scopi iph, a meno che non cazzeggiate con ipx o
+altro. Chi ha detto che lo spoofing, in senso letterale, non sia applicabile
+ad altri protocolli? ...Anzi ;P
+
+1 - Spoofare i pacchetti uscenti, via Linux Network Layer
+    -----------------------------------------------------
+
+    Qui si tratta di accettare un ip come input e di spoofare tutti i messaggi
+    destinati a quell'ip con un ip vittima dato dall'utente...
+    Ecco qui una semplice implementazione per udp/icmp:
+
+---------- snip ----------
+/*
+ * SP00FiNG 0UTG0iNG PACKETS ViA LiNUX NETW0RK LAYER
+ * -------------------------------------------------
+ *
+ * This is a linux kernel module to spoof from your box every udp/icmp outgoing
+ * packet with destination = dstip
+ * 
+ * If you wanna see output you have to sniff msg in <spoofip> machine
+ * or if it's in your network you have to put your network interface 
+ * in promisc mode
+ *
+ * Compile with: gcc -O6 -c spoof.c -I/usr/src/linux/include 
+ *
+ * Usage: insmod spoof dstip=192.168.1.1 spoofip=192.168.1.3 [dev=eth0]
+ * 
+ * Every udp/icmp packet with destination=192.168.1.1 will be spoofed with
+ * source=192.168.1.3 
+ *
+ * Use it only for phun ... not for illegal purposes
+ *
+ * Based on the artice "Building Into The Linux Network Layer" written by
+ * kossak and lifeline (Phrack vol.9, issue 55, file 12 of 19)
+ *
+ * pIGpEN <pigpen@s0ftpj.org>
+ *
+ */
+
+#define MODULE
+#define __KERNEL__
+
+#include <linux/config.h>
+#include <linux/module.h>
+#include <linux/version.h>
+
+#include <linux/byteorder/generic.h>
+#include <linux/netdevice.h>
+#include <net/protocol.h>
+#include <net/pkt_sched.h>
+#include <linux/if_ether.h>
+#include <linux/ip.h>
+#include <linux/skbuff.h>
+
+#include <linux/kernel.h>
+#include <linux/mm.h>
+#include <linux/file.h>
+#include <asm/uaccess.h>
+
+
+char *dev,*dstip,*spoofip;
+
+MODULE_PARM(dev,     "s");
+MODULE_PARM(dstip,   "s");
+MODULE_PARM(spoofip, "s");
+
+
+struct packet_type s_proto;
+struct device *d;
+
+/* net/ipv4/utils.c */
+
+__u32 in_aton(const char *str) {
+        unsigned long l;
+        unsigned int val;
+        int i;
+
+        l = 0;
+        for (i = 0; i < 4; i++) {
+                l <<= 8;
+                if (*str != '\0') {
+                        val = 0;
+                        while (*str != '\0' && *str != '.') {
+                                val *= 10;
+                                val += *str - '0';
+                                str++;
+                        }
+                        l |= val;
+                        if (*str != '\0')
+                                str++;
+                }
+        }
+        return(htonl(l));
+}
+
+
+int otp_func(struct sk_buff *skb, struct device *dv, struct packet_type *pt) {
+
+       //skb->h.raw = skb->nh.raw + skb->nh.iph->ihl*4;
+
+       switch(skb->nh.iph->protocol)
+       {
+        case IPPROTO_ICMP: if(skb->nh.iph->daddr==in_aton(dstip))
+			   	skb->nh.iph->saddr=in_aton(spoofip);	
+			   break;
+       
+        case IPPROTO_UDP:  if(skb->nh.iph->daddr==in_aton(dstip))
+				skb->nh.iph->saddr=in_aton(spoofip);
+                           break;
+
+        default: 	   break;
+      }
+      
+     return 1;   
+}
+
+
+int init_module() {
+ if(!dstip || !spoofip) {
+  printk("Usage: insmod spoof dstip=x.x.x.x spoofip=x.x.x.x [dev=devname]\n\n");
+  return -ENXIO;
+  }
+
+ if (dev) {
+   d = dev_get(dev);
+   if (!d) {
+    printk("Did not find device %s!\n", dev);
+    printk("Using all known devices...");
+   }
+   else {
+    printk("Using device %s, ifindex: %i\n",
+            dev, d->ifindex);
+    s_proto.dev = d;
+   }
+ }
+ else
+   printk("Using all known devices(wildcarded)...\n");
+
+   s_proto.type = htons(ETH_P_ALL);
+   s_proto.func = otp_func;
+   dev_add_pack(&s_proto);
+
+   return(0);
+}
+
+void cleanup_module() {
+    dev_remove_pack(&s_proto);
+    printk("Module unloaded\n");
+}
+---------- snip ----------
+
+Chiaramente se ci interessera' vedere la risposta dovremo sniffare i pacchetti
+dalla vittima e se questa appartiene alla nostra rete puo' darsi che basti
+mettere la propria interfaccia in modalita' promiscua; in tutti gli altri casi
+dovrete avere accesso alla box vittima ed uno sniffer che giri su di essa.
+Visto che non e' stato scritto per scopi illegali non vi dico come adattare al
+meglio questo sorgente... :P
+
+2 - Scoprire tentativi di spoofing dalla propria macchina
+    -----------------------------------------------------
+
+    Questo sorgente e' effettivamente in grado di farlo, ma va modificato
+    nel caso la vostra macchina abbia piu' di un ip. E' semplice farlo:
+    lascio a voi il compito di adattarlo...
+
+    Anche in questo caso il concetto e' piuttosto intuitivo: si controlla
+    semplicemente che i pacchetti uscenti dalla propria macchina non abbiano
+    ip sorgente diverso dal proprio ip e da 127.0.0.1
+
+    E' pure chiaro che se vi trovate stampata una riga del tipo:
+
+              Detected possible spoofing from your box
+              Spoofed ip = 666.666.666.666
+
+    qualcuno deve aver pure rootato la vostra macchina per aprire un socket
+    di tipo RAW e modificare l'ip header :)
+
+    Ovviamente questo codice puo' essere esteso, ad esempio non permettendo
+    di inviare il pacchetto spoofato...  
+   
+---------- snip ----------
+/*
+ *
+ * IP SP00FiNG DETECTi0N ViA LiNUX NETW0RK LAYER
+ * ---------------------------------------------
+ *
+ * This lkm detects a possible spoofed pkt from your host and gives you the
+ * spoofed ip
+ *
+ * Compile with: gcc -O6 -c detect-spoof.c -I/usr/src/linux/include
+ *
+ * Usage: insmod detect-spoof ip=yourip [dev=eth0]
+ *
+ * If you have a box with more than one ip, you have to modify this module...
+ * This code only checks if the source ip is different than 127.0.0.1 and
+ * if ip=yourip .
+ *
+ * Based on the artice "Building Into The Linux Network Layer" written by
+ * kossak and lifeline (Phrack vol.9, issue 55, file 12 of 19)
+ *
+ * pIGpEN <pigpen@s0ftpj.org>
+ *
+ */
+
+#define MODULE
+#define __KERNEL__
+
+#include <linux/config.h>
+#include <linux/module.h>
+#include <linux/version.h>
+
+#include <linux/byteorder/generic.h>
+#include <linux/netdevice.h>
+#include <net/protocol.h>
+#include <net/pkt_sched.h>
+#include <linux/if_ether.h>
+#include <linux/ip.h>
+#include <linux/skbuff.h>
+
+#include <linux/kernel.h>
+#include <linux/mm.h>
+#include <linux/file.h>
+#include <asm/uaccess.h>
+
+
+char *dev,*ip;
+
+MODULE_PARM(dev,  "s");
+MODULE_PARM(ip,   "s");
+
+
+struct packet_type s_proto;
+struct device *d;
+
+/* net/ipv4/utils.c */
+
+char *in_ntoa(__u32 in) {
+        static char buff[18];
+        char *p;
+
+        p = (char *) &in;
+        sprintf(buff, "%d.%d.%d.%d",
+                (p[0] & 255), (p[1] & 255), (p[2] & 255), (p[3] & 255));
+        return(buff);
+}
+
+/* ditto */
+
+__u32 in_aton(const char *str) {
+        unsigned long l;
+        unsigned int val;
+        int i;
+
+        l = 0;
+        for (i = 0; i < 4; i++) {
+                l <<= 8;
+                if (*str != '\0') {
+                        val = 0;
+                        while (*str != '\0' && *str != '.') {
+                                val *= 10;
+                                val += *str - '0';
+                                str++;
+                        }
+                        l |= val;
+                        if (*str != '\0')
+                                str++;
+                }
+        }
+        return(htonl(l));
+}
+
+
+int otp_func(struct sk_buff *skb, struct device *dv, struct packet_type *pt) {
+
+       //skb->h.raw = skb->nh.raw + skb->nh.iph->ihl*4;
+
+  if(skb->pkt_type==PACKET_OUTGOING)
+   {
+    if(skb->nh.iph->saddr!=in_aton(ip) && 
+       skb->nh.iph->saddr!=in_aton("127.0.0.1"))
+    {
+     printk(KERN_WARNING "Detect possible spoofing from your box");
+     printk(KERN_WARNING "Spoofed ip = %s", in_ntoa(skb->nh.iph->saddr));
+    }
+   }
+  return 1;   
+}
+
+
+int init_module() {
+ if(!ip) {
+  printk("Usage: insmod ip=x.x.x.x [dev=devname]\n\n");
+  return -ENXIO;
+  }
+
+ if (dev) {
+   d = dev_get(dev);
+   if (!d) {
+    printk("Did not find device %s!\n", dev);
+    printk("Using all known devices...");
+   }
+   else {
+    printk("Using device %s, ifindex: %i\n",
+            dev, d->ifindex);
+    s_proto.dev = d;
+   }
+ }
+ else
+   printk("Using all known devices(wildcarded)...\n");
+
+   s_proto.type = htons(ETH_P_ALL);
+   s_proto.func = otp_func;
+   dev_add_pack(&s_proto);
+
+   return(0);
+}
+
+void cleanup_module() {
+    dev_remove_pack(&s_proto);
+    printk("Module unloaded\n");
+}
+---------- snip ----------
+
+Inutile dire che modificare i membri della struttura sk_buff permette di fare
+tutto quello che comunemente fate codando in C e utilizzando le librerie
+della vostra box... Ha inoltre dei vantaggi poiche' permette a livello kernel
+di modificare i pacchetti prima del loro invio agendo ad un livello piu'
+basso che per quanto possa essere piu' difficile (gli allineamenti succhiano :)
+risultera' comunque piu' veloce e si spera efficiente. Questo pero' dipende da
+voi...
+
+Divertitevi.
+Alibabau... 
+
+pIGpEN
+
+
+==============================================================================
+---------------------------------[ EOF 8/22 ]---------------------------------
+==============================================================================

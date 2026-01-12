@@ -1,0 +1,164 @@
+<HTML>
+<HEAD>
+<TITLE>.pt zine 02 - Verificar se os logs foram corrompidos</TITLE>
+</HEAD>
+<BODY BGCOLOR="Black" TEXT="#000000" LINK="Green" VLINK="Red">
+<IMG SRC="pt_small.gif" WIDTH=452 HEIGHT=81 BORDER=0>
+<P>
+<FONT SIZE="3" FACE="Arial" COLOR="#FFC639">
+
+<B>Verificar se os logs foram corrompidos</B><BR>
+-----------------------------------------------------<BR>
+by Elektro
+<P>
+ 
+
+Este artigo, incluindo o programa, deve ser uma das ferramentas que um cuidadoso administrador de sistema, deve ter sempre a' mao!
+<P>
+O que me levou a fazer este programa, foi, o facto de ser extremamente dificil arranjar um, que me fizesse especificamente o que desejava, pois o que
+mais parecido encontrei foram os conhecidos utmp editors, mas porem esses apenas nos oferecem um interface visual para o conteudo do utmp,
+ficando o trabalho da deteccao de irregularidades ao cuidado do utilizador, depois ate' porque nenhum deles testava a integridade de um outro ficheiro, o
+wtmp, e o mais importante neste aspecto, o lastlog!!
+<P>
+Se nao sabem o que sao estas palavroes, que nao se conseguem pronunciar, pois tem mais consoantes, do que vogais,...podem passar a frente, pois
+nao vamos aqui explicar isso!! So' um esclarecimento muito breve, o utmp e' um ficheiro onde se encontra informacao acerca de quem se encontra a
+utilizar o sistema currentemente, o wtmp da-nos informacao acerca do logins e logouts do sistema, e o lastlog, conforme o nome indica esta
+relacionado com o ultimo logged on de cada user. Para mais informacao consultem por exemplo, as paginas do manual de Linux.
+<P>
+Pois bem, o programa que exponho aqui (link para logs.c) e' nada mais nada menos do que uma ferramenta que testa e procura irregularidades nos
+ficheiros de logs (nao soa bem mas,...), como o utmp e o wtmp, inci- dindo mais sobre o utmp e o lastlog, pois sao os ficheiros que nos podem dar
+mais informacao acerca dos infractores do sistema!:))))
+<P>
+Para quem ja "teve em sua poder" uma maquina que nao lhe pertencia, (porreiro eufemismo para hackada!:)))), sabe que uma das preocupacoes, se
+nao a principal, e estar constantemente a limpar os logs!!!
+<P>
+Para isso que existem pequenos (mas inteligentes) programas cuja funcao e alterar o conteudo dos ficheiros de log do sistema. Talvez o mais
+conhecido seja o famoso Zap! Vamos entao estudar um pouco como e' que estes programas funcionam (vamos usar como exemplo o Zap!, pois muito
+provavelmente e' o responsavel pela corrupcao da maioria dos ficheiros de logs dos servers hackados pelo mundo fora!!): 
+<P>
+<DD>     - Por exemplo de corrermos o Zap!, da seguinte maneira na linha de comandos: (estes programas so funcionam se forem corridos como root,
+pois as permissoes de escrita destes ficheiros, pode-se dizer que sao controladas!:))) 
+<P>
+#zap elektro (elektro e' por exemplo um user que queremos "apagar", da vida da maquina) 
+<P>
+ao fazermos um #w ou #lastlog podemos ver que tudo que se relacionava com o user elektro desapareceu! 
+<P>
+Nada como dar uma olhadelha ao codigo do programa para perceber: 
+<PRE>
+     ....
+     while(read (f, &utmp_ent, sizeof (utmp_ent))&gt; 0 )       
+          if (!strncmp(utmp_ent.ut_name,who,strlen(who))) {                 
+          bzero((char *)&utmp_ent,sizeof( utmp_ent ));                 
+          lseek (f, -(sizeof (utmp_ent)), SEEK_CUR);                 
+          write (f, &utmp_ent, sizeof (utmp_ent));
+     ....
+</PRE>
+Vemos aqui como o programa apaga a informacao relativa ao user 'who' do ficheiro utmp. 
+<P>
+a struct definida em C, que guarda a informacao dos utilizadores e' a seguinte: 
+<PRE>
+    struct utmp
+    {
+     short      ut_type;        /* type of login */
+     pid_t      ut_pid;         /* pid of login-process */
+     char       ut_line[UT_LINESIZE];   
+     char       ut_id[4];       /* inittab id */
+     time_t     ut_time;        /* login time */
+     char       ut_user[UT_NAMESIZE];/* username */     
+     char       ut_host[UT_HOSTSIZE];/* host */ 
+     long       ut_addr;        /* IP addr of remote host */
+     };
+</PRE>
+para mais informacoes relativas a' maneira como o Linux mantem a informacao dos users, faca "man utmp". 
+<P>
+O que o Zap! se limita a fazer e' apenas ir "buscando" uma destas structs ao ficheiro (por enquanto referimo-nos ao utmp), e verifica se no campo
+ut_user (ou ut_name), se encontra a string correspondente ao user a eliminar (neste caso a busca e' por user, mas pode ter ou- tros criteios, desde o
+host, remote IP, device ("tty") etc...), E AGORA VEM O MAIS IMPORTANTE, quando encontra uma struct em cujo num dos campos (no caso do Zap! o
+username), o apontador para o ficheiro e' recuado n=sizeof(struct utmp) bytes, e esse espaco e' preenchido (os n bytes), com zeros!! E' usada a
+funcao bzero definida em <string.g>, que o que faz, e colocar zeros, nos n bytes consecutivos ao apontador, que se encontra como primeiro argumento
+da funcao! O facto de se por zeros, deve-se a' necessidade de apagar qualquer informacao relativa a' struct eliminada, pois bastaria colocar no campo
+ut_type, por exemplo o valor 8, que ao executar comandos como o 'who' ou 'w', este pensaria que se trataria de um processo ja morto e seria
+ignorado,...mas uma analise mais aprofundada com um utmp editor, revelaria muitos dados, relativos ao infractor! 
+<P>
+Agora que ja' sabemos como e' que funcionam os programas como o Zap! podemos entao pensar numa maneira, de o melhor que conseguirmos,
+desco- brirmos se a nossa maquina, foi alvo de algum ataque, ou se anda algum utilizador a brincar aos roots, POIS E PRECISO SER ROOT para ter
+permis- soes de escrita nos ficheiros de log!
+<P>
+E' precisamente, que o programa a que eu elegantemente :))) chamo Utmp & Wtmp & Lastlog Verificador, faz! Ele procura, se assim de pode chamar,
+por porcoes do ficheiro que apresentem estas lacunas, na sua constituicao!
+<P>
+O que ele faz e' comparar todas as entradas do ficheiro com uma porcao de memoria, do mesmo tamanho das struct utmp, que se encontra com as
+caracteristicas de uma porcao de ficheiro manipulado por programas como o Zap!, ou seja "cheia" de zeros! (a linguagem usada para explicar nao esta
+a ser a mais feliz, mas penso que assim toda a gente entendera' e isso e' que importa!).
+<P>
+Devido a' propria maneira do Linux manter os logs, sabiam que se por exemplo usarmos o Zap! para apagar os nossos logs, e depois sairmos do
+sistema, as lacunas do utmp, sao repostas,...o que permite que se ao corrermos o programa detectarmos intrusoes, faz-se um ps -aux, comparam-se
+os processos correntes com os users "legais", e o(s) logins, que aparecam a mais no 'ps', correspondem (muito provavlemente) a users ilegais!!!!!! E
+assim podemos apanha-los em flagrante. 
+<P>
+O programa pode ser chamado da linha de comandos da seguinte maneira: 
+<P>
+#a.out [-opcoes] 
+<P>
+em que as opcoes sao:
+<DD>     -h imprime a ajuda 
+<DD>     -u apenas testa a integridade do utmp 
+<DD>     -b ouve-se um beep se o ficheiro estiver corrompido 
+<P>
+Porem o recomendado e' utilizar o crontab para fazer verificacoes regulares, principalmente se for uma maquina constantemente ligada a' Net ou com
+muitos utilizadores, e redireccionar o output do programa para um ficheiro para mais tarde analisar os resultados. Uma excelente ideia, ja' que a
+imagem do administrador de sistemas moderno nao passa sem o telemo- vel e todos os operadores movel, ou quase todos, ja fornecem servicos de
+sms, porque nao criar uma rotina que redireccione os resultados para o telemovel!!! 
+<P>
+Agora a nivel de programacao o que o programa faz, e' ir guardando em memoria as entradas do utmp, usando listas ligadas (um pequeno melhora-
+mento:))), e testando se existem entradas que tenham a "marca zap", se tal acontecer, imprime no ecra os utilizadores "legais", colocando '?', quando a
+"marca zap" aparece. 
+<P>
+A nivel do ficheiro wtmp a este nao e' dada particular atencao pois nao e' grande fornecedora de informacao relativa a quem esta' a abusar do sistema,
+mas o programa indica quantas lacunas existem neste ficheiro e para mais ajuda indica a hora e se possivel o login da entrada anterior, para o root
+poder minorar a hora do "trabalhinho"! 
+<P>
+Agora, o que ainda nos pode trazer muita informacao, quando nao se apa- nha o peixe na rede, e' o ficheiro lastlog! Vamos ver como a informacao de
+cada user e disposta neste ficheiro: 
+<PRE>
+     ...
+        if ((f=open(LASTLOG_NAME, O_RDWR)) >= 0) {
+            lseek(f, (long)pwd->pw_uid * sizeof (struct lastlog), 0);
+            bzero((char *)&newll,sizeof( newll ));
+            write(f, (char *)&newll, sizeof( newll ));
+            close(f);
+                      ...
+</PRE>
+Ao contrario dos outros ficheiros de log como o utmp e o wtmp, em que a informacao, ou melhor as entradas, se dispunham sequencialmente, neste
+ficheiro as coisas sao um pouco diferentes! Existe uma struct lastlog que e' 
+<PRE>
+     struct lastlog{
+            long ll_time;
+            char ll_line[XX];
+            char ll_host[XX];
+            }
+</PRE>
+Ora o primeiro byte desta struct de informacao, encontra-se no (uid * sizeof(struct lastlog)) byte do ficheiro, sendo uid, o user id de cada user! Por
+exemplo, se quisermos aceder a' struct do user X, cujo uid e' 1000, basta posicionar o apontador para o ficheiro em 1000 * sizeof(struct lastlog), e basta
+fazer um read, com os argumentos adequados, para acedermos a esta in- formacao! 
+<P>
+Ora, com isto o programa pode obter muita informacao, pois ao contrario do wtmp e do utmp a informacao nao e' disposta ao acaso! Logo
+conseguimos descobrir que users tem a sua entrada apagada! Depois o que o programa faz e' verificar se um user que possui a sua entrada apagada,
+possui entradas no ficheiro wtmp. Se tiver, e' obvio que andou obra do Zap!, se nao procura se existe o ficheiro .bash_history, na sua directoria, pois
+assim, consegue distinguir +/- um user que apagou os seus logs, de um user que pura e sim- plesmente nunca fez log on! 
+<P>
+E' obvio verificar, que este nao e' um programa milagroso, que caiu do ceu para resolver os problemas dos administradores de sistemas, pois ele ape-
+nas automatiza funcoes muito dificeis e morosas para uma cabeca humana! Por- tanto continua a ser sempre necessario um bom olho observador e
+um bom conhe- cimento dos seus users, para poder interpretar o resultado deste programa! 
+
+Eis o codigo do programa <A HREF="logs.c">logs.c</A> 
+</FONT>
+
+<PRE>
+
+</PRE>
+<IMG SRC="barney.jpg" WIDTH=114 HEIGHT=200 BORDER=0 ALT=""><BR>
+<IMG SRC="elektro.gif" WIDTH=112 HEIGHT=23 BORDER=0 ALT="">
+
+</BODY>
+</HTML>

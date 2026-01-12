@@ -1,0 +1,1156 @@
+================================================================================
+---------------------[ BFi13-dev - file 20 - 20/08/2004 ]-----------------------
+================================================================================
+
+
+-[ DiSCLAiMER ]-----------------------------------------------------------------
+        Tutto il materiale contenuto in BFi ha fini esclusivamente informativi
+        ed educativi. Gli autori di BFi non si riterranno in alcun modo
+        responsabili per danni perpetrati a cose o persone causati dall'uso
+        di codice, programmi, informazioni, tecniche contenuti all'interno
+        della rivista.
+        BFi e' libero e autonomo mezzo di espressione; come noi autori siamo
+        liberi di scrivere BFi, tu sei libero di continuare a leggere oppure
+        di fermarti qui. Pertanto, se ti ritieni offeso dai temi trattati
+        e/o dal modo in cui lo sono, * interrompi immediatamente la lettura
+        e cancella questi file dal tuo computer * . Proseguendo tu, lettore,
+        ti assumi ogni genere di responsabilita` per l'uso che farai delle
+        informazioni contenute in BFi.
+        Si vieta il posting di BFi in newsgroup e la diffusione di *parti*
+        della rivista: distribuite BFi nella sua forma integrale ed originale.
+--------------------------------------------------------------------------------
+
+
+-[ HACKiNG ]--------------------------------------------------------------------
+---[ SPAVENTARE i FiLESYSTEM: iL BU0N0, iL BRUTT0 E iL CATTiV0 ]----------------
+-----[ fusys <fusys@s0ftpj.org> http://www.s0ftpj.org ]-------------------------
+
+
+Quella che avete tra le mani e' la versione cartacea di BFi (se avete tra le
+mani la tastiera o un palmare, perche' non siete venuti al MOCA ?!). Quindi un
+evento talmente straordinario merita un ritorno alle tradizioni, mediante un uso
+compliante del famoso "pigpen header":
+
+Consumo:    7 litri di latte fresco (parzialmente scremato [ provate voi a
+            leggere migliaia di righe del kernel Linux o a programmare per due
+            giorni con in corpo 7 litri di latte intero ])
+            3 litri di the freddo al limone (da alternare al latte per simpatici
+            effetti gastrici)
+            2 litri di caffe' scuro
+            0.75 litri di Buttafuoco Storico del mio amico Giulio
+            dolci e schifezze varie per il giorno
+            pinzimonio per le sessioni notturne
+            Musica:     (in quest'ordine)
+                        Vanilla Dome (Koji Kondo) (Super Mario World) (x 4 ore!)
+                        GrooveSalad FM (http://www.somafm.com/)
+                        la Nona (Beethoven)
+                        Hey Boy, Hey Girl (Chemical Brothers)
+                        Jeeg, robot d'acciaio (dicono Pelu' ma non ci credete)
+
+Requisiti:  1 hard disk (potenzialmente) a perdere
+                - 1 + 1 partizioni ext2 || ext3
+                - 1 partizione di swap
+            discreta conoscenza del C (perche' il codice commentato e' bene, ma
+            di solito i programmatori sono il male)
+            buona conoscenza del kernel Linux (~fs/, ~fs/ext2/)
+            libext2fs (/usr/include/ext2fs/*)
+            basilare feticismo per il tipico frullio del disco rigido
+            1 mojito per l'autore (v. MOJITO-WARE LICENSE)
+
+Saluti:     if(!s0ftpj && !antifork) exit(-1);
+            Metro Olografix, per la sua storia, per il suo direttivo, per gli
+            aiuti, per il MOCA, per tutto... grazie.
+
+
+---[ Motivazioni
+
+E' passato molto tempo da quando ho scritto l'ultimo articolo per BFi. La laurea
+prima, il lavoro poi, alcuni dicono l'eta' e, pur non avendo ragione in termini
+anagrafici, forse ne hanno avuta in termini psichici. Comunque troppo tempo.
+Qualche giorno fa una persona che conosco mi ha detto: "Ma come?! Esce BFi su
+carta e tu non ci scriverai nulla ?!". L'ho guardato, poi ho voltato le spalle
+allo specchio e sono uscito dal bagno. Fine delle motivazioni personali.
+
+Dischi e filesystem. Perche' ? In primo luogo, citando buffer e parafrasando un
+mio README_FIRST, di LKM non ne posso veramente piu'. Ne ho parlato per la prima
+volta quasi sei anni fa, e' stato bello, ora andiamo avanti. Ancora mi chiedo
+perche' nessun modulo maligno implementi una patch alla sys_read() per impedire
+a software di controllo di analizzare /dev/kmem e similari.
+
+Ultimamente ho avuto a che fare con l'analisi forense. Procedure affascinanti.
+Soprattutto noiose e spesso ripetitive. Ma affascinanti. Se diamo una occhiata
+ai tool disponibili da un lato e l'altro della barricata, noteremo come ci sia
+una relativa desolazione rispetto ad altri ambiti della sicurezza informatica.
+Diamine, c'e' piu' documentazione sull'ottenimento della certificazione CISSP
+che non sugli internals dei filesystem o sulle procedure di reversing in caso
+di binari protetti da Burneye (o similari). Avendo avuto modo di provare sia
+The Coroner's Toolkit (TCT) che The Sleuth Kit (TSK) ho visto come la maggior
+parte dei sistemi a kernel level per occultare file sia deficitaria. Elegante,
+certo. Ma incompleta.
+
+I dati sono fisicamente li', seppur invisibili alle chiamate di sistema. Nel
+numero 7 di BFi avevamo visto un piccolo esempio per modificare /etc/passwd con
+il solo gid disk, passando dal block device della partizione opportuna
+(http://bfi.s0ftpj.org/online/bfi7/bfi07-11.html). Una operazione semplice,
+seppur relativamente dispendiosa in termini di tempo. Ora immaginiamo il
+seguente scenario:
+
+root@giringiro:~# echo -e "PARIMPAMPUM, ECCOMI QUA\n" > invi-file
+root@giringiro:~# ls
+foo   invi-file   tmp
+root@giringiro:~# cat invi-file
+PARIMPAMPUM, ECCOMI QUA
+root@giringiro:~# modprobe packetstorm_lkm
+root@giringiro:~# ls
+foo   tmp
+root@giringiro:~#
+
+invi-file, come giustamente ci si aspetterebbe, e' ora occultato agli occhi di
+tutti. Pero':
+
+root@giringiro:~# df | grep root
+/dev/hda10              980308     16440    914072   2% /root
+root@giringiro:~# strings /dev/hda10
+...
+PARIMPAMPUM, ECCOMI QUA
+...
+root@giringiro:~#
+
+Siamo d'accordo: invi-file contiene una stringa. Non troveremmo cosi' facilmente
+uno sniffer. A meno che, pero', questo sniffer non contenga alcuni interessanti
+(char *) di apertura, come:
+
+Linux PF_PACKET zniffer v0.9 by CrashRO
+
+vi assicuro che usando un qualunque tool che analizzi gruppi, inode e blocchi in
+un disco, troveremmo il binario senza grossi problemi. Ovviamente una soluzione
+totalmente in user-space che non tocchi quindi, non solo il kernel, ma nemmeno
+le librerie di sistema, deve passare, per semplicita' attraverso la sola ed
+unica crittografia. Questo impedira' all'analista di capire cosa sia il file ma
+non gli impedira' di trovarlo ed eventualmente rimuoverlo. Questo ovviamente
+senza neanche menzionare il fatto che un eseguibile, per essere tale, non puo'
+essere totalmente crittato (dal punto di vista di un attaccante con accesso
+abusivo ad un sistema): se anche ci fosse un layer di crittografia dei binari,
+probabilmente l'attaccante non vi avrebbe accesso...
+
+Queste banali considerazioni forniscono la motivazione di base per leggere anche
+questo articolo. Una piu' stringente motivazione, come al solito, e' RTFZ, Read
+The Fucking Zine: imparare, sperimentare, condividere. Cosa sarebbe il nostro
+mondo senza tutto questo ?
+
+
+---[ iNTRODUZIONE
+
+Non sperate di trovare in questo articolo una disanima completa del sottosistema
+fs del kernel Linux: questo non e' un altro articolo sulla tecnica Double-Free
+con la solita descrizione di 50 pagine della malloc(). Oltretutto la carta costa
+e dal momento che questo numero di BFi esiste anche nel mondo reale, non voglio
+pesare ne' nel vostro zaino, ne' sul portafoglio dei nostri sponsor (ehm).
+D'altra parte alcune digressioni si impongono, per non rendere pesante o troppo
+criptico l'articolo. Parleremo quindi del filesystem ext2 e dello swapfile cosi'
+come sono implementati sotto Linux, ma solo di quelle porzioni di codice e di
+implementazione che sono utili al nostro scopo, ovvero la creazione di un n-simo
+tool, BigBoo.
+
+BigBoo prende il nome dal fantasma piu' grande, pericoloso, noioso, eppure
+codardo, che dai tempi di Super Mario World per Super Famicom, ha animato le
+avventure dell'idraulico (su kart o a piedi) fino ad oggi. Un gran simpaticone,
+dopo tutto. Se non vi piacesse l'icona o il nome, cambiate pure il filename o
+argv[0]. Non inficia la licenza d'uso.
+
+Cosa fa BigBoo ? Essenzialmente ingurgita i file a nostro piacimento, ponendoli
+in una partizione ext2/ext3 o nel file di swap. Si tratta quindi di un YABASST,
+Yet Another Block And Superblock Subversion Tool. A dire il vero non ne ho visti
+in giro, almeno di pubblicamente rilasciati. L'idea mi e' venuta dalla lettura
+in passato di runefs e Phantom (http://bfi.s0ftpj.org/dev/BFi12-dev-03). Le
+differenze dai tool suddetti rappresentano il cuore di BigBoo.
+
+Non so voi, ma in passato una delle frasi che ha animato le mie notti alla
+tastiera e' stata, piu' o meno, "che palle, ma va che casino qui dentro!", alla
+vista di alcuni algoritmi (per me) complessi o di porzioni di Linux. Senza
+alcuna preparazione accademica in materia, da buon autodidatta, passare dal C
+per stampare stringhe in stdout all' APUE di Stevens era stato un bel salto. Poi
+i protocolli di rete ed il kernel. Un bel casotto da digerire ogni volta. Ma mi
+mancava la visione d'insieme. Affannandomi dietro ad ogni chiamata sono spesso
+stato la rana in fondo al pozzo. Quindi mi permetto di dare un consiglio a chi
+non digerisce software complessi come fossero ghiaccioli: aprite una o due
+decine di istanze del vostro editor preferito dotato di syntax highlighting e
+state pronti a saltare da destra a sinistra tra file di include, librerie e
+sorgenti in ~fs/. Anche libri molto ben fatti, come "Understanding the Linux
+Kernel, 2ed" (ISBN: 0-596-00213-0) non sono sufficienti se vogliamo passare
+alla creazione di tool specie-specifici. Come al solito, apropos(1), grep(1),
+man(1) e un motore di ricerca sono nostri amici.
+
+Il seguente sistema, sebbene assolutamente non preciso e inaffidabile, non di
+meno rappresenta un buon indice di "sbattimento" cui e' necessario andare
+incontro.
+
+fusys@giringiro:/usr/src/linux$ uname -r
+2.6.7
+fusys@giringiro:/usr/src/linux$ grep -ri EXT2_ * | wc -l
+2451
+fusys@giringiro:/usr/src/linux$ grep -ri inode * | wc -l
+32413
+fusys@giringiro:/usr/src/linux$ grep -ri superblock * | wc -l
+939
+
+
+---[ Blocchi, Superblocchi e Inode: un'eterna ghirlanda (dis)ordinata
+
+Come in ogni altro sottosistema del kernel, esiste una sostanziale differenza
+tra l'implementazione hardware e l'astrazione logica che la controlla. Non e'
+diverso il caso dei filesystem. Parliamo quindi di ext2 e delle unita' logiche
+che lo compongono.
+
+I BLOCCHI sono l'unita' di base del filesystem dal punto di vista del kernel
+e del software che lavora a basso livello sul disco. E' all'interno dei blocchi
+che viene immagazzinato quanto scriviamo sul disco. Se leggiamo la pagina man
+di mke2fs(8), notiamo che possiamo specificare per i blocchi una dimensione
+variabile tra 1k e 4k. Dal momento che sono i singoli blocchi ad ospitare il
+contenuto di un file, la prima domanda legittima e' che differenza ci sia tra
+un file minore di 1k ed uno maggiore di 4k. Il primo vedra' il proprio contenuto
+ospitato all'interno di un singolo blocco, mentre il secondo sara' scritto in
+piu' blocchi. La prima considerazione necessaria e' che i blocchi non possano
+essere dimensionati dinamicamente a runtime. La scelta e' definitiva per ogni
+partizione formattata.
+
+E' ovvio quindi che il mio /etc/passwd minore di 800byte sara' ospitato in un
+blocco, sprecando almeno (BLOCK_SIZE - st.st_size) byte di disco, dove
+BLOCK_SIZE e' uguale alla nostra scelta nella formattazione della partizione e
+st.st_size e' la dimensione del file in esame secondo la struttura popolata
+dalla chiamata stat(2). Lo spazio perduto non viene destinato ad altri file, ma
+risulta "perso" e viene chiamato "slack space". Sebbene questo sia molto
+interessante, poiche' permette di nascondere file all'interno dello slack di
+altri, non lo prenderemo in esame in questa release di BigBoo, anche se potrebbe
+entrare nel suo TODO.
+E' evidente che una partizione di file minuscoli, ma con BLOCK_SIZE di 4k, sia
+inefficiente, cosi' come l'esatto opposto.
+
+Per il nostro scopo, e' sufficiente vedere i blocchi come semplici buffer. Per
+chi se lo domandasse, esiste una corrispondenza tra i blocchi di dati e i
+settori del disco rigido. Un settore ha solitamente dimensione di 512byte ed e'
+la piu' piccola struttura hardware dell'hard disk. Questa dimensione limitata
+rappresenterebbe un incubo in termini di numero di operazioni di I/O necessarie
+e per questo differenti settori sono "aggruppati" in un blocco dati. I driver
+del sistema IDE si occuperanno della manipolazione dei singoli settori, laddove
+il kernel in senso stretto lavora con la sua controparte logica, il blocco.
+
+Come fa il kernel a sapere con quale filesystem abbiamo formattato un disco o
+una sua partizione e soprattutto con quali caratteristiche ? La risposta NON e'
+/etc/fstab. Questo e' un semplice file di configurazione che permette a software
+in user-space di definire i differenti argomenti con cui inizializzare le
+richieste di servizio al kernel. L'esempio tipico e' mount(8). Il kernel non
+puo', d'altra parte, mantenere una struttura statica di definizione dei dischi
+nella sua immagine: questo comporterebbe una ricompilazione in caso di
+sostituzione di dischi o ridimensionamento delle varie partizioni. Altamente
+inefficiente, oltre che scomodo.
+
+Esiste invece una semplice lista di strutture che definisce semplicemente il
+tipo di filesystem ed un particolare tipo di blocco: il superblocco. Questa
+struttura e' definita in <linux/fs.h> :
+
+struct file_system_type {
+        const char *name;
+        int fs_flags;
+        struct super_block *(*get_sb) (struct file_system_type *, int,
+                                       const char *, void *);
+        void (*kill_sb) (struct super_block *);
+        struct module *owner;
+        struct file_system_type * next;
+        struct list_head fs_supers;
+};
+
+*name       rappresenta il tipo di filesystem, ad esempio "ext2"
+get_sb()    serve alla inizializzazione di una struttura di tipo super_block.
+
+Il SUPERBLOCCO definisce il sistema piu' semplice e rapido per descrivere il
+filesystem relativo ad un disco, partizione o file montato. La sua struttura e'
+definita in <ext2fs/ext2_fs.h> (vediamo solo i membri interessanti nel nostro
+contesto) :
+
+struct ext2_super_block {
+        __u32   s_inodes_count;         // numero totale di inode
+        __u32   s_blocks_count;         // numero totale di blocchi
+        __u32   s_r_blocks_count;       // numero di blocchi riservati
+        __u32   s_free_blocks_count;    // numero di blocchi liberi
+        __u32   s_free_inodes_count;    // numero di inode liberi
+        ...
+        __u32   s_log_block_size;       // dimensione dei blocchi
+        ...
+        __u32   s_blocks_per_group;     // numero di blocchi per gruppo
+        ...
+        __u32   s_inodes_per_group;     // numeri di inode per gruppo
+        ...
+        __u16   s_mnt_count;            // conteggio dei mount rw
+        __s16   s_max_mnt_count;        // numero massimo di mount rw per fsck
+        ...
+        ...
+        ...
+        __u32   s_reserved[];           // padding fino alla fine del blocco
+};
+
+Alcuni membri dovrebbero essere chiari o almeno intuitivi. Il numero totale dei
+blocchi e la loro dimensione. Perche' ? Ovviamente una partizione ext2 di 10Gb
+avra' un numero di blocchi differente da una di 100Mb. Ognuna delle due avra' un
+numero di blocchi liberi differenti a seconda dei dati contenuti.
+
+s_log_block_size e' un valore di shift per il numero 1024, ovvero la dimensione
+di ogni blocco di dati e' 1024 << s_log_block_size.
+
+s_mnt_count ed il suo rapporto con s_max_mnt_count rappresentano la croce e
+delizia di ogni utente passivo di fsck.ext2 :-)
+
+Se il superblocco dovesse risultare corrotto, non sperate di poter montare la
+vostra bella partizione. Per evitare un disastro di questo tipo, esistono delle
+copie di backup del superblocco disseminate nel disco: questo artificio permette
+di dormire sonni piu' tranquilli in caso di crash del sistema durante operazioni
+di scrittura su disco.
+
+Compaiono pero' altre due astrazioni logiche: gli inode ed i gruppi. Entrambe
+sono molto importanti per un efficiente uso del filesystem da parte del kernel.
+
+Gli INODE sono decisamente il cuore dei filesystem del mondo UNIX. Rappresentano
+un accorpamento di definizioni e descrizioni logiche di ogni file presente nel
+sistema. Si e' spesso detto che in UNIX tutto e' un file. Per estensione, si
+puo' aggiungere che in UNIX tutto sia un inode. Vediamo innanzitutto la sua
+struttura dati, sempre definita in <ext2fs/ext2_fs.h> :
+
+struct ext2_inode {
+        __u16   i_mode;         // classici permessi rwx
+        __u16   i_uid;          // uid del possessore (low 16 bit)
+        __u32   i_size;         // dimensione in byte
+        __u32   i_atime;        // tempo di accesso
+        __u32   i_ctime;        // tempo di creazione
+        __u32   i_mtime;        // tempo di modifica
+        __u32   i_dtime;        // tempo di cancellazione
+        __u16   i_gid;          // gid del possessore (low 16 bit)
+        __u16   i_links_count;  // numero dei collegamenti
+        __u32   i_blocks;       // numero di blocchi utilizzati
+        __u32   i_flags;        // flag specifiche di ext2
+        union {
+                struct {
+                        __u32  l_i_reserved1;   // 4 byte riservati
+                } linux1;
+                ...
+                ...
+        } osd1;                         // questa union e' OS dipendente
+        __u32   i_block[EXT2_N_BLOCKS]; // puntatori ai blocchi dei dati
+        __u32   i_generation;   // una volta inutilizzato, oggi per NFS
+        __u32   i_file_acl;     // ACL specifiche per i file (2.6.x)
+        __u32   i_dir_acl;      // ACL specifiche per le directory (2.6.x)
+        ...
+        union {
+                struct {
+                        ...
+                        __u16   l_i_uid_high;   // uid utente (high 16 bit)
+                        __u16   l_i_gid_high;   // gid utente (high 16 bit)
+                        __u32   l_i_reserved2;  // 4 byte riservati
+                } linux2;
+                ...
+                ...
+        } osd2;                          // seconda union OS dipendente
+};
+
+La maggior parte dei membri di questa struttura risulta sufficientemente chiara
+senza alcuna spiegazione. Piuttosto, e' utile vedere come funzioni la chiamata
+stat(2):
+
+in ~/fs/stat.c, partendo da sys_stat64() arriviamo a generic_fillattr() :
+
+void generic_fillattr(struct inode *inode, struct kstat *stat)
+{
+        stat->dev = inode->i_sb->s_dev;
+        stat->ino = inode->i_ino;
+        stat->mode = inode->i_mode;
+        stat->nlink = inode->i_nlink;
+        stat->uid = inode->i_uid;
+        stat->gid = inode->i_gid;
+        stat->rdev = inode->i_rdev;
+        stat->atime = inode->i_atime;
+        stat->mtime = inode->i_mtime;
+        stat->ctime = inode->i_ctime;
+        stat->size = i_size_read(inode);
+        stat->blocks = inode->i_blocks;
+        stat->blksize = inode->i_blksize;
+}
+
+al termine di questo processo, e' la cp_new_stat64() a ritornare una struttura
+di tipo stat popolata al processo utente. In sostanza tutte le informazioni che
+possiamo ottenere anche solo con ls(1) derivano essenzialmente dall'inode di
+descrizione del file. Per questo, le informazioni contenute in ogni inode sono
+chiamate meta-data. Interessante in un inode e' il membro i_flags che contiene
+le flag specifiche di ext2, quali:
+
+#define EXT2_SECRM_FL                   0x00000001 // cancellazione sicura
+#define EXT2_UNRM_FL                    0x00000002 // Undelete
+#define EXT2_COMPR_FL                   0x00000004 // Comprimi file
+#define EXT2_SYNC_FL                    0x00000008 // update sincroni
+#define EXT2_IMMUTABLE_FL               0x00000010 // file immutabile
+#define EXT2_APPEND_FL                  0x00000020 // file append-only
+
+su cui possiamo operare mediante chattr(1) e lsattr(1).
+
+La presenza di i_dtime e di i_links_count dovrebbero suggerire parzialmente la
+presenza di operazioni di undelete per ext2, da un lato, ed il vecchio trucco
+di permanenza di eseguibili, soggetti ad overflow, dopo patch, dall'altro.
+
+I GRUPPI sono invece una categorizzazione quantitativa di inode e blocchi in un
+filesystem ext2, mediante suddivisione logica. Questo permette sia di diminuire
+l'eventuale frammentazione di un file, ponendo tutti i suoi dati nei blocchi di
+un singolo gruppo, sia di diminuire il numero di movimenti della testina del
+disco nella lettura e scrittura di un singolo file. Come e' ovvio :-), anche i
+gruppi possiedono la loro meta-struttura, sempre in <ext2fs/ext2_fs.h> :
+
+struct ext2_group_desc
+{
+        __u32   bg_block_bitmap;        // puntatore alla mappa dei blocchi
+        __u32   bg_inode_bitmap;        // puntatore alla mappa degli inode
+        __u32   bg_inode_table;         // puntatore alla tabella degli inode
+        __u16   bg_free_blocks_count;   // blocchi liberi
+        __u16   bg_free_inodes_count;   // inode liberi
+        __u16   bg_used_dirs_count;     // numero di inode usati per directory
+        __u16   bg_pad;                 // semplice padding
+        __u32   bg_reserved[3];         // 4 byte riservati
+};
+
+Le mappe degli inode e dei blocchi mantengono informazioni di stato binario tra
+libero e occupato per definire quali siano le risorse disponibili.
+
+Per la creazione di BigBoo, e' stato determinante lo studio della libreria
+ext2fs (http://e2fsprogs.sourceforge.net/): il primo codice basato su questa
+libreria e' dumpe2fs(8) che molti non avranno mai usato. Provate a lanciarlo
+passandogli il device relativo alla vostra partizione ext2/ext3 preferita e
+comparate il suo output con i brevi cenni espressi sin qui.
+
+
+---[ Occultare file: una maledizione, un'interessante week-end di smanettamento
+
+Dai tempi di BFi#2 ho sempre amato il concetto di occultamento. Una volta, da
+piccolo, giocando a nascondino mi sono nascosto a tal punto da perdermi, anche
+se per breve tempo: non fu tanto il desiderio di non farmi trovare, quanto la
+necessita' di capire se potessi essere scoperto o meno :-)
+
+Alcune sperimentazioni nell'analisi forense mi hanno fatto rileggere un articolo
+di Phrack ed uno di BFi, alla ricerca di runefs (p59-6) e di Phantom (b12-3). Il
+primo modifica i blocchi di un intero gruppo, quello con il maggior numero di
+blocchi liberi, marcandoli interamente come "bad block". Il secondo nasconde in
+memoria i file, permettendo di porli, se necessario o voluto, nell'ultima
+propaggine dello swapfile. Entrambi interessanti, pongono l'accento su tecniche
+ed obiettivi differenti. Il primo, su di un tool che viva per il solo tempo
+necessario all'occultamento. Il secondo, su una maggiore invisibilita' a
+discapito della potenziale perdita dei dati. A questo punto, il desiderio di
+scrivere per BFi mi ha portato a prendere spunto dall'uno e dall'altro spostando
+pero' il mio punto di vista e ponendolo in kernel-space. Ma BigBoo non girava
+in user-space ?! Si', e non fa uso di /dev/mem o /dev/kmem. E' il solo punto di
+vista, questa volta, ad essere orientato dal kernel, non il codice.
+
+BigBoo nasconde i file nel disco fisso, in una partizione ext2/ext3, oppure
+nello swapfile. Il processo non e' persistente, ovvero gira solo per il tempo
+necessario a fare quello che deve, come qualunque utility a riga di comando.
+Questo permette di liberarsi dall'orpello di dover nascondere o camuffare un
+processo a runtime. I dati non sono presenti in memoria: una sua analisi non
+mostrera' un uso di risorse. Un eventuale shutdown non distruggera' i nostri
+dati. Una eventuale richiesta improvvisa da parte del sistema per il file di
+swap non sovrascrivera' i nostri dati, mantenendoli inalterati. Ma essi sono
+fisicamente su disco. Come impedirne la sovrascrittura o la cancellazione ?
+Come proteggersi da fsck.ext2(8) o da mkswap(8) ? Le risposte sono semplici ma,
+spero, comunque non banali. Di sicuro divertenti per un fine settimana alla
+tastiera (ma la mia ragazza non confermera' questa mio ultimo punto di vista,
+credo).
+
+
+---[ DMZ e Private Zone su disco
+
+Come abbiamo visto, i dati di un file sono scritti su disco all'interno dei suoi
+settori ovvero, dal punto di vista del kernel, nei blocchi destinati ai dati. Il
+nome di un file non e' in uno di questi blocchi dati, bensi' referenziato
+all'interno di inode destinati alle directory: il kernel percorre tutto l'albero
+delle directory a partire dalla root ('/') fino a trovare la referenza del nome
+file all'interno della directory che lo contiene. Con questa referenza accede al
+suo inode e da questo ai blocchi dati che ne ospitano il contenuto (i_block[]).
+Questo rende l'idea di come tutto ruoti intorno alle meta-strutture di controllo
+nella magnifica astrazione che e' il VFS.
+
+E' evidente, quindi, che parte del disco sia destinato a contenere dati veri e
+propri secondo l'accezione dell'utente, mentre un'altra parte contenga solo
+descrizioni dei e puntatori ai dati stessi. Ma questo e' spazio su disco vero
+e proprio e puo' essere utilizzato. Da questa intuizione dei poveri e' nata la
+prima idea di utilizzare le meta-strutture come se fossero blocchi dati. Ovvero
+copiare il contenuto di un file non in un blocco che potrebbe ospitarlo senza
+problemi, ma all'interno degli inode!
+
+Se controlliamo la struttura di un inode noteremo che ci sono almeno alcune
+porzioni interessanti:
+
+#define i_reserved1     osd1.linux1.l_i_reserved1
+#define i_reserved2     osd2.linux2.l_i_reserved2
+
+Questi sono 8 byte per ogni inode. Sono davvero disponibili ? Ad una prima
+analisi, sembrerebbe di si:
+
+fusys@giringiro:/usr/src/linux/fs$ grep -i reserved1 ext2/*
+fusys@giringiro:/usr/src/linux/fs$ grep -i reserved2 ext2/*
+
+Molto bene allora: 8 byte * s_inodes_count. In una mia partizione da circa
+8Gb
+
+/dev/hda13           3886        4864     7863786   83  Linux
+
+il numero degli inode liberi e' ora uguale a
+
+`dumpe2fs /dev/hda13|grep "Free inodes:  "|grep -v dumpe|cut -d \  -f 16`
+
+ovvero 983029 nel mio caso. Quindi (8 * 983029) byte a disposizione! Bhe, in
+realta' sono appena 8Mb di dati in una partizione da 8Gb circa :/ ... molto
+poco davvero.
+
+Inoltre questo non e' tutto. I campi reserved1 e reserved2 nelle strutture sono
+si' riservati, ma dal punto di vista del kernel; non dal nostro. Questi membri
+infatti non sono mai toccati qualora un inode non sia libero, ma sono riportati
+a zero qualora un inode venga destinato ad un file. Per schematizzare:
+
+[1]prendiamo un file qualunque
+    - file X inode Y reserved1 = 0    reserved2 = 0
+[2]sovrascriviamo i due campi
+    - file X inode Y reserved1 = w    reserved2 = z
+[3]umount, shutdown e reboot+mount
+    - file X inode Y reserved1 = w    reserved2 = z
+
+fin qui tutto OK! Sembra proprio che potremmo utilizzare l'inode del file X per
+allocare 8 byte per il nostro file da nascondere. Proviamo a cancellare il file:
+
+[4] rm file
+    - file / inode Y reserved1 = w    reserved2 = z
+
+ottimo. L'inode mantiene i nostri dati nonostante sia stato nuovamente allocato
+tra gli inode liberi. Ma qui scopro il problema:
+
+[5] touch nuovo
+    - nuovo  inode Y reserved1 = 0    reserved2 = 0
+
+evidentemente se il medesimo inode viene allocato per un nuovo file, la sua
+struttura viene re-inizializzata a 0. Prima ancora di controllare nel kernel
+gia' temevo che questo potesse avvenire: ecco perche' l'autore di runefs aveva
+utilizzato blocchi dati marcati come BAD (forse no, lui voleva evitare solo il
+controllo dell'inode 1; piu'avanti ne parliamo). Evidentemente tutto cio' che e'
+utilizzabile su disco va considerato alla stregua di una DMZ: abbiamo davvero il
+controllo, ma fino a che punto ?
+
+Forse se si riuscisse a marcare un inode come BAD, potremmo utilizzare senza
+problemi quegli 8 byte. Ma questa idea non e' efficiente: per avere 8Mb a nostra
+disposizione, dovremmo marcare TUTTI gli inode come BAD. Non ha senso e chiunque
+si accorgerebbe che qualcosa non vada.
+
+L'approccio di runefs consiste nel marcare ogni singolo blocco di un gruppo come
+BAD. Nella mia partizione /dev/hda13 vorrebbe dire liberare 125Mb di spazio
+occultato attraverso l'uso di ben 32264 blocchi. Inoltre runefs permette di
+nascondere un singolo file, di dimensioni comprese tra 1 byte e 125Mb circa.
+Interessante come POC, ma non proprio quello che volevo.
+
+Mi sono accorto a meta' pomeriggio che avevo bisogno di qualcosa che fosse un
+poco piu' flessibile, poiche' volevo vedere se davvero si potesse usare il disco
+e non altre zone di memoria, come fa Phantom. Lo swapfile ? L'interessante
+codice di Dark Angel dumpa direttamente la memoria utilizzata per i file
+nascosti nello swapfile dopo una lseek(swap_fd, -(TRUEMEMORYUSAGE), SEEK_END).
+Questo e' un ottimo stratagemma per impedire che lo shutdown cancelli i file
+dalla memoria di Phantom, ma c'era qualcosa che non mi piaceva a livello
+teoretico (ricordo sempre che queste sono state le follie di un week-end :P).
+Cosa sarebbe successo se di colpo il sistema avesse richiesto lo swapfile per
+usi legittimi ? Impedire al kernel di scrivere nello swap sarebbe andato contro
+alle esigenze di occultamento.
+
+Avevo ancora bisogno di una sorta di Private Zone sul disco.
+
+
+---[ Il buono, il brutto e il cattivo. Ovvero Superblock, Bad e BigBoo.
+
+-[ SUPERBLOCK ]-
+
+Scriverlo adesso non rende giustizia allo stato di noia e frustrazione che la
+scoperta dei "5 passi segreti della tecnica degli inode" (v.sopra) aveva in me
+prodotto. Ho continuato a cercare un modo per annientare quella tecnica segreta
+pur sapendo che non sarebbe poi servito a molto (8Mb in 8Gb ? Marcando tutta
+la partizione come bad ?!?!) invece di rendermi conto che avrei potuto cercare
+di migliorare alcune idee di runefs e accoppiarle a uno pseudo-Phantom.
+
+Cosa succederebbe se il superblocco andasse perduto ?
+Come fa il kernel a controllare il filesystem in una partizione ?
+Qual e' lo stato dei singoli membri della struct ext2_super_block ?
+
+Pur non sapendo ancora per cosa utilizzeremo il Superblock, la retorica da
+due soldi delle righe soprastanti mostrera' a chiunque la risposta a caratteri
+cubitali: "USA IL SUPERBLOCK !!!". Non ebbi l'illuminazione ed uscii a fare
+quattro passi.
+
+La vista dei piccioni in volo (forse qualcos'altro) suggeriva di usare l'area di
+padding del superblock. Nel mio caso ben 172 * sizeof(__u32). Ovviamente inutili
+persino per nascondere il mio /etc/passwd: forse avrei potuto occultare un mio
+script per usare la libtsocks...
+
+Come fa il kernel a sapere dei file ?
+Come fa il kernel a sapere dove siano i blocchi dei dati ?
+Come fa il kernel ad utilizzare realmente lo spazio su disco ?
+
+La seconda risposta, utile a capire come utilizzare s_reserved[], mi sfuggi'
+anch'essa. Evidentemente lavorare nel campo della sicurezza informatica allarga
+la mente ai massimi sistemi ma fa perdere il contatto con i problemi pratici. O
+forse e' stato il latte parzialmente scremato con il the al limone.
+
+Ad ogni modo il Buono e' necessariamente il Superblock di una partizione ext2.
+Perche' ? Sara' sempre li', almeno finche' la partizione non sara' rimossa o il
+filesystem riempito di simpatici '0' (il che cancellerebbe comunque i nostri
+dati e discorso analogo si potrebbe fare con lo swap file). Inoltre il suo
+contenuto non viene modificato durante le normali operazioni di amministrazione
+di sistema, se non corrotto. Ora l'idea iniziale di BigBoo cominciava a prendere
+forma. Come scrivere diversi file in un'area nascosta se non posso usare i
+servizi del VFS ? Come possiamo referenziarli ?
+
+Quando vogliamo avere accesso ad un file, essenzialmente abbiamo bisogno di
+alcune informazioni:
+
+- il nome del file
+- le sue dimensioni
+- l'offset nel filesystem cui accedervi
+
+BigBoo utilizza s_reserved[] per mappare l'area di occultamento e darci la
+possibilita' di nascondere, listare e recuperare i file. Inoltre serve anche per
+capire se BigBoo sia stato gia' utilizzato sulla partizione in questione:
+
+#define BOO_SB_MAGIC_0	0xFF3107F0
+#define BOO_SB_MAGIC_1	0xF41227F0
+
+char boo_boo()
+{
+	if(sb->s_reserved[0] == BOO_SB_MAGIC_0 &&
+	   sb->s_reserved[1] == BOO_SB_MAGIC_1)
+		return 1;
+	return 0;
+}
+
+void boo_sb_ctl_update(blk_t offset, off_t size) :
+    ...
+	if(!(is_boo = boo_boo())) {
+		printf("\nCreo boo_sb in %s\n\n", DEVICE);
+		memset(sb->s_reserved, 0x00, sizeof(sb->s_reserved));
+		sb->s_reserved[0] = BOO_SB_MAGIC_0;
+		sb->s_reserved[1] = BOO_SB_MAGIC_1;
+		sb->s_reserved[2] = 1;
+		sb->s_reserved[3] = 6;
+		sb->s_reserved[4] = offset;
+		sb->s_reserved[5] = size;
+	}
+	...
+}
+
+L'idea (primitiva) e' questa:
+
+i primi 8 byte di s_reserved[] contengono una sorta di magic number, poi abbiamo
+successivamente il numero totale di file nascosti, il valore del prossimo __u32
+dell'area su cui lavorare, e varie coppie offset/size. Queste contengono, file
+per file, il punto da cui iniziare a leggere/scrivere e le dimensioni totali. E
+il nome del file ? Dal momento che il nome del file e' dichiarato come lungo al
+massimo FILENAME_MAX byte, ovvero 4096 byte, ho pensato di inserire il nome
+al byte 0 dell'offset. Quindi BigBoo trovera' il nome e successivamente i dati
+di ogni file all'offset specificato.
+
+Questo permette di salvare informazioni sull'area di storage "segreta" su disco
+evitando che un processo sia sempre attivo per gestirla. Ovviamente sara' poi
+necessario fare in modo che in presenza dei BOO_SB_MAGIC s_reserved[] sia
+correttamente aggiornato ogni volta che copiamo un nuovo file.
+
+-[ BAD ]-
+
+Alla fine, tutto sommato, utilizzare i bad block non e' stupido. Tutto dipende
+da quanto realmente si faccia uso di quest'area di storage. Troppi file nascosti
+vogliono dire un elevato numero di blocchi bad. E ovviamente nascondere 100Mb
+di dati vuol dire diminuire di 100Mb lo spazio libero su disco, in un modo o in
+un altro. Per questo runefs e' debole. Invece di allocare memoria libera allo
+scopo, BigBoo marca come bad il numero di blocchi necessari per nascondere un
+file. Nascondete il vostro rootkit da 36K e solo questi K (piu' una manciata per
+meta-data, o boo-meta-data) saranno sottratti al disco.
+
+Come marcare i blocchi necessari e come impedire che siano utilizzati ?
+
+All'interno di ogni partizione montata come ext2 esiste un numero totale di
+blocchi, s_blocks_count. Lo stesso dicasi per gli inode necessari per descrivere
+tali blocchi. Ma non vuol dire che siano tutti disponibili. A dire il vero
+esistono alcuni inode particolari:
+
+// Special inode numbers
+#define EXT2_BAD_INO             1      /* Bad blocks inode */
+#define EXT2_ROOT_INO            2      /* Root inode */
+#define EXT2_ACL_IDX_INO         3      /* ACL inode */
+#define EXT2_ACL_DATA_INO        4      /* ACL inode */
+#define EXT2_BOOT_LOADER_INO     5      /* Boot loader inode */
+#define EXT2_UNDEL_DIR_INO       6      /* Undelete directory inode */
+#define EXT2_RESIZE_INO          7      /* Reserved group descriptors inode */
+#define EXT2_JOURNAL_INO         8      /* Journal inode */
+
+Questi sono gli inode riservati in ext2. ext3 ne dichiara altri, ma in sostanza
+il primo inode libero NON e' il numero 1. Il primo e' invece s_first_ino, di
+solito l'inode 11, per la directory lost+found. Alcuni di quelli riservati sono
+molto interessanti (come ad esempio modificare le ACL ext2 con il solo gid disk)
+ma uno in particolare ci interessa: EXT2_BAD_INO, il numero 1.
+
+Dal momento che ogni inode referenzia alcuni blocchi come puntatori, c'e' da
+chiedersi quali siano i blocchi referenziati dall'inode 1. Ovviamente quelli
+marcati come bad dal sistema. Questi blocchi non devono essere usati nelle
+normali operazioni di scrittura e lettura del disco e quindi sono sottratti al
+numero di blocchi disponibili, nonche' dereferenziati dai gruppi di appartenenza
+e posti nell'array di puntatori ai blocchi dell'inode 1. Solitamente questi
+blocchi identificano settori danneggiati del disco: poco utili per il sistema
+ma molto per noi.
+
+Per inserire nell'inode 1 i blocchi che ci interessano dobbiamo utilizzare una
+struttura dati di tipo ext2_struct_u32_list :
+
+struct ext2_struct_u32_list {
+	int	magic;
+	int	num;
+	int	size;
+	__u32	*list;
+	int	badblocks_flags;
+};
+
+questa dovra' contenere un magic number, EXT2_ET_MAGIC_BADBLOCKS_LIST, il
+numero totale di blocchi danneggiati, la dimensione totale dello spazio che sia
+danneggiato ed una serie di puntatori ai blocchi marcati. Questa struttura viene
+popolata da chiamate quali
+
+errcode_t ext2fs_read_bb_inode(struct_ext2_filsys fs, badblocks_list bb);
+errcode_t ext2fs_update_bb_inode(struct_ext2_filsys fs, badblocks_list bb);
+
+che popola una struttura badblocks_list che altro non e' che un puntatore alla
+ext2_struct_u32_list ed una struttura struct_ext2_filsys che contiene diverse
+informazioni sul filesystem in esame:
+
+<ext2fs/ext2fs.h>
+typedef struct ext2_struct_u32_list *ext2_badblocks_list;
+
+struct struct_ext2_filsys {
+        ...
+        char *                          device_name;
+        struct ext2_super_block *       super;
+        unsigned int                    blocksize;
+        int                             fragsize;
+        dgrp_t                          group_desc_count;
+        unsigned long                   desc_blocks;
+        struct ext2_group_desc *        group_desc;
+        int                             inode_blocks_per_group;
+        ext2fs_inode_bitmap             inode_map;
+        ext2fs_block_bitmap             block_map;
+        ...
+        ext2_badblocks_list             badblocks;
+        ...
+};
+
+Questa struttura fa da recipiente per la maggior parte delle chiamate esportate
+dalla libext2fs e consente di recuperare velocemente informazioni relative al
+fs in oggetto.
+
+Una volta aggiornato l'inode 1 (EXT2_BAD_INO) BigBoo potra' copiare il contenuto
+dei file all'interno di questi blocchi "danneggiati" e ivi rimarranno tra un
+reboot e l'altro, senza che le normali operazioni sul filesystem operanti in
+user-space possano rivelarli o danneggiarli.
+
+A questo punto, risulta evidente che le normali operazioni di fsck di routine
+non mostreranno alcun che' di strano, poiche' i settori danneggiati sono stati
+reclamati dall'inode 1. I problemi possono derivare invece dall'uso di fsck se
+le correzioni fossero forzate nonostante il sistema risulti "clean". Inoltre,
+utility come dumpe2fs(8) sono in grado di mostrare una list di blocchi marcati
+come bad. Entrambi questi motivi, insieme al ricordo di Phantom, mi hanno
+portato a pensare allo swapfile, mantenendo sempre l'accento sui blocchi
+danneggiati.
+
+In un moderno sistema GNU/Linux e' possibile avere piu' di uno swapfile; anzi e'
+possibile averne fino a MAX_SWAPFILES:
+
+<linux/swap.h>
+#define MAX_SWAPFILES_SHIFT     5
+#define MAX_SWAPFILES           (1 << MAX_SWAPFILES_SHIFT)
+
+ovvero fino a 32. Ma come viene realmente creato un file di swap ? L'ovvia ed
+usuale risposta, consiste nel leggere i sorgenti di mkswap(8) contenuti nel
+pacchetto util-linux. Gli stralci che vedremo sono della release 2.12a. La prima
+chiamata interessante e'
+
+init_signature_page();
+
+questa funzione fa uso di getpagesize() per ottenere dal kernel la dimensione di
+una PAGE di memoria. Di norma questo valore e' uguale a 4096 byte. Si fa poi
+uso di un puntatore ad una struttura particolare
+
+p = (struct swap_header_v1 *) signature_page;
+
+Questo e' l'header dello swapfile v1, sia esso inizializzato in una partizione o
+in un file. Sempre nei sorgenti troviamo
+
+struct swap_header_v1 {
+    char         bootbits[1024];
+	unsigned int version;
+	unsigned int last_page;
+	unsigned int nr_badpages;
+	unsigned int padding[125];
+	unsigned int badpages[1];
+} *p;
+
+questa struttura deriva dalla union dichiarata in <linux/swap.h> :
+
+union swap_header {
+        struct {
+                char reserved[PAGE_SIZE - 10];
+                char magic[10];                 /* SWAP-SPACE or SWAPSPACE2 */
+        } magic;
+        struct {
+                char         bootbits[1024];    /* Space for disklabel etc. */
+                unsigned int version;
+                unsigned int last_page;
+                unsigned int nr_badpages;
+                unsigned int padding[125];
+                unsigned int badpages[1];
+        } info;
+};
+
+Essenzialmente questa intestazione e' lunga 4096 byte, ovvero una PAGE e negli
+ultimi 10 byte contiene una stringa che puo' essere
+
+SWAP-SPACE per swapfile v0
+SWAPSPACE2 per swapfile v1
+
+Ormai tutti gli swapfile successivi al kernel 2.1.116 utilizzano la v1. Ecco
+perche' mkswap.c dichiara una struttura al posto della union di swap.h. Come
+possiamo vedere abbiamo tre interessanti membri in questa struttura:
+
+info.last_page          il numero dell'ultima PAGE disponibile nello swapfile
+info.nr_badpages        il numeri di BAD_PAGE presenti nello swapfile
+info.badpages[]         una lista contenente i numeri delle BAD_PAGE
+
+Evidentemente anche lo swapfile deve tenere in considerazione la possibilita'
+che alcuni settori del disco possano essere danneggiati. Ma il numero di pagine
+marcate come BAD non puo' superare un certo valore, MAX_SWAP_BADPAGES, definito
+cosi'
+
+#define __swapoffset(x) ((unsigned long)&((union swap_header *)0)->x)
+#define MAX_SWAP_BADPAGES \
+        ((__swapoffset(magic.magic) - __swapoffset(info.badpages))/sizeof(int))
+
+Questo valore, al 2.6.7, e' uguale a 637. Quindi non possono esserci piu' di
+637 * PAGE_SIZE byte BAD nello swapfile, ovvero 2.5Mb circa. Ecco che di colpo
+BigBoo comincia a deglutire piu' di due megabyte di swapfile, senza che ci sia
+pericolo di una loro sovrascrittura: semplicemente il kernel utilizzera' lo
+spazio di swap saltando senza curarsi della PAGE marcate come BAD.
+
+Un'altra possibilita' permette di creare un buco alla fine dello swapfile, come
+pensato da Dark Angel, ma senza pericolo di sovrascrittura: diminuire il valore
+di info.last_page; dal momento che questo campo identifica essenzialmente il
+numero di PAGE disponibili, come si vede in
+
+mkswap.c
+p->last_page = PAGES-1;
+
+dove PAGES corrisponde alle dimensione del device o file / PAGE_SIZE, e' cosi'
+possibile di fatto ridurre lo swapfile della dimensione desiderata, lasciandola
+libera per il nostro uso. Il kernel swappera' fino a info.last_page, dopodiche'
+le restanti pagine saranno a nostra disposizione: nessun pericolo di perdere i
+nostri dati neanche sotto carico.
+
+Purtroppo entrambe le vie hanno almeno un limite: lo swap sara' mostrato come
+effettivamente piu' piccolo da comandi come free(1). Ma considero questo come
+un piccolo prezzo da pagare rispetto alla sicurezza che i miei dati non siano
+sovrascritti e comunque nascondere i soliti 300K di sorgenti e tool in uno
+swapfile di 512Mb non sara' cosi' visibile ad un'occhiata casuale di free(1).
+
+-[ BIGBOO ]-
+
+root@giringiro:~# ./BigBoo -h
+
+Uso: ./BigBoo -i -s|-b -l -f [ -e ] [-c file] [-x file] -v [-h|-?]
+
+-i      modalita' interattiva (pseudoshell)
+-s      crea BAD_PAGES nello swapfile /dev/hda2 per lo storage
+-b      utilizza blocchi marcati come BAD nel device /dev/hda13
+-l      mostra i file nascosti
+-f      elimina l'area di storage
+-e      utilizza la crittografia per proteggere i dati
+-c      copia il file nell'area di storage
+-x      estrai il file dall'area di storage
+-v      chiedi a BigBoo di essere prolisso
+-h      questo noioso messaggio
+
+root@giringiro:~# ./BigBoo -i -v
+
+Welcome to the Ghost House.
+boo> swcp /boot/vmlinuz-2.6.7-new   // copio l'immagine del kernel nello swap
+Tento di allocare 516 pagine nello swapfile /dev/hda2...
+Numero totale di pagine marcate bad = 516
+Creo boo_sb in /dev/hda13
+boo> swls                           // ottengo l'elenco dei file nello swap
+file presenti:  1
+sB/boot/vmlinuz-2.6.7-new                  2108877 bytes   PAGINA 1280
+boo>
+
+il nome file viene modificato aggiungendo un prefisso sB se il file e' stato
+nascosto nello swap o bB se il file e' stato nascosto in una partizione ext2.
+E' possibile anche usare i vari **argv su linea di comando se si preferisce
+non usare la pseudoshell.
+
+L'opzione -e e' importante. Al di la' di tutto, cautelarsi contro la scoperta
+anche accidentale dei file nascosti significa nasconderne anche il contenuto a
+strings(1), ad esempio. Per questo BigBoo fa al momento uso del mod di RC5 usato
+in umpf di vecna, per tutta una serie di motivi, tra cui la mia mancanza di
+voglia :-) ... probabilmente potrebbe essere stato sostituito a favore di un
+altro algoritmo per quando starete leggendo quest'articolo.
+
+Problemi: per ovviare ai limiti intrinseci di s_reserved[] nel superblock,
+BigBoo al momento non permette di utilizzare entrambe le tecniche di copia in
+ext2 e swap. O l'una o l'altra. E' un problema relativamente semplice da
+risolvere utilizzando le copie di backup del superblock oppure allocando una
+singola PAGE nello swapfile al posto del superblock in ext2, oppure ancora con
+un BAD block in una partizione ext2. Non so se saranno pronti per il MOCA per il
+semplice motivo che BigBoo vuole essere un tool funzionante per una successiva
+sperimentazione dei lettori di BFi. Dal mio punto di vista modificare le copie
+del superblock permetterebbe di ottenere di certo un mix delle due tecniche ma
+anche perdere una ancora di salvezza nel caso di crash del primo superblock.
+Forse e' meglio far si' che tutti i superblocchi siano uguali e salvare i
+boo-meta-data dello swap nella prima PAGE bad.
+
+Vediamo ora una porzione minimale del codice, per avere una idea. Il resto lo
+troverete come al solito sul nostro sito (http://www.s0ftpj.org/).
+
+Come fa a liberare pagine nello swapfile ?
+
+All'inizio apriamo il device che ospita lo swapfile e ci muoviamo al byte 1024
+dove sappiamo iniziare l'header della v1, allochiamo spazio per la struttura
+che scriveremo al posto di quella corrente. Infatti mkswap inizializza l'header
+ma non sovrascrive realmente lo swapfile, per questo e' di solito consigliato
+l'uso preventivo di dd(1) :
+
+        if((buff=lseek(swfd, 1024, SEEK_SET)) < 0) {
+                aborto("boo_alloc_swap_pages: swap lseek");
+        }
+
+        signature = (long *) malloc(BOO_PAGE_SIZE);
+        memset(signature, 0, BOO_PAGE_SIZE);
+        if((buff=read(swfd, (void *)signature, BOO_PAGE_SIZE)) < 0) {
+                aborto("boo_alloc_swap_pages: swap header read");
+        }
+        sig = (struct swap_sig *)signature;
+
+Controlliamo poi che sia stato gia' creato il superblock di BigBoo all'interno
+di s_reserved[] di una partizione ext2 di appoggio. Questo approccio misto non
+deriva solo dal fatto che ho iniziato scrivendo nei bad block per poi passare
+allo swap, ma anche dal desiderio di testare e confondere le acque un poco
+
+        if(!(is_boo = boo_boo()))  {
+               start = (BOO_SWAP_BEGIN / BOO_PAGE_SIZE);
+               bad_index = 0;
+               lasting_bad_page = BOO_MAX_BAD_PAGE;
+        }
+        else
+                start = boo_get_next_swap_page();
+
+boo_get_next_swap_page() controlla attraverso il sb di BigBoo quali siano le
+pagine dello swap realmente libere. Dopo, modifichiamo la struttura header dello
+swapfile
+
+        sig->nr_badpages += after;
+        for(i=start, j=bad_index; i < stop ; i++, j++) {
+                sig->badpages[j] = i;
+        }
+
+ora possiamo tranquillamente scrivere l'header che tiene conto delle PAGE che
+abbiamo allocato per il file da copiare
+
+        if((buff=lseek(swfd, 1024, SEEK_SET)) < 0) {
+                aborto("boo_alloc_swap_pages: swap lseek");
+        }
+        if((buff=write(swfd, (void *)signature, BOO_PAGE_SIZE)) < 0) {
+                aborto("boo_alloc_swap_pages: swap header write");
+        }
+
+        ...
+}
+
+Come estrarre un file dall'area di storage nascosta ?
+
+Vediamo in questo caso come lavorare sui blocchi in una partizione ext2. Dopo
+aver aperto un descrittore per il block device della partizione, cominciamo a
+controllare s_reserved[] nel superblock, alla ricerca delle coppie offset/size
+dei file nascosti
+
+      if ((devfd = open(DEVICE, O_RDONLY)) < 0) {
+            aborto("boo_xtract_to_stdout: device open");
+      }
+      block_off = 4;
+      for(i = 1; i <= sb->s_reserved[2] ; i++) {
+
+Ora ci spostiamo al blocco indicato dall'offset in s_reserved[] ed utilizziamo
+la funzione ext2fs_llseek() della libreria ext2fs per muoverci nel block device
+e leggere il nome del file
+
+      whence = (ext2_loff_t) sb->s_reserved[block_off] * fs->blocksize;
+      if ((ext2fs_llseek(devfd, whence, SEEK_SET)) != whence) {
+               aborto("boo_xtract_to_stdout: ext2fs_llseek");
+      }
+      read(devfd, nome, BOO_PAGE_SIZE);
+      nome[strlen(nome)+1] = '\0';
+      if(!strcmp(nome, fname)) {
+
+se e' quello richiesto, allora ci spostiamo al blocco dove risiedono i file e
+cominciamo a leggerne il contenuto, fino a raggiungere le dimensioni specificate
+in sb_reserved[]
+
+      size = sb->s_reserved[block_off+1];
+      whence += fs->blocksize;
+      if ((ext2fs_llseek(devfd, whence, SEEK_SET)) != whence) {
+               aborto("boo_xtract_to_stdout: ext2fs_llseek");
+      }
+      while ((letto = read(devfd, buffer, sizeof(buffer))) > 0) {
+              if (size - letto > 0) {
+                      write(1, buffer, letto);
+                      size -= letto;
+              } else {
+                      write(1, buffer, size);
+                      break;
+                     }
+      }
+
+Come liberare l'area di storage ?
+
+Nel caso di blocchi ext2 questi saranno sovrascritti da un buffer che non sia
+stato inizializzato, per poi rimuovere i blocchi dall'inode 1.
+
+      while(sb->s_reserved[passo] > 0){
+         size = (sb->s_reserved[passo+1] / fs->blocksize)+(2 * fs->blocksize);
+         whence = (ext2_loff_t) sb->s_reserved[passo] * fs->blocksize;
+            if ((ext2fs_llseek(devfd, whence, SEEK_SET)) != whence) {
+                     aborto("boo_free_storage: ext2fs_llseek");
+            }
+            while ((scritto = write(devfd, buffer, sizeof(buffer))) > 0) {
+                            if (size - scritto > 0) {
+                                   write(devfd, buffer, scritto);
+                                   size -= scritto;
+                            } else {
+                                   write(devfd, buffer, size);
+                                   break;
+                            }
+            }
+            passo += 2;
+      }
+      close(devfd);
+      bb->num = 0;
+      bb->size = 0;
+      bb->list = 0;
+      bb->badblocks_flags = 0;
+
+Per lo swapfile invece ci limitiamo a rimuovere la referenza alle pagine marcate
+dall'header v1, poiche' lo swapfile contiene spesso comunque dei dati, ma la
+cosa importante e' che il kernel possa allocarlo per intero
+
+      sig = (struct swap_sig *)signature;
+      sig->nr_badpages = 0;
+      while(sig->badpages[i] > 0)
+               sig->badpages[i++] = 0;
+
+      swapoff(SWAPDEV);
+      if((buff=lseek(swfd, 1024, SEEK_SET)) < 0) {
+               aborto("boo_alloc_swap_pages: swap lseek");
+      }
+      if((buff=write(swfd, (void *)signature, BOO_PAGE_SIZE)) < 0) {
+               aborto("boo_alloc_swap_pages: swap header write");
+      }
+      swapon(SWAPDEV, 0);
+
+l'uso di swapon(2) e swapoff(2) e' necessario per permettere immediatamente al
+kernel di recuperare per intero lo swapfile, senza creare inconsistenze.
+
+Per poter scrivere realmente su disco tutte le modifiche apportate a strutture
+quali filsys, ext2_super_block, ext2_inode e altre, e' necessario utilizzare le
+chiamate di libext2fs quali
+
+errcode_t ext2fs_flush(ext2_filsys fs);
+errcode_t ext2fs_write_block_bitmap (ext2_filsys fs);
+errcode_t ext2fs_write_inode_bitmap(ext2_filsys fs);
+
+per poi dire arrivederci con la ext2fs_close().
+
+
+---[ CONCLUSiONi
+
+Poco da dire. Questo articolo non rende giustizia alle sensazioni provate anche
+solo in tema di sperimentazione e accrescimento delle proprie conoscenze che ho
+comunque provato. E' bello occuparsi di sicurezza, ma lavorare a piccoli e forse
+inutili progetti come questo e' ancora meglio. Cos'altro dire ?
+
+Happy MOCA && Happy BFi !
+E occhio alle ghost mansion di Super Mario World :p
+                              .
+                             - saaaaaaaaa,
+                           saamWWWWWWWWWWWwaa.
+                        samWWWWWWWWWWWBWWBWWWWw,
+                     `smWWWWWWBWWBWBWBWm##WW#WWWw,
+                    smWWWWBWBWWWBWWWWWWWWm#####WWWw,'
+                 . jQWWWWBWWWWBWWWBWBWBWWWmm#Z##WWWW/`
+                  jQQWWWBWWBWBWWBWWWWWWBWBWWmmmZ#U#WW/.
+                 jQQWWWWWWBWWWWBWWBWBWBWWWWWWWmmZZ##WW/
+                jQQWWWWBWBWWWBWWWBWWWWWWBWBWWWWWmmXZ#WW/
+               jQQWWWWBWWWWBWWWBWWWBWBWBWWWWBWBWWmmXZ#WQ/.,
+              jQQWWWBWWWBWBWWBWWWBWWWWWWWBWBWWWWBWZZ#Z#WW/`
+             jQQWWWWWWBWWWWWBWWBWWWBWBWBWWWWWBWBWWmmXZ##Wk.:
+            <QQWWWBWBWWWBWBWWWBWWBWWWWWWBWBWBWWWWBWUZZZ#QW/`
+            jQWWWWWWWBWBWWWBWBWWWWBWBWBWWWWWWWBWBWWmZZ#Z#WW/
+          .=QQWWWBWBWWWWWBWWWWWBWBWWWWWBWBWBWBWWWWBQZZZZZWWk
+          `jQQWWWWBWWBWBWWBWBWBWWWWBWBWWWWWWWWWBWBWBmZZ#Z#WW/
+          :QQWWWmWWWBWWWBWWWWWWWBWBWWWBWBWBWBWBWWWWWmZ#XZ##Wk .
+          )WQWW?WWWBWWBWWWBWBD4WWWWWBWWWWWWBWWWWBWBWWZZZ#ZmQh =
+          jQWWm%4WBWWWWWBWWW#\aWBWBWWWBWBWBWWBWBWWWWm#ZUZZ#QW/=.
+         :QQWWmC 4#WWBWBWW#m'=mWWWWWBWWWWWWWBWWWWBWBW#ZZZZ##QL.
+         )WQWWBh, "$#mBmB#?` amWWBWBWWBWmWBWWWBWBWWWm#ZUZUZBQk
+        `jQWWBW#L a/"??!!`a/.#mWWWWWWBWWWWWWBWWWWWBWW#ZZZZ#mQk
+        :QQWWWm#C=Wk     =Wk=#mWWBWBWWWBWWBWWWBWBWWWm#ZZ#ZZmQh:
+        =QWWWBW#e=Qk ass,=Qk:##WWWWWBWBWWBWWBWWWY????mZUZZZ#QW/`
+        =QWWWWm#e=Qk:ZZZz=Qk:#mWWBWBWWWWBWWWWBY`<aaa,?UZZZ#U#QL
+        )WWWBWW#e=Qk=WmWk=Qk=ZmWWWWWWBWBWWWmY`<mWWWWW/4XZUZZBQk
+        yWWWWWm#o=Qk<WWWk=Qk=#mWWBWBWWWWWBW'smWWWWW#XL=ZZZZ#mWm .
+       :QWWBWBWWZ,?'yBWBW/?'JmWWWWWWBWBWBW'jQWWWWW#XWF:#ZZ#X#QW/:
+       =QWWWWWWmWmsuWWWWWhadmWBWBWBWWWWWWmjQQWWBW##Zm'aZZUZZ##WL
+       =QWWBWBWWWmmmWWBWBWmmmWWWWWWBWBWBWWQQWWWW##XmP:mUZZZZ#mQk
+       =QWWWWWWBWWWWWBWWWWBWWWBWBWBWWWWWBWWWWWB##XZQ'w#ZZUZUZmQm
+       =QWWWBWBWWBWBWWWBWBWWBWWWWWWWBWBWWWBWWBWXZZmF=W#ZZZZZZ#QW/
+       =QWWBWWWWBWWWWBWWWWWBWWBWBWBWWWWBWBWWBWZZ#ZQ'jQ#ZZ#ZZ#U#Qk
+       =QWWWWBWBWY?$mWWBY??WWWWWWWWBWBWWWWWWWWX#XmF=QW#ZZZZUZZBQk
+       =QWWWBWWW'_a,"??`<a,4WmWBWBWWWWBWBWBWm#ZZZQ'jQW#ZZUZZZ#mWm
+       :QWWBWWBE.3QWa__)QWk,4WWWWWBWBWWWWWWWB#Z#mF=QQB#ZZZZUZZ#QW/
+        4QWWWWWf:v$WClvv$QC(-mWBWBWWWWBWBWBW##Zmm'jQWW#ZZ#ZZZUZWWk
+        )WWWBWB')l3#llII3#ll,4WWWWWBWBWWWWWmmmQY`jQQWm#ZZZZUZZ##Wk
+        =WWWWWE.vlICIIIIlCII>)#BWBWWWWWBWBWBm?`<mQQWWW#ZUZZZZUZmQm
+        =QWWWBk.IIIIIIIIIIII>:mWWWBWBWBWWWWWgamWWWWBW#X#XZ#ZUZZ#QW/
+        :QWWWBk.vlIIIIIIIIII>=mWWBWWWWWWBWBWBWmWBWBWB#ZZZ#ZZZZUZmWk
+         4QWWWk.vlIIIlIIlIIl>=mWWWWBWBWBWWWWWBWWWWWWB#Z#ZZZZUZZZ#QW/
+         )WWWBk.vlIIIIIIIIII>=mWWBWWWWWWWBWBWWWWBWBWm#ZZZUZZZZ#Z##Wk
+         :QWWWk.vlIIIIIIIIIl>=mWWWWBWBWBWWWWBWBWWWWW##ZUZZZ#ZUZZZ#QW/
+          4QWWk.IIIIlIIlIIlI>=mWWWBWWWWWBWBWWWWBWBWm#ZZZZ#ZZZZZZZZ#WQ/
+          )WWWk.IzlIIIIIIIIz>=mWWBWWBWBWWWWBWBWWWWWmmZUZZZZZ#ZZ#m##WWf
+          :WWWk {Wzvl+{lIImE`=BWWWWWWWWBWBWWWWBWBWBWX#ZZ#ZZ#mZ##mmWWW'
+           4QWm, "?^ <,-^"?` jWWBWBWBWBWWWWBWBWWWWm#ZZZZZm##mWmQWQQY`
+           +QWWWaaaadW#aaaaadmWBWWWWWWWWBWBWWWWBWBW#ZZ#ZmmQWWWWQY?`
+            4QWBmm##BWWmm####WWWWBWBWBWBWWWWBWBWWW##X#X#mQWWY??`
+            )WWWWWWWWWWWWWWWWWBWBWWWWWWWWBWBWWWWBB#ZZZZZmQW'
+             4QWWWBWWBWBWWBWWBWWWWBWBWBWBWWWWBWBWWXZUZZ##WW/
+              4QWBWWBWWWWBWWBWWWBWWWWWWBWWBWBWWWm#ZZZZ#XZ#WQ/
+               4QWWWWWBWBWWWWWBWWWBWBWBWWWWWWWBWm#ZZ#ZZZ#Z#WWw/
+                4QWBWBWWWWBWBWWWBWWWWBWWBWBWBWW##XZZZZUZZZmWWW'
+                 4QWWWWBWBWWWWBWWWmWBWWWWWWWWB##XZUZUZZZm#WWW'
+                -.4QWWBWWWWBWBWWBWWWWWBWBWBW#m#XZ#ZZZm##WWWY`
+                   4QWWWWBWWWWWBWWBWWBWWWWW##ZZZ#mZ##WmWWW'
+                  . "$QWWWWBWBWWWBWWBWWBW#ZZZm###mWmWWWWY`;
+                      "$WWWWWWWBWWWBWWW###m##mWmWWWQWP?` .
+                        "?$WWWWWWWWWWWWmQmWmWQWWQY??`
+                           "??$WWWWWWWWWWWWWQY??`
+                               "????????????`
+
+
+================================================================================
+------------------------------------[ EOF ]-------------------------------------
+================================================================================
+

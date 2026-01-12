@@ -1,0 +1,216 @@
+
+--== Iniciar LiNUX desde el boot manager del NT. ==--
+-----------------------------------------------------
+=====================================================
+
+	Por que iniciar linux desde el NT Loader?
+
+Voy a explicar mis razones.
+Cuendo instale; en mi ordenador el NT Server 4.0 , el boot manager del NT
+curriosamente no se me cargo el LILO. Lo que pasaba es que iniciaba el
+ordenador y me salia el LILO. Si me iva al DOS(win*), me salia el menu de
+NT, y pense , y por que no arrancar todo desde el NT ?, y asi no tener que
+pasar por dos menus de arranque?.
+
+Lo que hice...
+
+Primero, me fui al LiNUX.
+Desde alli modifique; el LILO para que se instalara en la particion raiz del
+Linux. P.ej: Si tenia: (Cabecera del /etc/lilo.conf)
+
+	boot=/dev/hda1
+	root=/dev/hda2
+	install=/boot/boot.b
+
+Lo que hice fue cambiar la linea del "boot" por esta "boot=/dev/hda2"
+Es interesante que la linea de boot con la de root sean las mismas.
+Con esto lo que hago es instalar el LILO en la particion raiz del LiNUX.
+Sali del editor y ejecute lilo desde root, si todo va bien, se habra instalado
+correctamente.
+
+Te tiene que salir algo asi:
+
+	kronen:/etc# lilo
+		Added 233 *
+		Added 229
+		Added 227SCSI
+		Added 227
+		Added 225
+	kronen:/etc#
+
+Si te sale asi , es que no tienes ningun error , jeje.
+
+Bueno, ahora empieza el cachondeo...
+
+Ahora lo que hay que hacer es copiar los primeros 512 bytes (sector de arranque)
+de la particion raiz del LiNUX. Esto se hace con la utilidad "dd" del LiNUX.
+Seria interesante que tubieses la particion desde donde arranca el NT montada
+por algun sitio.
+
+Normalmente podrias tener, el win98, que se instala por defecto en /dev/hda1,
+el WinNT, que lo puedes instalar en donde quieras(o puedas) y tu particion/es
+LiNUX. Si es asi como lo tienes, deberias tener el NT Loader en /dev/hda1.
+Para verlo puedes crear un directorio como:
+
+	mkdir /win98
+
+y luego montar la particion del Windows98 en el (mount -t vfat /dev/hda1 /win98).
+Si solo tienes NT, puedes configurar el kernel para que vea la particion de NTFS
+y montarla en , por ejemplo, jeje :
+
+	mkdir /winnt
+
+y luego montar la particion del WinNT en el (mount -t nfs /dev/"particionNT" /winnt).
+
+Si no sabes donde tienes la particion de NT haces "fdisk" y luego pones "p" y
+te mostrara la tabla de particiones. La NTFS aparecera como sistema de archivos
+OS/2 HPFS luego le das "q" y sales de fdisk.
+
+Y ahora ya puedes utilizar la orden "dd" para crear el archivo que necesita el
+NT Loader para arrancar tu flamante LiNUX. La orden la ejecutas de esta manera:
+
+dd if=/dev/"particion_LiNUX" of=/"directorio_donde_hay_el_NT_Loader"/"nombre_archivo_MBR" bs=512 count=1
+
+Esa orden seria la generica, la de nuestro ejemplo seria:
+
+dd if=/dev/hda2 of=/win98/boot.lnx -> Para Win98.
+dd if=/dev/hda2 of=/winnt/boot.lnx -> Para el NT.
+
+El nombre boot.lnx, puedes usar este o ser de tu invencion.
+
+La orden esta te generara; un mensage parecido a esto:
+
+	1+0 records in
+	1+0 records out
+
+Si te ha salido esto, es que lo has hecho bien, si no ya te lo dira.. jeje.
+
+
+	Perfecto.Vamos a editar el archivo de configuracion del NTLoader.
+
+Este archivo se llama "boot.ini", y se encuentra en donde hay loas archivos de 
+arranque del NT (NTLDR, NTDETEECT.com). Que estara; en el directorio donde hemos
+montado la particion de windows.
+
+Pondre un ejemplo y asi se vera mejor de como tiene que quedar tal archivo:
+
+Este seria el archivo original(El que yo tenia):
+
+	---CUT---
+	
+[boot loader]
+timeout=30
+default= multi(0)disk(0)rdisk(0)partition(3)\WINNT
+[operating systems]
+multi(0)disk(0)rdisk(0)partition(3)\WINNT="Windows NT Server version 4.00"
+multi(0)disk(0)rdisk(0)partition(3)\WINNT="Windows NT Server version 4.00 [modo
+VGA]" /basevideo /sos
+C:\="Microsoft Windows"
+
+	---CUT---
+
+Y para que el NTLoader te de la opcion de arrancar el Linux,
+te tiene que quedar el archivo de esta manera:
+
+(Dependiendo de como a ti te internrese y de como tengas particionado el disco)
+
+	---CUT---
+
+[boot loader]
+timeout=30
+default=C:\BOOT.LNX&nbsp;
+[operating systems]
+C:\BOOT.LNX=" Debian GNU Linux v2.1 Slink "
+multi(0)disk(0)rdisk(0)partition(3)\WINNT="Windows NT Server version 4.00"
+multi(0)disk(0)rdisk(0)partition(3)\WINNT="Windows NT Server version 4.00 [modo
+VGA]" /basevideo /sos
+C:\="Microsoft Windows"
+
+	---CUT---
+
+Vemos que en la linea "default=c:\boot.lnx" Tenemos el SO por defecto que se
+iniciara; despues del timeout del loader(Por supuesto, LiNUX).
+Lo otro se deja tal cual, y observa que se tiene que añadir una linea, que es la
+que indica donde se encuentra el archivo de nuestro sector de arranque del LiNUX:
+
+	C:\BOOT.LNX=" Tu sistema Linux "
+
+Bueno, como podeis ver la edicion del boot.ini es bastante intuitiva.
+
+
+	Hacerte un script para no tener que hacer todos los pasos:
+
+Bueno, primero , seria bueno que montases siempre tus particiones de win
+en algun directorio de tu linux y crearte un script de este tipo:
+
+(siguiendo el ejemplo que hemos seguido hasta ahora)
+Editas un archivo,y le pones de nombre, el que tu quieras,ej: NT_load_inst.sh
+y le metes esto:
+
+			---CUT---
+
+#!/bin/sh
+
+dd if=/dev/hda2 of=/win98/boot.lnx bs=512 count=1
+lilo
+
+			---CUT---
+
+Cierras el archivo, y lo haces ejecutable: 
+
+	chmod 750 NT_load_inst.sh
+
+Importante:
+
+Otra cosa seria, hacer un diskete de arranque por si algo falla poder arrancar
+el LiNUX y arreglarlo. Esto lo puedes hacer cogiendo la imagen del kernel, que 
+seguramente estara en "/boot/" o en el "/" con un nombre parecido a "vmlinuz2".
+y sin montar el diskete haces cp vmlinuz2.* /dev/fd0 y ya tendras el diskete de
+arranque.
+
+
+		Pos YA ESTA!
+
+Ahora ya podemos hacer un "reboot" y arrancar ya desde el NT Loader.
+
+
+	Preguntas:
+
+P:¿Que ocurre , si cuando reinicio, me sale todabia el LILO?
+R: Pues nada, leete el man del lilo , y mira la forma de desinstalarlo
+   y ejecuta otra vez el script que te has montado.
+   La otra seria arrancar en msdos y hacer un fdisk /mbr, ir al linux y 
+   ejecutar el script.
+
+P: No me sale la opcion de arrancar el linux desde el NT Loader.
+R: Mirate bien el boot.ini a ver si te has dejado alguna cosa, comillas
+   basicamente. O te has dejado algun paso.
+
+P: ¿Como instalo un nuevo kernel?
+R: Pues igual que siempre, pero despues ejecutando tu script para actualizar
+   el archivo de arranque (boot.lnx) del LiNUX que el NT Loader utiliza para
+   iniciar.
+
+
+	Aclaraciones:
+
+El autor de este documento NO se hace responsable de la perdida de datos ni de
+ningun accidente que le pueda pasar a tu ordenador.
+Todo lo que hagas es tu responsabilidad.
+
+Si alguien publicara este documento fuera de donde se encuentra actualmente,
+agrdeceria notificacion por correo.
+
+---------------------------------------------------------------------------
+
+	By [KrOnEn] (Mon May 31 02:58:44 CEST 1999)
+
+Para criticas, correcciones, preguntas , publicaciones...
+
+E-mail: kronen_75@hotmail.com
+
+---------------------------------------------------------------------------
+
+NOTA: El original de este documento (formato HTML) podreis encontrarlo en el WEB
+      del e-zine, en el area de descarga de ficheros. (Krip7iK)
+

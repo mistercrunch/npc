@@ -1,0 +1,1776 @@
+================================================================================
+---------------------[ BFi13-dev - file 19 - 20/08/2004 ]-----------------------
+================================================================================
+
+
+-[ DiSCLAiMER ]-----------------------------------------------------------------
+        Tutto il materiale contenuto in BFi ha fini esclusivamente informativi
+        ed educativi. Gli autori di BFi non si riterranno in alcun modo
+        responsabili per danni perpetrati a cose o persone causati dall'uso
+        di codice, programmi, informazioni, tecniche contenuti all'interno
+        della rivista.
+        BFi e' libero e autonomo mezzo di espressione; come noi autori siamo
+        liberi di scrivere BFi, tu sei libero di continuare a leggere oppure
+        di fermarti qui. Pertanto, se ti ritieni offeso dai temi trattati
+        e/o dal modo in cui lo sono, * interrompi immediatamente la lettura
+        e cancella questi file dal tuo computer * . Proseguendo tu, lettore,
+        ti assumi ogni genere di responsabilita` per l'uso che farai delle
+        informazioni contenute in BFi.
+        Si vieta il posting di BFi in newsgroup e la diffusione di *parti*
+        della rivista: distribuite BFi nella sua forma integrale ed originale.
+--------------------------------------------------------------------------------
+
+
+-[ HACKiNG ]--------------------------------------------------------------------
+---[ SCAT0LE Di SABBiA E (DUEMiLA) FiNESTRE ]-----------------------------------
+-----[ KJK::Hyperion <noog@libero.it> http://spacebunny.xepher.net ]------------
+
+
+                   SCATOLE DI SABBIA E (DUEMILA) FINESTRE
+                  ========================================
+                       KJK::Hyperion <noog@libero.it>
+
+
+1. Tanto tempo fa, in una galassia lontana lontana
+1.1. L'autore
+1.2. L'articolo
+
+2. Modello di sicurezza di Windows
+2.1. Soggetti, oggetti, descrittori di sicurezza
+2.2. Infrastruttura di autenticazione
+2.3. Novita' in Windows 2000: token filtrati
+
+3. Mettere insieme il tutto: il comando iam
+3.1. La teoria
+3.2. Il mondo reale
+3.3. Studio di casi
+3.4. Conclusioni
+
+4. Metterci sopra una facciata carina: Desktop Sandbox
+
+5. Cosa manca, cosa non va
+
+6. Conclusioni, ringraziamenti, saluti
+
+
+
+1. TANTO TEMPO FA, IN UNA GALASSIA LONTANA LONTANA
+--------------------------------------------------------------------------------
+
+1.1. L'AUTORE
+
+ * ... e' un utente Microsoft, fin dalla piu' tenera eta'. Non sapeva niente 
+   della guerra Amiga/Commodore/PC -- lui usava un MSX. Finche' la sua 
+   sorellina non ha estratto a caldo una cartuccia una volta di troppo.
+
+ * ... ha comprato il suo primo, unico e attuale PC nel 1999. Ha usato Windows 
+   98 prima edizione fino a delirare: per un periodo di tempo piuttosto lungo 
+   credeva persino che Linux gli piacesse di piu'. Per sua fortuna scopri' 
+   BeOS. Tre mesi prima che la Be fallisse. Per sua fortuna scopri' poi Windows 
+   2000, la sua anima fu salvata e il suo destino gli fu chiaro. 
+
+ * ... non ha un santino di David Cutler [1] accanto al letto, ma lo vorrebbe.
+
+ * ... non usa Linux ne' ci crede molto. Percio' lavora su ReactOS [2]. Anche 
+   in ReactOS crede poco, ma ci spera molto.
+
+ * ... ha scoperto il progetto ReactOS <http://www.ReactOS.com/> nel 2001, 
+   e non se ne e' piu' staccato. Finora ha dato contributi di poco conto, ma 
+   non si scoraggia: crede nel Colpo Decisivo e nella Fama Istantanea. Corri 
+   Forrest, corri.
+
+ * ... ha conosciuto smaster (e mayhem, e vecna, e koba, e vodka, ecc.) 
+   all'HackIt-04, ma lo conosceva gia'. Lui distribuiva gratuitamente CD di 
+   prova di ReactOS, smaster gli ha proposto un salto di qualita': scrivergli 
+   un articolo su ReactOS per BFi.
+
+
+1.2. L'ARTICOLO
+
+ * ... non riguarda ReactOS.
+
+ * ... e' stato redatto in Word 97 (le illustrazioni in CorelDRAW), 
+   ri-formattato a mano per l'edizione elettronica perche' il filtro di 
+   esportazione "testo con layout" di Word e' una sola.
+
+ * ... e' stato consegnato in ritardo.
+
+ * ... non e' stato riletto.
+
+ * ... ESPLORA UNA POSSIBILE TECNICA PER IMPLEMENTARE SANDBOX IN WINDOWS 2000 E 
+   SUCCESSIVI.
+
+ * ... non e' eccezionale, l'argomento e' noioso e la tecnica e' banale, non si 
+   reggerebbe in piedi senza il lavoro di Microsoft e non e' comunque esaustiva 
+   (l'autore e' pigro: accontentatevi).
+
+
+
+2. MODELLO DI SICUREZZA DI WINDOWS
+--------------------------------------------------------------------------------
+
+Un'infarinatura di base sull'alquanto eccentrico modello di sicurezza di 
+Windows, perche' senno' non ci capite niente. Leggete anche se siete sicuri di 
+sapere gia' tutto il necessario: potrebbero esservi sfuggite delle sfumature 
+importanti.
+
+
+2.1. SOGGETTI, OGGETTI, DESCRITTORI DI SICUREZZA
+
+Il controllo di accesso in Windows si basa su un concetto di fondo molto 
+semplice: un *soggetto* ottiene un determinato *accesso* ad un *oggetto* 
+protetto da un *descrittore di sicurezza*. Il controllo di accesso viene 
+effettuato solo al primo accesso. Tutti gli accessi successivi avvengono 
+tramite un *handle*, un valore opaco che identifica l'oggetto e l'accesso 
+consentito la prima volta. Consideriamo l'apertura in lettura di un file: 
+l'oggetto e' il file, l'accesso e' "lettura", il controllo di accesso viene 
+effettuato quando il file viene aperto e l'handle verra' usato in funzioni come 
+ReadFile (WriteFile, ad esempio, si lamenterebbe che l'handle non comprende 
+l'accesso in scrittura).
+
+2.1.1. Il descrittore di sicurezza: SID e ACL
+
+Il descrittore di sicurezza e' una struttura associata ad ogni oggetto e 
+contiene un sovrainsieme delle informazioni associate ai file UNIX: l'utente e 
+il gruppo proprietari dell'oggetto, l'ACL (Access Control List) associata 
+all'oggetto ed eventualmente una SACL (Security Access Control List), una 
+struttura simile all'ACL usata per l'auditing, che non trattero' in questo 
+articolo (forse in futuro, chissa'). L'ACL e' un array di oggetti chiamati ACE 
+(Access Control Entry), ognuno contenente un id di utente o gruppo, l'accesso 
+concesso o negato all'utente/gruppo, la propria ereditabilita' (cioe' se si 
+applica anche agli oggetti-figlio, o solo agli oggetti-figlio, o solo ai 
+sotto-contenitori, ecc.), e opzioni extra non troppo interessanti.
+
+Utenti e gruppi (e computer di un dominio, e interi domini, ecc.) non sono 
+identificati da un numero, ma da una struttura di dimensioni variabili chiamata 
+SID (Security IDentifier) -- che e' una rogna da trattare via codice, peraltro. 
+La forma di un SID nella sintassi attuale (revisione 1) e':
+
++------------+-----------+-----------+-----------+- - - -+-----------+
+|  Autorita' |  sotto-   |  sotto-   |  sotto-   |       |  sotto-   |
+| principale | autorita' | autorita' | autorita' |       | autorita' |
++------------+-----------+-----------+-----------+- - - -+-----------+
+ \____ _____/ \___________________ ________________ _ _ / \____ ____/
+      V                           V                            V
+   prefisso                    dominio                     id utente
+
+In realta' non e` proprio cosi`: l'interpretazione dell'ultima sotto-autorita'
+come id utente e delle altre come id del dominio e' solo una convenzione. Ma fa
+comodo pensarlo cosi'.
+
+La convenzione per esprimere un SID come stringa e' S-R-I-A-A-...-A, dove S e' 
+la lettera S, R e' la versione della sintassi (l'unica versione definita e' 1), 
+I e' l'autorita' principale e A le sotto-autorita'.
+
+L'autorita' principale e' un numero curiosamente da 48 bit e curiosamente
+big-endian, e identifica la sotto-sintassi, cioe' come l'array di 
+sotto-autorita' vada interpretato. Le piu' importanti sono 1 (World) e 5 (NT 
+Authority). L'autorita' 1 contiene un solo SID, S-1-1-0, che e' il gruppo 
+"Everyone" (essendo "mondo" un gruppo vero e proprio e non un concetto astratto 
+come in UNIX, volendo, si potrebbe avere un utente che non ne e' membro. Ma ci 
+faremmo solo del male). L'autorita' 5 contiene la stragrande maggioranza dei 
+SID che mai incontreremo: tutti gli account utente, gli account dei computer, 
+del dominio, ecc. sono SID nell'autorita' 5. Il sistema locale e' S-1-5-18, il 
+gruppo Administrators locale e' S-1-5-32-544, i domini hanno SID del tipo 
+S-1-5-21-<numeraccio random>-<numeraccio random>-<numeraccio random>, ecc.
+
+Le sotto-autorita', dette anche RID (Relative IDentifier), sono numeri a 32 bit 
+del tutto arbitrari. In realta', tutti i componenti di un SID sono arbitrari: 
+il kernel non ci bada (quasi) mai, non e' un suo problema (vedremo poi di chi 
+e') che un soggetto si identifichi come "Everyone" (che non e' un utente), 
+appartenente al gruppo "Administrator" (che non e' un gruppo). Per quanto 
+balzana, e' un'identita' valida: se il soggetto puo' vantarla e' perche' ha 
+avuto abbastanza privilegi o credenziali per crearsela (vedremo poi ecc. ecc.).
+
+E questo ci porta, se Dio vuole, alla parte piu' interessante nonche' 
+pertinente: il soggetto.
+
+2.1.2. Il soggetto: oggetti token
+
+In Windows, i soggetti sono rappresentati da... oggetti. Sembra un controsenso,
+ma permette cose utili, come proteggere un soggetto con un descrittore di
+sicurezza. Questo tipo di oggetto si chiama *token*, contiene tutte le 
+informazioni di identificazione pertinenti al controllo di accesso e ogni 
+processo ne ha uno associato (*token primario*. Esistono anche token associati 
+temporaneamente a singoli thread, i token di impersonazione, ma si usano in 
+ambiti client-server che esulano dagli scopi di questo articolo), inizialmente 
+copiato da quello del processo genitore (il primo token e' quello del processo 
+System ed e' creato dal nulla in fase di avvio, con un set di attributi fisso. 
+Tutti i processi di sistema ne ereditano una copia). Il contenuto di un token 
+puo' essere riassunto come segue:
+
+ * Id dell'utente (ovviamente un SID). Strettamente di sola lettura.
+
+ * Lista di gruppi e relativi attributi. I gruppi sono strettamente di sola 
+   lettura, per gli attributi dipende. Gli attributi possibili sono:
+
+    * Abilitato: il gruppo viene usato per il controllo di accesso. Attributo 
+      di lettura-scrittura (o sola lettura se e' anche presente l'attributo 
+      "obbligatorio").
+
+    * Logon id: il gruppo identifica la sessione di logon interattivo a cui il
+      token e' associato. Essenzialmente, e' il gruppo dei soggetti abilitati
+      ad accedere al display (cioe' l'ACL del display contiene un'ACE che 
+      consente l'accesso a questo gruppo). Generalmente e' un gruppo volatile, 
+      cioe' non e' nel database dei gruppi ma e' generato dinamicamente, ed e' 
+      nella forma S-1-5-5-X-Y, dove (X, Y) e' un LUID (Locally Unique 
+      IDentifier, identificatore a 64 bit). Attributo di sola lettura.
+
+    * Obbligatorio: il gruppo non puo' essere disabilitato. Tutti i gruppi 
+      aggiunti dal normale sistema di autenticazione hanno questo attributo 
+      (disattivare un gruppo non sempre significa limitare il soggetto, perche' 
+      permette anche di evadere le ACE di accesso negato: poco intuitivo, e gli 
+      amministratori che non leggono la documentazione tutte le sere come una 
+      Bibbia farebbero solo casino -- quindi e' meglio cosi'). Ovviamente di 
+      sola lettura.
+
+    * Owner: il gruppo puo' essere selezionato come proprietario predefinito 
+      degli oggetti creati dal soggetto. Dato che l'owner degli oggetti e' 
+      praticamente l'unico modo in cui si puo' effettuare l'accounting delle 
+      risorse (esempio: quote disco per i file) e' importante che non possa 
+      essere impostato arbitrariamente. Sola lettura.
+
+ * Lista di privilegi e relativi attributi. I privilegi sono identificati da 
+   dei LUID e sono capacita' speciali del soggetto, generalmente riguardanti 
+   un'intera classe di oggetti (ad esempio il privilegio Debug permette accesso 
+   illimitato a tutti gli oggetti-processo e oggetti-thread). Strettamente di 
+   sola lettura, ma alcuni attributi possono essere modificati. Gli attributi 
+   possibili sono:
+
+    * Abilitato: il token possiede questo privilegio. Se un privilegio e' 
+      disattivato (e lo e' di default), e' come se non ci fosse, ma puo' essere 
+      sempre abilitato quando necessario (ed e' l'uso previsto che se ne 
+      dovrebbe fare).
+
+    * Eliminato: il token (o un antenato da cui e' stato copiato) possedeva 
+      inizialmente questo privilegio, ma ora non piu'. Come fosse disabilitato,
+      ma non puo' essere piu' riabilitato.
+
+ * Identificatore della sessione di logon. In breve, e' un LUID in cambio del 
+   quale il servizio di autenticazione restituisce delle credenziali (nome 
+   utente e password, ticket Kerberos, certificato, ecc.). E' il modo in cui i 
+   driver dei filesystem di rete fanno trasparentemente login sui file server 
+   con le stesse credenziali fornite dall'utente (proprio cosi', componenti 
+   kernel-mode che interrogano un servizio user-mode. Sfumature di microkernel, 
+   non trovate?), o in cui il driver di NTFS riceve i certificati per la 
+   crittografia dei file. I processi di sistema e i servizi hanno un id 
+   associato alle credenziali anonime (mai sentito parlare di "null session"? 
+   Lei).
+
+ * Owner e gruppo primario predefiniti degli oggetti creati da questo soggetto.
+   Modificabili. L'owner deve sempre puntare all'id utente o ad un gruppo con 
+   l'attributo "owner" (per impedire al soggetto di evadere dall'accounting 
+   delle risorse), e il gruppo primario deve essere uno dei gruppi del token.
+
+ * ACL predefinita degli oggetti creati da questo soggetto. Interamente 
+   modificabile, formato libero.
+
+ * Varie ed eventuali, tra cui la data di scadenza (attualmente inutilizzata), 
+   un identificatore arbitrario del servizio di autenticazione che ha creato il 
+   token, un LUID che identifica il token e un numero che cambia ad ogni 
+   modifica apportata (suonano molto come requisiti C2/Orange Book. Devo 
+   informarmi).
+
+2.1.3. Mettere insieme il tutto e girare la manovella: il controllo di accesso
+
+Per la gioia di grandi e piccini, il modello di sicurezza di Windows non e' 
+solo chiacchere: tutto cio' di cui ho parlato, alla fine, confluisce in una 
+manciata di funzioni del kernel che implementano la semantica del controllo di 
+accesso. Una di queste funzioni e' pubblica e documentata (ce ne sono numerose
+variazioni, per il supporto dell'auditing e/o delle ACL object-oriented usate 
+in Active Directory, ma non cambiano molto), e posso mostrarvene il prototipo:
+
+/* NOTA: IN, OUT e OPTIONAL sono macro vuote che servono solo a rendere piu' 
+leggibile il codice */
+
+BOOLEAN SeAccessCheck
+(
+	IN PSECURITY_DESCRIPTOR SecurityDescriptor,
+	IN PSECURITY_SUBJECT_CONTEXT SubjectSecurityContext,
+	IN BOOLEAN SubjectContextLocked,
+	IN ACCESS_MASK DesiredAccess,
+	IN ACCESS_MASK PreviouslyGrantedAccess,
+	OUT PPRIVILEGE_SET * Privileges OPTIONAL,
+	IN PGENERIC_MAPPING GenericMapping,
+	IN KPROCESSOR_MODE AccessMode,
+	OUT PACCESS_MASK GrantedAccess,
+	OUT PNTSTATUS AccessStatus
+);
+
+Dovrebbe piu' o meno spiegarsi da se', ma credo che qualche chiarimento non 
+guasti:
+
+ * Il valore di ritorno puo' essere TRUE o FALSE, e indica se il soggetto ha 
+   accesso all'oggetto o no.
+
+ * SecurityDescriptor e' il descrittore di sicurezza dell'oggetto. 
+   L'identificatore dell'oggetto non e' usato nel controllo d'accesso, quindi 
+   qui compare solo il descrittore di sicurezza (ma e' usato nell'auditing, e 
+   compare appunto come parametro nelle funzioni di controllo di accesso con 
+   supporto per l'auditing).
+
+ * SubjectSecurityContext e' il soggetto. Punta al token corrente, ed 
+   eventualmente anche a quello primario se quello corrente e' un token di 
+   impersonazione.
+
+ * SubjectContextLocked e' una flag. Se TRUE, SeAccessCheck usa 
+   SubjectSecurityContext direttamente. Altrimenti, prima di usarlo, lo blocca 
+   per sincronizzarsi con le altre funzioni che trattano soggetti.
+
+ * DesiredAccess e' l'accesso che il soggetto ha chiesto di ottenere 
+   sull'oggetto. Una ACCESS_MASK e' una mappa di 32 bit con questa forma:
+
++--------------------+---+
+|    GENERIC_READ    | g | 31
+|  ----------------  | e |
+|   GENERIC_WRITE    | n | 30
+|  ----------------  | e |
+|  GENERIC_EXECUTE   | r | 29
+|  ----------------  | i |
+|    GENERIC_ALL     | c | 28
++--------------------+---+
+|--                    --|
+|                        |
+|--                    --|
++------------------------+
+|    MAXIMUM_ALLOWED     | 25
++------------------------+
+| ACCESS_SYSTEM_SECURITY | 24
++--------------------+---+
+|--                --|   |
+|                    |   |
+|--                --|   |
+|                    |   |
+|--                --| s |
+|  ----------------  | t |
+|    SYNCHRONIZE     | a | 20
+|  ----------------  | n |
+|    WRITE_OWNER     | d | 19
+|  ----------------  | a |
+|     WRITE_DAC      | r | 18
+|  ----------------  | d |
+|    READ_CONTROL    |   | 17
+|  ----------------  |   |
+|       DELETE       |   | 16
++--------------------+---+
+|                    | s |
+|                    | p |
+|                    | e |
+.                    . c .
+.                    . i .
+.                    . f .
+|                    | i |
+|                    | c |
+|                    |   |  0
++--------------------+---+
+
+    * Accessi specifici: il significato di questi bit varia in base al tipo di 
+      oggetto.
+
+    * Accessi standard: accessi validi per tutti i tipi di oggetto.
+
+       * DELETE: eliminazione (il significato di "eliminazione" varia in base 
+         al tipo di oggetto).
+
+       * READ_CONTROL: lettura del descrittore di sicurezza.
+
+       * WRITE_DAC: modifica dell'ACL.
+
+       * WRITE_OWNER: modifica del proprietario e del gruppo principale.
+
+       * SYNCHRONIZE: attesa dello stato segnalato dell'oggetto (richiesto per 
+         l'I/O sincrono su file e per l'uso di oggetti di sincronizzazione 
+         condivisi)
+
+    * ACCESS_SYSTEM_SECURITY: lettura e modifica della SACL. Puo' essere solo 
+      richiesto o inserito in una SACL, mai inserito in un'ACL -- l'accesso e' 
+      concesso implicitamente se il privilegio Security e' presente e attivato.
+
+    * MAXIMUM_ALLOWED: accesso speciale che puo' essere solo richiesto e che 
+      indica di aprire l'oggetto sempre e comunque, con il massimo accesso 
+      consentito al chiamante.
+
+    * Accessi generici: validi per tutti i tipi di oggetto, ma con significato 
+      diverso. Prima che un'ACL contenente accessi generici possa essere usata, 
+      gli accessi generici devono essere convertiti in accessi specifici e/o 
+      standard.
+
+ * PreviouslyGrantedAccess e' l'accesso che il soggetto ha gia', ad esempio per 
+   un privilegio.
+
+ * Privileges e' dove SeAccessCheck restituisce i privilegi che ha usato 
+   durante il controllo di accesso. I privilegi attualmente usati sono 
+   Security, che controlla le richieste dell'accesso ACCESS_SYSTEM_SECURITY 
+   (che non puo' essere specificato in un'ACL), e TakeOwnership, che, se 
+   attivato, consente accesso WRITE_OWNER a qualsiasi oggetto. Tutti gli altri 
+   privilegi devono essere controllati dal chiamante, e, se concedono a priori 
+   un qualche accesso all'oggetto, questo accesso va passato in 
+   PreviouslyGrantedAccess.
+
+ * GenericMapping e' la mappa che converte gli accessi generici in accessi 
+   specifici. Ha questa forma:
+
+typedef struct _GENERIC_MAPPING
+{
+	ACCESS_MASK GenericRead;
+	ACCESS_MASK GenericWrite;
+	ACCESS_MASK GenericExecute;
+	ACCESS_MASK GenericAll;
+}
+GENERIC_MAPPING, * PGENERIC_MAPPING;
+Non servono ulteriori spiegazioni, credo.
+
+ * AccessMode puo' essere UserMode o KernelMode. Se e' KernelMode, 
+   SeAccessCheck ritorna TRUE direttamente e senza passare dal via. 
+   Altrimenti... vedrete.
+
+ * GrantedAccess e' dove SeAccessCheck ritorna l'accesso consentito al soggetto 
+   sull'oggetto. Essenzialmente, e' utile quando il soggetto richiede l'accesso 
+   MAXIMUM_ALLOWED.
+
+ * AccessStatus e' dove SeAccessCheck ritorna la ragione del fallimento in caso 
+   di fallimento (non sempre si trattera' di STATUS_ACCESS_DENIED, quindi e'
+   importante che l'informazione non vada perduta).
+
+L'algoritmo e' un lungo calvario di loop annidati, piuttosto intuitivo:
+
+1. Le access mask vengono normalizzate, se necessario, convertendo i permessi 
+   generici in permessi specifici. La normalizzazione e' importante: permette 
+   di accelerare il controllo di accesso trasformandolo in un loop di semplici 
+   operazioni bit-a-bit di AND/OR e confronto.
+
+2. L'accesso concesso viene inizializzato con il valore normalizzato 
+   dell'accesso gia' concesso. Se l'accesso cosi' ottenuto e' uguale 
+   all'accesso richiesto, la funzione ritorna con successo. 
+
+3. Se l'ACL del descrittore di sicurezza e' nulla, tutto l'accesso richiesto e'
+   concesso implicitamente. La funzione ritorna con successo. Se l'accesso 
+   richiesto era MAXIMUM_ALLOWED, viene aggiunto anche l'accesso GENERIC_ALL.
+
+4. Se e' richiesto l'accesso WRITE_DAC e il soggetto e' il proprietario 
+   dell'oggetto, WRITE_DAC viene aggiunto all'accesso concesso (cioe' il 
+   proprietario di un oggetto puo' sempre cambiarne i permessi. Dite che sulle 
+   condivisioni di rete non e' sempre cosi'? Ottimo spirito di osservazione, ma
+   continuate a leggere). Se l'accesso cosi' ottenuto e' uguale all'accesso 
+   richiesto, la funzione ritorna con successo.
+
+5. Se l'accesso richiesto implicitamente richiede (o potrebbe essere concesso 
+   da) dei privilegi, come nel caso di ACCESS_SYSTEM_SECURITY e WRITE_OWNER, 
+   viene fatto un controllo sui privilegi detenuti dal soggetto. La maschera 
+   dell'accesso concesso viene aggiornata con l'accesso concesso in questo 
+   modo. Se l'accesso cosi' ottenuto e' uguale all'accesso richiesto, ecc. ecc.
+
+6. Per ogni ACE nell'ACL, se il gruppo specificato nell'ACE e' l'user id o un
+   gruppo abilitato contenuto nel token:
+
+    * La maschera di accesso dell'ACE viene normalizzata.
+
+    * Se l'ACE e' di accesso negato e la rispettiva maschera di accesso si 
+      interseca di anche solo un bit con l'accesso richiesto, l'accesso e' 
+      negato e la funzione fallisce (a meno che non sia richiesto l'accesso 
+      MAXIMUM_ALLOWED, nel qual caso la maschera di accesso richiesto viene 
+      aggiornata spegnendo i bit accesi nella maschera dell'ACE, e il loop 
+      continua).
+
+    * Se l'ACE e' di accesso consentito, l'accesso consentito viene aggiornato 
+      mettendolo in OR con l'intersezione (AND) dell'accesso richiesto e della 
+      maschera dell'ACE. Se l'accesso cosi' ottenuto e' uguale all'accesso 
+      richiesto, la funzione ritorna con successo. A meno che non sia richiesto 
+      l'accesso MAXIMUM_ALLOWED: in tal caso la maschera viene solo aggiornata, 
+      e il loop continua.
+
+7. L'accesso viene negato implicitamente, e la funzione fallisce (a meno che 
+   non sia richiesto l'accesso MAXIMUM_ALLOWED). Un'ACL vuota, percio', non 
+   consente nessun accesso.
+
+Tutto chiaro? Spero di si'.
+
+
+2.2. INFRASTRUTTURA DI AUTENTICAZIONE
+
+Starete, immagino, morendo dalla curiosita' di sapere da dove nascono questi 
+famosi token. Vedete, a volte, quando due servizi di sistema si vogliono bene, 
+molto bene...
+
+                     User              +-----------------+
+                       |               | runas       (1) |
+                       |               |                 |
+                       v               +--------|--------+
+            +---------------------+             |
+            | +-----------------+ |             |
+            | | GINA        (1) | |             v
+            | |                 | |    +-----------------+
+            | |                 | |    | Secondary       |
+            | |                 | |    | logon           |
+            | +-----------------+ |    |                 |
+            |                     |    |                 |
+            | Winlogon            |    |                 |
+            |                     |    |                 |
+            +---------|-----------+    +-------|---------+
+                      | ^                      | ^
+                  (2) | | (5)              (2) | | (5)
+                      | |                      | |
++---------------------|-|----------------------|-|----------------+ (4)
+| LSASS               | |                      | |                |    _______
+|                     v |                      v |                |  /         \
+|  +--------------------|------------------------|--------------+ |  |-_______-|
+|  | LSA                                                        | |  |         |
+|  |                                                            ---->| Policy  |
+|  |                                                            | |  |database |
+|  +---|----------------------------------------------------|---+ |  |         |
+|      |                                                    |     |  \ _______ /
+|  (2) |                                                (2) |     |
+|      v                                                    |     |
+|  - - - - - - - - - - - - - - - - - - - - - - - - - - - -  |     |
+|  | APs                                                  | |     |
+|                                                           |     |
+|  |  +-------------+   +-------------+   +-------------+ | |     |
+|     | MSv1_0      |   | Negotiate   |   | Kerberos    |   |     |
+|  |  |             |<--|             |-->|             | | |     |
+|     |             |   |             |   |             |   |     |
+|  |  +---|-----|---+   +-------------+   +------|------+ | |     |
+|  - - - -|- - -|- - - - - - - - - - - - - - - - | - - - -  |     |
+|         |     +--------------------+           +-----+    v     |
+|         v               - - - - - -|- - - - - - - - -|- - - - - | (3)
+|  +-------------+        | SSPs     |                 |        | |    _______
+|  | SAM         |                   v                 v          |  /         \
+|  |             |        |   +-------------+   +-------------+ | |  |-_______-|
+|  |             |            | NetLogon    |   | Active      |   |  |         |
+|  +------|------+        |   |             |   | Directory   --|--->|Directory|
+|         |                   |             |   |             |   |  |         |
+|     (3) |               |   +------|------+   +------|------+ | |  |         |
+|         |               - - - - - -|- - - - - - - - -|- - - - - |  \ _______ /
++---------|--------------------------|-----------------|----------+
+          |                          |                 |
+       ___v___                   (3) |             (3) |
+     /         \                     |                 |
+     |-_______-|                     v                 v
+     |         |                      Domain controller
+     |   SAM   |
+     |database |
+     |         |
+     \ _______ /
+
+Perdonate il casino che faro' spiegandolo, ma la documentazione non e' molta, e 
+quella che c'e' manca poco riporti indicazioni tipo "hic sunt leones". 
+Fortunatamente, non e' vitale capire come funzioni l'autenticazione, per gli 
+scopi di questo articolo (anzi, ignoreremo completamente l'autenticazione), ma 
+mi pare brutto lasciarvi cosi', "a piedi". Pazientate, ancora poco e sara' 
+tutto finito.
+
+Prima di tutto, esaminiamo le componenti riportate nell'illustrazione:
+
+ * *LSA* (Local Security Authority) e' il cuore dell'autenticazione in Windows,
+   nonche' dell'intera infrastruttura del modello di sicurezza stesso. Il 
+   compito di LSA e' duplice: mediare le chiamate tra i vari componenti 
+   dell'infrastruttura, e gestire il database delle policy.
+
+   Quest'ultimo aspetto comprende l'assegnazione dei privilegi, quella dei 
+   diritti (simili ai privilegi, ma si applicano _prima_ dell'autenticazione, 
+   e rappresentano capacita' richieste _a priori_. Esempi di diritti sono 
+   NetworkLogon, InteractiveLogon, ecc.), delle quote di memoria e CPU (tuttora 
+   vergognosamente inutilizzate), dei criteri di auditing, dei trust tra domini 
+   (di cui non so un accidente) e dei dati cifrati associati agli utenti (ad 
+   esempio, il dialer salva qui le password delle connessioni a Internet). Se 
+   vi suona tutto stranamente familiare, forse state pensando alla finestra 
+   "Impostazioni protezione locale" (comando secpol.msc). Precisamente.
+
+   Il database delle policy e' un hive del registro, 
+   HKEY_LOCAL_MACHINE\SECURITY. Potete guardarci dentro, con un po' di impegno, 
+   ma non troverete niente di immediatamente interessante (il cracking del 
+   database delle policy e' un argomento a se', ma io in crittografia sono una 
+   mezza sega). Inoltre e' interamente criptato -- non si nota perche', di 
+   default, la chiave e' salvata in chiaro nel registro, ma potete scegliere di 
+   tenerla su un floppy o proteggerla con una password (provate il comando 
+   syskey).
+
+ * Il *SAM* (Security Account Manager) e' il servizio che gestisce il database 
+   degli utenti e dei gruppi. Contiene i nomi di tutti gli utenti e i gruppi, i 
+   rispettivi SID, i membri di ogni gruppo e gli hash delle password degli 
+   utenti, generate dagli SSP (vedi piu' avanti). Sicuramente molto altro, ma 
+   francamente lo ignoro. Se vi interessa, credo Samba sia una fonte di 
+   informazioni piu' completa.
+
+   Anche il database del SAM e' un hive del registro, HKEY_LOCAL_MACHINE\SAM, 
+   anch'esso crittato.
+
+ * *NetLogon* e *Active Directory* sono degli *SSP* (Security Service 
+   Provider). Essenzialmente, forniscono l'accesso a database utenti remoti e 
+   permettono di serializzare/deserializzare le credenziali. Supportano l'uno i 
+   domini vecchio stile (fino a Windows NT 4), l'altro i nuovi domini 
+   gerarchici basati su Internet introdotti in Windows 2000. NetLogon, in 
+   particolare, non e' che un ponte RPC verso un SAM remoto.
+
+ * Gli *AP* (Authentication Package), infine, sono i componenti che ricevono le 
+   richieste di autenticazione e le validano sulla base delle informazioni 
+   raccolte dagli SSP e dal SAM. Windows, al momento, ne ha tre: Microsoft 1.0 
+   (anche noto come MSV1_0), che gestisce i logon locali e quelli remoti su 
+   domini vecchio stile; Kerberos, che gestisce i logon remoti tramite Active 
+   Directory; e Negotiate, che sceglie l'AP adatto in base al nome utente.
+
+Questi benedetti token, allora, da dove escono? Cosa trasforma un nome utente e 
+una password in un token? La procedura esatta varia da un percorso di 
+autenticazione all'altro, ma, schematicamente, si puo' dividere in fasi:
+
+1. *Raccolta delle credenziali*. Qualche esempio:
+
+ * Il servizio di logon primario (Winlogon) le ottiene tramite un'interfaccia 
+   grafica personalizzata (GINA, Graphic Identification aNd Authorization), che 
+   chiede all'utente un nome utente e una password.
+
+    * Il servizio di logon secondario (RunAs) le ottiene tramite il comando 
+      testuale runas o la finestra "Esegui come...".
+
+    * I server di rete che usano il database utenti del sistema ottengono o 
+      nome utente e password piu' o meno in chiaro, o un blocco di credenziali 
+      "pre-digerite" da un sistema di autenticazione remoto (la famosa 
+      "autenticazione NTLM", o, piu' propriamente "autenticazione SSPI").
+
+2. *Connessione ad un AP* (o ad un SSP se abbiamo gia' pronte le credenziali e 
+   dobbiamo solo validarle). Il servizio di logon si connette all'LSA e chiede
+   di parlare con un AP/SSP, per risolvere le credenziali e/o validarle, ed
+   ottenere in cambio il token corrispondente. Alcuni servizi di autenticazione
+   suggeriscono anche dei gruppi da aggiungere al token. L'esempio piu'
+   importante e' Winlogon, che genera un logon id (S-1-5-5-X-Y) e ne chiede 
+   l'inserimento all'interno del token, perche' e' l'unico gruppo (a parte 
+   LocalSystem, S-1-5-18) con accesso completo al display -- senza appartenere 
+   a questo gruppo, la shell dell'utente non si avvierebbe nemmeno, men che 
+   meno riuscirebbe a creare finestre.
+
+   L'API per dialogare con l'LSA, curiosamente, e' la stessa per user mode e 
+   kernel mode (un tema ricorrente nel design di Windows NT), e i server di 
+   rete kernel-mode che si servono dell'LSA sono tutt'altro che rari (pensate 
+   al file server CIFS). Molto piu' rari gli AP/SSP kernel-mode (mai visto 
+   uno), anche se del tutto possibili.
+
+3. *Verifica delle credenziali*. L'AP/SSP si connette ai database utenti di cui 
+   fa uso e valida le credenziali provenienti dal servizio di autenticazione, o 
+   comunque usa qualunque sistema di verifica su cui il suo protocollo e' 
+   basato. In risposta ottiene o un codice di errore, o un set di user id, 
+   gruppi, privilegi, ACL predefinita, ecc. che l'LSA usera' per costruire il 
+   famoso token. L'AP/SSP, inoltre, associa le credenziali al token creando una 
+   sessione di logon, che l'LSA assegnera' al token se e quando lo creera'.
+
+4. *Applicazione delle policy*. L'LSA, a questo punto, fa valere la voce 
+   dell'amministratore di sistema, che ha l'ultima parola su chi ha quali 
+   diritti. Se la verifica delle credenziali e' fallita per un utente 
+   registrato nel SAM locale, l'account dell'utente potrebbe essere bloccato. 
+   Se ha avuto successo, l'utente deve avere il diritto per il tipo di login 
+   richiesto: ad esempio, se l'utente ha cercato di fare login accedendo ad una 
+   condivisione di rete, ma non ha il diritto NetworkLogon, il login fallira'. 
+   Infine, l'LSA puo' cancellare privilegi e gruppi, o aggiungerne altri, 
+   eventualmente registrare il login dell'utente nel registro eventi, tutto in 
+   base alle direttive contenute nel database delle policy. Per i login remoti, 
+   le policy locali seguono e si sovrappongono a quelle, eventuali, remote.
+
+5. Se Dio vuole, ci siamo: *creazione del token*. L'LSA crea il token e lo 
+   ritorna al servizio di logon, che ne fara' un po' quel che gli pare 
+   (impersonarlo, usarlo per lanciare la shell dell'utente, ballarci la rhumba,
+   ecc.).
+
+Ora sapete tutto quello che _non_ e' la creazione di una sandbox (non e' stata 
+solo una gita di piacere. Quando piu' avanti parlero' di accesso al display, 
+sessioni di logon e credenziali SSPI, saprete per che verso girano le ruote). 
+Non servono password, servizi di sistema o server remoti. La creazione di una 
+sandbox nasce sulle spalle di questo intricato traliccio infrastrutturale, e 
+consiste nello _scendere_, rinunciando man mano ai permessi.
+
+Quel che da' noia e' che... non si puo' fare. La creazione di qualsiasi 
+identita' deve passare obbligatoriamente per questa trafila, pure che si 
+tratti di un'identita'-copia che fornisce un ovvio sotto-insieme di permessi: 
+si deve passare nuovamente per l'LSA (o, avendo il privilegio CreateToken, si 
+puo' saltare l'LSA e creare il token dal nulla. Ma non solo resta il problema 
+di non poter creare sessioni di logon senza cooperare con l'LSA -- che il 
+kernel contatta direttamente ogni volta che viene creato un token, proprio per 
+verificare che la sessione di logon sia valida -- costringendoci a copiare una 
+sessione esistente o usare la sessione anonima, c'e' anche che, in Windows 
+Server 2003, Microsoft ha deciso di soffocare la "creativita'" di alcuni 
+sviluppatori, applicando l'attributo "eliminato" al privilegio CreateToken in 
+tutti i token generati dall'LSA: ora, solo l'LSA puo' creare token -- o 
+programmi _molto_ creativi. Ed e' un bene, perche' l'LSA logga tutto, applica 
+le policy e crea token con un contenuto consistente e prevedibile).
+
+Si _doveva_. Molto e' cambiato in Windows 2000 -- e, come sempre quando 
+Microsoft introduce dei miglioramenti reali, piuttosto in silenzio.
+
+
+2.3. NOVITA' IN WINDOWS 2000: TOKEN FILTRATI
+
+2.3.1. Digressione
+
+Arrivato a questo punto, e cioe' all'argomento decisivo, mi trovo in un grande
+imbarazzo. Mi mancano improvvisamente le parole. Quindi faccio una piccola
+pausa, vi racconto un po' di sciocchezze e poi riprendiamo le cose serie, anche
+perche' quattro pagine e piu' di dettagli intimi sul modello di sicurezza di
+Windows sono troppo persino per me.
+
+L'autore di questo articolo ha una lunga storia di interventi fallimentari in
+comunita' sulla sicurezza informatica. Il piu' celebre e' il messaggio su
+Bugtraq (cercate "KJK::Hyperion executable attachments bugtraq" con Google) che 
+ha iniziato una flame war niente male. L'autore, come sempre, aveva ragione [3] 
+e tutti gli altri puzzavano, ma commise un paio di imprudenze (leggete il 
+messaggio, giudicate voi) -- ora che lo sa, quando lo fa, lo fa apposta (se
+dopo aver letto la breve sezione autobiografica di questo articolo volete
+scrivermi "Tu! pezzo d'asino! come _OSI_ nominare Linux!", lasciate perdere: 
+non avete colto. O fatelo almeno con un po' di ironia).
+
+Alcune figuracce sono passate in ombra. Male: tutto il mondo deve sapere.
+
+Tizio chiede sulla mailing list di Sikurezza: "Come impedisco agli utenti di
+cambiare i permessi dei loro file?". L'imbecille (io) risponde: "togli
+l'accesso completo dall'ACL". Tizio risponde: "Il proprietario di un file puo'
+sempre cambiare i permessi" (ricordate, no?). L'imbecille dice "Ah, e' vero! ci
+penso io!", e butta due settimane su un progetto assurdo di un wrapper per la 
+GINA predefinita di Windows che cambi l'owner predefinito del token della shell
+con un SID che non sia l'user id (impossibile, ricordate? l'user id e' sempre
+un owner valido). Si arrende per manifesta imbecillita', ma il problema
+continua a tormentarlo.
+
+Il mondo decide di giocare un po' con il suo cervello, e un giorno gli fa notare
+che sulla rete della scuola, nonostante sia il proprietario dei suoi file, non
+puo' cambiarne i permessi. "Ma che cazzo?", pensa l'imbecille, e scrive un
+complicatissimo programma che legge il descrittore di sicurezza di un file e
+controlla "a mano" l'accesso consentito. Inconcludente: il programma dice sempre
+"accesso WRITE_DAC consentito", ma i tentativi di aprire file con quell'accesso
+falliscono sempre. Ancora piu' strano: i file locali si comportano come atteso,
+solo i file di rete hanno quella limitazione. 
+L'imbecille si arrende definitivamente, si deprime e va a casa a soffocare i 
+suoi dispiaceri nel lievito maltato in polvere.
+
+Il mondo prova pieta' per lui, e un giorno gli fa sentire l'amministratore 
+della rete della sua scuola spiegare che i permessi sui file di rete vengono 
+filtrati dai permessi sulla condivisione attraverso la quale vi si accede. 
+L'imbecille si batte una mano sulla fronte e si affoga nel WC.
+
+Se ci pensate, e' dolorosamente ovvio. Non so il vostro, ma il mio computer si 
+chiama ALDEBARAN e Windows e' installato in D:\WINNT (e D: e' l'unica lettera 
+di unita' -- si', non ho C: -- nonostante abbia una decina di partizioni, ma 
+questa e' un'altra storia). Ovviamente, ho accesso (in sola lettura) a D:\WINNT.
+Perche', quindi, non posso accedere ad \\ALDEBARAN\D$\WINNT? Ovvio: perche' non
+sono amministratore, e non ho nessun accesso alla condivisione automatica di D:.
+Non ci voleva molto, nevvero?
+
+(La risposta per Tizio e': sposta i profili utente su un'unita' di rete e revoca
+-- revoca soltanto, non negare -- il permesso WRITE_DAC sulla condivisione per
+il gruppo Users. Usa eventualmente una policy per disattivare l'editor di ACL
+sui client).
+
+2.3.2. I token filtrati
+
+Il fatto che il proprietario di un file possa sempre cambiare i permessi (e 
+quindi ottenere tutto l'accesso necessario) e' (era) una delle fregature del
+modello di sicurezza di Windows, ed uno dei motivi per cui abbiamo (avevamo)
+davvero bisogno di antivirus: non esiste (ecc.) un modo semplice, alla portata
+di tutti e non solo dei super-hacker in grado di scrivere un AP, di avviare
+programmi con un token limitato.
+
+Microsoft deve aver ricevuto parecchie lamentele e averci pensato un po' su (o
+forse no. Forse il design era gia' pronto e aspettavano solo che i clienti ne
+mostrassero la necessita' -- vedremo poi cosa me lo fa pensare), e il risultato
+e' molto interessante: i token filtrati. I token filtrati funzionano
+esattamente come i token normali, con alcune importanti differenze:
+
+ * Chiunque puo' creare token filtrati. Creare token normali richiede il 
+   privilegio CreateToken, da cui il bisogno di un complesso sistema di 
+   autenticazione per impedire l'elevazione di privilegi. Cio' e' possibile e 
+   sicuro perche' i token filtrati possono solo essere creati a partire da un 
+   token esistente e possono _al massimo_ avere gli _stessi_ privilegi del 
+   token di partenza: mai di piu', spesso molti di meno.
+
+ * Chiunque puo' assegnare un token filtrato ad un processo, se il token e' 
+   stato creato filtrando il token principale del processo chiamante. Assegnare 
+   token, normalmente, richiederebbe il privilegio AssignPrimaryToken -- i 
+   servizi di logon che lanciano una shell devono sempre avere questo 
+   privilegio (il comando runas fa lanciare i propri processi dal servizio di 
+   logon secondario). Dato che un token filtrato copiato dal proprio token non 
+   puo' elevare i privilegi in nessun modo, assegnarlo ad un processo e' 
+   un'operazione non privilegiata.
+
+ * I token filtrati riescono a limitare i privilegi di un processo, senza 
+   rompere i meccanismi di auditing e accounting, presenti e futuri, e in 
+   generale integrandosi perfettamente con il modello di sicurezza esistente (e 
+   creando tutta una nuova famiglia di problemi...). Il filtraggio di un token 
+   puo' consistere in una o piu' di queste operazioni:
+
+    * *Eliminazione di privilegi*. Esattamente quello che sembra: il token 
+      filtrato puo' avere meno privilegi. Si possono eliminare privilegi 
+      specifici, o tutti i privilegi. Di default, il privilegio ChangeNotify 
+      non e' considerato uno dei "tutti", perche' e' piuttosto innocuo (in 
+      breve: permette di accedere a C:\blah\doh anche senza avere accesso 
+      FILE_TRAVERSE -- sottoinsieme di FILE_GENERIC_EXECUTE, se capite cosa 
+      intendo -- a C:\blah) e viene solo disabilitato per compatibilita' con 
+      sistemi POSIX (ad esempio se installate Interix), perche' il suo effetto 
+      va direttamente contro lo standard POSIX.
+
+    * *Disabilitazione parziale di gruppi*. L'eliminazione dei gruppi non e' 
+      sicura come quella dei privilegi: futuri meccanismi ausiliari di 
+      accounting potrebbero essere basati non solo sull'user id o sul 
+      proprietario, ma anche sui gruppi (avrebbe senso, no?) -- magari qualche
+      applicazione server lo fa gia'. Eliminare un gruppo da un token 
+      nasconderebbe un'informazione importante: il fatto che quel particolare 
+      soggetto era membro di quel gruppo. E ricorderete dalla spiegazione sui 
+      token che la disabilitazione dei gruppi non e' normalmente concessa, 
+      perche' ha la conseguenza non ovvia di ignorare le ACE di accesso 
+      esplicitamente negato nelle ACL.
+
+      La soluzione usata nel filtraggio dei token e' il proverbiale uovo di 
+      Colombo: anziche' eliminare o disabilitare i gruppi, li rendiamo validi 
+      solo per i controlli di accesso negato, con il nuovo attributo "deny 
+      only". Otteniamo lo stesso effetto (limitare i privilegi di un processo), 
+      ma senza dover cambiare le ACL pre-esistenti (e la documentazione, e il 
+      software che genera ACL, ecc.).
+
+    * *Aggiunta di gruppi filtranti*. Avete presente il filtraggio operato dal 
+      file server CIFS? Cioe' l'ACL della condivisione che viene sovrapposta a 
+      quella dei file a cui permette di accedere? I gruppi filtranti permettono 
+      di implementarlo in modo consistente e per tutti gli oggetti: file 
+      locali, chiavi di registro, ecc.. L'algoritmo di controllo di accesso, in 
+      pratica, viene modificato in modo che, qualora l'accesso fosse 
+      consentito, venga effettuato un secondo controllo di accesso, questa 
+      volta usando i gruppi filtranti anziche' quelli principali. Se, ad 
+      esempio, inserissimo in un token Everyone come gruppo filtrante, quel 
+      token consentirebbe al massimo l'accesso concesso ad Everyone.
+
+      Come forse avrete intuito, i gruppi filtranti sono, da soli, la chiave di 
+      volta nella creazione di una sandbox, nonche' il motivo per cui io non 
+      valgo una cicca -- e' praticamente gia' tutto pronto, per la mia bella 
+      faccia.
+
+    * *Aggiunta della flag SANDBOX_INERT*. Anch'io mi son chiesto "e quindi?". 
+      Pare che non abbia nessun effetto, e non capisco che significato utile si 
+      potrebbe assegnare alla flag (che non e' altro che una lucetta che si 
+      puo' accendere o spegnere). Sappiate che e' possibile. Se trovate un uso, 
+      fatemi sapere.
+
+2.3.3. Token filtrati e sandbox
+
+L'uso dei token filtrati per il sandboxing non e', ovviamente, una mia 
+invenzione. Microsoft stessa, in Windows XP, ha aggiunto un'opzione alla 
+finestra "Esegui come...", che non richiede un nome utente e una password, e 
+altro non e' che un modo per lanciare un processo con un token filtrato.
+
+L'opzione presente in Windows XP, tuttavia, e' abbastanza limitata. Diciamo che 
+soddisfa un bisogno estemporaneo: ho un programma di dubbia provenienza e 
+voglio provarlo in tutta sicurezza. Non prevede, ad esempio, che il programma 
+di dubbia provenienza non sia un virus, ma magari un programma che ci serve 
+usare quotidianamente. O che certi programmi abbiano necessariamente bisogno di 
+accedere in scrittura a certe risorse, per funzionare. Insomma, e' utile, ma 
+solo in casi specifici.
+
+Questo pero' io non lo sapevo, e tuttavia ho deciso sin dal primo momento di 
+sviluppare un tool molto piu' configurabile, che permettesse di implementare 
+almeno una serie di scenari utili, e magari anche tutti quelli perfettamente 
+inutili (faro' poi un confronto tra quello che ho prodotto io e l'opzione di 
+Windows XP) -- preferisco non escludere nulla a priori.
+
+Le limitazioni principali che vorremo imporre con una sandbox si possono 
+riassumere in pochi punti:
+
+ * *Accesso in sola lettura ai file e alle impostazioni dell'utente*, perche' 
+   vogliamo che il programma giri nell'ambiente a cui siamo abituati, e che 
+   tuttavia non possa danneggiarlo. Perche' e' vero che l'uso di un account 
+   utente limitato impedisce di far danni al sistema, ma il nostro profilo 
+   utente, i nostri importantissimi documenti, che non possiamo semplicemente 
+   reinstallare, sono ancora alla merce' di qualsiasi programma.
+
+   Per ottenere cio', e' sufficiente aggiungere un gruppo filtrante al token e 
+   dare al gruppo accesso in sola lettura al profilo utente.
+
+ * *Negazione della lettura di file privati*. Se sappiamo che il programma e' 
+   interessato al furto di informazioni personali, avremo bisogno di negargli 
+   completamente l'accesso a certe parti del profilo utente. Come sopra: 
+   aggiungere un gruppo filtrante e negargli qualsiasi accesso alle zone 
+   riservate.
+
+   Nota bene: i token filtrati _mantengono la stessa sessione di logon del 
+   token originale_. Questo significa che le credenziali SSPI rimangono 
+   invariate: i sistemi remoti continueranno a poterci identificare, ma 
+   soprattutto _il token filtrato avra' accesso agli stessi file criptati con 
+   EFS_. Non possiamo nascondere i file criptati alla sandbox, perche' la 
+   sandbox ha la nostra stessa identita', credenziali incluse.
+
+ * *Accesso in scrittura ai file necessari per il funzionamento del programma*. 
+   Per quanto ci piacerebbe limitare completamente un programma, non e' sempre 
+   possibile: il programma potrebbe essere qualcosa che ci e' utile, ma di cui 
+   non ci fidiamo del tutto, quindi vogliamo che sia comunque in grado di 
+   scrivere il proprio output, sia pure non in grado di fare altro. E' 
+   sufficiente creare un gruppo per ogni "gruppo" di programmi con requisiti 
+   comuni, e aggiungerli come gruppi filtranti quando necessario.
+
+   Ad esempio, due programmi A e B necessitano di creare file nella directory 
+   C:\downloads, e B anche in C:\partials. Creeremo due gruppi, 
+   "restrict-downloads" e "restrict-partials", permettendo al primo di creare
+   file in C:\downloads e al secondo in C:\partials. "restrict-downloads" 
+   verra' aggiunto come gruppo filtrante di A e B, e "restrict-partials" solo 
+   come gruppo filtrante di B.
+
+   Solo una raccomandazione: *NON AGGIUNGETE MEMBRI AI GRUPPI CHE INTENDETE 
+   USARE COME GRUPPI FILTRANTI*. Nelle ACL non c'e' nessuna flag che dice 
+   "questa ACE e' solo un filtro": la natura filtrante di un'ACE dipende 
+   interamente dal relativo gruppo. Se il vostro "filtro" dice "accesso 
+   completo a restrict-downloads", un utente _membro_ di restrict-downloads 
+   avra' accesso completo ai file di C:\downloads, di chiunque siano. E' 
+   importante che l'unico significato di questi gruppi nelle ACL sia di filtro.
+
+Il mio tool rende tutto questo possibile (possibile, non comodo -- vi esporro' 
+poi un paio di idee che ho sul suo possibile successore).
+
+
+
+3. METTERE INSIEME IL TUTTO: IL COMANDO IAM
+--------------------------------------------------------------------------------
+
+A fine maggio 2003, l'autore, che allora studiava il modello di sicurezza di 
+Windows per diletto, decise che non poteva piu' vivere solo di supposizioni, e 
+inizio' a progettare e scrivere un programma che avrebbe permesso di creare 
+qualsiasi token possibile, e lanciare comandi con quel token (l'autore 
+abbandono' presto l'idea e riprogetto' il tool per creare solo token filtrati, 
+comunque permettendo di alterare un token esistente).
+
+Il tool si sarebbe chiamato "I Am" (perche'? Provate il comando "iam --help", e 
+leggete bene. Potreste arrivarci), e sarebbe stato un comando testuale. Sarebbe 
+stato _il_ tool definitivo di sandboxing (anche se non era ancora chiaro che 
+sarebbe stato questo il suo scopo principale).
+
+
+3.1. LA TEORIA
+
+Inizialmente, l'help interno di I Am era questo (piu' o meno -- in realta' l'ho 
+messo sotto CVS solo di recente, quindi tutte le revisioni precedenti sono 
+andate perdute):
+
+C:\>iam --help
+
+I Am: sanboxing tool for Windows
+
+Usage: IAM [OPTION]... [--] COMMAND [PARAMETERS]...
+
+Runs COMMAND with PARAMETERS in a sandbox constructed according to the
+OPTIONs
+
+   OPTION           DESCRIPTION                                     CRITICAL
+Privileges:
+  -priv=PRIVILEGE   Disable PRIVILEGE in the token                    no
+  -priv=*           Disable all privileges in the token               --
+  +priv=PRIVILEGE   Enable PRIVILEGE in the token                     no
+  +priv=*           Enable all privileges in the token                --
+ -!priv=PRIVILEGE   Delete PRIVILEGE from the token [1]               no
+ -!priv=*           Delete all privileges from the token [1]          --
+ +!priv=PRIVILEGE   Undelete PRIVILEGE from the token [1]             --
+ +!priv=*           Undelete all privileges from the token [1]        --
+
+Groups:
+  -group=GROUP      Disable GROUP in the token                        [2]
+  -group=*          Disable all groups in the token                   yes
+  +group=GROUP      Enable GROUP in the token                         no
+  +group=*          Enable all groups in the token                    no
+ -!group=GROUP      Set GROUP in the token as deny-only [1]           no
+ -!group=*          Set all groups in the token as deny-only [1]      --
+ +!group=GROUP      Unset GROUP in the token as deny-only [1]         --
+ +!group=*          Unset all groups in the token as deny-only [1]    --
+
+Restricting groups: [1]
+  -rgroup=GROUP     Don't add GROUP to the restricting groups of the  no
+                    token
+  -rgroup=*         Add no group to the restricting groups of the     --
+                    token
+  +rgroup=GROUP     Add GROUP to the restricting groups of the token  --
+
+Miscellaneous:
+  -help             Show this help and exit                           --
+  -about            Show version and copyright information and exit   --
+
+Notes:
+[1] Requires system support for filtered tokens (Windows 2000 and later)
+[2] Non-critical if GROUP is not found in the token, critical if GROUP is
+    mandatory and can't be disabled
+
+Remarks:
+[...]
+
+Ero ingenuo, il mondo era rosa e gli uccelli cinguettavano. Mi accorsi quasi 
+subito di due problemi: la flag DISABLE_MAX_PRIVILEGE per la creazione di token 
+filtrati non eliminava mai ChangeNotify (non documentato!), e non aggiungere 
+nemmeno un gruppo filtrante di default aveva una scarsa utilita', perche' il 
+processo non sarebbe stato in grado di accedere a nulla, rendendo l'uso di I Am 
+piuttosto frustrante (la scelta ricadde su Everyone -- cioe', di default, la 
+sandbox sarebbe stata "nessuno", potendo solo avere lo stesso accesso concesso 
+a tutti). A seguito di queste considerazioni, aggiunsi qualche opzione e 
+modificai alcune opzioni esistenti:
+
+  -priv=*           Disable all privileges in the token               --
+  -priv=**          ... including ChangeNotify                        --
+ -!priv=*           Delete all privileges from the token              --
+ -!priv=**          ... including ChangeNotify                        --
+  -group=*          Disable all groups in the token                   yes
+  -group=**         ... including Everyone                            yes
+ -!group=*          Set all groups in the token as deny-only          --
+ -!group=**         ... including Everyone                            --
+  -rgroup=*         Add no group to the restricting groups of the     --
+                    token
+  +rgroup=*         Add Everyone to the restricting groups of the     --
+                    token
+
+In pratica, qualche default utile (mica tanto. Tutta la famiglia di opzioni 
+-group e' inutile, dato che tutti i gruppi che un token potra' mai contenere 
+saranno obbligatori e quindi non disabilitabili, ma l'ho aggiunta cosi', 
+perche' non si sa mai), e qualche opzione per simmetria con le nuove opzioni 
+(-priv=** contro -!priv=**, ad esempio). Notate che manca un'opzione -!rgroup 
+(e non c'e' tuttora, nella versione attuale del programma): i gruppi filtranti 
+non possono essere eliminati o disabilitati, solo aggiunti a quelli 
+eventualmente esistenti.
+
+Idealmente, l'uso tipico sarebbe consistito in:
+
+C:\>iam -#priv=* -#group=* +rgroup=* -- !COMSPEC!
+
+(La sintassi !variabile! e' equivalente a %variabile%, ma viene espansa in una 
+fase diversa dell'interpretazione della riga di comando, ed e' piu' sicura 
+perche' meno ambigua -- ed e' la ragione per cui le -!opzioni adesso sono 
+-#opzioni. Magari un giorno scrivero' un articolo sul prompt dei comandi di 
+Windows e sul suo curioso parser).
+
+In pratica, le cose andarono molto diversamente quando, un anno dopo (l'autore 
+e' pigro), I Am comincio' a funzionare davvero.
+
+
+3.2. IL MONDO REALE
+
+Non appena fu possibile avviare realmente qualcosa con I Am, emersero delle 
+complicazioni non previste. Il nostro eroe, coraggiosamente, le affronto' e le 
+sconfisse tutte (tranne quelle troppo difficili).
+
+3.2.1. Il display
+
+Lo ammetto, questa era una stupidaggine e avrei dovuto aspettarmelo: Everyone 
+come unico gruppo filtrante non basta per niente. Il display non permette 
+l'accesso a DogsAndPigs (leggi: Everyone), ma solo al suo proprietario, ai 
+processi di sistema e alla sessione di logon che gira al suo interno. La scelta 
+piu' ovvia era di aggiungere il SID di logon come gruppo filtrante, e in genere 
+di trattarlo come prima trattavo solo Everyone. Modificai cosi' le opzioni:
+
+  -group=**         ... including Everyone and the logon id           yes
+ -#group=**         ... including Everyone and the logon id           -- 
+  +rgroup=*         Add Everyone and the logon id to the restricting  --
+                    groups of the token
+
+Tanto per la cronaca, quello che succede quando si avvia un programma senza 
+accesso al display che carica implicitamente user32.dll (e quindi accede al 
+display) e' una bella finestra di errore con il messaggio "Applicazione non 
+correttamente inizializzata (0xc0000142). Fare clic su OK per chiudere 
+l'applicazione." (lo so perche' ho provato, apposta per questo articolo, a 
+togliere i permessi al display e lanciare poi dei programmi grafici).
+
+Scopriro' in seguito che questa soluzione e' sub-ottimale, ma ci arriveremo un 
+po' alla volta.
+
+3.2.2. Il profilo utente
+
+Sapevo che questo avrebbe rappresentato un problema, ma non avevo ancora capito 
+bene il funzionamento dei gruppi filtranti, quindi mi ci volle un po' per 
+arrivare a cio' che ormai mi sembra ovvio: avrei creato un gruppo senza membri 
+(chiamato "IAM") e gli avrei concesso accesso in sola lettura al profilo utente.
+Il gruppo IAM avrebbe rappresentato, in pratica, il filtro predefinito per tutti
+i processi avviati da I Am. Le opzioni vennero modificate come segue:
+
+  -group=**         ... including Everyone, the logon id and IAM      yes
+ -#group=**         ... including Everyone, the logon id and IAM      -- 
+  +rgroup=*         Add Everyone, the logon id and IAM to the         --
+                    restricting groups of the token
+
+Il profilo utente e' composto da due parti principali: la directory del profilo 
+e l'hive HKEY_CURRENT_USER dell'utente. Entrambe devono essere rese di sola 
+lettura al gruppo IAM. Facendo questo, scoprii qualcosa che fece scattare nel 
+mio cervello un vecchio meccanismo rimasto inceppato. L'HKEY_CURRENT_USER del 
+mio utente aveva nell'ACL il misterioso gruppo "RESTRIZIONI" che avevo gia' 
+incontrato, ma che non compariva da nessun'altra parte che in alcune ACL 
+predefinite. RESTRIZIONI, dietro al quale si nasconde il SID S-1-5-12, altro 
+non e' che l'equivalente, standard e presente almeno da Windows NT 4 in poi (ma 
+allora da quanto tempo e' che il sandboxing e' stato almeno ipotizzato? Spero 
+di sbagliarmi), del gruppo IAM inventato da me. Improvvisamente molte cose 
+furono chiare.
+
+Ebbi la tentazione di sostituire subito IAM con S-1-5-12, ma c'era un problema: 
+S-1-5-12 non puo' essere aggiunto tramite il normale editor di ACL, perche' il 
+nome "RESTRIZIONI" e' a senso unico (S-1-5-12 viene tradotto in "RESTRIZIONI", 
+ma "RESTRIZIONI" non e' considerato nemmeno un nome valido) e non compare 
+nemmeno nella lista. Grossa fregatura. Decisi di tenermi IAM, che almeno e' 
+sotto il mio controllo.
+
+3.2.3. La directory dei programmi
+
+A questo punto mi sentivo ancora soddisfatto: il design del programma era 
+rimasto pulito. A parte la questione IAM/S-1-5-12, non c'era niente di 
+eccezionalmente brutto, e cominciavo a credere che non ce ne sarebbe stato 
+bisogno. Inutile dirlo, mi sbagliavo. Molte ACL predefinite non includono 
+Everyone, se riuscite a crederci.
+
+Fui costretto ad aggiungere Users alla lista dei gruppi-filtro di base, perche' 
+praticamente nessun programma riusciva ad accedere nemmeno in lettura alla 
+propria directory (non so la vostra, ma l'ACL della mia D:\programmi contiene 
+ACE solo per Administrators, Power Users, SYSTEM e Users). Ora so che non e' 
+una cosa tanto terribile, perche' ho potuto vedere che Users e' diventato una 
+specie di alias di Everyone -- tutti i token che abbia mai visto contengono 
+entrambi, anche quelli di utenti che non sono esplicitamente membri di Users.
+
+3.2.4. La directory temporanea
+
+Cose che la documentazione non dice (e chi potrebbe immaginare, del resto?), e 
+che rendono l'esperienza diretta insostituibile: la directory temporanea si 
+presume esistere ed essere scrivibile. Sempre. Non e' una richiesta 
+inaccettabile, ma non ci avevo pensato: i processi dentro la sandbox non 
+possono usare la directory temporanea usata da tutti gli altri, perche' si trova
+nel profilo utente e loro, dalla sanbox, vi hanno accesso in sola lettura.
+
+Questa e' particolarmente rognosa, e ho scelto di non occuparmene in I Am. Le 
+soluzioni possibili sono tante, vi espongo le piu' utili:
+
+1. Concedete accesso in scrittura al gruppo IAM sulla directory temporanea. La
+   soluzione piu' semplice, in piu' di un senso, ma considerate che permette ai
+   programmi della sandbox di fare cio' che vogliono con i file temporanei di
+   qualsiasi applicazione, perche' detti file sono non solo di proprieta' 
+   vostra, ma anche ad accesso pieno per IAM. Togliere l'accesso a IAM o 
+   limitarlo alla creazione di file e directory non funziona: ricordate che IAM 
+   e' un gruppo filtrante, e l'accesso in scrittura sara' consentito solo se 
+   consentito _sia_ all'utente, _sia_ a IAM.
+
+2. Create una directory temporanea solo per le sandbox, che conceda l'accesso 
+   in lettura e scrittura all'utente e a IAM, e impostate le variabili TEMP e 
+   TMP per puntare ad essa prima di avviare I Am (I Am non crea file 
+   temporanei, e, se li creasse, ora so che e' piu' sicuro renderli 
+   inaccessibili e fare in modo che si eliminino da se' alla chiusura del 
+   processo). Puo' essere anche globale (la mia, D:\tmp, lo e'), permettendo ad 
+   Everyone l'accesso _non ereditabile_ in lettura e la creazione di file, e a 
+   CREATOR OWNER l'accesso completo _solo ereditato_: chiunque potra' creare 
+   file nella directory, e, una volta creati, il loro proprietario vi avra' 
+   accesso completo (comunque filtrato dal gruppo IAM).
+
+3.2.5. Il profilo utente 2 -- la vendetta
+
+Questa fu bella. Mi accorsi di un problema: nonostante tutti gli accorgimenti 
+presi, i processi nella sandbox non riuscivano ad accedere al proprio 
+HKEY_CURRENT_USER. Ancora piu' strano: se nella sandbox avviavo regedit, 
+riuscivo ad accedere alla chiave HKEY_USERS\<SID> normalmente. Che diavolo 
+stava succedendo?
+
+Disassemblai persino la funzione che apre la chiave HKEY_CURRENT_USER, 
+partendo dal codice di inizializzazione di advapi32.dll e finendo in ntdll.dll, 
+tanto lavoro per scoprire che... semplicemente, i processi nella sandbox non 
+sapevano nemmeno _chi_ fossero. Ricordate che anche i token sono oggetti? Bene, 
+l'ACL del token che avevo creato non concedeva nessun accesso a IAM: i processi 
+della sandbox erano cosi' limitati che non riuscivano nemmeno a leggere il 
+proprio user id, e quindi non riuscivano a riempire il SID nella stringa 
+"HKEY_USERS\<SID>", e al posto della chiave giusta aprivano 
+HKEY_USERS\.Default. Wow (leggasi "vov").
+
+Qui nacquero l'opzione -tokacl e famiglia:
+
+  -tokacl=ACCESS    Revoke ACCESS to the token                        --
+  -tokacl=*         Set the token ACL to an empty ACL                 --
+  +tokacl=ACCESS    Grant ACCESS to the token                         --
+  +tokacl=*         Set the token ACL to a null ACL. NOT RECOMMENDED  --
+ -#tokacl=ACCESS    Deny ACCESS to the token                          --
+ -#tokacl=*         Same as -tokacl=*                                 --
+ +#tokacl=ACCESS    Set ACCESS to the token                           --
+
+Dove "grant", "revoke", "set" e "deny" hanno lo stesso significato che hanno 
+per il comando di Windows cacls (anzi, penso che usiamo proprio la stessa 
+funzione per implementarlo), e le ACL vuote e nulle hanno gli effetti di cui vi 
+ho gia' parlato.
+
+Gia' che c'ero, ho formalizzato la posizione di IAM come gruppo filtrante 
+principale, e ho aggiunto ancora un po' di opzioni ad un comando con una 
+schermata di aiuto che sembrava gia' "Guerra e pace":
+
+  -mrgroup=GROUP    Unset GROUP as a main restricting group           --
+  -mrgroup=*        Set no group as a main restricting group          --
+  -mrgroup=**       ... including IAM                                 --
+  +mrgroup=GROUP    Set GROUP as a main restricting group. Implies:   --
+                     - +rgroup=GROUP
+                     - +tokacl=GROUP,F
+                    DO NOT SPECIFY A GROUP WITH ANY MEMBERS
+  -rtoken           Use a restricting token. Requires system support  --
+                    for restricted tokens (Windows 2000 and later).
+                    Initially implies +mrgroup=IAM
+
+Chiaro, no? iam -rtoken abbrevia le opzioni praticamente obbligatorie per 
+ottenere dalla sandbox un comportamento intuitivo e marginalmente utile.
+
+3.2.6. Le directory di output comuni e il paradosso del proprietario impotente
+
+Restava un piccolo, odioso problema: i processi nella sandbox creavano file... 
+e, una volta che li chiudevano e cercavano di riaprirli, non ci riuscivano. 
+Questo succede nelle directory comuni, dove chiunque puo' creare file, e ha 
+accesso completo sui file che ha creato. Come abbiamo gia' abbondantemente 
+visto, la sola proprieta' di un file non e' abbastanza perche' un processo 
+dentro sandbox possa accedervi.
+
+A volte e' persino peggio: in Windows 2000 (non in Windows XP, ad esempio), i 
+file creati dagli amministratori hanno BUILTIN\Administrators come 
+proprietario, nemmeno l'user id. Aggiungere Administrators come gruppo 
+filtrante non avrebbe senso: non solo Administrators ha dei membri, ma ad 
+Administrators e' consentito accesso molto ampio a praticamente qualsiasi 
+oggetto -- non sarebbe "filtrante" proprio per niente. Per questo motivo (e 
+altri, principalmente per completezza) ho aggiunto un'opzione -owner, per 
+impostare il proprietario predefinito. -owner=*, in particolare, imposta il 
+proprietario all'user id del token.
+
+Una possibile soluzione sarebbe di aggiungere IAM all'ACL della directory 
+comune, ma non puo' funzionare a lungo -- non abbiamo mica il controllo su 
+tutte le directory di  questo tipo che potrebbero venir create. La soluzione 
+che ho scelto io e' di far creare ai processi della sandbox delle ACL che 
+concedono sempre pieno accesso a IAM, e -- ma che novita' -- questo ha 
+richiesto delle nuove opzioni e modifiche a quelle esistenti:
+
+  +mrgroup=GROUP    Set GROUP as a main restricting group. Implies:   --
+                     - +rgroup=GROUP
+                     - +tokacl=GROUP,F
+                     - +acl=GROUP,F
+                    DO NOT SPECIFY A GROUP WITH ANY MEMBERS
+  -acl=ACCESS       Revoke ACCESS in the default ACL                  --
+  -acl=*            Set the default ACL to an empty ACL               --
+  +acl=ACCESS       Grant ACCESS in the default ACL                   --
+  +acl=*            Set the default ACL to a NULL ACL                 --
+ -#acl=ACCESS       Deny ACCESS in the default ACL                    --
+ -#acl=*            Same as -acl=*                                    --
+ +#acl=ACCESS       Set ACCESS in the default ACL                     --
+  +owner=GROUP      Set GROUP as the default owner. GROUP must be a   no
+                    valid owner group contained in the current
+                    token
+  +owner=*          Set the user id as the default owner              --
+  +pgroup=GROUP     Set GROUP as the default primary group. GROUP     no
+                    must be any group contained in the current token
+
+Vuoi per semplicita', vuoi perche' aveva senso, vuoi per preservare la mia 
+salute mentale, ho deciso di considerare il primo processo e thread della 
+sandbox come creati da dentro la sandbox, e quindi con il descrittore di 
+sicurezza predefinito costruito in questo modo.
+
+Dilemma interessante: cosa fare degli eventuali accessi specifici nell'ACL 
+attuale? E' una pessima idea avere accessi specifici nell'ACL predefinita, 
+perche' verranno applicati a oggetti di qualsiasi tipo, tant'e' vero che non se 
+ne troveranno praticamente mai. Metti che se ne trovino: che farne? Ho scelto 
+di mapparli ad accessi generici come se fossero accessi specifici per file, e, 
+se alla fine avanzano dei bit, errore (ma e' sempre possibile svuotare l'ACL 
+con -acl=* e ricostruirla da zero). Soluzione molto brutta, ma ad un problema 
+che non dovrebbe mai verificarsi: sento che verro' perdonato.
+
+3.2.7. S-1-5-12: difficile farne a meno
+
+Questo maledetto gruppo e' ovunque: nell'ACL predefinita del display (ragione 
+per cui +rgroup=* non aggiunge piu' il logon id -- non ne vedevo il motivo), 
+quelle di alcune periferiche, quella della directory del namespace degli 
+oggetti \BaseNamedObjects\Restricted, che suppongo sostituisca 
+\BaseNamedObjects quando il processo chiamante e' in una sandbox. Scrivere un 
+programma di sandboxing che non usi S-1-5-12 odora di guai: quanto potra' 
+durare, man mano che tutte le ACL predefinite inizieranno ad includerlo?
+
+Quindi mi sono arreso, e ho modificato un altro po' di opzioni:
+
+  -mrgroup=**       ... including IAM and S-1-5-12                    --
+  +mrgroup=GROUP    Set GROUP as a main restricting group. Implies:   --
+                     - +rgroup=GROUP
+                     - +tokacl=GROUP,F
+                     - +acl=GROUP,F
+  +mrgroup=*        Equivalent to +mrgroup=IAM +mrgroup=S-1-5-12      --
+  -rtoken           Use a restricting token. Requires system support  --
+                    for restricted tokens (Windows 2000 and later).
+                    Initially implies +mrgroup=*
+
+Spero di completare presto gli altri tool della famiglia, cosi' potro' 
+liberarmi di IAM e usare solo S-1-5-12 (che, ricordo, l'editor di ACL di 
+Windows non permette di usare).
+
+3.2.8. Il profilo utente 3 -- il ritorno
+
+Sapevo che i token filtrati avrebbero creato tutta una nuova famiglia di 
+problemi, ma proprio non arrivavo ad immaginare fino a che punto. Sentite che 
+ve ne pare di questa: le sandbox permettono di evadere dalle group policy. I 
+programmi non possono leggere le chiavi di registro create dalle policy (la 
+loro ACL nemmeno contiene S-1-5-12), quindi niente policy per loro: i 
+ragazzacci si comporteranno come se fossero a casa propria.
+
+Chissenefrega.
+
+C'e' un limite a quello che un comando generico dovrebbe fare, e questo lo 
+oltrepassa. Forse un giorno ci daro' un'occhiata, cerchero' di trovare una 
+soluzione o una mezza soluzione e la aggiungero' alla documentazione di I Am. 
+Per adesso, sappiatelo: I Am nasconde le group policy.
+
+
+3.3. STUDIO DI CASI
+
+Tutto molto bello, ma, se I Am non facesse quello per cui e' stato creato, cioe'
+lanciare processi con privilegi limitati, allora ci sarebbe qualcosa che non va
+(vi rovino il finale: lo fa). Seguono le prove di un paio di programmi che sono
+riuscito a far girare in una scatoletta di sabbia, e indicazioni sulle
+considerazioni da fare a priori per scegliere le opzioni per I Am e i permessi 
+per i file (e la descrizione di altre opzioni ancora).
+
+3.3.1. Il caso: eMule
+
+eMule e' un client per la rete peer-to-peer eDonkey. Un'inquietante 
+caratteristica di eMule e' che tutti i suoi aggiornamenti sono descritti come 
+"importante aggiornamento di sicurezza, installare immediatamente". Metterlo 
+dietro firewall non si puo': continuerebbe a ricevere connessioni, grazie al 
+protocollo buca-firewall di eDonkey, e, se anche modificassi il programma per 
+non accettare connessioni, la rete mi "voterebbe" come imbroglione egoista e 
+nessuno mi lascerebbe scaricare piu' niente. Fortunatamente, preparare una 
+sandbox per chiuderci eMule e' molto facile.
+
+Prima di tutto, identifichiamo i requisiti: dove ha la necessita' di leggere e 
+scrivere? Come ho anticipato, e' facile. eMule deve scrivere nella propria 
+directory dei download e i propri file di configurazione e, teoricamente, 
+leggere solo dalle directory dei file condivisi.
+
+eMule e' uno di quei programmi stupidi che pretendono di scrivere nella 
+directory in cui sono stati installati. Per fare le cose fatte bene, dovrei 
+creare una sotto-directory di D:\programmi per ogni utente (o una 
+sotto-directory "programmi" in ogni profilo utente), installare eMule nella 
+directory "giusta" e crearne un'"ombra" nella directory dell'utente tramite 
+hard link ai file di sola lettura (una union in stile FreeBSD sarebbe molto 
+meglio, e risolverebbe questo e molti altri problemi -- progetto futuro 
+ennesimo di infiniti). Dato che il problema e' minore e che non ne ho realmente 
+bisogno (ho praticamente un solo utente), ho fatto che installare eMule nel mio 
+profilo utente e al diavolo. Il mio profilo utente, ovviamente, e' in sola 
+lettura al gruppo IAM (sia i file sia il registro).
+
+Per la directory di eMule ho creato un gruppo, IAM-eMule, e gli ho dato accesso 
+completo alla directory in cui eMule e' installato (creare gruppi non dovrebbe 
+essere necessario -- qualsiasi SID va bene come gruppo filtrante, anzi, se non 
+sono veri gruppi e' ancora meglio -- ma al momento sono costretto ad usare 
+l'editor di ACL di Windows), in modo che possa salvare il suo stato, i log e la 
+configurazione (uno spunto: potrei definire due sandbox, una in cui posso solo 
+configurare e un'altra solo usare il programma, ma mi sembra eccessivo), e alla 
+chiave di registro HKEY_CURRENT_USER\Software\eMule (che sembra usi solo per 
+salvare la lingua dell'interfacccia grafica). Lo stesso vale per la directory 
+dei download e quella dei download parziali, perche' ovviamente eMule deve 
+poterci scrivere. Altrettanto ovviamente, non basta che IAM-eMule abbia accesso 
+a queste directory: anche il mio utente deve avervi accesso, perche' la 
+presenza di IAM-eMule nell'ACL puo' solo _limitare_ il mio accesso.
+
+Qui ho scelto di non usare il piu' sofisticato meccanismo dei "ruoli" (cioe' 
+usare un gruppo filtrante per ogni risorsa o gruppo di risorse -- e, per 
+piacere, non crocifiggetemi se "ruolo" significa gia' qualcos'altro), ma di 
+creare un solo gruppo (IAM-eMule) che riassumesse tutte le risorse di cui il 
+programma ha bisogno.
+
+Quasi dimenticavo: per la directory temporanea, ho fatto che creare una 
+sotto-directory %TEMP%\eMule, con permessi di scrittura per IAM-eMule, e lancio 
+eMule con un file batch che imposta le variabili TEMP e TMP prima di lanciare I 
+Am. A proposito, la riga di comando e' questa:
+
+C:\>iam --rtoken +rgroup=* --#priv=* -#group=* +rgroup=IAM-eMule -- emule.exe
+
+Cioe' rinuncio all'accesso consentito a tutti i miei gruppi (-#group=*) -- 
+tranne quelli limitati, come Users, Everyone e il logon id -- a tutti i 
+privilegi (-#priv=*) -- tranne ChangeNotify -- e filtro il token (-rtoken) in 
+modo da non avere piu' accesso di quanto ne potrebbero avere IAM, S-1-5-12 
+(-mrgroup=IAM e -mrgroup=S-1-5-12 impliciti in -rtoken), Everyone, Users 
+(+rgroup=*) e IAM-eMule (+rgroup=IAM-eMule). Gia' che c'ero, ho (indovina 
+indovinello?) aggiunto un po' di nuove opzioni:
+
+  +rgroup=**        Add all the existing groups of the token to the   --
+                    restricting groups, except BUILTIN\Administrators
+                    and BUILTIN\Power Users, plus IAM and S-1-5-12
+  -nowait           Don't wait for the COMMAND to terminate           --
+  -typical          Select typical options for a sandbox. Equivalent  --
+                    to -rtoken +rgroup=* -#priv=* -#group=* +owner=*
+  -wincompat        Select options compatible with the native Windows --
+                    sandbox. Equivalent to -rtoken +rgroup=**
+                    -#priv=* +owner=* -#group=BUILTIN\Administrators
+                    "-#group=BUILTIN\Power Users"
+
+L'opzione -nowait e' semplice da spiegare: e' brutto avere una finestra di 
+console che resta aperta per tutto il tempo, ed eMule e' un programma 
+interattivo, quindi del suo codice di uscita non mi interessa granche'. 
+L'opzione -typical dovrebbe spiegarsi da se'.
+
+Oramai siete degli esperti, e dalla descrizione dell'opzione -wincompat 
+dovreste aver capito come funziona la sandbox implementata da Windows XP (piu' 
+o meno. In realta' non so se funzioni cosi' anche in un dominio). Come ho fatto 
+a scoprirlo? Se avete il Platform SDK, cercate il tool pview, e provatelo. Ha 
+un bellissimo visualizzatore di token.
+
+Che dire della sandbox creata con I Am? Funziona molto bene. eMule riesce a 
+connettersi, a dialogare, a scaricare file e tutto quanto. Un solo problema, 
+stranissimo. eMule ha una simpatica finestrella pop-up con la mascotte di eMule 
+(ovviamente un mulo) che mi segnala ogni nuova riga nel log. Per qualche 
+ragione, da dentro la sandbox la finestrella con il mulo non compare. Boh? 
+Forse un giorno prendero' i sorgenti di eMule e cerchero' di scoprire che 
+cavolo succede.
+
+Cosa non sono riuscito ad ottenere: non ho trovato un modo abbastanza solido 
+per impedire ad eMule di leggere altro che le proprie directory condivise 
+permettendogli comunque di funzionare (cioe', ad esempio, di accedere a tutte 
+le DLL necessarie). E' ancora possibile, in altre parole, sfruttare un 
+potenziale buco di eMule per rubarmi file o andare a spasso per il disco. Da un 
+lato, Windows e' estremamente complicato, cresciuto disordinatamente e senza 
+una forte autorita' centrale per quanto riguarda la posizione di certi file: 
+non ritengo pensabile, in Windows, qualcosa come le sandbox UNIX basate su 
+chroot. D'altro canto, per caricare una DLL non serve l'accesso in lettura, ma 
+solo quello in esecuzione, e l'accesso in esecuzione non permette di caricare 
+altro che le DLL (e di attraversare le directory, anche se abbiamo visto come 
+il privilegio ChangeNotify permette di ignorarlo), quindi, se avessi tempo e 
+voglia, sono sicuro si potrebbe trovare una soluzione basata interamente su I 
+Am. Per ora mi accontento di vivere in un terrore un po' meno forte (saro' 
+paranoico?).
+
+3.3.2. Il caso: Miranda IM
+
+Miranda IM (gia' Miranda ICQ) e' un programma di chat multi-protocollo basato 
+su un concetto che a me piace moltissimo: il programma e' solo una "matrice" 
+in cui inserire dei plug-in che fanno il lavoro vero e proprio. Miranda, di 
+suo, crea solo una finestra con un menu, una barra di stato e una lista di 
+contatti, e mantiene il database dell'utente. Praticamente tutto il resto e' un 
+plug-in, inclusi tutti i protocolli.
+
+Permettetemi una divagazione: lo uso da quando l'ho scoperto, abbandonando 
+immediatamente ICQ 99 in suo favore -- era gia' migliore. Migliore anche di ICQ 
+2000, che all'epoca era gia' uscito da mesi, ed era un orrore pieno di banner 
+pubblicitari. Miranda (che si chiamava ancora Miranda ICQ) importo' senza 
+problemi il mio database con anni di log e contatti (lo stesso database che uso 
+ancora oggi, e che a differenza di quello di ICQ non ho dovuto riparare ogni 
+due settimane), e un plug-in alla volta costruii un clone quasi perfetto di ICQ 
+99. Molta strada e' passata, da allora. Adesso Miranda e' un client 
+multi-protocollo (io uso ICQ, Jabber e IRC), e' alla versione 0.3.3 e si puo' 
+scaricare, sorgenti inclusi, da <http://www.miranda-im.org/>. E perdonate 
+lo spam, ma e' un programma che merita davvero.
+
+Detto questo, che interesse ho a rinchiudere Miranda in un recinto? Be', avere 
+un sacco di plug-in non e' solo una cosa positiva. Lo potete vedere tutti i 
+giorni in Windows: driver obsoleti che mandano in crash il sistema, plug-in 
+scritti alla pene di segugio che mandano in crash il browser (anatema, Adobe! 
+Anatema!), estensioni della shell scritte da gente che non riesce nemmeno a 
+respirare senza ingoiarsi la lingua, figurarsi programmare in C++, che 
+inchiodano Esplora Risorse quando aprite un drive di rete su una connessione 
+lenta... insomma, avrete presente. Le famigerate Terze Parti, i mostri piu' 
+spaventosi, secondi solo all'Utente Finale.
+
+Insomma, un "rich client" composto da un collage di frammenti di terze parti, 
+per quanto rispetto e ammirazione nutra per i suoi sviluppatori, tocca il mio 
+tasto "paranoia". Fortunatamente, anche Miranda e' di una facilita' disarmante 
+da mettere in una sandbox (e voi direte: perche' non scegli qualche programma 
+davvero impegnativo? Internet Explorer, magari? Perche' sono pigro _e_ in 
+ritardo. Siate al MOCA <http://www.olografix.org/> di quest'anno: se avro' 
+tempo, voglia e il computer in prestito che mi e' stato promesso faro' una 
+dimostrazione dal vivo anche di questo -- oltre che di ReactOS, s'intende. E 
+portero' CD di prova gratuiti di ReactOS, personalizzati per il MOCA. Se ne 
+avete ricevuto uno all'HackIt-04, conservatelo, voglio fare una specie di serie 
+da collezione: chi li ha tutti... boh, non ho ancora deciso).
+
+Ha solo bisogno di scrivere nel (o nei) database (in cui conserva anche tutte 
+le impostazioni, oltre che i log) e di creare sotto-directory e file nella 
+directory dei file ricevuti. Tutto qui. Creiamo un gruppo IAM-Miranda, diamogli 
+l'accesso necessario a questi oggetti (io ho fatto che creare una directory 
+D:\home\Hyperion\settings\Miranda nel mio profilo, fargli mettere tutto la' 
+dentro e far puntare mirandaboot.ini a questa directory -- 
+ProfileDir=%APPDATA%\Miranda), creiamogli una directory temporanea perche' non 
+si sa mai, e lanciamolo:
+
+C:\>iam --typical +rgroup=IAM-Miranda -- miranda32.exe
+
+Cosi' facile che mi vergogno quasi.
+
+
+3.4. CONCLUSIONI
+
+Noterete che non ho incluso neanche un pezzo del codice di I Am. E' che, 
+sinceramente, non ne vedevo la necessita'. I Am, per quanto bello il concetto, 
+e' un programma noiosissimo. Non fa altro che costruire una dozzina di array da 
+passare alle funzioni che costruiscono o alterano i token e le ACL. L'unico 
+valore aggiunto da I Am e' rendere tutto questo intuitivo, e lo fa con 
+complicatissime macchine a stati, in modo che se passate, per esempio, 
+-#priv=** +#priv=Shutdown +priv=Shutdown, l'effetto sara' di eliminare tutti i 
+privilegi tranne Shutdown, che verra' anche attivato (avrei voluto dare un 
+significato globale alle opzioni, piuttosto che sequenziale -- cioe' ordinare 
+automaticamente le opzioni dando la priorita' a quelle piu' specifiche, e, a 
+parita' di specificita', alle ultime specificate -- ma trovo che 
+l'interpretazione sequenziale sia piu' intuitiva, e meno ambigua).
+
+Mi accorgo di essermi dimenticato di una cosa importante: non vi ho detto da 
+dove si scarica I Am. Faccio in un attimo:
+<http://spacebunny.xepher.net/hack/iam>. Gia' che ci siete, guardatevi pure
+attorno, vedete se c'e' qualcos'altro che vi piace (dubito, I Am e' l'unica
+cosa allo stesso tempo utile ed _esistente_ che troverete. Beh, forse anche
+il port di ElectricFence potrebbe interessarvi).
+
+Ma soprattutto, cosa penso che manchi in I Am? Cosa ci riserva il futuro?
+
+3.4.1. Digressione: un'altra novita' di Windows 2000
+
+La vita e' breve, il tempo stringe, smaster cammina nervosamente su e giu' per 
+la stanza aspettando che gli consegni un articolo che avevo promesso di 
+consegnare cinque giorni fa... e io faccio un'altra digressione. L'ultima, 
+promesso.
+
+Gli odiatori di Microsoft hanno urlato, _tuonato_ contro Microsoft per il 
+comando runas di Windows 2000. "Ma come! Ma ci voleva tanto! Ma! Ma!". Si', ci 
+voleva tanto. C'e' voluto un discreto cambiamento architetturale, infatti.
+
+Il Resource Kit di Windows NT 4 aveva un tool chiamato su, che funzionava 
+esattamente come il comando omonimo di UNIX: avviava comandi come un altro 
+utente. Non funzionava troppo bene: non solo il profilo utente del comando 
+avviato con su rimaneva "appeso", ma a volte, facendo logout, il comando 
+rimaneva attivo, e l'utente successivo se lo ritrovava sul desktop. Molto 
+brutto. Il problema era proprio nel sistema operativo, una carenza addirittura 
+a livello di kernel.
+
+Cosa succede quando si fa logout? L'esatta procedura e' piuttosto lunga e non 
+troppo interessante, ma si puo' riassumere in tre fasi: tutti i processi utente 
+della sessione vengono avvertiti, terminati a forza se necessario; tutti i 
+servizi vengono avvertiti, casomai avessero delle risorse dedicate a quella 
+sessione utente; e il servizio di logon torna nello stato iniziale (non prima 
+di aver avvertito tutti i provider di servizi di rete, che cosi' sanno di dover 
+chiudere le sessioni dell'utente verso server remoti, e tutti i vari servizi 
+che impongono policy agli utenti, come il servizio delle group policy e il 
+Windows Installer).
+
+Riuscite a vedere il problema? Presto detto: i processi lanciati da su venivano 
+visti come di proprieta' del servizio di su, quindi era il servizio ad essere 
+tenuto a terminarli. Il problema e' che il servizio non aveva modo di terminare 
+non solo il comando, ma anche tutti i processi che il comando aveva lanciato. 
+Poteva solo terminare il comando e sperare che gli altri processi facessero i 
+bravi e terminassero quando il sistema glielo chiedeva -- il sistema non avrebbe
+forzato la terminazione, perche' ai servizi e ai loro processi figli i messaggi
+di logout vengono inviati solo per loro informazione: sappiano che stiamo
+facendo logout, ma non si sentano tenuti a farci niente. In pratica, il servizio
+voleva trattare il comando e i suoi discendenti come gruppo di processi, e non
+poteva, perche' in Windows mancava completamente il concetto di gruppo di
+processi.
+
+Indovinate un po'? Windows 2000 ha i gruppi di processi. Si chiamano "job". Il
+servizio di logon secondario (quello su cui si basa runas) lancia i processi in
+un job, cosi' allo stesso tempo sa quando va scaricato il profilo utente (il
+job invia un messaggio quando tutti i processi al suo interno terminano), e
+puo' terminare in blocco tutti i processi lanciati dal comando iniziale. Fateci
+caso: quando fate logout, i processi lanciati con runas sono sempre gli ultimi
+a terminare, specialmente se non hanno finestre. Non e' un caso: i processi con
+finestre generalmente terminano subito perche' il messaggio broadcast di logout 
+arriva a tutte le finestre del display attuale, indipendentemente dal processo, 
+ma gli altri non ricevono nessun messaggio, perche' sono visti come proprieta' 
+di un servizio e non hanno nessun "ricevitore" di messaggi. Sono gli ultimi a 
+terminare perche' e' seclogon a terminarli, non appena viene avvertito del 
+logout (cosa che avviene solo dopo che tutti i processi della sessione utente 
+sono stati terminati), e li termina terminando il job in blocco.
+
+Alla Microsoft potevano fare come al loro solito: trovare una soluzione ad hoc,
+tirare il fiato sperando che Longhorn -- che gli permettera' di fare un po' 
+quel che accidenti pare a loro -- sia completato in tempo utile e sopportare 
+gli insulti nel frattempo (e ho in mente: temi grafici, assembly side-by-side,
+Attachment Execution Services, ecc.). Del tutto inaspettatamente, invece, i job
+sono una genuina figata, e uniti ai token filtrati sono una bomba. Vi riassumo
+per punti quello che possono fare:
+
+ * Imporre *limiti al tempo CPU user-mode*, cumulativi o sui singoli processi.
+
+ * Imporre *limiti alle dimensioni del working set* (cioe' le pagine di memoria
+   che vengono caricate sempre in memoria fisica quando un processo diventa
+   quello attivo), cumulativi o sui singoli processi.
+
+ * Imporre *limiti alla dimensione della memoria virtuale*, cumulativi o sui 
+   singoli processi.
+
+ * *Scegliere le CPU che i processi del job possono usare*.
+
+ * *Forzare una priorita' di scheduling* su tutti i processi e i thread del job.
+
+ * *Limitare l'accesso al display*. E' possibile impedire l'accesso agli
+   appunti, alle impostazioni globali (come i colori di sistema), alla modalita'
+   video, persino impedire ai processi nel job di accedere a finestre create al
+   di fuori del job (ma si puo' anche aggiungere al job una whitelist di
+   finestre esterne).
+
+ * *Limitare i token dei processi nel job*. Si puo' impedire a qualsiasi 
+   processo di usare un token che contenga il gruppo degli amministratori,
+   costringere i processi ad usare solo token filtrati, o addirittura solo copie
+   di un token specifico, o ancora forzare un filtro su tutti i token (cioe' un
+   set obbligatorio di gruppi da disabilitare, privilegi da eliminare e gruppi
+   filtranti da aggiungere a tutti i token creati nel job).
+
+Sto scrivendo con una mano sola! Semplicemente fantastico. Trovo che manchino
+solo due cose alla perfezione: una funzione per sospendere tutti i thread di 
+tutti i processi di un job, e supporto per i job annidati (ma mi pare di aver 
+intravisto entrambe le cose in Windows XP...).
+
+3.4.2. Il futuro di I Am
+
+Ovviamente, il prima possibile vorrei aggiungere supporto per i job: una 
+garanzia che i processi non possano uscire dalla sandbox. Fatto cio', dubito 
+rimarra' molto di aggiungibile. Gia' cosi' e' un sacco di roba: l'help interno,
+anche senza il supporto per i job, ha superato le due schermate di console.
+Ogni tanto me lo leggo prima di andare a dormire, che' dimentico sempre come
+va a finire (e' stato il maggiordomo).
+
+Una cosa che faro' il prima possibile, poco ma sicuro, sara' di aggiungere un
+file di configurazione che contenga degli pseudo-gruppi (con SID sotto
+un'autorita' principale inesistente, tipo S-1-1000-X) da usare come gruppi
+filtranti, che I Am supporti come gruppi validi nella creazione di sandbox, e
+magari un pannello di controllo per gestirli.
+
+Un altro tool che renderebbe l'uso di I Am molto piu' comodo potrebbe essere un
+editor di ACL specializzato, che supporti solo S-1-5-12 e i gruppi di cui
+sopra, e permetta di impostare facilmente i permessi di accesso concessi alle
+sandbox: potrei sbarazzarmi del gruppo IAM, una buona volta, e renderei un gran
+servizio a tutti.
+
+
+
+4. METTERCI SOPRA UNA FACCIATA CARINA: DESKTOP SANDBOX
+--------------------------------------------------------------------------------
+
+I Am e' solo l'inizio. Il mio vero obiettivo e' ottenere un programma di 
+sandboxing  che mio padre possa usare. Letteralmente: e' molto attento con 
+quello che riceve via e-mail e possiede i rudimenti di base della sicurezza 
+informatica, ma se ho paura di essere fregato io, non oso immaginare cosa 
+potrebbe succedere a lui. Un antivirus non voglio metterglielo: rallenta 
+oscenamente il sistema, va tenuto aggiornato e quasi tutti i programmi una 
+volta ritenuti "a rischio", come Word, adesso se la cavano molto bene in quanto
+a sicurezza. Senza considerare che usa un utente non amministratore e tutte le 
+connessioni a Internet hanno il firewall attivato. Si', ci son passato io, si 
+nota tanto?
+
+Capita piu' di una volta che gli arrivino file di dubbia provenienza, o via 
+e-mail o tramite floppy (si'! virus su floppy! succede ancora!), e devo sempre 
+intervenire io a dirgli se e' sicuro aprirli o meno. Vorrei renderlo un po' 
+piu' indipendente, e gia' che ci siamo anche scrivere un programma che 
+assecondi la mia pigrizia (non ho _tutta_ questa voglia di scrivere un file 
+batch per ogni sandbox, visto anche che quasi tutte usano le stesse, identiche
+opzioni).
+
+Fermo restando che sto parlando di programmi che non esistono ancora, butto li'
+qualche idea:
+
+ * Nelle proprieta' di un collegamento ad un programma, impostare le directory
+ e le chiavi di registro a cui puo' accedere (questo sarebbe bello, ma non so
+ se si puo' fare).
+
+ * Un programma che avvii una nuova istanza di Esplora Risorse in un desktop a
+ parte, girando in una sandbox, magari rinchiuso in un job: tutte le comodita'
+ di un desktop, tutta la sicurezza di una sandbox.
+
+ * Un pannello di controllo per creare e gestire sandbox e modelli di sandbox.
+
+ * Una voce di menu contestuale simile ad "Esegui come...", ma che permetta di
+ scegliere in quale delle sandbox configurate far girare il programma.
+
+ * Un'estensione che aggiunga un'icona nella barra del titolo di tutte le
+ finestre di una sandbox, indicando che si trova in una sandbox, ed 
+ eventualmente in quale.
+
+Sara' intuitivo come spero? Sara' utile? Funzionera'? Migliorera' la vita mia, 
+di mio padre o comunque di chi lo usera'? Si vedra'.
+
+
+
+5. COSA MANCA, COSA NON VA
+--------------------------------------------------------------------------------
+
+Conoscendo BFi, immagino che praticamente tutti i lettori abbiano una qualche 
+esperienza con sistemi UNIX. Alcuni, immagino, mangiano, bevono e respirano 
+UNIX. Starete pensando "ma questa non e' una sandbox! chroot e jail sono 
+sandbox, questa e'... e'...". Per quei due o tre lettori che non sanno di che 
+si tratta, lo spiego in un attimo: chroot e' una funzione UNIX che permette di
+nascondere ad un processo tutte le directory che non siano sotto-directory di
+una certa directory, detta "root" ("radice"). Dato che in UNIX quasi tutte le
+risorse di sistema sono accessibili come file, chroot quasi sempre basta, da
+sola, a creare una sandbox piuttosto efficace, che anziche' _impedire_
+l'accesso a certe risorse (o consentire l'accesso solo ad alcune), come fa I Am,
+_nasconde_ tutte le risorse da proteggere (o mostra solo quelle necessarie).
+jail, in breve, equivale a chroot ma, in piu', protegge molte risorse _non_
+accessibili come file.
+
+Che dire? Avere qualcosa come chroot sarebbe molto bello, ma non solo richiede 
+modifiche a parti di Windows su cui non ho nessun controllo (si vedra' in 
+ReactOS...), e' anche molto difficile da implementare. Non solo Windows ha 
+_almeno tre_ modi, isolati tra di loro e incompatibili, per accedere alle 
+risorse (come file, come chiavi di registro e come oggetti), ma bisogna avere a 
+che fare con le famigerate Terze Parti: chi puo' sapere di che oggetti, file e 
+chiavi di registro ha bisogno un determinato programma (o un componente di 
+sistema, se e' per questo)? Come rendere accessibili le periferiche nelle
+sandbox? Quali periferiche, e con che nome?
+
+Insomma, sarebbe un lavoraccio. Richiederebbe modifiche molto complesse al
+kernel. Personalmente, ci ho anche pensato su, e credo che il modo migliore sia
+di creare un nuovo oggetto del kernel, la "Partition", che rappresenti una
+"fetta" di sistema (il nome "Subsystem" e' gia' stato preso), con la propria
+radice del namespace dei nomi, e quindi il proprio registro e i propri file (il
+registro e' un oggetto, chiamato \Registry, e i file sono quasi tutti
+sotto-oggetti di una periferica, e le periferiche sono oggetti normalmente
+creati in \Device). O potrei estendere i job, ma magari un programma vorrebbe
+poter usare job per conto suo, e far girare tutto in un job potrebbe
+interferire. Resta da vedere se ai driver piacera' una cosa del genere, se 
+sara' anche solo _fattibile_, e quanto lavoro richiedera'. Ma e' qualcosa che 
+sarebbe interessante avere in ReactOS.
+
+Per adesso, accontentatevi. Le sandbox basate sul controllo di accesso non sono 
+_cosi'_ male. Sono molto facili da tirare su, configurare e farci realmente 
+funzionare dei programmi, danno comunque una certa sicurezza e possono essere 
+configurate con i tool gia' esistenti.
+
+E, si', secondo me sono delle sandbox vere e proprie. Non trovo inerente al 
+concetto di "sandbox" il nascondere il resto del sistema o la sandbox stessa: 
+l'importante, nonche' quello che fa funzionare davvero la protezione, e' che i 
+programmi non riescano ad uscirne (il che non e' necessariamente vero! Un 
+programma potrebbe eseguire comandi inviando messaggi ad una finestra gia' 
+aperta, ad esempio. Ma, beh, e' anche per questo che esistono i job).
+
+
+
+6. CONCLUSIONI, RINGRAZIAMENTI, SALUTI
+--------------------------------------------------------------------------------
+
+In questo articolo abbiamo fatto una rapida carrellata sul modello di sicurezza
+di Windows, con particolare enfasi su autorizzazione ed autenticazione, abbiamo 
+visto una delle novita' in questo modello introdotte in Windows 2000, i token 
+filtrati, e abbiamo visto come permettono di implementare un tipo di sandbox 
+basato interamente sul controllo di accesso. Abbiamo visto un tool, I Am, 
+scritto dall'autore per mettere in pratica l'uso di token filtrati, e un'altra 
+novita' di Windows 2000, i job (gruppi di processi), che rendono molto piu' 
+solida una sandbox (e verranno supportati, prima o poi, da I Am), e hanno molti 
+altri usi interessanti. Abbiamo concluso con alcune ipotesi di programmi 
+costruibili con lo stesso motore di I Am, piu' intuitivi, piu' comodi e a 
+prova di genitore.
+
+L'autore, al momento, non ringrazia nessuno, avendo svolto tutto questo lavoro 
+in completa solitudine, al buio del suo angolo scrivania e senza nemmeno una 
+connessione a Internet (puttana Wind, puttana). Ringraziera' a tempo debito chi 
+riuscira' a leggere questo noiosissimo articolo fino alla fine, chi gli dara' 
+suggerimenti o insulti, chi provera' il suo programma, ma soprattutto smaster, 
+per la pazienza dimostrata.
+
+L'autore vi saluta, vi invita a incontrarlo al MOCA (ma chi voglio prendere in 
+giro? Questo articolo verra' pubblicato _al_ MOCA. Semmai, voi che ci siete
+gia', venitemi a trovare. Sono nella tenda con su scritto "ReactOS". Vi do' un
+CD di ReactOS, vi offro un caffe', vi spiego come conciliare l'amore per
+Windows con l'open source, in generale rispondo ai vostri dubbi esistenziali),
+al LinuxWorld di fine ottobre, a Francoforte (cercate lo stand di ReactOS,
+ovviamente), ed eventualmente alla sua prossima collaborazione con BFi --
+senza garanzie di trovarcelo.
+
+Hola,
+
+   KJK:: HYPE
+         RION
+
+
+NOTE:
+--------------------------------------------------------------------------------
+
+[1] Ha progettato e sviluppato tre sistemi operativi, uno piu' strano 
+    dell'altro (RSX-11, VMS e Windows NT). Attualmente lavora in Microsoft: ha
+    diretto lo sviluppo di Windows 2000 e il port a 64 bit di Windows.
+
+[2] Clone open source di Windows NT.
+
+[3] Non proprio. Una delle domande auto-postesi dall'autore nel messaggio --
+    "questo per gli eseguibili, ma come fare per gli script?" -- rimase senza
+    risposta. Dato che l'autore e' un genio, ha poi trovato la soluzione per
+    conto proprio. Un giorno potrebbe addirittura benedire questo squallido
+    mondo con un'implementazione.
+
+
+================================================================================
+------------------------------------[ EOF ]-------------------------------------
+================================================================================
+

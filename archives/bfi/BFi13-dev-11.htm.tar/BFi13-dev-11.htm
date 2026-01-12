@@ -1,0 +1,445 @@
+================================================================================
+---------------------[ BFi13-dev - file 11 - 20/08/2004 ]-----------------------
+================================================================================
+
+
+-[ DiSCLAiMER ]-----------------------------------------------------------------
+        Tutto il materiale contenuto in BFi ha fini esclusivamente informativi
+        ed educativi. Gli autori di BFi non si riterranno in alcun modo
+        responsabili per danni perpetrati a cose o persone causati dall'uso
+        di codice, programmi, informazioni, tecniche contenuti all'interno
+        della rivista.
+        BFi e' libero e autonomo mezzo di espressione; come noi autori siamo
+        liberi di scrivere BFi, tu sei libero di continuare a leggere oppure
+        di fermarti qui. Pertanto, se ti ritieni offeso dai temi trattati
+        e/o dal modo in cui lo sono, * interrompi immediatamente la lettura
+        e cancella questi file dal tuo computer * . Proseguendo tu, lettore,
+        ti assumi ogni genere di responsabilita` per l'uso che farai delle
+        informazioni contenute in BFi.
+        Si vieta il posting di BFi in newsgroup e la diffusione di *parti*
+        della rivista: distribuite BFi nella sua forma integrale ed originale.
+--------------------------------------------------------------------------------
+
+
+-[ E-PRiVACY ]------------------------------------------------------------------
+---[ iNSTALLAZi0NE Di UN SERVER FREENET iN AMBiENTE CHR00TED, ]-----------------
+---[ JVM SUN E GATEWAY PUBBLiC0 HTTPS                         ]-----------------
+-----[ Winston Smith <ws@nym.alias.net> http://e-privacy.firenze.linux.it/pws ]-
+
+
+-----BEGIN PGP SIGNED MESSAGE-----
+
+Installazione di un server Freenet in ambiente chrooted, JVM Sun e gateway
+pubblico https.
+
+**********************************************************************
+Copyright (c) 2004 del Progetto Winston Smith.
+E` garantito il permesso di copiare,
+distribuire e/o modificare questo documento
+seguendo i termini della GNU General Public
+License, Versione 2.0 
+pubblicata dalla Free Software Foundation.
+**********************************************************************
+
+Questo howto e' stato scritto usando come sistema operativo Debian GNU/Linux
+versione 3.0 con le seguenti caratteristiche:
+
+Architettura i386;
+kernel 2.4.26
+glibc 2.2.5
+
+Requisiti:
+- - Sistema operativo Debian GNU/Linux
+- - Ultima versione stabile di Freenet (scaricabile da
+  http://www.freenetproject.org)
+- - Java VM Sun (scaricabile da http://www.java.com, scegliere il formato
+  autoestraente) j2re1.4.2_03
+- - GCC 2.95.4 o superiore
+- - libexpat 1.95.2 o superiore
+- - OpenSSL 0.9.6c o superiore
+- - Stunnel 3.22 o superiore
+- - Xinetd 2.3.4 o superiore
+
+1) Installazione di Freenet
+
+Scegliere innanzitutto una directory che conterra' tutto l'ambiente chroot e
+crearla
+
+#mkdir /freenet_chroot
+
+Creare l'utente freenet, gruppo freenet (potete anche non assegnargli nessuna
+shell) e decomprimere l'archivio Freenet:
+
+#cd /freenet_chroot
+#tar zxvf freenet-latest.tgz
+#chown -R root:root freenet
+
+Cambiare l'owner della directory freenet in modo che l'utente sotto cui girera'
+il nodo possa scrivere dentro di essa:
+
+#chown freenet freenet
+
+Create un file di configurazione freenet.conf che contenga queste poche
+direttive, sufficienti per un setup funzionante. Per un "tuning" piu'
+sofisticato, leggere la documentazione sulle numerose opzioni possibili:
+
+=====================================================================
+listenPort=13131 # la porta usata da Freenet
+ipAddress=vostro.ip.address
+seedNodes=seednodes.ref 
+storeSize=5G # dimensione del datastore in gigabyte. Consigliabile un
+             # minimo di 1G
+doAnnounce=true
+publicNode=true
+mainport.params.servlet.7.params.sfDisableWriteToDisk=true
+=====================================================================
+
+Inoltre, e' raccomandato eseguire subito un aggiornamento dei file piu'
+importanti, quali freenet.jar e seednode.ref. Per fare questo e' compreso nella
+distribuzione un piccolo script, update.sh.
+
+#cd /freenet_chroot/freenet
+#sh update.sh
+
+2) Installazione della JVM
+
+Decomprimere la JVM, che avrete salvato in /freenet_chroot:
+
+#cd freenet_chroot
+#chmod +x j2re-1_4_2_03-linux-i586.bin
+#./j2re-1_4_2_03-linux-i586.bin
+
+Seguite le indicazione, leggete il contratto ed accettate con YES quest'ultimo.
+Al termine vi troverete /freenet_chroot/j2re-1_4_2_03. Create questo link:
+
+#ln -s j2re-1_4_2_03 java
+
+3) Preparazione dell'ambiente chroot
+
+Allestite il contenuto della jail:
+
+#cd /freenet_chroot
+#mkdir bin
+#cd bin
+#cp /bin/bash sh
+#ln -s ../java/bin/java
+
+#cd ..
+#mkdir lib
+
+Copiare le opportune librerie dentro lib, in modo che il contenuto sia questo:
+
+#ls -l /freenet_chroot/lib
+- -rwxr-xr-x  1 root  root   90210 Feb 22 18:14 ld-2.2.5.so
+lrwxrwxrwx  1 root  root      11 Jul 16 13:55 ld-linux.so.2 -> ld-2.2.5.so
+- -rwxr-xr-x  1 root  root 1153784 Feb 22 18:15 libc-2.2.5.so
+lrwxrwxrwx  1 root  root      13 Jul 16 13:55 libc.so.6 -> libc-2.2.5.so
+- -rw-r--r--  1 root  root    8008 Feb 22 20:51 libdl-2.2.5.so
+lrwxrwxrwx  1 root  root      14 Jul 16 13:55 libdl.so.2 -> libdl-2.2.5.so
+- -rw-r--r--  1 root  root  956548 Feb 22 18:16 libdns.so.5
+lrwxrwxrwx  1 root  root      17 Jul 16 13:55 libexpat.so.1 ->
+                                                    libexpat.so.1.0.0
+- -rw-r--r--  1 root  root  131388 Feb 22 18:18 libexpat.so.1.0.0
+- -rw-r--r--  1 root  root  130088 Feb 22 21:00 libm-2.2.5.so
+lrwxrwxrwx  1 root  root      13 Jul 16 13:55 libm.so.6 -> libm-2.2.5.so
+- -rw-r--r--  1 root  root   69472 Feb 22 20:59 libnsl-2.2.5.so
+lrwxrwxrwx  1 root  root      15 Jul 16 13:55 libnsl.so.1 -> libnsl-2.2.5.so
+- -rw-r--r--  1 root  root   40152 Feb 22 18:18 libnss_compat-2.2.5.so
+lrwxrwxrwx  1 root  root      22 Jul 16 13:55 libnss_compat.so.2 ->
+                                                    libnss_compat-2.2.5.so
+- -rw-r--r--  1 root  root   12176 Feb 22 18:18 libnss_dns-2.2.5.so
+lrwxrwxrwx  1 root  root      19 Jul 16 13:55 libnss_dns.so.2 ->
+                                                    libnss_dns-2.2.5.so
+- -rw-r--r--  1 root  root   32668 Feb 22 18:18 libnss_files-2.2.5.so
+lrwxrwxrwx  1 root  root      21 Jul 16 13:55 libnss_files.so.2 ->
+                                                     libnss_files-2.2.5.so
+- -rw-r--r--  1 root  root   34448 Feb 22 18:18 libnss_nis-2.2.5.so
+lrwxrwxrwx  1 root  root      19 Jul 16 13:55 libnss_nis.so.2 ->
+                                                     libnss_nis-2.2.5.so
+- -rw-r--r--  1 root  root   36744 Feb 22 18:18 libnss_nisplus-2.2.5.so
+lrwxrwxrwx  1 root  root      23 Jul 16 13:55 libnss_nisplus.so.2 ->
+                                                     libnss_nisplus-2.2.5.so
+- -rw-r--r--  1 root  root  102172 Feb 22 20:50 libpthread-0.9.so
+lrwxrwxrwx  1 root  root      17 Jul 16 13:55 libpthread.so.0 ->
+                                                     libpthread-0.9.so
+- -rw-r--r--  1 root  root   56480 Feb 22 18:17 libresolv-2.2.5.so
+lrwxrwxrwx  1 root  root      18 Jul 16 13:55 libresolv.so.2 ->
+                                                     libresolv-2.2.5.so
+lrwxrwxrwx  1 root  root      13 Jul 16 13:55 libz.so -> libz.so.1.1.4
+- -rw-r--r--  1 root  root   55432 Feb 22 18:15 libz.so.1.1.4
+
+Creare /freenet_chroot/dev ed i seguenti devices:
+
+#mkdir dev
+#cd dev
+#mknod null c 1 3
+#mknod random c 1 8
+#mknod urandom c 1 9
+#chmod 666 null
+
+Creare /freenet_chroot/etc:
+
+#cd /freenet_chroot
+#mkdir etc
+
+E copiare i seguenti files da /etc a /freenet_chroot/etc:
+
+#ls -l /freenet-chroot/etc
+- -rw-r--r--    1 root     root           26 Feb 22 20:37 host.conf
+- -rw-r--r--    1 root     root          304 Feb 22 20:37 hosts
+- -rw-r--r--    1 root     root          951 Feb 22 20:37 localtime
+- -rw-r--r--    1 root     root          465 Feb 22 20:37 nsswitch.conf
+- -rw-r--r--    1 root     root           81 Feb 22 20:37 resolv.conf
+- -rw-r--r--    1 root     root        16204 Feb 22 20:37 services
+
+Creare /freenet_chroot/proc; la JVM Sun per funzionare richiede sia leggibile
+/proc, ed essendo il tutto chrooted bisogna montare il filesystem proc dentro
+la jail:
+
+#mkdir /freenet_chroot/proc
+#mount -t proc proc -o ro /freenet_chroot/proc
+
+Per fare in modo che ai successivi riavvii venga montato automaticamente e'
+consigliabile aggiungere ad /etc/fstab questa linea:
+
+proc /freenet_chroot/proc proc ro 0 0
+
+4) Wrapper e script di avvio
+
+Il piu' e' stato fatto... non resta che passare alla parte relativa all'avvio
+del nostro nodo; pur girando come utente non privilegiato, c'e' bisogno di un
+piccolo wrapper che dev'essere eseguito dall'utente root (solo root puo'
+eseguire un chroot). Copiare questo codice, scritto originariamente da Gianni
+Bianchini (grazie Gianni!) in un file, ad es. fnstart.c :
+
+<-| pws/fnstart.c |->
+/* fnstart.c 
+
+This program is released under the GNU GPL 
+
+*/
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <pwd.h>
+
+#define DIR "/freenet_chroot"
+#define USER "freenet"
+#define FNDIR "/freenet"
+#define JAVA "/bin/java"
+#define CMD "freenet.node.Main"
+#define NICE 10
+
+main() {
+  struct passwd *p;
+  char buf[10];
+  int fd;
+  int s;
+
+  if ((p=getpwnam(USER)) == NULL) {
+    fprintf(stderr,"Can't find user "USER"\n");
+    exit(1);
+  }
+  if (chroot(DIR) == -1) {
+    perror("chroot to "DIR" failed");
+    exit(1);
+  }
+   if (setgid(p->pw_gid) == -1) {
+    perror("setgid failed");
+    exit(1);
+  }
+  if (setuid(p->pw_uid) == -1) {
+    perror("setuid to "USER" failed");
+    exit(1);
+  }
+  if (chdir(FNDIR) == -1) {
+   perror("Can't chdir to "FNDIR);
+   exit(1);
+  }
+  if (nice(NICE) == -1) {
+    perror("nice failed");
+    exit(1);
+  }
+  if (setenv("CLASSPATH",FNDIR"/freenet.jar:"FNDIR"/freenet-ext.jar",1)) {
+    fprintf(stderr,"Can't set CLASSPATH");
+    exit(1);
+  }
+  execl(JAVA,"java","-Xmx128m",CMD,NULL);
+  perror("Can't exec "JAVA);
+}
+<-X->
+
+cambiare se necessario le variabili DIR, USER, NICE se avete scelto directory
+d'installazione, l'utente o il livello di nice differenti.
+Compilate il tutto con:
+
+#gcc -o fnstart fnstart.c
+#cp fnstart /freenet_chroot/bin
+
+Ricordatevi che questo programma non va in background, quindi dovete avviarlo
+come ./fnstart &
+
+Se desiderate far partire il tutto al boot del computer, salvate il seguente
+script come /etc/init.d/freenet e dopo con update-rc.d create i giusti
+link per i vari run-level:
+
+<-| pws/freenet |->
+#! /bin/bash
+case "$1" in
+'start')
+        echo "Starting Freenet node"
+        /freenet_chroot/bin/fnstart &
+        ;;
+
+'stop')
+        echo "Stopping Freenet node"
+        killall -9 java
+        ;;
+*)
+        echo "Usage: /etc/init.d/freenet { start | stop }"
+        ;;
+esac
+exit 0
+<-X->
+
+#chmod +x /etc/init.d/freenet
+#update-rc.d freenet defaults
+
+5) Testare l'installazione
+
+Adesso che tutto e' pronto, potete provare ad avviare il vostro nuovo nodo
+Freenet. Da root:
+
+#/etc/init.d/freenet start
+
+Se tutto va bene non dovrebbe apparirvi nessun errore all'avvio. Se dovesse
+lamentarsi per la mancanza di qualche lib, ricontrollare il contenuto di
+/freenet_chroot/lib
+
+Se fate un netstat dovreste trovare alcune porte tcp aperte, in particolare la
+13131 se non ne avete scelta un'altra in freenet.conf e la porta 8888, che e'
+quella relativa al gateway web. In piu' se tutto sta andando come dovrebbe
+noterete una discreta quantita' di connessioni in ed out, segno che il vostro
+nodo sta comunicando con gli altri.
+Se avete un browser installato provate ad accedere al gateway web:
+
+#links http://127.0.0.1:8888/
+
+vi apparira' la pagina del gateway, con un elenco di link a freesites ed alcune
+pagine diagnostiche.
+Se avete dei problemi date uno sguardo al file di log
+/freenet_chroot/freenet/freenet.log e cercate di individuare eventuali errori.
+
+6) Gateway pubblico https
+
+Adesso che avete un server Freenet funzionante, vorrete sicuramente dare la
+possibilita' a chi ne e' sprovvisto di esplorarne i contenuti utilizzando un
+semplice browser ed il vostro gateway pubblico. Pur essendo fattibile
+impostando una opzione in freenet.conf e permettere connessioni al gateway da
+tutti gli ip che non siano 127.0.0.1, e' buona norma farlo utilizzando una
+connessione sicura, in https, per evitare che qualcuno possa intercettare il
+traffico dal nodo Freenet al computer dell'utente. Tutto questo si puo'
+facilmente attuare con Stunnel e xinetd. Puo' andare bene anche il semplice
+inetd, ma e' piu' "rognoso" da settare per impedire che vengano loggate le
+connessioni al gateway fatte dagli utenti.
+
+Come primo passo, creare un certificato self-signed da utilizzare con stunnel,
+che chiameremo freenet.pem e che stara' nella directory /etc/ssl/certs/
+
+#openssl req -new -out /etc/ssl/certs/freenet.pem -keyout \
+ /etc/ssl/certs/freenet.pem -nodes -x509 -days 365
+
+Adesso cambiamo i permessi al certificato in modo da renderlo leggibile al
+gruppo nogroup (stunnel girera' come utente nobody:nogroup)
+
+#chmod 640 /etc/ssl/certs/freenet.pem
+#chgrp nogroup /etc/ssl/certs/freenet.pem
+
+Passiamo alla configurazione di xinetd, aggiungendo la parte riportata qui
+sotto al file /etc/xinetd.conf:
+
+==================================================================
+service https
+{
+   socket_type     = stream
+   protocol        = tcp
+   wait            = no
+   user            = nobody
+   nice            = 10
+   server          = /usr/sbin/stunnel
+   server_args = -D local0.info -p /etc/ssl/certs/freenet.pem -r localhost:8888
+}
+==================================================================
+
+Questo fara' in modo che tutte le connessioni verso la porta https (443) della
+vostra macchina verranno dirottate alla porta interna 8888, corrispondente al
+gateway Freenet. Nel caso abbiate gia' un servizio https attivo, cambiate il
+nome di service con un altro, es. fngw, e modificate /etc/services aggiungendo
+il nuovo servizio e la relativa porta. L'opzione di stunnel "-D local0.info"
+serve a fare in modo che quest'ultimo usi la facility local0 di syslogd per i
+log. Vedremo subito come fare a non mantenere traccia del traffico da e verso
+il nostro gateway.
+
+Modificate in /etc/syslog.conf le seguenti parti:
+
+================================================================== 
+#
+# First some standard logfiles.  Log by facility.
+#
+
+auth,authpriv.*                 /var/log/auth.log
+*.*;auth,authpriv.none;local0.none              -/var/log/syslog
+#cron.*                         /var/log/cron.log
+daemon.*                        -/var/log/daemon.log
+kern.*                          -/var/log/kern.log
+lpr.*                           -/var/log/lpr.log
+mail.*                          -/var/log/mail.log
+user.*                          -/var/log/user.log
+uucp.*                          /var/log/uucp.log
+
+#
+# Some `catch-all' logfiles.
+#
+*.=debug;\
+        auth,authpriv.none;\
+        news.none;mail.none     -/var/log/debug
+*.=info;*.=notice;*.=warn;\
+        auth,authpriv.none;\
+        cron,daemon.none;\
+        mail,news.none;local0.none              -/var/log/messages
+===================================================================
+
+L'elemento da aggiungere e' quel "local0.none". Tutto il resto lasciatelo
+invariato. Riavviare syslogd:
+
+#kill -HUP `cat /var/run/syslogd.pid`
+
+Ora potete provare a connettervi al gateway https:
+
+#links https://127.0.0.1:443/
+
+o meglio ancora provate da un altro computer e non da locale.
+Se per caso avete bisogno di aiuto, o qualcosa non funziona e non riuscite a
+capire a cosa sia dovuto, scrivete alla mailing list freenet-list:
+http://lists.firenze.linux.it/mailman/listinfo/freenet-list
+
+Buon divertimento con Freenet ;-)
+
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.2.4 (GNU/Linux)
+
+iQEVAwUBQQiINOO0PDAftB4ZAQGS2gf/bAjCsWU6heBZl40WGBMhcLhSdgpIp6rL
+5YXpjm/mslrDZYpl804xhMZnc0YseKuGWPC89KwXx/fJS9QSuCt46vmIDMmZ1rwz
+W7zuHR/Ur445fzoDp/qenh03BCzT4wAE6dWlAf/F37acxlEBFyB12sYwZSUYY9j0
+88raG3Yi9DlO7slAi3nsy5IAdDznR7wW+YISnt7wyF6wkcCnLBs/ctA4MliUJFEQ
+swRloEceX5YkANltKVY7FTBXMka1oN5FaTUXhXfM2uiSEpygkwNJ4UzYTTgGqBkc
+2lHOha9bTLDHtAfr4l2TIaXx213f0PfsNzYteeJOkGxtSNRJFROF7g==
+=EjeE
+-----END PGP SIGNATURE-----
+
+
+================================================================================
+------------------------------------[ EOF ]-------------------------------------
+================================================================================
+

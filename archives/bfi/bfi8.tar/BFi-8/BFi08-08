@@ -1,0 +1,1079 @@
+==============================================================================
+-------------[ BFi numero 8, anno 3 - 30/04/2000 - file 8 di 28 ]-------------
+==============================================================================
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ BSD KERNEL: AGiRE SULLE R0UTiNE Di iNTERFACCiAMENT0 TRA 
+		 PR0T0C0LL0 E S0CKET
+-----[ pIGpEN <pigpen@s0ftpj.org> <deadhead@sikurezza.org>
+
+
+In pFi#2 avevo mostrato un codice per FreeBSD che permetteva di cambiare
+le funzioni di un protocollo (UDP in quel caso), ma leggendolo sorge una
+domanda...
+
+E' possibile fare la stessa cosa per le funzioni che mandano un pkt?
+
+SI', ma bisogna agire sulla pr_usrreqs ... Questo e' possibile soprattutto in
+FreeBSD che, come avevo gia' spiegato, al posto di rappresentare
+l'interfacciamento tra protocollo e socket con una funzione lo fa con una
+struttura.
+
+Nel caso in cui siano seguite le BSD Networking Implementation Notes
+modificare una funzione per il send vorrebbe dire agire su tutta la funzione
+e quindi riscrivere tutto il codice; nel caso di FreeBSD invece basta puntare
+alla funzione pru_send interna alla struttura pr_usrreqs ed e' quindi
+sufficiente modificare solo questa.
+
+E nelle versioni successive? Come avevo gia' indicato per una questione di
+velocita' si tendera' a migrare verso una protosw "piatta", ovvero in cui
+le funzioni di gestione dell'interfacciamento al socket non saranno piu'
+attraverso una pr_usrreqs, ma direttamente accessibili dalla protosw... Si 
+eliminera' in pratica la pr_usrreqs , anche se e' tutto ancora in discussione;
+cmq se cio' si avverera' la cosa sara' ancora piu' semplice.
+
+Ora vi presento un codice che sostituisce la funzione pru_send nel protocollo
+UDP... questa nuova funzione UDP che propongo io e' in grado di capire se un
+utente nella propria macchina stia facendo spoofing all'esterno... In pratica
+lo possiano definire un porting parziale del modulo che avevo presentato su
+BFi#7 per Linux...
+
+<-| udp_spoof_detect.c |->
+/*
+ * DETECT UDP SP00FiNG ON OUR FREEBSD BOX VIA KLD
+ * ----------------------------------------------
+ *
+ * This is a partial porting of my linux lkm to detect spoofing from our box..
+ * to another system....
+ *
+ * This kld detects only UDP Spoofing. Other implementations are possible
+ * changing pru_send function of the protocol you are interested in... You
+ * can use this kld to understand how to do that on another protocol or you 
+ * can write me for other implementations.
+ * 
+ * Set MY_IP, MY_SECOND_IP with your address/es...
+ * 
+ * This kld modifies a function of udp pr_usrreqs structure... other **bsd
+ * systems have a function to interface socket routines with protocols.
+ * 
+ * Notes: TCP implementation is possible via kld
+ *	  IGMP & ICMP are also possible but they use pru_send in common
+ *	  so check inp->inp_ip_p for IPPROTO_IGMP, IPPROTO_ICMP and so
+ *	  on...
+ * 
+ * idea & code by pIGpEN [pigpen@s0ftpj.org, deadhead@sikurezza.org]
+ *
+ * s0ftpr0ject - digital security for y2k
+ * www.s0ftpj.org
+ *
+ * sikurezza.org - italian security mailing list
+ * www.sikurezza.org
+ *
+ */
+
+/* 
+ * pay attention: this code is compatible only with new kernels with
+ * for example jail support... so you have to change pru_send to have
+ * it working on old versions.
+ * 
+ * uname -a
+ *
+ * FreeBSD storpio.cameretta.pig 4.0-19990705-CURRENT FreeBSD 4.0-19990705-
+ * CURRENT #4 ..... i386
+ *
+ * If you wanna a porting of this code and you have no time to do that 
+ * write to me at: deadhead@sikurezza.org with subject "PORTING A KLD"
+ * 
+ */
+
+#define MY_IP 		"192.168.1.2"
+#define MY_SECOND_IP	"192.168.1.2"
+/* my machine has only an ip address and no other eth# or ip aliases */
+#define LOOPBACK	"127.0.0.1"
+#define DONT_PASS
+
+#include <sys/param.h>
+#include <sys/systm.h>
+#include <sys/malloc.h>
+#include <sys/mbuf.h>
+#include <sys/kernel.h>
+#include <sys/proc.h>
+#include <sys/socket.h>
+#include <sys/socketvar.h>
+#include <sys/sysctl.h>
+#include <sys/syslog.h>
+#include <sys/protosw.h>
+#include <net/if.h>
+#include <net/route.h>
+#include <netinet/in.h>
+#include <netinet/in_systm.h>
+#include <netinet/in_pcb.h>
+#include <netinet/ip.h>
+#include <netinet/ip_var.h>
+#include <netinet/ip_icmp.h>
+#include <netinet/udp.h>
+#include <netinet/udp_var.h>
+
+
+extern struct 	protosw 	inetsw[];
+extern struct 	udpstat 	udpstat;
+static int 	udpcksum	=	1;
+
+
+static int  	 s_load	 		__P((struct module *, int, void *));
+
+static int	 udp_send		__P((struct socket * , int , 
+					     struct mbuf *, struct sockaddr *, 
+					     struct mbuf *, struct proc *));
+
+static int	 (*old_udp_send)	__P((struct socket * , int ,
+					     struct mbuf *, struct sockaddr *,
+					     struct mbuf *, struct proc *));
+
+static int	 udp_output		__P((struct inpcb    *, struct mbuf *,
+					     struct sockaddr *, struct mbuf *,
+					     struct proc *));
+
+static u_int32_t inaton			__P((const char *));
+
+
+/* ipfw macro... inet_ntoa() also works well from here it's the same thing */
+
+#define print_ip(a)	printf("%d.%d.%d.%d",				\
+				(int)(ntohl(a.s_addr)  >> 24) & 0xFF,	\
+				(int)(ntohl(a.s_addr)  >> 16) & 0xFF,	\
+				(int)(ntohl(a.s_addr)  >> 8 ) & 0xFF,	\
+				(int)(ntohl(a.s_addr))  & 0xFF);
+
+static int
+s_load (struct module *module, int cmd, void *arg)
+{
+ int s;
+
+ switch(cmd) {
+	case MOD_LOAD:
+	  s = splnet();
+	  old_udp_send = inetsw[ip_protox[IPPROTO_UDP]].pr_usrreqs->pru_send;
+	  inetsw[ip_protox[IPPROTO_UDP]].pr_usrreqs->pru_send = udp_send;
+	  splx(s);
+	  break;
+			
+	case MOD_UNLOAD:
+	  s = splnet();
+	  inetsw[ip_protox[IPPROTO_UDP]].pr_usrreqs->pru_send = old_udp_send;
+	  splx(s);
+	  break;
+ }
+
+ return 0;
+}
+
+static moduledata_t s_mod_1 = {
+	        "udp_mod",
+	        s_load,
+	        0
+};
+
+DECLARE_MODULE(udp_mod, s_mod_1, SI_SUB_PSEUDO, SI_ORDER_ANY);
+
+
+static int
+udp_send(struct socket *so, int flags, struct mbuf *m, struct sockaddr *addr,
+	    struct mbuf *control, struct proc *p)
+{
+	struct inpcb *inp;
+
+	inp = sotoinpcb(so);
+	if (inp == 0) {
+		m_freem(m);
+		return EINVAL;
+	}
+	return udp_output(inp, m, addr, control, p);
+}
+
+
+static int
+udp_output(inp, m, addr, control, p)
+	register struct inpcb *inp;
+	register struct mbuf *m;
+	struct sockaddr *addr;
+	struct mbuf *control;
+	struct proc *p;
+{
+	register struct udpiphdr *ui;
+	register int len = m->m_pkthdr.len;
+	struct in_addr laddr;
+	struct sockaddr_in *sin;
+	int s = 0, error = 0;
+
+	if (control)
+		m_freem(control);		/* XXX */
+
+	if (len + sizeof(struct udpiphdr) > IP_MAXPACKET) {
+		error = EMSGSIZE;
+		goto release;
+	}
+
+	if (addr) {
+		sin = (struct sockaddr_in *)addr;
+		prison_remote_ip(p, 0, &sin->sin_addr.s_addr);
+		laddr = inp->inp_laddr;
+		if (inp->inp_faddr.s_addr != INADDR_ANY) {
+			error = EISCONN;
+			goto release;
+		}
+		/*
+		 * Must block input while temporarily connected.
+		 */
+		s = splnet();
+		error = in_pcbconnect(inp, addr, p);
+		if (error) {
+			splx(s);
+			goto release;
+		}
+	} else {
+		if (inp->inp_faddr.s_addr == INADDR_ANY) {
+			error = ENOTCONN;
+			goto release;
+		}
+	}
+	/*
+	 * Calculate data length and get a mbuf
+	 * for UDP and IP headers.
+	 */
+	M_PREPEND(m, sizeof(struct udpiphdr), M_DONTWAIT);
+	if (m == 0) {
+		error = ENOBUFS;
+		if (addr)
+			splx(s);
+		goto release;
+	}
+
+	/*
+	 * Fill in mbuf with extended UDP header
+	 * and addresses and length put into network format.
+	 */
+	ui = mtod(m, struct udpiphdr *);
+	bzero(ui->ui_x1, sizeof(ui->ui_x1));
+	ui->ui_pr = IPPROTO_UDP;
+	ui->ui_len = htons((u_short)len + sizeof (struct udphdr));
+	ui->ui_src = inp->inp_laddr;
+	ui->ui_dst = inp->inp_faddr;
+	ui->ui_sport = inp->inp_lport;
+	ui->ui_dport = inp->inp_fport;
+	ui->ui_ulen = ui->ui_len;
+
+	/*
+	 * Stuff checksum and output datagram.
+	 */
+	ui->ui_sum = 0;
+	if (udpcksum) {
+	    if ((ui->ui_sum = in_cksum(m, sizeof (struct udpiphdr) + len)) == 0)
+		ui->ui_sum = 0xffff;
+	}
+	((struct ip *)ui)->ip_len = sizeof (struct udpiphdr) + len;
+	((struct ip *)ui)->ip_ttl = inp->inp_ip_ttl;	/* XXX */
+	((struct ip *)ui)->ip_tos = inp->inp_ip_tos;	/* XXX */
+
+	if(ui->ui_src.s_addr != inaton(MY_IP) 		&& 
+	   ui->ui_src.s_addr != inaton(MY_SECOND_IP) 	&& 
+	   ui->ui_src.s_addr != inaton(LOOPBACK)) {
+	 printf("UDP Spoofing detected as: "); 
+	 print_ip(ui->ui_src);
+	 printf(" to ");
+	 print_ip(ui->ui_dst);
+#ifdef DONT_PASS		
+	 printf(" Packet not accepted to be sent\n");
+	 goto release;
+#endif
+	}
+	
+	udpstat.udps_opackets++;
+	
+	error = ip_output(m, inp->inp_options, &inp->inp_route,
+	    inp->inp_socket->so_options & (SO_DONTROUTE | SO_BROADCAST),
+	    inp->inp_moptions);
+
+	if (addr) {
+		in_pcbdisconnect(inp);
+		inp->inp_laddr = laddr;	/* XXX rehash? */
+		splx(s);
+	}
+	return (error);
+
+release:
+	m_freem(m);
+	return (error);
+}
+
+u_int32_t inaton(const char *str)
+{
+	unsigned long l;
+	unsigned int val;
+	int i;
+
+	l = 0;
+
+	for(i=0; i < 4; i++) {
+		l <<= 8;
+		if(*str != '\0') {
+			val = 0;
+			while(*str != '\0' && *str != '.') {
+				val *= 10;
+				val += *str - '0';
+				str++;
+			}
+			l |= val;
+			if(*str != '\0')
+				str++;
+		}
+	}
+	return(htonl(l));
+}
+<-X->
+
+Mi era gia' stato chiesto sul modulo Linux perche' avessi messo pure il
+loopback... Il motivo e' banalissimo: guardate qui :)
+
+Se tolgo il LOOPBACK e faccio per esempio:
+
+$ showmount -e localhost
+
+UDP Spoofing detected as: 127.0.0.1..	Packet not accepted to be sent
+
+Chiaro adesso? =)
+
+E' possibile fare lo stesso per altri protolli hmmmm si'...
+Tenete conto pero' che la cosa non e' proprio identica visto che per esempio
+IGMP e ICMP hanno la pr_usrreqs in comune (con anche altri protocolli) del 
+supporto IPPROTO_RAW, TCP (come UDP) ne ha una tutta sua... Ogni protocollo
+insomma e' diverso.
+Agire su una pr_usrreqs in comune VUOL DIRE agire su TUTTI i protocolli che
+la condividono. Cmq sono due le strade che teoricamente si possono seguire:
+
+1) modificare la pr_usrreqs agendo su tutti i protocolli come dicevo sopra;
+
+2) creare una nuova pr_usrreqs valida SOLO per quel protocollo e quindi 
+   separarlo dagli altri.
+
+Un'altra cosa importante di cui bisogna tener conto quando si programma via 
+kld accedendo a inetsw[] e' che NON sempre i protocolli sono nella posizione 
+in cui si pensa. Infatti basterebbe che per es il supporto DIVERT non fosse
+incluso quando e' stato compilato il kernel e tutti i protocolli successivi
+slitterebbero di una posizione... Tranquilli: la protosw ha il numero del
+protocollo in pr_protocol per cui basterebbe confrontare questo per esempio 
+con IPPROTO_TP per vedere se coincidono o no. Cmq questi protocolli stanno
+ben sopra a quelli tipici... per es. il primo che da' problemi, che e'
+proprio il DIVERT, ha sotto di lui IPPROTO_UDP, IPPROTO_TCP, IPPROTO_RAW,
+IPPROTO_ICMP, IPPROTO_IGMP, IPPROTO_RSVP, IPPROTO_IPIP... quindi raramente
+vi dara' fastidio a meno che non vogliate giocare con IPX e company...
+
+ip_protox[] risolve poi i problemi per i pigri ;D
+
+es.	inetsw[ip_protox[IPPROTO_TCP]].blablabla
+
+1) Modificare la pr_usrreqs agendo su tutti i protocolli
+
+Per verificare la correttezza delle mie due teorie ho scritto un modulo che
+sostituisce la pru_send della rip_usrreqs agendo sul protocollo ICMP: se 
+ho ragione generando un pacchetto IGMP verra' chiamata cmq la stessa pru_send.
+Un pacchetto IGMP viene per esempio generato usando il comando mtrace, quindi
+si tratta solamente di installare il kld e catturare il tipo di pacchetti
+che passano nel kernel per essere mandati:
+
+<-| prusrreqs_ex.c |->
+/*
+ * Questo sorgente dimostra la mia prima teoria...
+ * Ovvero modificando una funzione di interfacciamento tra protocollo e socket
+ * di rip_usrreqs si modificano di conseguenza tutte quelle che usano la 
+ * struct in comune.
+ *
+ * Mi sembra ovvio che cio' sia vero... ma non si sa mai |)
+ * 
+ */
+
+
+#include <sys/param.h>
+#include <sys/systm.h>
+#include <sys/kernel.h>
+#include <sys/malloc.h>
+#include <sys/mbuf.h>
+#include <sys/proc.h>
+#include <sys/protosw.h>
+#include <sys/socket.h>
+#include <sys/socketvar.h>
+#include <sys/sysctl.h>
+
+#include <vm/vm_zone.h>
+
+#include <net/if.h>
+#include <net/route.h>
+
+#define _IP_VHL
+#include <netinet/in.h>
+#include <netinet/in_systm.h>
+#include <netinet/ip.h>
+#include <netinet/in_pcb.h>
+#include <netinet/in_var.h>
+#include <netinet/ip_var.h>
+#include <netinet/ip_mroute.h>
+
+
+
+static int	rip_new_send	__P((struct socket *, int, struct mbuf *,
+				     struct sockaddr *, struct mbuf *,
+				     struct proc *));
+
+static int	(*old_rip_send) __P((struct socket *, int, struct mbuf *,
+				     struct sockaddr *, struct mbuf *,
+				     struct proc *));
+
+static int	rip_my_output	__P((register struct mbuf *, 
+				     struct socket *, u_long));
+
+static int	s_load		__P((struct module *, int, void *));
+
+
+/* il controllo si poteva fare direttamente su questa funzione.... non l'ho
+   fatto perche' avevo gia' messo la mia rip_my_output nel sorgente :) */
+
+
+static int
+rip_new_send(struct socket *so, int flags, struct mbuf *m, struct sockaddr *nam,
+	 struct mbuf *control, struct proc *p)
+{
+	struct inpcb *inp = sotoinpcb(so);
+	register u_long dst;
+
+	if (so->so_state & SS_ISCONNECTED) {
+		if (nam) {
+			m_freem(m);
+			return EISCONN;
+		}
+		dst = inp->inp_faddr.s_addr;
+	} else {
+		if (nam == NULL) {
+			m_freem(m);
+			return ENOTCONN;
+		}
+		dst = ((struct sockaddr_in *)nam)->sin_addr.s_addr;
+	}
+	return rip_my_output(m, so, dst);
+}
+
+static int
+rip_my_output(m, so, dst)
+	register struct mbuf *m;
+	struct socket *so;
+	u_long dst;
+{
+	register struct ip *ip;
+	register struct inpcb *inp = sotoinpcb(so);
+	int flags = (so->so_options & SO_DONTROUTE) | IP_ALLOWBROADCAST;
+
+
+	if(inp->inp_ip_p == IPPROTO_IGMP)
+		printf("IGMP");
+	else printf("Proto Number %d", inp->inp_ip_p);
+	
+	/*
+	 * If the user handed us a complete IP packet, use it.
+	 * Otherwise, allocate an mbuf for a header and fill it in.
+	 */
+	if ((inp->inp_flags & INP_HDRINCL) == 0) {
+		if (m->m_pkthdr.len + sizeof(struct ip) > IP_MAXPACKET) {
+			m_freem(m);
+			return(EMSGSIZE);
+		}
+		M_PREPEND(m, sizeof(struct ip), M_WAIT);
+		ip = mtod(m, struct ip *);
+		ip->ip_tos = 0;
+		ip->ip_off = 0;
+		ip->ip_p = inp->inp_ip_p;
+		ip->ip_len = m->m_pkthdr.len;
+		ip->ip_src = inp->inp_laddr;
+		ip->ip_dst.s_addr = dst;
+		ip->ip_ttl = MAXTTL;
+	} else {
+		if (m->m_pkthdr.len > IP_MAXPACKET) {
+			m_freem(m);
+			return(EMSGSIZE);
+		}
+		ip = mtod(m, struct ip *);
+		/* don't allow both user specified and setsockopt options,
+		   and don't allow packet length sizes that will crash */
+		if (((IP_VHL_HL(ip->ip_vhl) != (sizeof (*ip) >> 2)) 
+		     && inp->inp_options)
+		    || (ip->ip_len > m->m_pkthdr.len)
+		    || (ip->ip_len < (IP_VHL_HL(ip->ip_vhl) << 2))) {
+			m_freem(m);
+			return EINVAL;
+		}
+		if (ip->ip_id == 0)
+			ip->ip_id = htons(ip_id++);
+		/* XXX prevent ip_output from overwriting header fields */
+		flags |= IP_RAWOUTPUT;
+		ipstat.ips_rawout++;
+	}
+	
+	return (ip_output(m, inp->inp_options, &inp->inp_route, flags,
+			  inp->inp_moptions));
+}
+
+
+
+extern struct 	protosw 	inetsw[];
+
+static int
+s_load (struct module *module, int cmd, void *arg)
+{
+ int s;
+
+ switch(cmd) {
+	case MOD_LOAD:	
+	  s=splnet();
+	  old_rip_send = inetsw[ip_protox[IPPROTO_ICMP]].pr_usrreqs->pru_send;
+	  inetsw[ip_protox[IPPROTO_ICMP]].pr_usrreqs->pru_send = rip_new_send;
+	  splx(s);
+	  break;
+			
+	case MOD_UNLOAD:
+	  s=splnet();
+	  inetsw[ip_protox[IPPROTO_ICMP]].pr_usrreqs->pru_send = old_rip_send;
+	  splx(s);
+	  break;
+ }
+
+ return 0;
+}
+
+static moduledata_t s_mod_1 = {
+	        "rip_mod",
+	        s_load,
+	        0
+};
+
+DECLARE_MODULE(rip_mod, s_mod_1, SI_SUB_PSEUDO, SI_ORDER_ANY);
+<-X->
+
+A questo punto facendo:
+
+$ ping porcellino
+
+Proto Number 1
+
+Il kernel mi ritorna il valore di IPPROTO_ICMP; facendo invece:
+
+$ mtrace porcellino
+
+IGMP...
+
+Il kernel mi ritorna che il valore del protocollo della struttura inpcb e'
+quello di IPPROTO_IGMP.
+
+Bene ho fatto sputare al kernel quello che volevo =D
+
+2) creare una nuova pr_usrreqs valida SOLO per quel protocollo
+
+In pratica si crea una nuova pr_usrreqs e si fa puntare le funzioni di 
+interfacciamento a quelle gia' esistenti, poi si blocca il protocollo con la
+splnet(), si sostituisce la pr_usrreqs della protosw con quella nuova e si
+conclude il tutto con la splx()... Teoricamente e' fattibile, ma praticamente
+vuole dire sostituire quasi tutto il supporto e sono un po' troppo pigro per
+dimostrarlo a me stesso e a voi.
+
+Riguardo al sorgente della prima situazione possiamo vedere quanti protocolli
+usano la stessa struct pr_usrreqs monitorando i pkt di questi protocolli in
+uscita dalla box. Lo facciamo sempre sul kernel, installando il seguente
+modulo e giocando un po' dalla nostra box: usate ping, usate traceroute,
+usate mtrace...
+
+<-| kcheck.c |->
+/*
+ * IGMP/ICMP/IPIP/IDP/RSVP/IPIP/IPPROTO_RAW KERNEL CHECKER
+ *
+ * These protocols have the same pr_usrreqs... This is a kld to monitor
+ * their packets via FreeBSD kernel.
+ *
+ * idea & code by pIGpEN [pigpen@s0ftpj.org, deadhead@sikurezza.org ]
+ *
+ * Tested on FreeBSD CURRENT 4.0
+ *
+ * s0ftpr0ject - digital security for y2k
+ * www.s0ftpj.org
+ *
+ * sikurezza.org - italian security mailing list
+ * www.sikurezza.org
+ *
+ */
+
+#include <sys/param.h>
+#include <sys/systm.h>
+#include <sys/kernel.h>
+#include <sys/malloc.h>
+#include <sys/mbuf.h>
+#include <sys/proc.h>
+#include <sys/protosw.h>
+#include <sys/socket.h>
+#include <sys/socketvar.h>
+#include <sys/sysctl.h>
+
+#include <vm/vm_zone.h>
+
+#include <net/if.h>
+#include <net/route.h>
+
+#define _IP_VHL
+#include <netinet/in.h>
+#include <netinet/in_systm.h>
+#include <netinet/ip.h>
+#include <netinet/in_pcb.h>
+#include <netinet/in_var.h>
+#include <netinet/ip_var.h>
+#include <netinet/ip_mroute.h>
+
+
+#define		print_ip(a)	printf("%d.%d.%d.%d\n",			\
+					(int)(ntohl(a) >>24) & 0xFF,	\
+					(int)(ntohl(a) >>16) & 0xFF,	\
+					(int)(ntohl(a) >> 8) & 0xFF,	\
+					(int)(ntohl(a))	& 0xFF);
+
+
+static int	  rip_new_send	  __P((struct socket *, int, struct mbuf *,
+				     struct sockaddr *, struct mbuf *,
+				     struct proc *));
+
+static int	  (*old_rip_send) __P((struct socket *, int, struct mbuf *,
+				     struct sockaddr *, struct mbuf *,
+				     struct proc *));
+
+static int	  rip_my_output	  __P((register struct mbuf *, 
+				     struct socket *, u_long));
+
+static int	  s_load	  __P((struct module *, int, void *));
+
+
+
+/* il controllo si poteva fare direttamente su questa funzione.... non l'ho
+   fatto perche' avevo gia' messo la mia rip_my_output nel sorgente :) */
+
+
+static int
+rip_new_send(struct socket *so, int flags, struct mbuf *m, struct sockaddr *nam,
+	 struct mbuf *control, struct proc *p)
+{
+	struct inpcb *inp = sotoinpcb(so);
+	register u_long dst;
+
+	if (so->so_state & SS_ISCONNECTED) {
+		if (nam) {
+			m_freem(m);
+			return EISCONN;
+		}
+		dst = inp->inp_faddr.s_addr;
+	} else {
+		if (nam == NULL) {
+			m_freem(m);
+			return ENOTCONN;
+		}
+		dst = ((struct sockaddr_in *)nam)->sin_addr.s_addr;
+	}
+	return rip_my_output(m, so, dst);
+}
+
+static int
+rip_my_output(m, so, dst)
+	register struct mbuf *m;
+	struct socket *so;
+	u_long dst;
+{
+	register struct ip *ip;
+	register struct inpcb *inp = sotoinpcb(so);
+	int flags = (so->so_options & SO_DONTROUTE) | IP_ALLOWBROADCAST;
+
+
+
+	switch(inp->inp_ip_p) {
+		case IPPROTO_RAW:  printf("RAW");
+				   break;
+		case IPPROTO_ICMP: printf("ICMP");
+				   break;
+		case IPPROTO_IGMP: printf("IGMP");
+				   break;
+		case IPPROTO_RSVP: printf("RSVP");
+				   break;
+		case IPPROTO_IPIP: printf("IPIP");
+				   break;
+		case IPPROTO_IDP:  printf("IDP");
+				   break;				   
+		default:	   printf("#%d", inp->inp_ip_p);
+				   break;
+	}
+	
+	printf(" -> ");		   print_ip(dst);
+	
+	/*
+	 * If the user handed us a complete IP packet, use it.
+	 * Otherwise, allocate an mbuf for a header and fill it in.
+	 */
+	if ((inp->inp_flags & INP_HDRINCL) == 0) {
+		if (m->m_pkthdr.len + sizeof(struct ip) > IP_MAXPACKET) {
+			m_freem(m);
+			return(EMSGSIZE);
+		}
+		M_PREPEND(m, sizeof(struct ip), M_WAIT);
+		ip = mtod(m, struct ip *);
+		ip->ip_tos = 0;
+		ip->ip_off = 0;
+		ip->ip_p = inp->inp_ip_p;
+		ip->ip_len = m->m_pkthdr.len;
+		ip->ip_src = inp->inp_laddr;
+		ip->ip_dst.s_addr = dst;
+		ip->ip_ttl = MAXTTL;
+	} else {
+		if (m->m_pkthdr.len > IP_MAXPACKET) {
+			m_freem(m);
+			return(EMSGSIZE);
+		}
+		ip = mtod(m, struct ip *);
+		/* don't allow both user specified and setsockopt options,
+		   and don't allow packet length sizes that will crash */
+		if (((IP_VHL_HL(ip->ip_vhl) != (sizeof (*ip) >> 2)) 
+		     && inp->inp_options)
+		    || (ip->ip_len > m->m_pkthdr.len)
+		    || (ip->ip_len < (IP_VHL_HL(ip->ip_vhl) << 2))) {
+			m_freem(m);
+			return EINVAL;
+		}
+		if (ip->ip_id == 0)
+			ip->ip_id = htons(ip_id++);
+		/* XXX prevent ip_output from overwriting header fields */
+		flags |= IP_RAWOUTPUT;
+		ipstat.ips_rawout++;
+	}
+
+
+	
+	return (ip_output(m, inp->inp_options, &inp->inp_route, flags,
+			  inp->inp_moptions));
+}
+
+
+
+extern struct 	protosw 	inetsw[];
+
+static int
+s_load (struct module *module, int cmd, void *arg)
+{
+ int s;
+
+ switch(cmd) {
+	case MOD_LOAD:	
+	  s=splnet();
+	  old_rip_send = inetsw[ip_protox[IPPROTO_ICMP]].pr_usrreqs->pru_send;
+	  inetsw[ip_protox[IPPROTO_ICMP]].pr_usrreqs->pru_send = rip_new_send;
+  	  splx(s);
+	  break;
+			
+	case MOD_UNLOAD:
+	  s=splnet();
+	  inetsw[ip_protox[IPPROTO_ICMP]].pr_usrreqs->pru_send = old_rip_send;
+ 	  splx(s);
+	  break;
+ }
+
+ return 0;
+}
+
+static moduledata_t s_mod_1 = {
+	        "raww_mod",
+	        s_load,
+	        0
+};
+
+DECLARE_MODULE(raww_mod, s_mod_1, SI_SUB_PSEUDO, SI_ORDER_ANY);
+<-X->
+
+Il punto due per ora ve l'ho lasciato irrisolto. C'e' pero' un "ma" che si
+raggiunge facendo 1+1, ovvero invece di seguire una strada piuttosto lunga
+e anche non dimostrata si puo' utilizzare un modulo della prima situazione
+per agire solo su un protocollo... semplicemente confrontando che
+
+inp->inp_ip_p 
+
+sia uguale al protocollo su cui vogliamo fare le modifiche: se VERO eseguiamo
+il codice, altrimenti no...
+
+E' chiaro che in questo modo le modifiche NON influenzeranno gli altri
+protocolli aventi la stessa pr_usrreqs e quindi l'enigma e' risolto.
+
+
+Standard 4.4BSD
+---------------
+
+Ho accennato piu' volte alla pr_usrreq in un kernel che segue quanto 
+indicato nelle Networking Implementation Notes ed e' giunto il momento di
+vedere praticamente di cosa si tratta.
+
+Per questo esempio prendo il kernel di OpenBSD solo perche'
+ce l'ho a portata di mano: NetBSD fa lo stesso e probabilmente altri OS pure,
+sembrerebbe che l'eccezione sia proprio FreeBSD (al momento).
+
+[ sys/protosw.h ] 
+
+struct protosw {
+	short	pr_type;		/* socket type used for */
+	struct	domain *pr_domain;	/* domain protocol a member of */
+	short	pr_protocol;		/* protocol number */
+	short	pr_flags;		/* see below */
+
+/* protocol-protocol hooks */
+	void	(*pr_input)		/* input to protocol (from below) */
+			__P((struct mbuf *, ...));
+	int	(*pr_output)		/* output to protocol (from above) */
+			__P((struct mbuf *, ...));
+	void	*(*pr_ctlinput)		/* control input (from below) */
+			__P((int, struct sockaddr *, void *));
+	int	(*pr_ctloutput)		/* control output (from above) */
+			__P((int, struct socket *, int, int, struct mbuf **));
+
+/* user-protocol hook */
+	int	(*pr_usrreq)		/* user request: see list below */
+			__P((struct socket *, int, struct mbuf *,
+			     struct mbuf *, struct mbuf *));
+
+/* utility hooks */
+	void	(*pr_init)		/* initialization hook */
+			__P((void));
+
+	void	(*pr_fasttimo)		/* fast timeout (200ms) */
+			__P((void));
+	void	(*pr_slowtimo)		/* slow timeout (500ms) */
+			__P((void));
+	void	(*pr_drain)		/* flush any excess space possible */
+			__P((void));
+	int	(*pr_sysctl)		/* sysctl for protocol */
+			__P((int *, u_int, void *, size_t *, void *, size_t));
+};
+
+Notate il puntatore a funzione:
+
+int (*pr_usrreq) __P((struct socket *, int, struct mbuf * .....));
+
+Vediamo come si concretizza in un esempio:
+
+int
+udp_usrreq(so, req, m, addr, control)
+	struct socket *so;
+	int req;
+	struct mbuf *m, *addr, *control;
+{
+	struct inpcb *inp = sotoinpcb(so);
+	int error = 0;
+	int s;
+
+	if (req == PRU_CONTROL) {
+#ifdef INET6
+		if (inp->inp_flags & INP_IPV6)
+			return (in6_control(so, (u_long)m, (caddr_t)addr,
+			    (struct ifnet *)control, 0));
+		else
+#endif /* INET6 */
+			return (in_control(so, (u_long)m, (caddr_t)addr,
+			    (struct ifnet *)control));
+	}
+	if (inp == NULL && req != PRU_ATTACH) {
+		error = EINVAL;
+		goto release;
+	}
+	/*
+	 * Note: need to block udp_input while changing
+	 * the udp pcb queue and/or pcb addresses.
+	 */
+	switch (req) {
+
+	case PRU_ATTACH:
+		if (inp != NULL) {
+			error = EINVAL;
+			break;
+		}
+		s = splsoftnet();
+		error = in_pcballoc(so, &udbtable);
+		splx(s);
+		if (error)
+			break;
+		error = soreserve(so, udp_sendspace, udp_recvspace);
+		if (error)
+			break;
+#ifdef INET6
+		if (((struct inpcb *)so->so_pcb)->inp_flags & INP_IPV6)
+			((struct inpcb *) so->so_pcb)->inp_ipv6.ipv6_hoplimit =
+			    ipv6_defhoplmt;
+		else
+#endif /* INET6 */
+			((struct inpcb *) so->so_pcb)->inp_ip.ip_ttl = ip_defttl;
+		break;
+
+	case PRU_DETACH:
+		udp_detach(inp);
+		break;
+
+	case PRU_BIND:
+		s = splsoftnet();
+		error = in_pcbbind(inp, addr);
+		splx(s);
+		break;
+
+	case PRU_LISTEN:
+		error = EOPNOTSUPP;
+		break;
+
+	case PRU_CONNECT:
+#ifdef INET6 
+		if (inp->inp_flags & INP_IPV6) {
+			if (!IN6_IS_ADDR_UNSPECIFIED(&inp->inp_faddr6)) {
+				error = EISCONN;
+				break;
+			}
+		} else
+#endif /* INET6 */
+			if (inp->inp_faddr.s_addr != INADDR_ANY) {
+				error = EISCONN;
+				break;
+			}
+
+		s = splsoftnet();
+		error = in_pcbconnect(inp, addr);
+		splx(s);
+		if (error == 0)
+			soisconnected(so);
+		break;
+
+	case PRU_CONNECT2:
+		error = EOPNOTSUPP;
+		break;
+
+	case PRU_ACCEPT:
+		error = EOPNOTSUPP;
+		break;
+
+	case PRU_DISCONNECT:
+#ifdef INET6 
+		if (inp->inp_flags & INP_IPV6) {
+			if (IN6_IS_ADDR_UNSPECIFIED(&inp->inp_faddr6)) {
+				error = ENOTCONN;
+				break;
+			}
+		} else
+#endif /* INET6 */
+			if (inp->inp_faddr.s_addr == INADDR_ANY) {
+				error = ENOTCONN;
+				break;
+			}
+
+		s = splsoftnet();
+		in_pcbdisconnect(inp);
+#ifdef INET6
+		if (inp->inp_flags & INP_IPV6)
+			inp->inp_laddr6 = in6addr_any;
+		else
+#endif /* INET6 */
+			inp->inp_laddr.s_addr = INADDR_ANY;
+
+		splx(s);
+		so->so_state &= ~SS_ISCONNECTED;		/* XXX */
+		break;
+
+	case PRU_SHUTDOWN:
+		socantsendmore(so);
+		break;
+
+	case PRU_SEND:
+#ifdef IPSEC
+		error = check_ipsec_policy(inp,0);
+		if (error)
+			return (error);
+#endif
+		return (udp_output(m, inp, addr, control));
+
+	case PRU_ABORT:
+		soisdisconnected(so);
+		udp_detach(inp);
+		break;
+
+	case PRU_SOCKADDR:
+		in_setsockaddr(inp, addr);
+		break;
+
+	case PRU_PEERADDR:
+		in_setpeeraddr(inp, addr);
+		break;
+
+	case PRU_SENSE:
+		/*
+		 * stat: don't bother with a blocksize.
+		 */
+		/*
+		 * Perhaps Path MTU might be returned for a connected
+		 * UDP socket in this case.
+		 */
+		return (0);
+
+	case PRU_SENDOOB:
+	case PRU_FASTTIMO:
+	case PRU_SLOWTIMO:
+	case PRU_PROTORCV:
+	case PRU_PROTOSEND:
+		error =  EOPNOTSUPP;
+		break;
+
+	case PRU_RCVD:
+	case PRU_RCVOOB:
+		return (EOPNOTSUPP);	/* do not free mbuf's */
+
+	default:
+		panic("udp_usrreq");
+	}
+
+release:
+	if (control) {
+		printf("udp control data unexpectedly retained\n");
+		m_freem(control);
+	}
+	if (m)
+		m_freem(m);
+	return (error);
+}
+
+Notate che come vi dicevo gli stati vengono mandati tramite req ed all'interno
+c'e' uno switch che esegue il codice per ognuno di essi.
+
+Quello che qui si puo' fare e':
+
+- sostituire l'intera funzione facendo puntare alla pr_usrreq della protosw
+  del protocollo la propria funzione;
+
+- sostituire la funzione come nel punto precedente apportando pero' solo le 
+  modifiche desiderate e successivamente fare in modo che lei stessa chiami 
+  la pr_usrreq vera.
+
+Nota che in questo secondo caso non serve salvare la funzione pr_usrreq 
+in quanto questa e' accessibile direttamente con il suo nome per cui l'uso di
+un puntatore *old_pr_usrreq() non serve... se fossero state static allora 
+chiaramente sarebbe stato necessario. In FreeBSD le varie funzioni di 
+interfacciamento possono anche esserlo, basta che i puntatori interni alla 
+struttura pr_usrreqs puntino a tali funzioni nello STESSO modulo in modo che 
+nella inetsw[] o nelle altre tabelle dei protocolli di un qualsiasi altro 
+dominio a cui queste funzioni appartengono, sia possibile accedervi 
+conoscendo l'indirizzo.
+
+bau
+
+pIGpeN the haphazard deadhead
+
+
+==============================================================================
+---------------------------------[ EOF 8/28 ]---------------------------------
+==============================================================================

@@ -1,0 +1,22 @@
+[ Re: Document found @ ftp://lair.co.za/users/vivienneh/SAPS Hackers.doc ]
+
+Thanks to beserker for pointing me towards this hilarious document. :)
+
+The erroneous datestamp at the bottom confused me, but it turned out to just
+be funniness with the way MS Word displays datestamps. I noticed when I ran it
+through strings...
+
+--
+Created on the
+ DATE \@ "yy/MM/dd"
+00/10/10
+ at
+ TIME \@ "hh:mm AM/PM"
+03:15 PM
+--
+
+ie. It uses the datestamp of the file itself (which would be when I downloaded
+it), but the real datestamp is 03:15 PM 00/10/10.
+
+Enjoy!
+Wizdumb

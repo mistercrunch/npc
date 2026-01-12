@@ -1,0 +1,843 @@
+
+
+
+
+                     -+-| DisidentS Hack Journal #3 |-+-
+
+
+
+
+
+
+
+
+
+
+  ________________________________________________________________________
+ |                                                                        |
+ | -+- Titulo_____: Ensamblador: "whe gotta take the power back" [030.txt]|
+ | -+- Autor______: remains                                               |
+ | -+- E-Mail_____: <offremains@hotmail.com>                              |
+ | -+- Team_______: DisidentS España - http://www.disidents.int-ltd.com   |
+ | -+- KB_________: 39.7                                                  |
+ | -+- Tema_______: Ensamblador orientado al cracking                     |
+ |________________________________________________________________________|
+
+
+
+
+
+
+
+.==========================================================================.
+|===========~ INDICE ~======================================================
+|===========================================================================
+|=~ 1.0 Introduccion                                                       |
+|=~ 2.0 Los registros                                                      |
+|=~ 3.0 Operaciones logicas                                                |
+|=~ 4.0 Instrucciones mas interesantes                                     |
+|=~ 5.0 Interrupciones y apis                                              |
+|=~ 6.0 The End                                                            |
+|=~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~=.
+======================================================~ INDICE ~============
+============================================================================
+
+
+
+
+.==========================================================================.
+|===========~ 1.0 Introduccion ~============================================
+|===========================================================================
+
+Si has  decidido dedicarte a este  noble arte de la ingenieria inversa y asi
+hacer felices a tus padres (ellos siempre quisieron que fueses ingeniero no?
+ :-P), deberas  tratar de adquirir el mayor  conocimiento posible sobre len-
+guaje ensamblador. Por que? Muy sencillo,  por que es el lenguaje con el que
+vas a tener que lidiar constantemente, independientemente del lenguaje en el
+que este codificado  el programa que tratas de quebrar.  Podriamos empezar a
+hablar sobre la estructura interna de los computadores,pero como estoy segu-
+ro de que quieres empezar a  crackear cuanto antes y yo no quiero que abones
+mi arbol genealogico, tratare de entrar en materia cuanto antes.  Tambien me
+gustaria comentar que  este es el primer  articulo que escribo en mi vida  y
+va a ser un poco largo, asi que agarrate fuerte que vamosssss.
+
+
+
+
+.==========================================================================.
+|===========~ 2.0 Los registros ~===========================================
+|===========================================================================
+
+  Como ya sabras la memoria de un computador se divide en varios niveles. En
+el mas alto o rapido (en cuanto a velocidad de acceso)de esos niveles se en-
+cuentran los registros.Los registros no son mas que porciones de memoria con
+una velocidad de acceso muy alta por parte del procesador.Es por ello que se
+utilizan para almacenar los datos del programa que van a ser manipuladas re-
+petidamente, pudiendo asi obtener una mayor velocidad.   Ademas de esto, hay
+algunas instrucciones que solo pueden realizarse sobre los registros.  Vamos
+a ver a continuacion un listado de los  registros y sus usos mas comunes.
+Tened en cuenta que estamos hablando de registros de 32 bits,que son los que
+vamos a utilizar para desarrollar aplicaciones para window$, lo que se llama
+GUI (Graphical User  Interface),  usease con ventanita y todas estas monadas
+que utiliza este super SO ,que en ensamblador tambien se puede hacer (es lo-
+gico al fin y al cabo los programas van a ser traducidos a ensamblador no? ;).
+
+REGISTROS DE DATOS (eax,ebx, ecx, edx):
+
+Todos estos registros pueden dividirse en dos de 16 bits aunque solo podemos
+acceder directamente a uno de ellos, el que se refiere a la parte mas baja o
+menos significativa del registro.A ellos nos referimos como ax, bx, cx y dx.
+Estos registros de 16 bits se dividen a  su vez en  dos de 8 bits. Veamos si
+asi lo veis mas claro:
+
+eax --- se divide en ---> ax--- se divide en ---> ah , al
+ebx --- se divide en---> bx --- se divide en ---> bh , bl
+ecx --- se divide en ---> cx --- se divide en ---> ch , cl
+edx --- se divide en ---> dx --- se divide en ---> dh , dl
+
+Con el soft ice podreis pillar mas de una clave al vuelo en  alguno de estos
+registros si buscais donde es debido :). Por cierto que algunos de estos re-
+gistros tienen funciones mas especificas  pero creo que sera mejor explicar-
+las cuando veamos las instrucciones.
+
+REGISTROS DE SEGMENTO (cs, ds, ss, es):
+
+Si miras con el hview el desensamblado de  un fichero (f4 --> decode), veras
+que cada instruccion tiene su correspondiente codigo hexadecimal y ascii.
+Por ejemplo si   miras la instruccion  je, que veremos  mas adelante, podras
+comprobar que su codigo hexadecimal es 74 y el ascii  una "t". Entonces como
+se diferencian los datos de las instrucciones, etc ? Efectivamente, mediante
+los registros de segmento.
+
+CS ---> Es el segmento de codigo, es decir,  contiene la  direccion del seg-
+        mento donde se encuentran las instrucciones del programa.
+DS ---> Los datos del programa, como por ejemplo la cadena "unregistered" ;)
+ES, FS y GS ---> Distintos segmentos de datos, aunque no son muy utilizados.
+SS ---> Apunta al  segmento de la pila (a continuacion explico  lo que es la
+             pila)
+
+REGISTROS PUNTEROS DE PILA (esp, ebp) :
+
+La pila es ni mas ni menos que un bloque de memoria en el  que se van acumu-
+lando datos en estructura "LIFO", (Last in First Out), es decir, que el pri-
+mer dato que introduzcas en la pila ( se hace mediante la instruccion push )
+sera, en teoria, el ultimo dato que saques ( instruccion pop ). Por ejemplo,
+para realizar una llamada a alguna api de windows, primeramente se empujan a
+la  pila los parametros que usara la api y despues se realiza la propia lla-
+mada a la api. Con el soft ice puedes comprobar los parametros pasados a una
+api comprobando los datos empujados  a la pila antes de llamar a la misma.
+
+ESP --->  Apunta a la cabeza de la pila, quicir,  al ultimo dato introducido
+en la misma. Por consiguiente cada vez que hagamos un push o un pop el valor
+de este registro cambiara para seguir apuntando a la cabeza de la pila.
+
+EBP ---> Apunta a la base de la pila, y puede ser referenciada su parte baja
+(que no sus partes bajas que el ensamblador de porno tiene muy poco) median-
+te el subregistro bp.
+
+REGISTROS INDICE (edi, esi) :
+
+Tambien podemos referirnos a su parte menos significatica  mediante los sub-
+registros di, si.  Estos registros  se utilizan como indices en algunas ins-
+trucciones en las que ESI es el operando origen y EDI el destino.Lo entende-
+ras mejor cuando veamos las instrucciones, no te preocupes.
+
+Aparte de estos registros tambien tenemos el registro EIP. En este registro
+se almacena la direccion de la siguiente  instruccion que sera ejecutada. A
+cada instruccion que se ejecuta este registro se actualiza automaticamente.
+Por lo tanto y como podras comprobar facilmente con el soft ice,la siguien-
+te  instruccion que ejecutara un  programa viene marcada por el conjunto de
+registros CS:EIP.  Asi que si en el  soft ice pones "bpx eip",  estaras po-
+niendo un break point en la siguiente instruccion a ejecutar. Facil no ?
+
+Por ultimo  (en cuanto a los registros se refiere,  por que todavia te queda
+un rato por aguantarme),  se encuentra el registro de los flags. De este re-
+gistro no nos interesa  el valor que tiene en si, s i no el valor que tienen
+determinados bits que  forman el registro.  Cada uno de estos bits indica un
+estado, ( sera por eso que realmente  se le llama registro de estado :), asi
+por ejemplo podemos comprobar determinado bit despues de realizar una compa-
+racion, para ver si el resultado de la misma fue verdadero o falso. Recuerda
+que un  bit solo  puede tener como  valor un uno o un cero, asi que es facil
+imaginarte como se hace la comprobacion no? Para que lo  entiendas mejor va-
+mos a ver los flags mas relevantes. Se me  olvidaba decir, que este registro
+tambien es de 32 bits,pero realmente los flags mas importantes se encuentran
+en los 16 bits de la parte mas baja.
+
+CF (0) --> Es el flag de acarreo y se activa (se pone a uno),cuando realiza-
+mos una operacion sobre un registro, y el resultado no nos  cabe en el mismo.
+
+PF (2) --> El  llamado flag  de paridad, se activa cuando tras una operacion,
+el numero de bits puestos a uno fue par.
+
+ZF (6) --> Es el flag zero. Este es muy interesante para nuestros propósitos
+ya que se usa  despues de una comparacion  para comprobar si el resultado de
+esta fue verdad, o para comprobar si el resultado de la ultima operacion re-
+alizada fue 0.  Esto resulta muy  interesante para comprobar con el soft ice
+en tiempo real, antes de pasar al editor hexadecimal como unos locos  si es-
+tamos en el buen camino, ya que el soft ice nos permite cambiar el estado de
+algunos flag, posicionandonos sobre ellos y presionando la tecla insert.Des-
+pues pulsas "enter" y  alla donde decia  "salta" ahora dira "no salta". Esto
+sera si cambias el flag adecuado en el  momento adecuado claro.Si cambias lo
+que te de la gana posiblemente te encontraras con un bonito mensaje de error
+de los de windows,  pero tranquilo que  los cambios que realices con el soft
+ice no son permanentes  y no creo que vayas  a chafar nada (aunque si tienes
+el windows instalado tampoco hace  falta que chafes nada, que ya estara bas-
+tante chafado de por si :P ).
+
+IF (9) --> Si este flag esta puesto a uno quiere  decir que las interrupcio-
+nes estan permitidas. Este flag se  suele poner  a 0 cuando se va a realizar
+alguna tarea que no deba ser cortada por alguna  interrupcion (tambien vere-
+mos mas alante lo que son las interrupciones ). Tambien puedes cambiarla con
+el soft ice pero al de un rato windows lo restaura.
+
+DF (10) --> Cuando activamos este flag las operaciones referidas a cadenas o
+bloques de memoria, que normalmente se realizan p'alante,se realizaran  pa'-
+tras. Esto se puede hacer mediante las instrucciones "std" (pone a 0 el flag
+y las operaciones se haran hacia adelante), o "cld" (pone a uno el flag y se
+haran hacia atras las instrucciones de cadenas). Veremos mas adelante  estas
+instrucciones y alli te recuerdo esto, no te preocupes ;).
+
+OF (11) --> Este flag activado indica que se a producido  un desbordamiento,
+esto es que el valor que queremos introducir en el operando destino, no cabe
+en dicho operando (como cuando de pequeño llenabas la bañera  hasta arriba y
+cuando te metias se salia todo el agua,aunque alguno seguro que lo sigue ha-
+ciendo todavia ).
+
+Bueno  con estos creo que  es suficiente de momento  ya que de  todas formas
+aunQue  te pregunte ahora, por ejemplo, que utilidad tiene el flag pf seguro
+que no te acuerdas :D . Bueno vamos a por otro temita ;).
+
+
+
+
+.==========================================================================.
+|===========~ 3.0 Operaciones Logicas ~=====================================
+|===========================================================================
+
+Bien, lo primero que debes saber es que las operaciones logicas actuan a ni-
+vel de bit.  Lo que hacen es comparar  dos operandos,  que no necesariamente
+tienen por ser dos registros,tambien pueden ser posiciones de memoria etc...
+Como veras,este tipo de operadores tambien pueden ser utilizados para compa-
+rar el serial que tu introdujiste en un programa con el serial valido calcu-
+lado por ese programa.Hay varios operadores de este tipo y para entender me-
+jor de que va esto nada mejor que ver unos ejemplillos de cada uno:
+
+AND:
+
+Esta instruccion compara uno a uno los bits de dos operandos que le demos, e
+introduce  el resultado en  el primer operando.  En caso de que los dos bits
+que compara sean uno, el valor que metera en el operando destino sera uno.
+En caso de que uno solo de los bits que compara o los dos sean 0 colocara 0.
+
+and ah, bh --> El resultado se introducira en ah. Supongamos el siguiente e-
+jemplo:
+
+10011001  ah        1 and 1 = 1
+10010101  bh        1 and 0 = 0
+-------------------              0 and 0 = 0
+10010001  ah
+
+Obserba que si haces un and con dos numeros iguales es resultado tambien se-
+ra el mismo.  Asi pues se puede utilizar  para comprobar si determinado ope-
+ran do esta puesto a 0 por ejemplo...
+
+TEST
+
+Funciona exactamente igual que el and, con  la diferencia de que no almacena
+el resultado en ningun lado, lo que hace es actuar sobre algunos flag.
+
+OR
+
+El resultado se guarda en el primer operando. El resultado sera uno,  si uno
+o dos de los bits comparados estan puestos a uno ( por cierto que el termino
+comparado  no esta bien utilizado ya que realmente no esta haciendo una com-
+paracion, pero asi nos entendemos mejor :P ).
+
+11001001          1 or 1 = 1
+10011101          1 or 0 = 1
+------------------          0 or 0 = 0
+11011101
+
+XOR
+
+Este es el or exclusivo. Este lo que hace es poner un uno solo y solo si uno
+de los dos bits esta puesto a uno.
+
+11001100          1 xor 1 = 0
+10111010          1 xor 0 = 1
+------------------          0 xor 0 = 0
+01110100
+
+Mmmm. Esto es mas interesante de lo que parece  a simple vista. Si te fijas,
+cuando haces un xor con dos  operandos que son iguales, el resultado siempre
+sera 0. Puede ser una bonita  forma de comparar nuestro serial con el serial
+bueno, no crees ?
+
+NOT
+
+Utiliza un solo operando y lo que hace es invertir sus bits. Es decir que si
+antes era un uno ahora sera un cero y viceversa.
+
+11000110          not 1 --> 0
+-------------------         not 0 --> 1
+00111001
+
+De todas  las operaciones logicas,  esta es la unica que no afecta a  ningun
+flag. Dicho esto terminamos con  las operaciones  logicas y vamos  a pasar a
+ver las instrucciones mas comunes o que mas nos intersan a nosotros ;) :
+
+
+
+
+.==========================================================================.
+|===========~ 4.0 Instrucciones mas interesantes ~==========================
+|===========================================================================
+A continuacion no voy a tratar todas las instrucciones de las que disponemos
+si no mas bien aquellas que nos  resulten mas  utiles a la hora de atacar un
+programa.(He dicho atacar ? , yo si que estoy  atacau :D): Por cierto que el
+numero que pongo entre parentesis al lado de  algunas instrucciones es el e-
+quivalente en hexadecimal de esa instruccion (ya lo veras mas abajo :P) :
+
+MOV:
+
+La funcion de esta instruccion  es la de mover  datos de un operando a otro,
+teniendo que ser ambos del mismo tamaño.  Estos movimientos de datos se pue-
+den de distintos tipos como veremos a continuacion:
+
+mov eax, ebx --> moveriamos los datos en el registro ebx al registro eax.
+
+
+Despues de esta operacion eax = ebx (Por lo tanto no cambiamos lo que hay en
+el registro ebx).
+Esto es aplicable a los demas registros.
+
+mov eax, [00414d56]  -->  Moveremos el operando que se encuentra en la posi-
+cion de memoria [00414d56] a eax. Es aplicable a los demas registros con ex-
+cepcion de los registros de segmento (no me digas que ya no te acuerdas cua-
+les son ? :P).  Muchas veces, cuando estes crackeando,en este tipo de direc-
+ciones de memoria encontraras constantes definidas en el programa,como cade-
+nas del tipo "unregistered evaluation copy"  ( aparte de ensamblador tembien
+conviene aprender ingles :D).  Esto te puede  dar una vision mas clara sobre
+el punto del programa en el que te encuentras.  Pero aparte de esto, tambien
+son importantes por otra cosa. Debes tener en mente lo bagos  que pueden ( o
+podemos ) llegar a ser los programadores. Si el programa tiene que comprobar
+en distintos puntos,  si esta registrado o no,  una solucion muy facil puede
+ser el  meter cierto  valor en una posicion de memoria  ( esto lo digo visto
+desde el soft ice,por que el programador no sabe nada de posiciones de memo-
+ria cuando esta programando), y comprobar desde distintos puntos del progra-
+ma el  valor introducido. Asi cambiando este valor podriamos engañar al pro-
+grama en  distintos puntos,  ahorrandonos trabajo. Sobre la orden mov decir,
+que tambien se puede direccionar de la siguiente manera:
+
+"mov eax, [ebp] "--> Ebp
+
+seria un puntero a una  direccion de memoria. Para este fin tambien se puede
+utilizar el registro ebx. Tambien seria correcto:
+
+mov eax, [ebp+desplazamiento].
+
+LEA:
+
+Esta orden es similar  a mov ya que  transfiere datos de un operando a otro.
+La diferencia es que con lea pasamos directamente el offset:
+
+lea edx, [ ebp + 0c ] --->   Obtendriamos en edx la direccion  señalada  por
+ebp + 0c en vez de el dato contenido en esa direccion.
+
+CMP:
+
+Esta instruccion  compara dos operandos  y segun el resultado de la compara-
+cion  establece el valor de algunos flags. En caso de que los  dos operandos
+sean iguales se activara el flag 0. Sobra decir que los dos operandos a com-
+parar deben ser del mismo tamaño.
+
+cmp eax, ebx --> Compararia el valor de ambos registros.  En caso de que am-
+bos fuesen iguales se activaria el flag 0.
+
+CALL/RET:
+
+call 004036d4 --> Con esta instruccion pasaria a ejecutarse el codigo a par-
+tir de la  direccion de memoria "004036d4". Antes de trasferir el control al
+codigo en  dicha direccion se  mete en la pila  la direccion de la siguiente
+instruccion a ejecutar al retornar de dicha llamada.Para retornar de la lla-
+mada se utiliza la instruccion "ret" como te habras imaginado. Esta instruc-
+cion lo que hace es extraer de la pila la direccion  a la que tiene que vol-
+ver.Aqui se plantea un problema y es que aunque normalmente un "ret" nos de-
+volvera a la direccion que sigue a la que hizo la llamada (call), esto no va
+a ser asi siempre. Puede ocurrir  que antes de la  instruccion "ret" se meta
+en la pila cierta direccion de memoria para cambiar asi el flujo del progra-
+ma.Asi que al loro con estas cositas cuando esteis traceando algun programa.
+
+Pero la instruccion "call" tiene tambien otra funcion muy importante y es la
+de llamar  a las apis de windows (si las famosas MessageBoxA...). Cuando po-
+nes un bpx en MessageBoxA por ejemplo, cuando salte el soft-ice primeramente
+te encontraras en el codigo de  correspondiente a esa api, en este caso den-
+tro de la  user32.dll.  Al fin y al cabo  no es mas que una llamada normal a
+una porcion  de codigo.  Por eso mismo alguna vez podras encotrarte con algo
+como: "mov eax, 77e8b6a8" y despues (no tiene por que ser justo en la proxi-
+ma linea) un "call eax". Con esto se puede llamar tambien a una api suponen-
+do que 77e8b6a8 sea la  direccion valida de una api. Veras que las direccio-
+nes de las apis siempre  son direcciones altas.  Recuerda que pese a que los
+programas tengan 4Gb de memoria para direccionarse, de esos 4 Gb dos son ac-
+cesibles solo por ese programa y los otros dos  lo son por todos los progra-
+mas y sera en estas posiciones de memoria donde residan las apis.
+
+JMP (EB) :
+
+Es  un salto  incondicional a una  direccion de memoria.  A diferencia de la
+call, esta instruccion no tiene retorno despues.
+
+jmp 004078d5 --> Saltaria a la direccion de memoria 004078d5  pasando a eje-
+cutarse las instrucciones que a partir de ella se encuentren.Si miras con el
+soft-ice veras como al ejecutarse un jmp cambia el registro eip para apuntar
+a la siguiente instruccion a ejecutar.
+
+JE (74 y 84)/JNE (75 y 85) :
+
+Son equivalentes a estas instrucciones las instrucciones jz y jnz. Al ver un
+Programa desensamblado podras ver je y jne. Sin embargo en el soft-ice siem-
+pre veras jz y jnz. No te preocupes que son lo mismo.
+
+Estas instrucciones son parecidas al jmp,  pero el salto se producira en ca-
+so de que se cumpla cierta condicion. El je y el jz se ejecutaran en caso de
+que el flag Z este activado. Las instrucciones jne y jnz se ejecutaran cuan-
+do este flag no este activado:
+
+cmp eax, ebx
+je 00405d43 --> Se producira el salto en caso de que eax y ebx sean iguales.
+Estas instrucciones son uno de nuestros mejores aliados. Una forma muy comun
+de crackear un programa es invertir uno de estos saltos  en un momento opor-
+tuno del codigo. Esto puedes hacerlo de  forma permanente mediante un editor
+hexadecimal  cambiando la instruccion  en hexadecimal .Por ejemplo cambiando
+un 75 por un 74  cambiariamos un jne  por un je ( recuerda lo de los valores
+hexadecimales de cada instruccion . Otras instrucciones de este tipo son las
+siguientes :
+
+JA / JNBE (77 y 87) --> Salta si es mayor.
+JNA / JBE (86) --> Salta si es mas pequeño o igual.
+JAE / JNB (83) --> Salta si es mayor o igual.
+JNAE / JB (82) --> Salta si es mas pequeño.
+JG / JNLG (8F) --> Salta si es mayor.
+JNG / JLE (8E) --> Salta si no es mayor.
+JGE / JNL (8D) --> Salta si es mayor o igual.
+JNGE / JL (8C) --> Salta si no es mayor o igual.
+
+Volviendo a algo que he comentado antes.Recordad que cambiar un salto de es-
+tos suele ser siempre lo mas facil, pero a su vez, es muchas veces ineficaz.
+Si veis que invirtiendo un salto de este estilo el programa  sigue sin hacer
+lo que quereis, (no pretendais tampoco que os baile la sardana :P ),investi-
+gad  que es lo  que hace que efectivamente  cuando el  programa llegue a ese
+salto, este se ejecute o no. Si por ejemplo veis que antes del salto compara
+eax con 0, mirar que parte del codigo fue el encargado de introducir ese 0 y
+hacer que lo cambie por un uno o lo que sea....
+
+Bueno y con esto acabamos ya con tanto jmpx, jmpy y jmpatomarporsaco que ya
+Era hora :D .
+
+Las siguientes instrucciones que vamos a ver son  instrucciones aritmeticas.
+Te vendran bien sobre todo a la hora de hacer keygens o simplemente a la ho-
+ra de entender la parte de codigo que se encarga de calcular el serial vali-
+do...
+
+ADD --> Suma dos operandos e introduce el resultado en el primer operando:
+              add eax, ebx --> el resultado se introduce en eax.
+
+SUB --> Instruccion de resta. Ej: sub eax, ebx -->  Le restaria a eax el va-
+lor de ebx e introduciria el valor en eax.
+
+INC --> Incrementa el operando, es decir, le suma uno :). Ej: inc ecx
+
+DEC --> Lo contrario a la anterior, decrementa el operando: dec ecx
+
+MUL --> Esta es un poco mas complicada.  A  la instruccion mul le pasamos un
+solo operando y dependiendo  del tamaño del mismo,  este se multiplicara por
+al, ax o eax. Me explico.   Si el operando es de 8 bits se multiplica por el
+contenido de al, si es de 16 bits por el de ax y si es de 32 por el de eax.
+Ahora el tema esta en donde guarda el resultado. En el primero de los casos,
+el resultado se guarda en ax. En el segundo de los casos se guarda en el par
+de registros dx:ax, y en el tercero en edx:eax. Asi que andaisus al loro con
+que multiplica  la rutina que  genera el serial y donde guarda el resultado,
+no os volvais locos... jeje.
+
+mul ecx ( se multiplica ecx por eax y el resultado se introduce en edx:eax).
+
+DIV --> Esta es (seguro que ya lo habias adivinado) para dividir dos operan-
+dos. Si como divisor tenemos un operando de 8 bits, se cojera como dividendo
+el registro ax y el resultado  ira a parar a este mismo registro ax ( al co-
+ciente y ah resto). En caso de que el divisor sea de 16 bits el dividendo lo
+formaran dx:ax y el resultado ira en ax:dx (ax cociente, dx resto).
+Si es de 32 bits el  divisor el dividendo  lo formaran edx:eax. El resultado
+ira en eax (cociente) y edx (resto)
+
+div bx (se coje el valor formado por ax:dx,  lo divide por bx y el resultado
+va a parar a ax:dx)
+
+Con esto terminamos con las instrucciones  aritmeticas. Por cierto espero no
+Haberme equivocado con lo de los terminos dividendo,  cociente y demas,  que
+yo siempre he pencado matematicas (pero que conste que siempre a sido por ke
+los profesores me tienen mania eh ? ).
+
+Sigamos adelante con mas instrucciones.
+
+PUSH / POP :
+
+Estas instrucciones son las que comente mas arriba. Se utilizan para empujar
+valores a la pila  ( no me digas que ya no te acuerdas lo que es la pila que
+te arreo...)  La instruccion push introduce un valor en la pila y decrementa
+el registro esp en 4 unidades. Asi pues la instruccion push ebx introduciria
+el valor de ebx  en la pila.  La instruccion pop hace todo lo contrario. Por
+ejemplo haciendo pop ebx,  introduciriamos el valor de la cima de la pila en
+ebx. Esta instruccion  incrementa en 4 unidades   el registro esp. A la hora
+de tracear un programa estas instrucciones son tremendamente utiles. Una vez
+que has localizado donde estan el serial y el nombre que introdujiste,sigue-
+les la pista por el codigo. En el momento que veas que tu nombre y tu serial
+son  empujados a la pila  y despues  encuentras una instruccicon call, sabes
+que posiblemente estas en el  camino correcto.  Es posible que en ese call o
+en  alguno que haya posteriormente este la  rutina que calcula el serial co-
+rrecto para el nombre que tu le has dado. Zambullete por el codigo (es posi-
+ble que  veas bastantes intrucciones  aritmeticas). Mira lo que se oculta en
+cada registro. Comprueba que hace con  el nombre o con cada letra del mismo.
+Siguele  la pista.  Posiblemente pase  varias veces por el mismo codigo para
+calcularun numero por cada letra del nombre que le diste (la instruccion "?"
+del soft-ice es muy util en estos casos ya que te muestra el codigo ascii de
+el  valor hexadecimal de los registros  o de cualquier valor que le des). Es
+impotante que mires lo que va sucediendo concalma,  sin perder la paciencia,
+entendiendo lo que pasa.... Que es lo que viene y que es lo que va... Tomate
+tu tiempo y aunque al final no encuentres lo que buscabas,te aseguro que ha-
+bras aprendido algo, ;).
+
+Tambien tenemos las instrucciones PUSHF Y POPF. La instruccion pushf empuja
+el registro de estado a la pila. La popf hace la inversa. Estas instruccio-
+nes sulen ser utilizadas por ejemplo en programas comprimidos.
+
+LOOP :
+
+Esta instuccion genera un bucle,es decir la repeticion de una parte de codi-
+go. Las veces que se ejecutara este codigo viene marcado por el valor en ecx
+ya que cada vez que  se ejecuta  esa parte de codigo se le resta uno a ecx y
+cuando ecx sea cero se terminara el bucle.
+
+-------------
+mov ecx, 10
+principio_bucle:
+	instrucciones...
+loop principio_bucle
+---------------
+
+Principio bucle en realidad no es mas  que una direccion de memoria como por
+ejemplo "0040567d". El codigo a partir de esa direccion se ejecutara las ve-
+ces marcadas en ecx, en este caso 10. Lo de loop pincipio_bucle realmente lo
+vamos a ver como un salto condicional cuando estemos con el soft ice. Es de-
+cir, comprueba el valor  en ecx y hace un jnz ( salta si no es  cero ;) a la
+posicion  de memoria que marca el principio del bucle.  Recuerda que el pro-
+grama estara hecho en un lenguaje de alto nivel, traducido a otro de mas ba-
+jo nivel a la hora de comprender el codigo...
+
+NOP(90) :
+
+ Esta instruccion le dice al procesador que no haga nada. Bueno realmente le
+dice al  procesador que intercambie el contenido de ax con el de ax, asi que
+pal  caso pipas. Y ahora preguntaras, ¿para que coño ( se puede decir coño a
+estas  horas?) nos sirve a  nosotros esta  pseudoinstruccion ?. Bien. Ten en
+cuenta que  cuando cambiemos una  instruccion por otra ( que malos que somos
+eh ? xD)  tenemos que dejar el mismo tamaño que habia antes. Asi pues cuando
+cambiemos  una  istruccion por otra  y veamos que la  segunda es mas pequeña
+(me refiero siempre al codigo en  hexadecimal) tendremos que ponerle despues
+un  nop para igualar el tamaño y que el  programa no nos de un error de esos
+tan feos.
+
+SHR/SHL :
+
+Estas instrucciones sirven para rotar los bits  de un registro. Shl lo hara
+hacia la izquierda y shr hacia la derecha.   El numero de bits que debe ro-
+tar se le da en la propia instruccion:
+
+shr eax, 16 --> Moveria los 16 bits de la parte alta  del registro eax ( e-
+sos  a los que no nos podemos referenciar directamente), a la parte baja de
+eax es decir, a ax. He puesto este ejemplo concreto por que es muy utiliza-
+do en programacion en ensamblador de 32 bits. Se utiliza muy comunmente pa-
+ra Interpretar los mensajes pasados a una ventana (todavia no tienes la re-
+ferencia  de las apis ? :P).  Estos mensajes pueden ser muy variados, desde
+decirle a  la ventana que  pinte texto,  hasta decirle que un boton ha sido
+pulsado. Cuanto  mas comprendas esto, mas opciones tendras de sentir el co-
+digo, de ver un  boton pulsandose  en vez de un simple  jnz etc...  Todo es
+cuestion de tiempo y dedicacion ;) .
+
+Vamos a ver a continuacion algunas instrucciones que se encargan de manipu-
+lar cadenas. Todas estas instrucciones, terminan con una "b", una "w",o una
+"d". Estas letras se refieren al tamaño de datos que van a ser manipulados.
+Una "b" se refiere a 8 bits, una "w"  a 16 bits y  una "d" a 32 bits. Vamos
+con ellas:
+
+COMPS (b/w/d) :
+
+Esta instruccion, al igual  que las siguientes,  es una de las  que utilizan
+esi y edi explicitamente, ya que compara una cadena direccionada mediante el
+registro esi  con otra cadena  direccionada por el registro edi.  No cambian
+las cadenas,  simplemente las compara y actua sobre determinados flag depen-
+diendo del resultado.  Esta instruccion se suele utilizar en conjunto con o-
+tra que vamos a ver mas  adelante, ya que con esta solo instruccion, como te
+habras dado cuenta, no se pueden comparar cadenas muy largas ;):
+
+---------------------------
+lea esi, cadena1
+lea edi, cadena2
+compsd
+---------------------------
+
+De este modo (fijate como la orden termina con una "d"),estariamos comparan-
+do los primeros 32 bits de esa cadena. Ya vereas un poco mas adelante se ha-
+cen las comparaciones mas largas. Por cierto. Te acuerdas de las instruccio-
+nes cld y std ? Pues es en esta y en las siguientes  instrucciones donde to-
+man trascendencia.  Si antes de esta instruccion  se ha puesto a uno el flag
+"df" (std), esta  instruccion se efetuara hacia atras. Como ya he dicho esto
+es aplicable a las siguientes instrucciones.
+
+LODS (b/w/d):
+
+Mueve a eax la cadena a la que apunta el registro esi. Realmente, dependien-
+do del tamaño indicado en la  instruccion (b/w/d),  esta se movera a 'al' si
+el tamaño es "b" (8 bits), 'ax'  si es "w" (16 bits) o 'eax' si el tamaño es
+"d" (32 bits):
+
+-----------
+mov esi, cadena
+lodsb
+-----------
+Con esta instruccion moveriamos el primer byte de la cadena al regitro 'al'.
+
+STOS ( b/W/D) :
+
+Transfiere al destino marcado por edi, el valor de al,  ax o eax dependiendo
+de si la instruccion termina en 'b' (al), 'w' (ax) o 'd' (eax)
+
+
+---------------------------
+lea edi, destino
+mov eax, cadena
+stosd
+---------------------------
+
+MOVS (b/w/d) :
+
+Esta instruccion transfiere el contenido de una cadena  direccionada por esi
+a un destino direccionado por edi.
+
+-------------
+lea esi, cadena1
+lea edi, destino
+movsw
+-------------
+
+
+Date cuenta  que realmente  el destino no es mas  que una porcion de memoria
+una vez esta compilado el programa. Tienes que ver las variables del progra-
+ma realmente como direcciones de memoria ya que es con ello con lo que juga-
+mos continuamente.
+
+SCAS (b/w/d) :
+
+Segun el valor indicado(b/w/d) compara al, ax o eax  con el contenido direc-
+cionado por edi. Segun el resultado de la comparacion se actualizan determi-
+nados flags. Esta instruccion se utiliza para buscar un valor concreto en el
+contenido direccionado por edi.
+
+REP/REPZ/REPNZ :
+
+Estas instrucciones se utilizan en convinacion con alguna de las anteriores.
+Como hemos visto, en principio el bloque maximo de datos que se pueden mover
+con esas instrucciones es de 32 bits.Hay es donde entra en juego la convina-
+cion de ambas instrucciones. Con la instruccion "rep", se repite la instruc-
+cion dada tantas veces como venga marcado en ecx.Es decir, si ecx=7 y convi-
+namos alguna de las instrucciones de arriba con rep,  repz o repnz, esa ins-
+truccion se efectuara 7 veces. La diferencia entre rep,  repz y repnz es que
+repz  se  realizara mientras  el flag Z este activado y  repnz mientras este
+flag no este activado.  Aqui nos ocurre  igual que con las intrucciones jz y
+jnz, ya que tanto repz como repnz tienen sus equivalentes en repe y repne.
+
+
+
+
+.==========================================================================.
+|===========~ 5.0 Interrupciones y Apis ~===================================
+|===========================================================================
+
+Lo primero que debes saber es que las  interrupciones hoy en dia, al progra-
+mar para windows han quedado obsoletas.El sistema operativo window$, propor-
+ciona a los programadores un conjunto de funciones,  llamadas apis, mediante
+las que se pueden construir bonitas aplicacionas GUI. Pero vamos por puntos.
+Las interrupciones no son mas que llamadas a determinadas funciones del sis-
+tema operativo o de la bios. Estas funciones son tales como leer un fichero,
+sacar un texto por pantalla, etc....  Dependiendo del numero de la interrup-
+cion o de los parámetros que se le pasen mediante determinados registros,es-
+ta hara una cosa u otra.
+
+Por ejemplo :
+
+--------------
+mov dx, offset texto --> direccion de memoria que contiene un texto.
+mov ah, 09  ---> parametro para la interrupcion.
+int 21    -------> esta es la interrupcion.
+--------------
+
+Este  ejemplo se encargaria de  mostrar por pantalla  mediante la funicon 09
+de la interrupcion 21 el texto en el offset indicado. Como podras imaginarte
+hay un nutrido numero de interrupciones y con distintos parametros.
+
+Si  ahora desensamblas un programa  que no este pensado  para windows  ( por
+cierto cuando hablo de windows me refiero a windows 95 y en adelante),  como
+puede ser un programa hecho en c, te encontraras con un monton de estas  in-
+terrupciones. Por cierto puedes comprobar tambien ,  ya que estamos, la can-
+tidad impresinante de codigo que genera un simple programilla hecho en c que
+por ejemplo muestre por pantalla la cadena "hello fucking world". Si lo com-
+paras con un programa que haga lo mismo, pero codificado directamente en en-
+samblador quedaras bastante sorprendido. Bien sigamos.   Gracias a las inte-
+rrupciones es que estos programas pueden realizar tareas basicas como impri-
+mir un texto.  Sin emabargo, el 99% de las veces te vas a encontrar con "bo-
+nitos" programas para windows,  de 32 bits. La forma de comunicarse de estos
+programas  con el sistema operativo es bien distinta desde el momento en que
+la arquitectura  y la interface de windows tambien lo son. Aqui es donde en-
+tran en juego las apis.  Las apis realmente no forman parte del sistema ope-
+rativo. Simplemente son un conjunto de funciones, que se agrupan en distin-
+tas dll's (dinamic link libraries). Estas son las encargadas de poner en con-
+tacto los programas con el sistema operativo para realizar funciones basicas
+como mostrar una ventana o pintar texto en la misma. Seguramente habras oido
+hablar de que los programas  de windows disponen  de 4Gb de memoria para di-
+reccionarse (lo cual no quiere decir que tengan 4Gb de memoria fisica,se re-
+fieren a direccionamiento virtual de memoria). Pues bien de esos 4 Gb de los
+que dispone el programa en cuestion, los dos primeros son los que correspon-
+den al propio programa y en los dos restantes es donde residen las apis, que
+son accesibles por todos los programas. Asi pues si el programa en cuestion,
+por ejemplo quiere crear una ventana, puede hacerlo llamando la api "Create-
+WindowExA".¿ Por que  con el soft-ice,  una vez nos salta  el breakpoint que
+pusimos en alguna api, tenemos que dar repetidas veces "f12" ? Pues por  que
+en principio nos encontramos en el codigo de la propia api. Si antes de pul-
+sar "f12" miras las direcciones de memoria en las que te  encuentras,  veras
+que siempre estan por encima de los 2Gb. Cuando habrimos un programa,el sis-
+tema operativo, gracias a la cabecera de dicho programa, sabe que  librerias
+(dll's)  va a utilizar dicho programa  y asi carga dicha libreria en memoria
+para que el programa pueda llamar a las apis contenidas en dicha libreria.
+Puedes hacer la siguiente prueba.  Coje con un  desensamblador,  el  w32dasm
+mismo te vale y desensambla por ejemplo la libreria "user32.dll"  que se en-
+cuentra en el diredtorio de windows en la carpeta "system".  En las exported
+funtions podras ver "MessageBoxA".Pulsa dos veces para aparecer en el codigo
+de la misma. Mira la direccion en la que se encuentra. Ahora activa el soft-
+ice y escribe "d" y la dirección de memoria de la api.  En la ventana de da-
+tos veras que ejectivamente el codigo hexadecimal que te aparece es el mismo
+que el de las instrucciones de la api.Te he puesto este ejemplo por que esta
+libreria estara cargada en memoria generalmente. Al llamar a la api, simple-
+mente se ejecuta el codigo que corresponde dentro de dicha libreria.  De he-
+cho puedes comprobar como la cabecera de un exe y una dll es exactamente  la
+misma : "mz". Compruebalo con un editor hexadecimal,mirando las dos primeras
+letras  ( me refiero al codigo ascii por supuesto).  Bien ahora alguno dira:
+¿como es posible que los programas puedan realizar determinadas acciones que
+solo es posible realizar mediante interrupciones ? La respuesta  esta en las
+dll. Al desensamblar una dll, te encontraras entro de ella con  un monton de
+interrupciones.De todas formas piensa que el codigo para mostrar por ejemplo
+una "MessageBox" no esta solo en esa parte de codigo. Si le  sigues la pista
+a la rutina veras que pasa por distintas llamadas a otras  apis e  incluso a
+otras dll's. Y bueno, viendo que ya estoy dando demasiada chapa por hoy,creo
+que lo mejor va a ser ir despidiendome....
+
+
+
+
+.==========================================================================.
+|===========~ 6.0 The End ~=================================================
+|===========================================================================
+
+Voy acabando ya. Si has leido este articulo, es por que sin duda estas empe-
+Zando en esto de la ingenieria inversa. Esa es una gran noticia.  Hace falta
+gente como tu, con ganas de aprender y  de hacer cosas buenas. No tienes mas
+que hechar un vistazo  a todo el software  shareware que pulula por la red y
+ver lo que se mueve. Hoy mismo enciendo mi ordenador y me encuentro nada mas
+arrancarlo con un monton de  programas residentes,  con un monton de logos y
+con un monton de tonterias. Todo basura informatica.Todo dinero. Toda la pe-
+or ideologia del ser humano en unos y ceros. Es repugnante.Por que te comen-
+to esto ? Pues por que si vas a dedicarte a esto,debes saber que existe tam-
+bien una  ideologia  dentro del cracking ,  una ideologia muy fuerte, que yo
+aunque no  lleve mucho tiempo en  estosiento y que es parte importante de lo
+que me hace seguir adelante cada dia. Creo en un mañana mejor, tambien en el
+mundo del software, claro que si.Si sigues adelante  con esto, estate seguro
+de que vas a aprender muchisimo. Hace poco  tiempo  mire la fecha del primer
+tutorial  sobre cracking que me baje  de internet y  quede sorpendido. Creia
+que habia pasado mas tiempo desde que empece, lo cual es buena señal, ya que
+cuando uno mira hacia atras para ver  el tiempo pasado  y este le parece muy
+largo, normalmente  quiere decir que  se aprobecho el tiempo  (ya  lo  decia
+Thomas Mann en cierta novela... ).Te cuento esto, por que creo que si sigues
+adelante con la  ingenieria inversa y en tu mente esta el poder aprender co-
+sas nuevasconstantemente y tal vez el poder cambiar algo con el tiempo,  po-
+siblemente la ingenieria inversa no te defraude.
+
+Por ultimo me gustaria agradecer a Disidents la oportunidad de estar junto a
+ellos. Es un placer estar rodeado de gente como vosotros. ;)
+
+Podeis mandarme vuestras criticas a: remains@iespana.es
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

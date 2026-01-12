@@ -1,0 +1,961 @@
+.------------------.
+| CatHack #007 - 4 |
+| 07x04 - Sniffers |
+| programació/hack |
+| --[ adjunts ]--  |
+| . usniff.c       |
+`------------------'
+
+
+Programació d'un packet sniffer en LINUX
+
+Index
+
+0. Intro
+1. NET4 en Linux-2.4
+2. Interficie de programació de sockets
+3. Estructures de dades i protocols
+4. Exemple: monitor de UDP basat en packet sniffer
+  4.1  Inicialització del socket
+  4.2  Lectura de packets
+  4.3  Interpretació de continguts
+5. Documentació i aplicacions
+
+
+0. Introducció
+
+Per a administrar una xarxa d'ordinadors és vital tenir eines que
+permetin analitzar el tràfic que hi circula. Particularment voldrem
+monitoritzar:
+
+	- la càrrega de la xarxa (assignació de capacitats)
+	- paquets abnormals (detecció d'atacs genérics)
+	- altres anàlisis de gra fi
+	
+Un anàlisi de gra fi va encaminat a detectar atacs no documentats i
+procediments externs de detecció. Tal com indica el propi nom, no
+trobareu gaire informació sobre atacs no documentats. Un atac no
+documentat normalment és un exploit que encara no s'ha fet public.
+En canvi de l'altre tema existeix considerable documentació.
+Si esteu interessats podeu començar per llegir el magnífic document
+de Alejandro Castán basat en una improvització seva en el hmbcn00
+("Análisis activo i pasivo de redes") i a partir d'aquí seguir la
+colecció de links que apareixen.
+(http://sindominio.net/hmbcn00/material.htm).
+
+A l'hora de realitzar un anàlisi a nivell de xarxa és important que
+els programes que funcionen al nivell d'aplicació (OSI 5-7) no
+tinguin coneixement d'aquest fet.
+
+Un sniffer és una aplicació que té la capacitat de rebre tots els
+paquets que circulen per la xarxa sense dependència dels protocols
+de nivell superior (OSI 3+). La programació d'un sniffer té un
+enorme grau de dependència del sistema operatiu subjacent. En
+el cas dels sistemes operatius UNIX tenim a la nostre disposició
+una llibreria anomenada libpcap(3) que permet implementar monitors
+de forma senzilla i amb relatiu alt nivell tot mantenint independència
+de la plataforma. En aquesta article no parlaré mes de libpcap(3)
+i em concentraré en el mecanisme específic que s'empra en el
+sistema operatiu Linux. Linux ofereix possibilitats impressionants
+en aquest camp. Per raons d'espai em limitaré a parlar d'una part
+molt petita d'aquestes possibilitats. Les pàgines man donen informació
+extensiva sobre el tema (secció 7) i si ens quedem curts sempre tenim
+els sources del kernel per veure que és el que realment passa.
+
+Per a explicar el procediement de programació he escrit un senzill
+monitor de UDP amb mode promiscu. El protocol UDP no és el més
+interessant, pero sense cap mena de dubte és el més senzill. L'elecció
+estava entre UDP, TCP i ICMP. TCP l'he descartat ja que per a poder
+realitzar reensamblatge de paquets el codi es complica molt (i
+en tot cas massa per a un exemple) i ICMP l'he descartat per que
+el nombre de paquets ICMP que circulen per la xarxa és molt reduit
+i normalment no s'en veuen. En tot cas tambe es un protocol
+senzill i no és dificil d'implementar.
+
+Com tot, els sniffers també es poden emprar atrets pel costat
+obscur de la força. Donat que un sniffer té accés a tots els
+paquets, ens permet analitzar totes les dades que circulen entre
+aplicacions. Aquestes dades poden ser correu electrònic, passwords,
+etc...
+
+L'escriptura d'un sniffer per a monitoritzar el tràfic o detecció
+d'atacs genérics no té molt de sentit considerant la quantitat de
+sniffers bons que hi han disponibles. La raó per la qual escriuriem
+un sniffer avui en dia només es justifica si estiguessim buscant
+alguna cosa en particular com per exemple un paquet en concret o un
+procediment determinat. En un anàlisi d'aquest tipus cal una eina
+específica i en molts casos els sniffers usuals no donen l'informació
+que estem buscant (o en donen massa que també pot ser un problema).
+En un cas com aquest escriure el nostre propi sniffer té molt més
+sentit.
+
+
+1. NET4.0 en Linux-2.4
+
+NET4 és el nom que rep la implementació del networking code en Linux.
+En la NET4 del Linux-2.4 els diferents nivell OSI estan mapejats de
+la següent manera:
+
+
+                   --------------------------
+ <==============> |      1. PHY (físic)      |
+       XARXA      |       [No Kernel]        |
+                   --------------------------
+                               |
+                               v	
+                    ------------------------
+                   |    2. LNK (enllaç)     |
+         - - - - - |                        | <-- PF_PACKET
+        |           ------------------------
+                               |
+        |                      |
+        v                      |
+ ----------------              |
+| NETFILTER (FW) |             |
+|   (opcional)   |             |
+ ----------------              |
+        |                      |
+                               v
+        |           ------------------------
+         - - - - > |       3-4. INET        |
+                   |   (xarxa+transport)    | <-- PF_INET
+                    ------------------------
+                      |        |        |
+                      v        v        v
+                    -----------------------
+                   |     5-7. Aplicació    |
+                   |                       |
+                    -----------------------
+
+                           Figura 1.
+
+OBSERVACIONS:
+- Les fletxes indiquen el camí que segueix un paquet entrant.
+- Existeixen diversos protocols en el nivell 4 a més de INET. En
+  aquets document no en parlaré mes ja que no se solen emprar.
+  La gestió d'els demés és bàsicament igual.
+
+Dintre d'aquest esquema hi ha dos punts on es pot inserir un sniffer.
+Aquests dos punts son el nivell d'enllaç (PF_PACKET) i el nivell
+xarxa-transport (PF_INET en el cas de IP)
+
+Per a cada punt d'inserció hi han diverses maneres de programar el
+dispositiu/kernel. En Linux s'identifica cadascuna d'aquestes
+maneres amb una terna de valors:  [DOMAIN <--> TYPE <--> PROTOCOL].
+Aquestes son algunes de les combinacions possibles:
+
+
+      DOMAIN        SOCKET TYPE     PROTOCOL       OSI LAYER
+
+
+ 1.   PF_PACKET     SOCK_RAW        ETH_P_IP       LNK (2)
+
+ 2.   PF_PACKET     SOCK_DGRAM      ETH_P_ALL      LNK (2)
+
+ 3.1  PF_INET       SOCK_RAW        IPPROTO_TCP    NW  (3,4)
+
+ 3.2  PF_INET       SOCK_RAW        IPPROTO_UDP    NW  (3,4)
+
+ 3.3  PF_INET       SOCK_RAW        IPPROTO_ICMP   NW  (3,4)
+                                    ++
+
+Com veurem, aquests paràmetres són els arguments de la crida socket().
+El camp de protocol només serveix per a configurar i/o filtrar el format
+de paquets del mateix tipus. Els primers dos paràmetres son els que
+realment decideixen la forma del punt d'accés. Com veiem el domini és
+el nivell en el que s'accedeix als paquets. Del "socket type" depén
+el tractament de les capçaleres. Si un socket is "cru" (SOCK_RAW)
+llavors no hi ha cap modificació i el paquet es passa junt amb la
+capçalera del nivell corresponent. En canvi en el cas SOCK_DGRAM la
+capçalera del nivell s'elimina i del paquet només en rebem les dades.
+Un sniffer SOCK_DGRAM només té sentit en el nivell d'enllaç. Si
+especifiquèssim SOCK_DGRAM amb PF_INET, llavors estariem creant un
+socket UDP com ho fariem en qualsevol aplicació a nivell usuari i en
+conseqüencia només rebriem els paquets dirigits al nostre port.
+
+Només l'arrel o usuaris amb la capability CAP_NET_RAW poden obrir
+sockets d'aquests tres tipus.
+
+
+Descripció:
+
+1.   PF_PACKET - SOCK_RAW
+
+     Packet socket de tipus cru. Rep els paquets inclouent la capçalera
+     del nivell d'enllaç. L'origen s'identifica per mitja d'una estructura
+     del tipus 'struct sockaddr_ll'. Especificant el protocol ETH_P_IP
+     rebrem tots els paquets IP. Especificant ETH_P_ALL els rebrem tots.
+     Noteu que PF_PACKET està per sota del firewall i per tant no li afecta.
+
+2.   PF_PACKET - SOCK_DGRAM
+
+     Packet socket de datagrames. En aquest cas els paquets que rep no
+     inclouen la capçalera del nivell d'enllaç. Les direccions i el
+     protocol coincideixen amb el cas anterior.
+
+3.   PF_INET - SOCK_RAW
+
+     Raw socket d'alt nivell. Només rep els paquets que especifiquem en
+     el camp de protocol (IPPROTO_TCP, etc).Els paquets que es reben estan
+     subjectes a les regles del Kernel (no es reben paquets incorrectes)
+     i a les que imposi la possible presencia d'un FireWall. La capçalera
+     de nivell 2 no es rep i la direcció origen s'identifica amb un
+     'struct sockaddr_in'. Cal notar també que un socket PF_INET no
+     rep mai paquets sortints. Per tant tots els paquets que arribaran
+     al nostre socket seran paquets entrants
+
+
+Cap dels mètodes especificats permet la modificació permanent dels paquets.
+Cada aplicació que obre un socket d'aquests tipus rep una copia del paquet
+en el nivell corresponent.
+
+Nosaltres ens centrarem en el tipus 1 (PF_PACKET, SOCK_RAW) doncs és el
+que ofereix més possibilitats.
+
+Una qüestió que surgeix quan treballem amb sockets crus en el nivell d'enllaç
+(PF_PACKET, SOCK_RAW) és el format de la trama que rebrem. En Linux s'imposa
+que aquest format no depengui del dispositiu per a uniformitzar l'interficie
+de programació. Com a format estàndar s'ha escullit el format de la trama
+IEEE 802.3 (Ethernet 10Mbps). Si us preguntaveu la raó per la qual els
+protocols de PF_PACKET es diuen ETH_P_IP, ETH_P_ALL, ... doncs ja sabeu
+la resposta. En el kernel aixó funciona mes o menys així:
+
+Quan el driver del dispositiu rep una trama en separa la capçalera i en
+genera una amb el format 802.3. Tot seguit envia aquestes dues trames al
+nivell superior(AF_INET, AF_DDP, etc.). En el moment de passar al nivell
+superior el kernel comprova si hi ha algun packet socket obert i en aquest
+cas si el paquet correspon a l'interficie. Si és el cas es comprova el
+protocol al que està lligat el socket. Si no coincideix i no es ETH_P_ALL
+llavors el paquet es passa directament al nivell superior. Si no, es
+comprova el tipus de socket. Si és cru (SOCK_RAW) se li afegeix la
+capçalera virtual i es passa al packet socket. Si en canvi és cuinat
+(SOCK_DGRAM) llavors s'envia directament. Tot a aixó està molt bé, pero
+té el problema de que depén del driver per a actuar de la forma correcte.
+Alguns drivers no es comporten de la forma esperada i generen paquets que
+a la vista de l'usuari semblen incorrectes. Un exemple de driver que no
+es comporta correctament es el driver PPP. Si comproveu el comportament
+observareu que aquest driver no genera la capçalera 802.3. Tots els paquets
+que es reben tenen el mateix format tant si el socket es cru com si es
+cuinat. Si mireu el fitxer 'net/packet/af_packet.c' corresponent a les
+sources del kernel veureu una nota que avisa d'aquesta irregularitat.
+
+Obs: La meva versió del kernel en el moment d'escriure aquest document
+     és la 2.4.0-test10.
+
+Abans de iniciar amb les interficies de programació aprofito per a indicar
+que els tipus de sockets presentats (PF_PACKET i PF_INET + SOCK_RAW) també
+es poden emprar per a generar i enviar paquets que no estan subjectes a
+cap protocol. En el cas PF_PACKET els paquets no han de ser ni tan sols
+de tipus IP. Un exemple d'aplicació que empra aquesta capacitat és
+'antisniff' (apartat 5).
+
+
+2. Repàs interficie de programació
+
+L'interficie que s'empra per a programar un sniffer és la potentíssima
+interficie de sockets que implementa Linux. Abans de començar l'exemple
+de programació recordaré l'interficie de les syscalls que emprarem en
+l'exemple i on trobar els fitxers de capçalera (següent apartat). També
+incloc algunes crides que no he emprat en l'exemple pero que podrien ser
+utils en cas de que volguessim desenvolupar un sniffer mes complert.
+Recordeu que les syscalls estan documentades en la secció 2 de les
+pàgines man.
+
+SYSCALLS
+
+Crides bàsiques:
+
+- Creació de sockets:
+	
+	int socket(int family, int socket_type, int protocol);
+
+- lligam de sockets:
+	
+        int bind(int socketfd, struct sockaddr *, size_t len);	
+
+- Manipulació de paràmetres del dispositiu subjacent:
+	
+        int ioctl(int fd, int request, ...);
+
+- Lectura de paquets:
+	
+        int recvfrom(int s, void *buf, size_t len, int flags,
+        	     struct sockaddr *from, socklen_t *fromlen);
+
+
+Altres crides d'interés:
+
+- Posar/llegir opcions de sockets
+	
+        int getsockopt(int fd, int level, int opt, void *, size_t *);
+        int setsockopt(int fd, int level, int opt, const void *, size_t);
+	
+- Espera múltiple (selecció)
+
+(SYSV)	int poll(struct pollfd *fds, int nfds, int timeout);
+(BSD)	int select(int nfd, fd_set *read, fd_set, *write,
+                            fd_set *exc, struct timeval *);
+	
+- Enviar paquets:
+
+	int  sendto(int s, const void *msg, size_t len, int flags,
+			   const struct sockaddr *to, socklen_t tolen);
+		
+			
+3. Estructures de dades i headers
+
+
+En la jerarquia OSI totes les trames es formen de la mateixa forma. S'agafen
+les capçaleres dels diferents nivells més la seqüència de dades de l'últim
+nivell i s'empaqueten de manera que quedi una seqüència de dades que formi
+una unitat. Aquesta unitat és el que es coneix com a "paquet".
+
+A partir la construcció 'struct' del llenguatge C i emprant les extensions
+del compilador GNUC quan el C es queda curt és possible representar
+qualsevol seqüència de dades. D'aquesta manera queda assegurada la
+capacitat de manipular els protocols des d'un programa escrit en aquest
+entorn de programació.
+
+A continuació ve un llistat comentat dels headers i estructures de dades
+bàsics que necessitarem per a programar el nostre sniffer de UDP.
+
+- syscalls corresponents a sockets i ioctl()
+	
+  <sys/socket.h>
+  <sys/ioctl.h>
+	
+
+- Protocols TCP/IP
+	
+  <arpa/inet.h>	     Conversions de format DOTTED DECIMAL <--> NETWORK:
+                     inet_ntoa(), inet_aton(), ...
+
+  <netinet/in.h>     Internet Namespace:
+  		       - Byte Ordering (htons, ntohl, ...)
+                       - identificadors de protocols IP (IPPROTO_TCP, ...),
+                       - ports estàndar (IPPORT_FTP, ..),
+                       - adreces IPV4 i IPV6
+		
+ 		     /* direcció IPv4 */
+ 		     struct in_addr
+		     {
+		       uint32_t s_addr;
+		     };
+
+	
+  <netinet/ip.h>   Internet Protocol:
+
+  		   Conté la representació de la capçalera IP.
+  		   Recordem el format (figura 2):
+
+  		
+    0                   1                   2                   3
+    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |Version|  IHL  |Type of Service|          Total Length         |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |         Identification        |Flags|      Fragment Offset    |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |  Time to Live |    Protocol   |         Header Checksum       |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                       Source Address                          |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                    Destination Address                        |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                    Options                    |    Padding    |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   			
+                       Figura 2:  (font: rfc0791)
+
+          Doncs en Linux aixó es tradueix a:
+           	
+ 	
+ 	  #if __BYTE_ORDER == __LITTLE_ENDIAN
+	
+	  struct iphdr
+	  {
+	    unsigned int ihl:4;	 	/* Internet Header Length in
+	    				   32 bit words */
+	    unsigned int version:4;	/* IP version */
+	    u_int8_t tos;		/* type of service */
+	    u_int16_t tot_len;          /* total length */
+	    u_int16_t id;               /* identification */
+	    u_int16_t frag_off;         /* flags + fragment offset */
+	    u_int8_t ttl;		/* time to live */
+	    u_int8_t protocol;		/* protocol */
+	    u_int16_t check;		/* Header CheckSum */
+	    u_int32_t saddr;		/* source address */
+	    u_int32_t daddr; 		/* destination address */
+	
+	    /*
+	     *
+	     * teóricament aquí ve el camp 'options' que no es posa doncs
+	     * que es obligatori. Cal mirar el camp ihl per a deduir si
+	     * està present o no
+	     *
+	     * if(ihl*4 > sizeof(struct iphdr))
+	     *   conté 'options field'
+	     * else
+	     *   no hi ha camp de opcions
+	     */
+	  };
+          	
+         #endif
+	
+
+
+  <netinet/udp.h>     protocol UDP (user datagram protocol)
+  		      capçalera:
+
+	struct udphdr {
+	  u_int16_t	source;  /* source port */
+	  u_int16_t	dest;    /* destination port */
+	  u_int16_t	len;     /* packet length */
+	  u_int16_t	check;   /* data checksum */
+	  };
+
+	
+  Les definicions i capçeleres dels demés protocols típics es troben en el
+  mateix directori	
+	
+  <netinet/tcp.h>    	protocol TCP
+  <netinet/icmp.h>    	protocol ICMP
+  <netinet/igmp.h>	protocol IGMP
+  <netinet/ip6.h>	IPv6
+  etc.
+
+   	
+- Protocols nivell 2
+	
+  <netinet/ether.h>       Conversions de format ASCII <--> HW
+  			  ether_ntoa(), ether_aton(), ...
+	
+  <netinet/if_ether.h>    Conté els números dels protocols tipus ethernet
+  			  i el format de la trama de IEEE 802.3
+  			
+                   Nota:  les definicions estan realment a <linux/if_ether.h>
+
+	struct ethhdr  /* capçalera 802.3 */
+	{
+	  unsigned char	h_dest[ETH_ALEN];	/* destination eth addr	*/
+	  unsigned char	h_source[ETH_ALEN];	/* source eth addr	*/
+	  unsigned short h_proto;		/* packet type ID field	*/
+	};
+
+	  Donat que nosaltres especifiquem SOCK_RAW podrem accedir a aquesta
+	  capçalera. Si especifiquèssim SOCK_DGRAM en la crida a socket() no
+	  podriem interpretar aquest header i analitzariem directament el camp
+	  IP. En l'implementació de l'sniffer UDP especificarem ETH_P_IP quan
+	  cridem a bind(). D'aquesta manera els paquets que ens arribin només
+	  seran aquells que portin el identificador de IP en el camp de
+	  protocol.
+			
+  <netpacket/packet.h>    Definicions i estructures a emprar quan treballem
+  			  amb PF_PACKET. Aquí està declarada l'estructura que
+  			  identifica el lligam d'un packet socket
+  	
+               /* link layer socket adddress */
+               struct sockaddr_ll
+              {
+                  unsigned short  sll_family;    /* Always AF_PACKET */
+                  unsigned short  sll_protocol;  /* Physical layer protocol (ETH_P_IP) */
+                  int             sll_ifindex;   /* Interface number (0 és totes) */
+                  unsigned short  sll_hatype;    /* ARP type */
+                  unsigned char   sll_pkttype;   /* Packet type */
+                  unsigned char   sll_halen;     /* Length of address */
+                  unsigned char   sll_addr[8];   /* Physical layer address */
+              };
+
+              	  Aquesta estructura és necessaria per a indicar al kernel,
+              	  per mitja de bind(), a on ha d'escoltar. Com es veurà, en
+              	  aquesta operació només s'empren els tres primers camps. L'altre
+              	  cas on apareix aquesta estructura és quan cridem a recvfrom()
+              	  per a rebre un paquet. En aquest cas els altres camps també
+              	  contindran informació vàlida.
+              		
+              	  Aquest header també declara l'estructura 'packet_mreq' que
+              	  emprariem si volguessim activar el mode promiscu amb setsockopt().
+              	  Nosaltres emprarem ioctls, així doncs no ho discutiré.
+
+  <net/if.h>	Aquí trobem l'estructura i les constants necesaries per a
+  		canviar el mode del dispositiu subjacent.
+
+  	  #define IFNAMSIZ 16
+  	  struct ifreq
+	  {
+	    union
+	      {
+		char ifrn_name[IFNAMSIZ];	/* Interface name, e.g. "eth0".  */
+	      } ifr_ifrn;
+	
+	    union
+	      {
+		struct sockaddr ifru_addr;       /* address */
+		struct sockaddr ifru_dstaddr;    /* other end of p2p link */
+		struct sockaddr ifru_broadaddr;  /* broadcast address */
+		struct sockaddr ifru_netmask;    /* interface net mask */
+		struct sockaddr ifru_hwaddr;     /* MAC address */
+		short int ifru_flags;            /* flags */
+		int ifru_ivalue;                 /* if index, bandwidth, length */
+		int ifru_mtu;                    /* maximum transmit unit */
+		struct ifmap ifru_map;           /* device map */
+		char ifru_slave[IFNAMSIZ];	 /* Just fits the size */
+		__caddr_t ifru_data;
+	      } ifr_ifru;
+	  };
+
+
+	Els membres d'aquesta estructura no s'accedeixen mai entrant dins
+	dels unions. El mateix header proporciona una serie de macros que
+	permeten accedir als membres de forma directe pero amb un nom més
+	senzill. Per a mes informació mirar netdevice(7).
+		
+	Un dels camps d'aquesta estructura es la paraula d'estat del dispositiu
+	(ifru_flags). <net/if.h> ens proporciona les constants apropiades per
+	a manipular aquesta paraula. Nosaltres ho emprarem per a posar el
+	dispositiu en mode promiscu:
+		
+		enum{...,
+		     IFF_PROMISC = 0x100,  /* Receive all packets.  */
+		     ...};
+	
+		
+
+4. Exemple de programació
+
+Arribat aquest punt ja tenim prou informació per a començar a escriure el
+nostre petit monitor d'activitat UDP.
+
+El disseny serà el més senzill possible. D'aquesta manera pretenc ilustrar
+com s'han de realitzar les crides a les syscalls i no pas crear un programa
+versàtil amb moltes opcions. Allà vosaltres.
+
+El flux de execució serà tan simple com aixó:
+
+       main(){
+	   init{
+		crear_socket();
+		lligar_socket();
+		mode_promiscu();
+	       }
+		
+            loop(TRUE){
+	   	llegir_paquet();
+	   	processar_paquet();
+	   	}
+	     } 	
+	
+
+El codi complet del monitor es pot trobar en el fitxer adjunt usniff.c.
+	
+   	
+4.1 Inicialització del socket
+
+crear_socket():
+
+  sockfd = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
+
+Amb aquesta crida creem un socket de la familia PF_PACKET de tipus SOCK_RAW
+i lligat a tots els protocols de manera que capturarem tots els paquets
+incloses les capçaleres del nivell d'enallaç. A diferencia del que passaraia
+en el nivell superior (PF_INET) aquest punt de terminació ja és operatiu. Si
+ens posem a escoltar paquets els rebrem. Pero a nosaltres no sempre ens
+interessaran els valors per defecte així que continuarem manipulant
+paràmetres. Recordeu que aquesta crida fallarà si no es root qui l'executa.
+
+
+lligar_socket():
+
+  struct ifreq dev_req;
+
+  strncpy(dev_req.ifr_name, nom_interficie, IFNAMSIZ);
+  ioctl(sockfd, SIOCGIFINDEX, &dev_req);
+
+  addr_ll.sll_family = AF_PACKET;               /* packet socket */
+  addr_ll.sll_protocol = htons(ETH_P_IP);	/* IP protocol */
+  addr_ll.sll_ifindex = dev_req.ifr_ifindex; 	/* only 'nom_interficie' */
+
+  bind(sockfd, (struct sockaddr *) &addr_ll, size_ll);
+
+
+Per lligar un socket a una interficie i a un protocol hem de passar una
+estructura del tipus 'struct sockaddr_ll' al kernel emprant bind(). El camp
+sll_family sempre ha de contenir AF_PACKET doncs el nivell OSI no varia. En
+el camp de protocol indicarem que volem rebre el protocol IP (ETH_P_IP).
+Aquest camp s'ha d'indicar emprant el byte ordering de xarxa. Amb aquest fí
+emprem la funció htons() (Host TO Network Short) que converteix un enter de
+16 bits del host byte order al byte order de xarxa. Si el nombre fos de 32
+bits llavors emprariem la funció htonl() (Host TO Network Long). En el cas
+de camps d'un sol byte no cal fe cap conversió.
+
+Finalment cal omplir el camp sll_ifindex. Amb el valor d'aquest camp
+indiquem al kernel de quina interficie volem obtenir els paquets. Un valor
+0 indica que volem escoltar totes les interficies. Si només volem escoltar
+una única interficie hem de realitzar una ioctl() per a obtenir l'index
+del dispositiu.
+
+IOCTL:				 	
+- SIOCGIFINDEX: System IO Control Get InterFace INDEX
+
+
+mode_promiscu():
+
+    struct ifreq request;
+    strcpy(request.ifr_name, nom_interficie);
+
+    ioctl(sockfd, SIOCGIFFLAGS, &request);
+    request.ifr_flags |= IFF_PROMISC;
+
+    ioctl(sockfd, SIOCSIFFLAGS, &request);
+
+
+Com veieu nomes calen 5 linies per a posar un dispositiu en mode promiscu
+a partir únicament del nom de l'interficie. La idea és la següent:
+
+Amb el nom correctament guardat en el primer camp de l'estructura ifreq és
+crida una ioctl() i s'obté la paraula d'estat del dispositiu. D'aquesta
+paraula un bit identifica el mode promiscu. Per tant només cal activar aquest
+bit i a continuació cridar una altre ioctl() per a enviar la nova paraula
+d'estat al dispositiu.
+
+IOCTLs:					
+- SIOCGIFFLAGS: System IO Control Get InterFace FLAGS
+- SIOCSIFFLAGS: System IO Control Set InterFace FLAGS
+
+
+En entorns de xarxa és important saber que existeixen técniques que permeten
+a l'administrador detectar si hi han sniffers instal·lats, encara que no
+tingui accés físic a la vostre màquina. Com a curiositat, i tot i que em surti
+del tema de discussió, explicaré com es feia aixó antigament en el Linux,
+quan el modul ICMP no comprovava que la direcció física fos la de d'una
+interficie local:
+
+L'administrador generava un paquet ICMP ECHO per a cada màquina conectada a la
+xarxa. Aquest paquet es deformava situant una direcció HW inexistent en el camp
+de direcció HW de destinació. Si la màquina remota estàva en mode promiscu
+llegia la trama. D'aquesta manera el paquet arribava fins al mòdul de ICMP on
+s'interpretaven els continuguts i es decidia que s'havia de contestar el PING.
+La resposta s'enviava a la màquina origen on l'administrador estava comprovant
+si hi havia algun dispositiu en mode promiscu. Per l'arribada d'una resposta
+només hi havia una explicació possible que podeu deduir facilment.
+
+Actualment hi han altres mecanismes. Per a més informació mireu la informació
+técnica del software antisniff (apartat 5).
+
+
+4.2 Lectura de paquets
+
+llegir_paquet():
+
+    struct sockaddr_ll addr_ll;
+    size_t size_ll = sizeof(addr_ll);
+    void *buffer = malloc(1<<16);
+
+    recvfrom(sockfd, buffer, 1<<16, 0, (struct sockaddr *) &addr_ll, &size_ll);
+
+La lectura de paquets es sol realitzar en un bucle infinit. Donat que
+la nostre aplicació no requereix de cap activitat adicional cridarem
+directament a la syscall recvfrom(). Si no fos així seria recomanable
+emprar una de les crides de selecció que incorpora linux: select() o
+poll().
+
+La crida recvfrom() retorna dues informacions:
+	1. El paquet
+	2. El lligam
+	
+En la nostre aplicació reservem un únic buffer de tamany prou gran per a
+poder rebre tots els paquets. El tamany teóric d'un paquet pot arribar a
+ser com a molt:
+
+	SIZE(IEEE 802.3 header) + SIZE(IP header) + SIZE(IP DATA MAX)
+	
+	SIZE(IEEE 802.3 header)             =  sizeof(struct ethhdr)  =  14
+	SIZE(IP header) + SIZE(IP DATA MAX) =  tot_len|max            =  65536
+
+Així doncs el tamany màxim és de 65550 bytes. Aquest tamany no s'assoleix
+mai i es pot ignorar. En la realitat el tamany màxim dels paquets es
+controla per mitjà de la variable MTU (maximum transfer unit) corresponent
+a cada interficie. Si volem assegurarnos de que no hi haurà problemes
+d'overflow només cal comprovar que totes les interficies actives tenen
+un MTU inferior a 65536 bytes. En la meva màquina el MTU més gran és el
+del loopback device i el valor per defecte és de 3904 bytes! Per tant em
+bastaria un buffer molt més petit (recordeu que en aquest nivell no hi ha
+reensamblatge de paquets). En tot cas un buffer de 64K no és cap pecat i
+es un valor que hauria de funcionar per a tothom. Recordeu que el valor de
+la MTU es pot canviar amb '/sbin/ifconfig ifname mtu <nou_valor>'.
+
+L'altre informació que obtenim és relativa al origen i el punt d'entrada del
+paquet. La crida recvfrom() de la mateixa manera que bind() rep un paràmetre
+de tipus 'struct sockaddr *'. Aquesta estructura representa totes les families
+i per tant no s'empra mai. En canvi, hem de proporcionar l'estructura
+corresponent al domain del socket amb el que treballem per mitjà d'un cast
+per a que no es queixi el compilador. En el cas de PF_PACKET l'estructura a
+emprar es del tipus 'struct sockaddr_ll'. En retornar, aquesta estructura
+contindrà informació relativa al paquet proporcionada directament per el
+driver del dispositiu. En la próxima secció analitzarem el significat dels
+camps.
+
+
+4.3 Interpretació dels continguts
+
+Un cop rebut el paquet iniciarem una rutina que s'encarregarà d'analitzar
+el paquet i generar la informació que dessitjem sobre el contingut. En
+l'exemple aquesta operació es realitza dins de la funció process_packet().
+Els arguments d'aquesta funció coincideixen amb l'informació retornada per
+la crida recvfrom(). Començarem per analitzar l'estructura del tipus
+'struct sockaddr_ll' que hem obtingut:
+
+Hi han 7 camps a analitzar. Molts es poden obtenir a partir del paquet en
+sí, pero el procés és més complicat. A més, aquí tenim la certesa de que
+el format (struct sockaddr_ll) sempre és el mateix i per tant no ens hem
+de preocupar de possibles irregularitats com en el cas de PPP. Anem a veure
+quins camps conté:
+
+	
+    - sll_family:   Aquest camp sempre pren el mateix valor (AF_PACKET)
+		    i serveix únicament per a diferenciar de les demés
+		    estructures de direccionament (struct sockaddr_xx).
+	
+    - sll_protocol: El segón camp conté el tipus de protocol estàndar
+  		    ethernet en el byte ordering de xarxa. Els diversos
+		    valors es poden trobar en el header <linux/if_ether.h>.
+			
+    - sll_ifindex:  Aquest enter conté l'índex de l'interficie per la que
+		    s'ha rebut el paquet. Si només estem escoltant una
+		    única interficie el valor serà determinista, pero
+		    si no haguessim cridat a bind() o hageussim especificat
+		    '0' en el camp d'interficie estariem rebent paquets de
+		    totes les ineterficies i podriem d'emprar aquest camp
+		    per a diferenciar els paquets.
+						
+    - sll_hatype:   Aquest camp conté el valor del tipus de ARP que estem
+		    emprant. L'ARP és el mecanisme que s'empra a nivell
+		    hardware per a associar la direcció lògica (direcció
+		    IP) d'un dispositiu de xarxa amb la seva direcció física
+		    (hw). Amb l'informació d'aquest camp podem determinar el
+		    tipus de xarxa de la que prové un paquet.
+			
+		    Alguns valors corrents son: -   1: Ethernet ARP
+		    				- 772: Loopback ARP
+		      			    	- 512:      PPP ARP
+			  				
+		    Tots els valors es poden trobar a <linux/if_arp.h>
+
+    - sll_pkttype:  A continuació ve el tipus de paquet. Hi han sis valors
+                    possibles. Cadascún identifica el tipus de direccionament
+                    físic amb el que el paquet ha arribat fins al nostre host:
+
+		    - PACKET_HOST      : paquet direccionat al nostre host
+	
+		    - PACKET_BROADCAST : paquet direccionat a la direcció de
+		 		     	 broadcast de la xarxa
+			
+		    - PACKET_MULTICAST : paquet direccionat a la direcció de
+		     			 multicast del nivell físic
+	 				
+		    - PACKET_OTHERHOST : paquet direccionat a un altre host
+		     			 i que s'ha capturat per mitja d'un
+		     			 dispositiu en mode promiscu
+		     			
+		    - PACKET_OUTGOING  : paquet de sortida que es passa al
+		     			 packet socket
+	
+	    Amb el nostre sniffer només podem arribar a observar els quatre
+	    primers casos. Aixó es deu a que quan realitzem la operació bind()
+	    especificant ETH_P_IP estem indicant implícitament que els paquets
+	    de sortida no s'han de rebre. Si canvieu la linia corresponent per
+	    'htons(ETH_P_ALL)' llavors rebreu tots els paquets. Pero s'ha d'anar
+	    amb compte, ja que també es podran rebre paquets que no siguin IP.
+	    En aquest cas s'han de discriminar manualment aquests protocols
+	    quan s'analitza el camp sll_protocol.
+
+    - sll_halen:    Conté la longitud de la direcció del nivell físic	  			  	
+	
+    - sll_addr[]:   Conté la direcció del nivell físic. L'interpretació exacte
+    		    depén del tipus de dispositiu.
+			
+
+Per a mostrar part de la informació podem fer:
+
+         printf("IF: %u, TYPE: %u, PROTOCOL 0x%x, ARPTYPE %u, LENGTH %u",
+                addr->sll_ifindex, addr->sll_pkttype, ntohs(addr->sll_protocol),
+                addr->sll_hatype, addr->sll_halen);
+
+
+Observeu que només el tipus de protocol s'ha de convertir al host byte order.
+Els demés camps es generen en el propi host i no s'han de convertir.
+
+Un cop analitzada l'estructura del nivell físic podem passar a analitzar
+les dades. En primer lloc ens hem d'encarregar de direccionar correctament
+les capçaleres. Recordeu que la trama es forma empaquetant la seqüència de
+capçaleres i el camp de dades final. Si suposem que l'informació que esta
+continguda en la trama ethernet (struct ethhdr) està inicialment direccionada
+per mitjà del punter 'pkt_ETH' fariem:
+
+          struct iphdr *pkt_IP;
+          struct udphdr *pkt_UDP;
+          void *data_UDP;
+
+          pkt_IP = (IP *) (pkt_ETH + 1);
+
+          if(pkt_IP->protocol != IPPROTO_UDP)
+            return;
+
+          pkt_UDP = (UDP *)((void *) pkt_IP + pkt_IP->ihl*4);
+          data_UDP = pkt_UDP+1;
+
+	
+D'aquesta manera obtindrem el següent direccionament sobre la trama:
+
+
+  pkt_ETH      pkt_IP       pkt_UDP         data_UDP
+     |           |             |               |
+     v           v             v               v
+      -----------------------------------------------------------------
+     |   802.3   |     IP      |     UDP       |        UDP DATA       |
+     |           |             |               |                       |
+      -----------------------------------------------------------------
+
+                                figura 3.
+
+No hi han gaire secrets. Observeu només que a diferencia de la capçalera
+d'ethernet la capçalera IP no té per que coincidir amb el tamany de
+l'estructura. Per aixó a l'hora de computar el punter al camp de dades
+de la trama IP no podem sumar senzillament una unitat al punter, sinó
+que hem de emprar el camp ihl (internet header length) de la capçalera IP.
+
+Un cop hem direccionat correctament els camps només ens queda interpretar
+els continguts de les diferents capçaleres:
+
+
+ENLLAÇ:  (struct ethhdr *)
+
+	La trama ethernet conté tres camps: el protocol ethernet i les
+	direccions hardware de font i destinació. El protocol és un
+	sencer i el seu valor coincideix amb el camp sll_protocol de
+	l'estructura sockaddr_ll. En el cas de la direcció hardware
+	emprarem la rutina ether_ntoa() per a obtenir una cadena amb
+	la direcció en el format estàndar ASCII.
+
+	  printf(", LLPROTO 0x%x", ntohs(pkt_ETH->h_proto));
+	  printf(", HW SOURCE: %s", ether_ntoa(pkt_ETH->h_source));
+	  printf(", HW DEST: %s", ether_ntoa(pkt_ETH->h_dest));
+
+	
+XARXA:   (struct iphdr *)
+
+        La trama IP conté molts camps de dades. En aquest exemple només
+        ens fixarem en tres: les direccions IP de font i destinació i
+        el protocol d'ordre superior que en aquest punt ja sempre serà UDP.
+        De nou tenim un camp numéric i dos camps que voldrem traduir a
+        cadenes llegibles. L'interficie és exactament la mateixa que en el
+        cas anterior:
+	
+          struct in_addr *in_src = (struct in_addr *) &pkt_IP->saddr;
+          struct in_addr *in_dest = (struct in_addr *) &pkt_IP->daddr;
+        	
+          printf(", IP SOURCE: %s", inet_ntoa(*in_src));
+          printf(", IP DEST: %s", inet_ntoa(*in_dest));
+          printf(", IPPROTO: %u", pkt_IP->protocol);
+
+        Observeu que no hi ha necessitat de convertir entre ordering de
+        network i host en el cas del protocol. Aixó es deu a que el
+        protocol es una paraula de 8 bits i no depén del ordering.
+	
+	
+TRANSPORT: (struct udphdr *)
+
+        Ara ja només ens queda interpretar els camps de la capçalera UDP.
+        Si mireu l'apartat 3 veureu que hi han quatre camps. El checksum
+        és el únic camp del que no ens preocuparem doncs no té sentit
+        implementar l'algorisme en un exemple. Nosaltres voldrem coneixer
+        únicament els ports de font i destinació i la longitud del camp
+        de dades. Tots els camps són enters sense signe de 16 bits:
+	
+	  printf(", PORT SOURCE %u", ntohs(pkt_UDP->source));
+	  printf(", PORT DEST %u", ntohs(pkt_UDP->dest));
+	  printf(", LEN: %u", ntohs(pkt_UDP->len));
+
+
+APLICACIÓ: (void *)
+
+        Finalment arribem a les dades del nivell d'aplicació. El format ve
+        definit per l'aplicació i en general no el coneixerem. Donat que no
+        som capaços d'interpretar l'informació tampoc la podrem imprimir
+        com una cadena de C. En el exemple empro la syscall write() com a
+        mitja solució per a imprimir els continguts. Donat que els terminals
+        interpreten caracters el més convenient serà analitzar el fitxer de
+        sortida amb un editor hexadecimal.
+	
+          printf(", DATA: "); fflush(stdout);
+          write(STDOUT_FILENO, pkt_UDP+1, ntohs(pkt_UDP->len));
+
+        Recordeu que la llibreria estàndar de streams (stdio) només imprimeix
+        els buffers quan hi ha un caràcter de nova llinia o un nombre prou
+        gran de caràcters en el buffer. Per a evitar la situació en que
+        primer s'escriuen les dades i després la cadena de stdio cal buidar
+        el buffer de sortida de forma explícita amb fflush() abans de cridar
+        a write().
+	
+	
+Un sniffer no empraria mai un mecanisme d'informació com aquest. En general
+és preferible separar l'informació de les capçaleres i les dades per a oferir
+una presentació mes clara. Pero com que tot aixó només és un exemple no ens
+queixarem més.
+
+Doncs vinga, ara que ja sabeu per on començar: a programar tots! :-)
+
+
+5. Documentació i aplicacions
+
+APLICACIONS:
+
+N'hi ha massa. Aquí teniu un recull de quatre tipus amb un exemple.
+
+- Monitor de xarxa: IPTRAF
+  http://iptraf.seul.org.
+
+	Empra un sniffer basat en PF_PACKET i SOCK_RAW, pero sense
+	lligam (no crida a bind()). Aixó li permet obtenir paquets de totes les
+	interficies presents. La selecció es fa posteriorment a partir del camp
+	sll_ifindex de l'estructura sockaddr_ll.
+	
+- Sniffer IP: SNIFFIT
+  http://reptile.rug.ac.be/~coder/sniffit/sniffit.html
+	
+	sniffer clàssic basat en libpcap-0.3, una llibreria portable d'alt nivell
+	per a la monitorització de paquets i xarxes.
+	
+- Detector de dispositius en mode promiscu: ANTISNIFF
+  http://www.L0pht.com/antisniff/
+	
+        aplicació que permet deduir si un dispositiu de xarxa està en mode
+        promiscu. Es capaç d'emprar diversos mecanismes. Un d'ells és el que
+        he explicat abans. Notar que l'interficie que empra per a generar
+        paquets és la que incorporen els kernels de la serie 2.0.x i no
+        coincideix amb la que he presentat aquí. Per tant antisniff en
+        realitat NO empra PF_PACKET per a generar els paquets. De totes
+        maneres la funcionalitat del kernel que s'empra és la mateixa.
+        (-> mirar packet(7) secció COMPATIBILITY)
+	
+- Detecció d'intrusos: SNORT
+  http://www.snort.org
+
+	aplicació IDS (intrusion detection system) capaç de detectar i
+	analitzar escanejats de ports.
+
+		
+DOCUMENTACIO:
+
+N'hi ha bastanta, pero com sol ocurrir en Linux esta bastant desorganitzada.
+Jo m'he centrat en les pàgines man (sobretot secció 7). La documentació del
+kernel no es centra en aquests aspectes així que per a obtenir informació més
+profunda caldrà que mireu els sources directament. Els fitxers més interessants
+són:
+
+- net/packet/af_packet.c: Per l'impementació del domain AF_PACKET
+- net/ethernet/eth.c: Per l'implementació del nivell d'enllaç virtual ETH.
+
+D'altre banda tota la informació sobre seguretat en xarxes es pot emprar en
+relació amb sniffers. Si ho mireu des de aquest angle la documentació és
+inesgotable.

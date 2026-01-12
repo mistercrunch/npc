@@ -1,0 +1,733 @@
+==============================================================================
+------------[ BFi numero 8, anno 3 - 30/04/2000 - file 17 di 28 ]-------------
+==============================================================================
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ SRAW
+-----[ Lorenzo Cavallaro `Gigi Sullivan' <sullivan@sikurezza.org>
+
+
+     ---[ SRAW: Socket RAW in maniera Semplice, Rozza, in WORKING ;P ]---
+
+          ---[ ovvero come controllare i socket raw mediante LKM ]---
+
+
+---[ GREETINGS
+
+Aiee :)
+
+Hello!
+
+
+---[ INTRO
+
+   `sraw' e' solo un esempio banale di quanto flessibile e potente
+   possa essere un modulo kernel (lkm - loadable kernel module).
+ 
+   Sfortunatamente non sono un kernel hacker, poiche' sto ancora tentando
+   di imparare bene i `kernel internals', per cui non insultatemi subito
+   per qualsiasi errore possiate trovare in questo piccolo lkm, per favore.
+
+   In realta' (comunque), se trovate qualche errore o avete suggerimenti
+   di qualsiasi tipo, fatemelo sapere. Grazie :)
+
+
+---[ DESCRIZIONE
+
+   Solo il superuser, o qualcuno che ha abilitata la capability CAP_NET_RAW
+   puo' aprire/creare socket di tipo SOCK_RAW (socket raw da qui in poi).
+
+   Quindi, se si vuole che utenti normali possano eseguire comandi come
+   `ping', `traceroute' (che usano socket raw), bisogna impostare, a questi
+   eseguibili, il bit setuid root.
+
+   Questo potrebbe essere un problema di sicurezza.
+
+   Soluzioni:
+
+   - Dare a questi utenti l'accesso come superuser (non penso :))
+   - insmod sraw.o
+	
+   Usando sraw.o, si e' in grado di:
+
+   - Permettere/Negare creazione di socket raw ad utenti.
+     Si puo' ottenere questo, impostando un gruppo utenti e aggiungendo
+     determinati utenti a questo gruppo.
+
+    - `Loggare' ogni tentativo di creazione di socket raw
+      (tentativi sia andati a buon fine che non).
+
+    - Gruppi per la crezione di SOCK_RAW (AF_INET|PF_PACKET) e 
+      SOCK_PACKET (compatibilita' con il vecchio kernel 2.0.X),
+      sono aggiustabili (configurabili) via /proc file system,
+      sotto la directory /proc/sys/sraw/ .
+
+    Mi sarebbe piaciuto mettere la /proc entry sotto 
+    l'albero /proc/sys/net/ipv4 , ma per far questo sarebbe
+    necessario modificare un paio di source del kernel.
+
+    Poiche' questo e' ancora un modulo in fase di test (alpha), non
+    lo faro' adesso.
+		
+
+   Contattatemi pure liberamente a <sullivan@sikurezza.org>
+   Indirizzo Mailing list [1]: librnet-subscribe@egroups.com
+   (body e subject vuoti)
+   WWW Mailing list [1]: http://www.egroups.com/list/librnet
+
+
+---[ DISCLAIMER
+
+   Non sono responsabile per qualsiasi danno questo modulo o voi
+   possiate causare.
+   Comunque, se qualcosa va storto, fatemelo sapere per favore, cosi'
+   posso ragionarci sopra e tentare di fixarlo.
+
+
+---[ NOTE
+
+   I privilegi del root (superuser) non sono ristretti a `sraw',
+   poiche' in un ambiente come questo (modulo kernel) sarebbe
+   inutile levare i privilegi al root e potrebbe anche causare
+   qualche problema (specie al boot, se viene caricato il modulo
+   e il root e' sottoposto a restrizioni - vedere archivi WWW per
+   maggiori info).
+
+   Comunque, cerco di prevenire che un programma suidato root possa
+   bypassare questo semplice modulo, controllando semplicemente che
+   
+      current->uid == current->euid == 0.
+
+   Visto che il modulo e' in fase di testing e sviluppo, alcune parti
+   di codice potranno esser poco eleganti :) (perdonatemi, le sistemero'
+   ASAP).
+   Il logging puo' crear alcuni problemi in qualche caso (non rilevanti
+   comunque).
+
+   Riferisci alla Mailing list per eventuali aggiornamenti.
+
+
+---[ EXAMPLE
+
+   Un esempio di configurazione puo' esser visto nel file README.sraw
+   che trovate nel tarball e nei sorgenti stessi.
+
+bye bye
+
+                        -- gg sullivan
+
+--
+[1]: In realta' la Mailing list, non si riferisce a `sraw' direttamente,
+ma ad un altro progetto al quale sto lavorando, comunque visto che `sraw'
+e' nato durante lo sviluppo di questo progetto, trovo adeguato utilizzare
+la mailing list anche per discussioni riguardanti `sraw' e il discorso
+socket raw in generale.
+
+--
+Lorenzo Cavallaro       `Gigi Sullivan' <sullivan@sikurezza.org>
+
+---[ ESEMPI, o 'come puo' esser semplice la vita'
+
+Until I loved, life had no beauty;
+I did not know I lived until I had loved. (Theodor Korner)
+sullivan@armageddon# ls -l /bin/ping /usr/sbin/tcpdump /usr/sbin/traceroute
+-rwxr-sr-x   1 sullivan rsock       14044 Dec  5  1998 /bin/ping
+-rwxr-sr-x   1 sullivan fulldl      102352 Mar 30  1998 /usr/sbin/tcpdump
+-rwxr-sr-x   1 sullivan rsock        9548 Feb 13  1999 /usr/sbin/traceroute
+sullivan@armageddon# lsmoa                               ~/Projects/sraw-0.1.2
+sullivan@armageddon# lsmod                               ~/Projects/sraw-0.1.2
+Module                  Size  Used by
+af_packet               5868   0  (autoclean)
+serial_cs               3860   0  (unused)
+3c589_cs                7612   0
+ds                      6144   2  [serial_cs 3c589_cs]
+i82365                 11700   2
+pcmcia_core            35584   0  [serial_cs 3c589_cs ds i82365]
+sullivan@armageddon# make                                ~/Projects/sraw-0.1.2
+gcc -D__KERNEL__ -DMODULE -O2 -Wall -DSRAW_GROUPS -c raw.c -o raw.o
+gcc -D__KERNEL__ -DMODULE -O2 -Wall -DSRAW_GROUPS -c sysctl.c -o sysctl.o
+gcc -D__KERNEL__ -DMODULE -O2 -Wall -DSRAW_GROUPS -c log.c -o log.o
+ld -m elf_i386 -r -o sraw.o raw.o sysctl.o log.o
+sullivan@armageddon# insmod sraw                         ~/Projects/sraw-0.1.2
+sullivan@armageddon# lsmod                               ~/Projects/sraw-0.1.2
+Module                  Size  Used by
+sraw                    3528   0  (unused)
+af_packet               5868   0  (autoclean)
+serial_cs               3860   0  (unused)
+3c589_cs                7612   0
+ds                      6144   2  [serial_cs 3c589_cs]
+i82365                 11700   2
+pcmcia_core            35584   0  [serial_cs 3c589_cs ds i82365]
+sullivan@armageddon# sh                                  ~/Projects/sraw-0.1.2
+sh-2.01# cd /proc/sys/sraw/
+sh-2.01# ls -l
+total 0
+-rw-r--r--   1 sullivan root            0 Mar  3 16:14 dlink_ctl
+-rw-r--r--   1 sullivan root            0 Mar  3 16:14 full_dlink_ctl
+-rw-r--r--   1 sullivan root            0 Mar  3 16:14 logging
+-rw-r--r--   1 sullivan root            0 Mar  3 16:14 sock_raw_ctl
+sh-2.01# cat dlink_ctl
+300
+sh-2.01# cat full_dlink_ctl
+400
+sh-2.01# cat logging
+1
+sh-2.01# cat sock_raw_ctl
+200
+
+Dove 300 e' dlink, 400 e' fulldl, 200 e' rsock (definiti in /etc/group)
+(questa e' la sezione interessata di /etc/group):
+
+rsock:x:200:librnet, sullivan
+dlink:x:300:librnet
+fulldl:x:400:sullivan
+
+Dove sullivan e' uid 0 (root).
+
+Considera i seguenti utenti:
+------------------------------------------------------------------------------
+librnet@armageddon% id                                                       ~
+uid=1001(librnet) gid=100(users) groups=100(users),200(rsock),400(fulldl)
+
+smash@armageddon% id                                                         ~
+uid=1002(smash) gid=100(users) groups=100(users)
+
+sullivan@armageddon# id                                                      ~
+uid=0(sullivan) gid=0(root) groups=0(root),200(rsock),400(fulldl)
+
+Considera i seguenti comandi (e relativi permessi):
+------------------------------------------------------------------------------
+sullivan@armageddon# ls -l /bin/ping /usr/sbin/tcpdump /usr/sbin/traceroute  ~
+-rwxr-sr-x   1 sullivan rsock       14044 Dec  5  1998 /bin/ping
+-rwxr-sr-x   1 sullivan fulldl     102352 Mar 30  1998 /usr/sbin/tcpdump
+-rwxr-sr-x   1 sullivan rsock        9548 Feb 13  1999 /usr/sbin/traceroute
+
+Considera i seguenti esempi banali:
+(#include esclusi)
+
+smash@armageddon% cat sr.c
+int
+main(int argc, char **argv)
+{
+
+        int     sock;
+
+        sock = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
+        if (sock == -1) {
+                perror("socket()");
+                exit(1);
+        }
+        exit(0);
+}
+
+smash@armageddon% cat dl.c
+int
+main(int argc, char **argv)
+{
+
+        int     sock;
+
+        sock = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_IP));
+        if (sock == -1) {
+                perror("socket()");
+                exit(1);
+        }
+        exit(0);
+}
+
+Considera le seguenti operazioni:
+------------------------------------------------------------------------------
+librnet@armageddon% ifconfig eth0 down                                       ~
+SIOCSIFFLAGS: Permission denied
+librnet@armageddon% ifconfig eth0 192.168.2.5 netmask 255.255.255.0          ~
+SIOCSIFADDR: Permission denied
+SIOCSIFFLAGS: Permission denied
+SIOCSIFNETMASK: Permission denied
+
+librnet@armageddon% tcpdump -i eth0                                          ~
+tcpdump: listening on eth0
+
+librnet@armageddon% ./sr                                                     ~
+librnet@armageddon% ./dl 
+
+smash@armageddon% tcpdump -i eth0                                            ~
+tcpdump: listening on eth0
+
+smash@armageddon% ./sr                                                       ~
+socket(): Operation not permitted
+smash@armageddon% ./dl                                                       ~
+socket(): Operation not permitted
+
+Appartenere al gruppo dlink, quindi, vuol dire programmare (poter aprire)
+socket per accedere al datalink layer.
+Non e' necessario (non serve a nulla) `sgidare' a dlink un programma.
+
+etc, etc...
+
+--
+Lorenzo Cavallaro       `Gigi Sullivan' <sullivan@sikurezza.org>
+
+
+---[ SRAW LKM distribution files
+
+<-| Makefile |->
+# sraw
+# Give CAP_NET_RAW capability to a group of users.
+# Lorenzo Cavallaro `Gigi Sullivan' <sullivan@sikurezza.org>
+#
+
+CC=gcc
+CFLAGS= -D__KERNEL__ -DMODULE -O2 -Wall
+# Uncomment the follow line
+#CFLAGS += -DSRAW_GROUPS
+
+VERSION=$(shell awk -F\" '/REL/ {print $$2}' /usr/include/linux/version.h)
+
+OBJS=sraw.o
+
+all:	$(OBJS)
+
+sraw.o: raw.o sysctl.o log.o
+	ld -m elf_i386 -r -o sraw.o raw.o sysctl.o log.o
+
+raw.o: raw.c /usr/include/linux/version.h
+	$(CC) $(CFLAGS) -c raw.c -o raw.o
+
+sysctl.o:     sysctl.c /usr/include/linux/version.h
+	$(CC) $(CFLAGS) -c sysctl.c -o sysctl.o
+
+log.o:     log.c /usr/include/linux/version.h
+	$(CC) $(CFLAGS) -c log.c -o log.o
+
+install:
+	cp sraw.o /lib/modules/${VERSION}/ipv4
+	@chmod 644 /lib/modules/${VERSION}/ipv4/${OBJS}
+
+clean:
+	rm -f *.o *~ core
+
+# END
+<-X->
+
+<-| log.c |->
+/*
+ * $sfcs-mark$
+ * $filename: log.c$
+ * $description: logging facility.$
+ * $authors: Lorenzo Cavallaro 'Gigi Sullivan'$
+ * $copyright: Copyright (C) 1999 by Lorenzo Cavallaro$
+ * $license: This source file is under LGPL$
+ * $creation time: Thu Feb 24 16:20:24 CET 2000$
+ * $last modification time: Thu Feb 24 16:20:24 CET 2000$
+ * $revision: 1$
+*/
+
+#define SRAW_SYSCTL
+#define __NO_VERSION__
+#include "sraw.h"
+
+char	*sraw_proto[SRAW_MAXPROTO] = {
+	"IPPROTO_IP",
+	"IPPROTO_ICMP", 
+  	"IPPROTO_IGMP", 
+  	"IPPROTO_IPIP",
+   "IPPROTO_TCP",
+   "IPPROTO_EGP",
+   "IPPROTO_PUP",
+   "IPPROTO_UDP",
+   "IPPROTO_IDP",
+   "IPPROTO_RSVP",
+   "IPPROTO_GRE",
+   "IPPROTO_IPV6",
+   "IPPROTO_PIM",
+   "IPPROTO_ESP",
+   "IPPROTO_AH",
+   "IPPROTO_COMP",
+   "IPPROTO_RAW",
+	"Unknown Protocol",
+	NULL
+};
+
+inline unsigned char 
+sraw_remap(unsigned char x)
+{
+
+	switch(x) { 			
+		case 4: return 3; 
+		case 6: return  4; 	
+		case 8: return  5;	
+		case 12: return 6; 	
+		case 17: return 7;	
+		case 22: return 8;	
+		case 46: return 9;
+		case 47: return 10;	
+		case 41: return 11;	
+		case 103: return 12;	
+		case 50: return 13;	
+		case 51: return 14;	
+		case 108: return 15;
+		case 255: return 16;	
+		default:	return (SRAW_MAXPROTO - 1);	
+	}	
+
+	/*
+	 * Never reached.
+	 * Just to avoids compiler warning.
+	*/
+
+	return (SRAW_MAXPROTO - 1);
+}  
+<-X->
+
+<-| sraw.h |->
+/*
+ * $sfcs-mark$
+ * $filename: sraw.h$
+ * $description: sraw LKM header file.$
+ * $authors: Lorenzo Cavallaro 'Gigi Sullivan'$
+ * $copyright: Copyright (C) 1999 by Lorenzo Cavallaro$
+ * $license: This source file is under LGPL$
+ * $creation time: Tue Feb 8 18:30:02 CET 2000$
+ * $last modification time: Thu Feb 24 16:33:02 CET 2000$
+ * $revision: 3$
+*/
+
+#ifndef __SRAW_H_
+#define __SRAW_H_
+
+#include <linux/config.h>
+#ifdef CONFIG_MODVERSIONS
+#   define MODVERSIONS
+#   include <linux/modversions.h>
+#endif /* CONFIG_MODVERSIONS */
+
+#include <linux/kernel.h>
+#include <linux/module.h>
+#include <linux/sched.h>
+#include <linux/net.h>
+#include <linux/capability.h>
+#include <asm/uaccess.h>
+#include <sys/syscall.h>
+#include <linux/smp_lock.h>
+#include <linux/file.h>
+#include <linux/if.h>
+#include <linux/ioctl.h>
+#include <linux/sysctl.h>
+
+unsigned char sraw_remap(unsigned char);
+
+#define  SRAW_SOCK_RAW_DFL    		200	/* rsock group. Check /etc/group */
+#define  SRAW_SOCK_DLINK_DFL			300	/* dlink group. */
+#define  SRAW_SOCK_FULL_DLINK_DFL	400	/* Full data link CAP_NET_ADMIN */
+#define	SRAW_LOG_DFL					1		/* Log everything */
+
+#define	SRAW_MODNAME			"sraw"
+#define	SRAW_MODVER				"0.1.3"
+
+#define	SRAW_MAXPROTO			19
+
+#ifdef SRAW_SYSCTL
+extern ctl_table sraw_sysctl_dir;
+extern char *sraw_proto[];
+
+extern int sraw_sr_group;
+extern int sraw_sr_logging;
+extern int sraw_sr_dl;
+extern int sraw_sr_full_dl;
+#endif
+
+#endif /* __SRAW_H_ */
+<-X->
+
+<-| raw.c |->
+/*
+ * $sfcs-mark$
+ * $filename: raw.c$
+ * $description: Manage (AF_INET/PF_PACKET), (SOCK_RAW/SOCK_PAKET) creation.$
+ * $authors: Lorenzo Cavallaro 'Gigi Sullivan'$
+ * $copyright: Copyright (C) 1999 by Lorenzo Cavallaro$
+ * $license: This source file is under LGPL$
+ * $creation time: Tue Feb 8 18:25:33 CET 2000$
+ * $last modification time: Sat Feb 26 19:17:26 CET 2000$
+ * $revision: 4$
+*/
+
+#define SRAW_SYSCTL
+#include "sraw.h"
+
+extern void *sys_call_table[];
+
+struct ctl_table_header *sraw_sysctl_hdr;
+struct semaphore			queue;
+
+int (*o_socketcall)(int, unsigned long *);
+int (*o_ioctl)(int, int, unsigned long);
+
+int
+my_ioctl(int d, int request, unsigned long args)
+{
+		  
+	int	ret;
+	struct ifreq *ifr;
+
+	if (!(current->uid) && !(current->euid))
+		/* 
+		 * Allow root priviledges.
+		 * In a such environment there's no reason to block root too.
+		 * However I check to see if we're really root 
+		 * i.e. uid == euid == 0, otherwise (suid proggy) get controlled
+		 * by the following rules.
+		 * (This allow us to load this lkm at boot time too.
+		*/
+		goto out;
+
+	ifr = (struct ifreq *) args;
+
+	switch(request) {
+		case	SIOCSIFLINK:
+		case	SIOCSIFFLAGS:
+		case	SIOCSIFADDR:
+		case	SIOCSIFDSTADDR:
+		case	SIOCSIFBRDADDR:
+		case	SIOCSIFNETMASK:
+		case	SIOCSIFMETRIC:
+		case	SIOCSIFMEM:
+		case	SIOCSIFMTU:
+		case	SIOCSIFHWADDR:
+		case	SIOCSIFENCAP:
+		case	SIOCSIFSLAVE:
+		case	SIOCSIFPFLAGS:
+		case	SIOCSIFHWBROADCAST:
+		case	SIOCSIFBR:
+		case	SIOCSIFTXQLEN:
+		case	SIOCSIFMAP:
+			break;
+		default:
+			goto out;
+	}
+
+	cap_lower(current->cap_effective, CAP_NET_ADMIN);
+	if (in_group_p(sraw_sr_full_dl)) {
+		cap_raise(current->cap_effective, CAP_NET_ADMIN);
+		if (sraw_sr_logging)
+			printk(KERN_INFO "[%s]: uid %d(%d) gid %d(%d) ACCEPT " \
+								  "ioctl(0x%x) %s.\n", \
+								  SRAW_MODNAME, current->uid, current->euid, \
+								  current->gid, current->egid, request, \
+								  ifr->ifr_name);
+	}
+	else 
+		if (sraw_sr_logging) {
+			printk(KERN_INFO "[%s]: uid %d(%d) gid %d(%d) DENY " \
+								  "ioctl(0x%x) %s.\n", \
+								  SRAW_MODNAME, current->uid, current->euid, \
+								  current->gid, current->egid, request, \
+								  ifr->ifr_name);
+		}
+out:
+	ret = o_ioctl(d, request, args);
+	return ret;
+}
+
+int 
+my_socketcall(int call, unsigned long *args)
+{
+
+	int 				ret;
+	int				ctl_check;
+
+	/* 
+	 * These lines are just ripped from socket.c / sys_socketcall()
+	 * I need the args value.
+	*/
+
+	unsigned long	a[6];
+	unsigned long a0, a1, a2;
+
+	if (!(current->uid) && !(current->euid))
+		goto out;
+
+	if (call < 1 || call > SYS_RECVMSG)
+		return -EINVAL; 
+
+	if (call == SYS_SOCKET) {
+
+		/* Check out the source for the size stuff */
+		if (copy_from_user(a, args, 3 * sizeof(unsigned long)))
+			return -EFAULT;
+
+		a0 = a[0];
+		a1 = a[1];
+		a2 = a[2];
+	
+		/*
+		 * Ugly check, but it works right now.
+		 * SOCK_PACKET is checked since we could run old data link
+		 * access program that use the obsolete SOCK_PACKET interface.
+		 * This backward compatibility will work only if you had compiled
+		 * af_packet module in kernel.
+		*/
+
+		if ((a0 == AF_INET) && (a1 == SOCK_RAW)) 
+			ctl_check = sraw_sr_group;
+		else
+			if ((a0 == AF_INET) && (a1 == SOCK_PACKET))
+				ctl_check = sraw_sr_dl;
+			else
+				if ((a0 == PF_PACKET) && (a1 == SOCK_RAW))
+					ctl_check = sraw_sr_dl;
+				else
+					ctl_check = -1;
+
+
+		if (((a0 == AF_INET) && (a1 == SOCK_RAW)) || \
+			 ((a0 == AF_INET) && (a1 == SOCK_PACKET)) || \
+			 ((a0 == PF_PACKET) && (a1 == SOCK_RAW))) {
+			/*
+		 	 * This is mandatory, otherwise (e)uid 0 can always open
+		 	 * SOCK_RAW.
+			*/
+			cap_lower(current->cap_effective, CAP_NET_RAW);
+			if (in_group_p(ctl_check) || (in_group_p(sraw_sr_full_dl))) {
+				cap_raise(current->cap_effective, CAP_NET_RAW);
+			if (sraw_sr_logging)
+				printk(KERN_INFO "[%s]: uid %d(%d) gid %d(%d) ACCEPT " \
+									  "%s" \
+									  " proto %s (%s).\n", \
+									  SRAW_MODNAME, current->uid, current->euid, \
+									  current->gid, current->egid, \
+									  ((a1 == SOCK_PACKET) && (a0 == AF_INET)) ? \
+									  "open(SOCK_PACKET)" : "open(SOCK_RAW)", \
+									  ((a1 == SOCK_PACKET) || (a0 == PF_PACKET)) ? \
+									  ("None") : (sraw_proto[sraw_remap(a2)]), \
+									  current->comm);
+				goto out;
+			}
+			else 
+				if (sraw_sr_logging)
+					printk(KERN_INFO "[%s]: uid %d(%d) gid %d(%d) DENY " \
+									 "%s" \
+									 " proto %s (%s).\n", \
+									 SRAW_MODNAME, current->uid, current->euid, \
+									 current->gid, current->egid, \
+									 ((a1 == SOCK_PACKET) && (a0 == AF_INET)) ? \
+									 "open(SOCK_PACKET)" : "open(SOCK_RAW)", \
+									 ((a1 == SOCK_PACKET) || (a0 == PF_PACKET)) ? \
+									 ("None") : (sraw_proto[sraw_remap(a2)]), \
+									 current->comm);
+		}
+	}
+out:
+	ret = o_socketcall(call, args);
+	return ret;
+}
+
+int 
+init_module(void)
+{
+
+	int ret = 0;
+
+	o_socketcall = sys_call_table[SYS_socketcall];
+	sys_call_table[SYS_socketcall] = my_socketcall;
+	o_ioctl = sys_call_table[SYS_ioctl];
+	sys_call_table[SYS_ioctl] = my_ioctl;
+	sraw_sysctl_hdr = register_sysctl_table(&sraw_sysctl_dir, 0);
+	if (!sraw_sysctl_hdr)
+		return -1; 
+	printk(KERN_INFO "[%s]: version %s initialized.\n", SRAW_MODNAME, \
+			SRAW_MODVER);
+	return ret;
+}
+	
+
+void
+cleanup_module(void)
+{
+
+ 	if (sys_call_table[SYS_socketcall] != my_socketcall)
+		printk(KERN_ALERT "[%s]: SYS_socketcall != my_socketcall. WARNING" \
+				 " unstable kernel (it might be)!\n", SRAW_MODNAME);
+	sys_call_table[SYS_socketcall] = o_socketcall;
+	if (sys_call_table[SYS_ioctl] != my_ioctl)
+		printk(KERN_ALERT "[%s]: SYS_ioctl != my_ioctl. WARNING" \
+				 " unstable kernel (it might be)!\n", SRAW_MODNAME);
+	sys_call_table[SYS_ioctl] = o_ioctl;
+	unregister_sysctl_table(sraw_sysctl_hdr);
+	printk(KERN_INFO "[%s]: version %s shutting down.\n", \
+			 SRAW_MODNAME, SRAW_MODVER);
+	return;
+}
+<-X->
+
+<-| sysctl.c |->
+/*
+ * $sfcs-mark$
+ * $filename: proc.c$
+ * $description: tunable group/logging support.$
+ * $authors: Lorenzo Cavallaro 'Gigi Sullivan'$
+ * $copyright: Copyright (C) 1999 by Lorenzo Cavallaro$
+ * $license: This source file is under LGPL$
+ * $creation time: Wed Feb 23 02:25:00 CET 2000$
+ * $last modification time: Wed Feb 23 02:25:00 CET 2000$
+ * $revision: 1$
+*/
+
+#define __NO_VERSION__
+#include "sraw.h"
+
+/* 
+ * XXX Testing purpose. I'm testing it before to modify
+ * /usr/include/linux/sysctl.h and /usr/src/linux/net/sysctl_net.c and
+ * /usr/src/linux/sysctl_net_ipc4.c where I guess it should live
+*/
+
+#define CTL_SRAW	9
+
+#ifndef SRAW_GROUPS
+#   error "Be sure you checked your `/etc/group' and default tunable
+          parameters. (check /etc/group, check sraw.h, edit Makefile and
+			 define -DSRAW_GROUPS."
+#endif
+
+enum {
+	SRAW_SR = 1,
+	SRAW_DL = 2,
+	SRAW_LOG = 3,
+	SRAW_FULL_DL = 4
+};
+
+int sraw_sr_group = SRAW_SOCK_RAW_DFL;
+int sraw_sr_dl = SRAW_SOCK_DLINK_DFL;
+int sraw_sr_logging = SRAW_LOG_DFL;
+int sraw_sr_full_dl = SRAW_SOCK_FULL_DLINK_DFL;
+
+ctl_table sraw_sysctl_entry[] = {
+	{ SRAW_SR, "sock_raw_ctl", 
+	&sraw_sr_group, sizeof(int), 0644, NULL,
+	&proc_dointvec },
+	{ SRAW_DL, "dlink_ctl",
+	&sraw_sr_dl, sizeof(int), 0644, NULL,
+	&proc_dointvec },
+	{ SRAW_LOG, "logging",
+	&sraw_sr_logging, sizeof(int), 0644, NULL,
+	&proc_dointvec },
+	{ SRAW_FULL_DL, "full_dlink_ctl", 
+	&sraw_sr_full_dl, sizeof(int), 0644, NULL,
+	&proc_dointvec },
+	{ 0 }
+};
+
+ctl_table sraw_sysctl_dir[] = {
+	{ CTL_SRAW, "sraw", NULL, 0, 0555, sraw_sysctl_entry, NULL },
+	{ 0 }
+};
+<-X->
+
+Lorenzo Cavallaro       `Gigi Sullivan' <sullivan@sikurezza.org>
+
+
+==============================================================================
+--------------------------------[ EOF 17/28 ]---------------------------------
+==============================================================================

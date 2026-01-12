@@ -1,0 +1,342 @@
+<HTML>
+<HEAD>
+</HEAD>
+<BODY bgcolor=#FFFFFF HEIGHT=100 WIDTH=89 TEXT=#000000 LINK=#0000FF VLINK=#FF0000>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<A NAME="section-1"><H1>CLASS 19</H1></A>
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+
+<center>
+<H2>Difference between an open and closed subroutine</H2>
+</center>
+
+<P>
+In case of an open subroutine, it is like a macro call, where the 
+contents of the subroutine replace the call to the subroutine.
+Similar to the (inline) function call in case of C and C++.
+
+<P>
+In case of a closed subroutine, there is only one part of code, and 
+a call to the subroutine results in a jump to the memory location 
+where the code is placed. Similar to ordinary functions and subroutines 
+in C and C++.
+
+<P>
+What could be the <b>Advantages</b> and <b>Disadvantages</b> of open 
+and closed subroutines?
+
+
+<P>
+There are <b>two instructions for branching into the subroutine</b>: 
+<b>call</b> and <b>jmpl</b>. (ba cannot be used.. <b>why?</b>)
+<P>
+
+<hr>
+<h2>call</h2> 
+
+The <b>call</b> instruction is used when the subroutine name is known at assembly 
+time. The call instruction has a label, and it branches to the label, 
+storing the value of <b>%pc into %o7</b>. It is followed by a delay slot.
+e.g. 
+<PRE>
+call  subr    ! at the time of call
+nop           ! delay  slot
+</PRE>
+
+<hr>
+<h2>jmpl</h2> 
+
+The <b>jmpl</b> instruction is used whenever the address of the subroutine 
+has to be computed. A typical jump statement is like:
+<Pre>
+jmpl   %o0, %o7    ! same as call %o0
+</Pre>
+
+Here, the address of the routine being called is stored in %o0, 
+and the <b>return address</b> (current value of %pc) is stored in %o7.
+
+<P>
+The return from a subroutine is also a jmpl instructions of the 
+format:
+
+<Pre>
+jmpl %i7  + 8, %g0  ! next instruction from the called one.
+</Pre>
+
+<hr>
+<P>
+<b>The typical instructions that are executed when a function is  
+   called are: </b>
+
+<PRE>
+<b>At the time of call:</b> 
+call  subr    ! at the time of call
+nop           ! delay  slot
+
+<b>In the subroutine...</b>
+subr: save %sp, ...., %sp
+
+<b>At the end of the subroutine:</b>
+jmpl  %i7 + 8, %g0
+restore
+</PRE>
+
+<hr>
+<center>
+<H2>Arguments to the subroutine</H2> 
+</center>
+
+<P>
+The arguments can be after the call instruction (as in Fortran), 
+and can be accessed using their locations as offsets from the 
+return location. e.g. 
+
+<PRE>
+  call  add
+  nop
+  .word 3, 4
+</PRE>
+
+In the subroutine, the arguments will be used as shown below: 
+
+<PRE>
+add:    save 	%sp, -64, %sp
+        ld 	[%i7 + 8], %i0
+        ld 	[%i7 + 12], %i1
+        add 	%i1, %i0, %i0
+        jmpl  	%i7 + 16, %g0
+        restore
+</PRE>
+
+<P>
+But there are disadvantages of this approach, as no recursion is possible. 
+
+The other option is to use the concept of register sets, which was discussed
+earlier.
+
+<P>
+We can use <b>registers %o0 to %o5</b> (6 registers) to pass on six values 
+to the new subroutine ( where they will be stored in <b>registers 
+%i0 to %i5</b>). But for more arguments than that, they have to be 
+stored on the stack. Hence the <b>save</b> command at the start of the 
+function will have to modified accordingly. 
+
+<P>
+As we have seen in the previous examples, 64 bytes are reserved on the 
+stack for register window saving. Further, 
+4 bytes are now needed for a pointer to an address where a structure may be 
+returned by the function.  After that, 24 bytes are reserved by convention 
+for the first six arguments.  After that, more space can be reserved for local 
+variables on the stack. The typical save command will now have to be modified 
+as:
+
+<PRE>
+       .global sub_name
+sub_name:
+       save %sp, -(64 + 4 + 24 + local) &amp; -8, %sp
+</PRE>
+
+<STRONG>Example:</STRONG>  Consider the following C program: 
+
+<PRE>
+int example(int a, int b, char c);
+{
+  int x, y;
+  short ary[128];
+  register int i, j;
+  x = a + b;
+  i = c + 64;
+  ary[i] = c + a;
+  y = x * a;
+  j = x + i;
+  return x + y;
+}
+
+int main()
+{
+  int r;
+  r = example(3, 5, 4);
+  printf("%d\n", r);        /* same as cin in C++ */
+}
+</PRE>
+
+<b>Let us write the assembly code corresponding to the following C program.</b>
+
+<PRE>
+define(a_r, i0)    ! a_r in %i0
+define(b_r, i1)    ! b_r in %i1
+define(c_r, i2)    ! c_r in %i2
+define(x_s, -4)   
+define(y_s, -8)
+define(ary_s, -264)  
+define(i_r,  l0)
+define(j_r, l1)
+
+/* Save command for the  <b>example</b> function will be : 
+   save %sp, (-64 - 4 - 24 - 264) &amp; -8, %sp  */
+
+        .global _example
+
+_example: 
+        save    %sp, -360, %sp
+        add     %a_r, %b_r, %o0       !   x = a + b
+        st      %o0, [%fp + x_s]
+        add     %c_r, 64, %i_r        !   i = c + 64
+        add     %a_r, %c_r, %o0       !   ary[i] = c + a
+        sll     %i_r, 1, %o1
+        add     %fp, ary_s, %o2
+        sth     %o0, [%o1 + %o2]
+        ld      [%fp + x_s], %o0      !   y = x * a
+        call    .mul
+        mov     %a_r, %o1
+        st      %o0, [%fp + y_s]
+        ld      [%fp + x_s], %o0      !   j = x + i
+        add     %i_r, %o0, %j_r
+        ld      [%fp + x_s], %o0      !   return x + y
+        ld      [%fp + y_s], %o1
+        ret
+        restore %o0, %o1, %o0
+</PRE>
+
+
+<hr>
+<center>
+<H2>Return Values</H2>
+</center>
+
+<P>
+A subroutine that returns a value is called a function.
+
+<P>
+Value returned is stored in <b>%o0 of the calling function</b>, which is
+<b>%i0 in the called function</b> before the restore instruction is executed.
+
+<P>
+A function in C and C++ can also return a structure. These can
+be implemented by storing pointer to the structure on the stack.
+
+<P>
+<STRONG>Example: </STRONG>   
+
+<PRE>
+struct point {
+  int x, y;
+};
+
+struct point  zero()
+{
+  struct point local;
+  local.x = 0;
+  local.y = 0;
+  return local;
+}
+
+int main()
+{
+  struct point x1, x2;
+  x1 = zero();
+  x2 = zero();
+}
+</PRE>
+
+In this case, the function <b>zero</b> returns a structure, as can be 
+seen from the code. The main function reserves space on the stack to store 
+the entire structures x1 and x2. But at the time of return from function zero(),
+the entire structure is not returned, but only a pointer to the structure is 
+returned back to the main function. We will not look at this program in further 
+detail at this time.
+
+<hr>
+<center>
+<H2>Subroutines with many Arguments</H2>
+</center>
+
+<P>
+Upto six arguments can be passed to another function without
+use of the stack. But if more than 6 arguments are required, then
+the remaining ones must be stored on the stack. e.g. 
+
+<p>
+If we have a function call with 8 arguments as shown below: 
+
+<Pre>
+ foo(1,2,3,4,5,6,7,8);
+</Pre>
+
+The function returns the sum of the 8 arguments as shown below:
+
+<PRE>
+int foo(int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8)
+{  
+   return ( a1 + a2 + a3 + a4 + a5 + a6 + a7 + a8) ; 
+}
+</PRE>
+
+Here, we need <b>extra space on the stack for the last two arguments</b>. The 
+corresponding assembly code is given below: 
+
+<PRE>
+        ! code for the main function
+
+	define(arg7_s, 4)
+	define(arg8_s, 8)
+
+        .global _main
+
+_main:  save    %sp, -64, %sp
+        add     %sp, -8, %sp          ! space for 2 args. on stack
+        mov     8, %o0                ! load args in reverse
+        st      %o0, [%sp + arg8_s]
+        mov     7, %o0
+        st      %o0, [%sp + arg7_s]
+        mov     6, %o5
+        mov     5, %o4
+        mov     4, %o3
+        mov     3, %o2
+        mov     2, %o1
+        call    _foo
+        mov     1, %o0
+        sub     %sp, -2 * 4 &amp; -8, %sp   !release space on stack
+        ret
+        restore
+
+        ! code for the subroutine foo
+
+        define(a8_s, arg8_s)
+        define(a7_s, arg7_s)
+        define(a6_r, i5)
+        define(a5_r, i4)
+        define(a4_r, i3)
+        define(a3_r, i2)
+        define(a2_r, i1)
+        define(a1_r, i0)
+
+        .global foo
+
+foo:    save    %sp, (-92 &amp; -8), %sp
+        ld        [%fp + a8_s], %o0       !the eighth argument
+        ld        [%fp + a7_s], %o1       !the seventh argument
+        add     %o0, %o1, %o0
+        add     %a6_r, %o0, %o0           !the sixth argument
+        add     %a5_r, %o0, %o0           !the fifth argument
+        add     %a4_r, %o0, %o0           !the fourth argument
+        add     %a3_r, %o0, %o0           !the third argument
+        add     %a2_r, %o0, %o0           !the second argument
+        ret
+        restore %o0, %a1_r, %o0           !the first argument
+</PRE>
+
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<H3>
+For class 20 notes, <A HREF="class20.html">click here</A>
+</H3>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<H3>
+For more information, contact me at <A HREF="mailto:tvohra@mtu.edu">tvohra@mtu.edu</A>
+</H3>
+
+</BODY>
+</HTML>

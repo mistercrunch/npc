@@ -1,0 +1,300 @@
+<HTML>
+<HEAD>
+</HEAD>
+<BODY  bgcolor=#FFFFFF HEIGHT=100 WIDTH=89 TEXT=#000000 LINK=#0000FF VLINK=#FF0000>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">                
+<A NAME="section-1"><H1>CLASS 14</H1></A>
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">                
+
+<center>
+<H2>Data Structures</H2>
+</center>
+
+<center>
+<h3>One-dimensional array</h3>
+</center>
+
+ <P>
+Arrays in C and C++ are stored as pointers to the first element of 
+the array, and a list of offsets from that element. 
+
+ <P>
+Arrays are laid out in memory linearly.  To store an array, we allocate
+enough space on the stack for all the array's elements.  
+The address of each element is computed from the address of first
+element and the array index i:
+<PRE>
+  address_of_first_element + i * size_of_array_element_in_bytes
+</PRE>
+so a five-element array:
+<PRE>
+	int ary[5];
+</PRE>
+would be:
+<PRE>
+  ary:	ary[0]
+  ary+4:	ary[1]
+  ary+8:	ary[2]
+  ary+12:	ary[3]
+  ary+16:	ary[4]
+  </PRE>
+
+To allocate an array on the stack, we treat it like one big variable:
+<PRE>
+  ary_s = -20
+  save %sp, (-64 - 20) & -8, %sp
+</PRE>
+
+So address of element 0 is <CODE>%fp + ary_s</CODE><br>
+Address of element 1 is <CODE>%fp + ary_s + 4</CODE><br>
+
+To load <CODE>ary[2]</CODE> into <CODE>%o0</CODE>:
+<PRE>
+	add	%fp, 8, %o1
+	ld 	[%o1 + ary_s], %o0
+</PRE>
+
+To load <CODE>ary[i]</CODE> into <CODE>%o0</CODE>, if <CODE>i</CODE> were stored in <CODE>%i_r</CODE>:
+<PRE>
+	/* multiply i by 4 */
+	sll 	%i_r, 2, %o1
+	add	%fp, %o1, %o1
+	ld	[%o1 + ary_s], %o0
+</PRE>
+<P>
+
+<b>Example of Array allocation:</b>
+<PRE>
+int a, b, c[3];
+char d[3];
+short e[2];
+</PRE>
+
+<P>
+Corresponding to the C declarations, the offsets on the stack will 
+be defined as follows:
+<PRE>
+define(a_s, -4)
+define(b_s, -8)
+define(c_s, -20)
+define(d_s, -23)
+define(e_s, -28)
+</PRE>
+
+Now, the initial declaration will be:
+<PRE>
+save %sp, ((-64 - 28) &amp; -8), %sp 
+==&gt; save %sp, -96, %sp
+</PRE>
+
+And the variables can be loaded into the registers as:
+<PRE>
+ld   [%fp + a_s], %o0            ! a --&gt; o0
+ldsb [%fp + c_s], %o1            ! c[0]  --&gt; o1
+ldsb [%fp + c_s + 4], %o2,       ! c[0]  --&gt; o2
+ldsh [%fp + d_s], %o3            ! d[0] --&gt; o3
+ldsh [%fp + d_s + 4], %o4        ! d[0] --&gt; o4
+and so on.......
+</PRE>
+
+<P>
+<B>Another Example of Array allocation </b>
+<P>
+<PRE>
+int a[100];
+char b[48];
+register int x[3];
+</PRE>
+The sparc assembly code for these definitions is as follows:
+<PRE>
+define(a_s, -400)
+define(b_s, -448)
+define(x_r_0, l0 )
+define(x_r_1, l1 )
+define(x_r_2, l2 )
+</PRE>
+
+<P>
+Hence, the starting instruction of main will be:
+<PRE>
+save %sp, ((-64 - 448) &amp; -8), %sp
+==&gt; save %sp, (-512 &amp; -8), %sp
+==&gt; save %sp, -512, %sp
+</PRE>
+
+<p>
+<b>Example: Summing an array</b>
+<PRE>
+  1	main()
+  2	{
+  3	  int nums[4] = {1, 45, -16, 23, 62}
+  4	  int n = 5;		/* number of elems in array */
+  5	  register int i;	/* for index */
+  6	  register int sum = 0;	/* holds the sum */
+  7
+  8       for (i=0; i < n; i++)         
+  9       {                             
+ 10         sum = sum + nums[i];  
+ 11       }                             
+ 12  }                                     
+</PRE>
+
+This code translates to:
+<PRE>
+	/* local variables */
+	nums_s = -20
+	n_s = -24
+
+	/* i is in %l0;  sum is in %l1 */
+
+	.global	main
+main:	save	%sp, -88, %sp
+
+	/* line 3 initialization */
+	mov	1, %o0
+	st	%o0, [%fp + nums_s]
+
+	mov	45, %o0
+	st	%o0, [%fp + nums_s + 4]
+
+	mov	-16, %o0
+	st	%o0, [%fp + nums_s + 8]
+
+	mov	23, %o0
+	st	%o0, [%fp + nums_s + 12]
+
+	mov	62, %o0
+	st	%o0, [%fp + nums_s + 16]
+
+	/* line 4 initialization */
+	mov 	5, %o0
+	st	%o0, [%fp + n_s]
+	
+	/* line 6 initialization */
+	mov	0, %l1
+
+	/* line 8; top of for loop */
+	ba	fortest
+	mov	0, %l0
+for:
+	/* line 10; body of the for loop */
+	sll	%l0, 2, %o0			! %o0 = i * 4
+	add	%fp, %o0, %o0			! %o0 = %fp + i * 4
+	ld	[%o0 + nums_s], %o0		! %o0 = nums[i]
+	add	%o0, %l1, %l1			! sum = sum + nums[i]
+
+	/* line 11; bottom of the for loop */
+	add	1, %l0, %l0			! i++;
+fortest:
+	ld	[%fp + n_s], %o0		! %o0 = n
+	cmp	%l0, %o0			! is (i < n)?
+	bl 	for
+	nop
+
+	/* line 12; end of program */
+	mov	1, %g1
+	ta	 0
+</PRE>
+
+<hr>
+<center>
+<H2>Pointer and Address arithmetic</H2>
+</center>
+
+Consider the following C declarations:  
+<PRE>
+	int   a[20];
+	char  b[20];
+	short c[20];
+</PRE>
+
+Let's say these are the only declarations in a subroutine, and the value
+of <CODE>%fp</CODE> is 1000.  What are the addresses of 
+<CODE>a[0], b[0],</CODE> and <CODE>c[0]</CODE>? 
+ <P>
+
+First, we allocate the items in order.  <CODE>a</CODE> takes 80 bytes,
+so its address is 1000-80 = 920.  <CODE>b</CODE> takes 20 bytes, so its
+address is 920 - 20 = 900.  <CODE>c</CODE> takes 40 bytes, so its address
+is 900 - 40 = 860. 
+ <P>
+
+Now, what are the values of:
+<PRE>
+	&(a[3])	 = 920 + 3 *  4 = 932
+	&(b[10]) = 900 + 10 * 1 = 910
+	&(c[5])  = 860 + 5 *  2 = 870
+</PRE>
+
+So, as before, we multiply the index by the base item size and add it to
+the array start.
+ <P>
+
+Since this operation is so common, the C language has it built in.
+Say we added these declarations.
+<PRE>
+  int   *a_ptr = a;
+  char  *b_ptr = b;
+  short *c_ptr = c;
+</PRE>
+
+Now, each one points at the first element of its array.  So 
+<PRE>
+  a_ptr = 920,
+  b_ptr = 900, 
+  c_ptr = 860.  
+</PRE>
+
+That is, <CODE>*a_ptr = a[0]</CODE>.  To get the second element of the
+array, <EM>no matter what size</EM>the base item is, just increment the
+pointer:
+<PRE>
+  a_ptr++;
+  b_ptr++;
+  c_ptr++;
+</PRE>
+
+Now <CODE>*a_ptr = a[1], *b_ptr = b[1], *c_ptr = c[1]</CODE>.   Which
+means that 
+<PRE>
+  a_ptr = 924,
+  b_ptr = 901, 
+  c_ptr = 862.  
+</PRE>
+
+Notice that they have been increased by <b>different amounts</b>, 
+depending on the size of each variable in bytes.
+ <P>
+
+So what is the difference between <CODE>a</CODE> and <CODE>a_ptr</CODE>?
+When using them as names 
+for data, nothing.  You can refer to <CODE>a_ptr[20]</CODE> just as
+properly as referring to <CODE>a[20]</CODE>.
+
+However, there <EM>is</EM> a difference between <CODE>a</CODE> and
+<CODE>a_ptr</CODE>.  For <CODE>a</CODE>, the space 
+has been allocated on the stack by the compiler.  For
+<CODE>a_ptr</CODE>, no space 
+has been allocated -- it is up to the programmer to make sure that
+<CODE>a_ptr</CODE> 
+points to a valid piece of memory. If we need to create more space for 
+the pointer to point to during the course of execution of the program, 
+we need to make use of functions like <b>new</b> and <b>malloc</b> to 
+create the space. But is that space 
+on the stack? Well, the answer is <b>no</b>. The space gets allocated
+on the <b>heap</b>. 
+
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<H3>
+For class 15 notes, click here
+</H3>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<H3>
+For more information, contact me at <A HREF="mailto:tvohra@mtu.edu">tvohra@mtu.edu</A>
+</H3>
+
+</BODY>
+</HTML>

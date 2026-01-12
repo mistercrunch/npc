@@ -1,0 +1,159 @@
+MINOTAURO MAGAZINE #9:
+
+			   Thunderbyte Antivirus v7.00
+			    by Drako, digital anarchy
+
+	Aparentemente un dia que la gente del TBAV no tenia nada que hacer se 
+puso a ver que boludeces le podian agregar al TBAV. Bueh, este es el 
+resultado...
+
+El Thunderbyte, desde la ultima nota explicando como evadirlo, se ha esmerado
+(ja), y en el afan de tratar de detectar por lo menos un virus, ha incorporado 
+tecnicas que en su gran mayoria, son obsoletas y ridiculas. Esto es para los 
+del TBAV: SAQUENLE EL ANALISIS HEURISTICO A SU PRODUCTO PORQUE NO SIRVE PARA 
+NADA (asi btw, entran de una vez por todas al querido VSUM de patty hoffman)
+
+primera parte, flags ridiculos:
+-------------------------------
+
+flag "!": Invalid Program
+
+	Este flag se dispara cuando el tbsan tracea un salto fuera del rango
+	del codigo ejecutable. No le veo la relacion con alguna actividad 
+	virosica, a menos de que hagan virus que salten a la nada o ahhhh ya 
+	se, o que se topen con algun virus herido jejeje (te salvo la campana
+	en el goeth, gorda?)
+
+flag "h": Hidden or System File
+
+	Este flag es el colmo, cuando agregaron esto debian de estar en pedo
+	having sex with their dogs... Esto te deschava si tenes algun
+	archivo oculto. jajaja, que miedo. No merece mas comentarios... :)
+
+flag "w": Windows or OS/2 Header
+
+	Este flag es el mas importantes de todos, si ven que alguno de sus
+	programas les dispara este flag, borrenlo inmediatamente, es 
+	peligroso :)
+
+segunda parte, flags:
+---------------------
+
+flag "1": 80186+ Instructions
+
+	Uds. diran, que flag estupido, detecta instrucciones solo ejecutables
+	bajo un 80186... Pero una de esas instrucciones es un push de un 
+	inmediato, osea el famoso PUSH 0FFFFh o un PUSH OFFSET _LABEL siendo 
+	_label un label, ya que el compilador traduce el offset _label a un 
+	valor numerico FIJO de infeccion en infeccion... El detalle de este
+	flag, es que salta unicamente cuando el codigo en cuestion esta dentro
+	de los primeros bytes. Asi que si tienen algo que inevitablemente lo 
+	tienen que hacer de esta manera y en ese momento, haciendo un simple 
+	call/ret al final del codigo les soluciona el problema...:
+
+	codigo original:
+
+	VIRUS_START:                    ;<== Comienzo del virus
+		PUSH 0FFFFh             ;<== Pasaje de datos necesario
+		POP AX                  
+		[...]                   ;<== Resto del codigo del virus
+	VIRUS_END:                      ;<== Fin del virus
+
+	lo pueden cambiar por:
+
+	VIRUS_START:
+		CALL VIRUS_END
+		[...]
+	VIRUS_END:
+		PUSH 0FFFFh
+		POP AX
+		RET
+
+	Tambien pueden abordar el problema desde otra perspectiva, haciendo el
+	pasaje de datos de alguna otra manera (abajo hay mas ejemplos)
+
+flag "@": Strange Instructions
+
+	Este parece saltar por instrucciones "extra¤as". Con esto se refiere a
+	instrucciones hard-coded que dificilmente pueda llegar a generar un
+	compilador. Se refiere puntualmente a las posiblemente creadas por un 
+	virus polimorfico, armadas a mano o instrucciones sin mucho sentido
+	logico como MOV AX, AX etc. Una buena logica de polimorfismo y listo.
+
+flag "t": Time Triggered Event
+
+	Este flag no esta documentado por el TBAV, pero lo usa y lo muestra en
+	pantalla cuando lo detecta. Lo que hace es avisar cuando encuentra
+	eventos que se dispararian en alguna fecha en especial (payload).
+	Realmente a la primer llamada a algun servicio de timing, avisa. No
+	analiza en que situacion se produce la llamada.. Como en el Vampiro
+	donde detecta llamadas a la int 1ah pero que curiosamente no son para
+        realmente saber la fecha, sino para disimular la rutina de 
+	desencripcion...
+
+flag "U": Undocumented DOS Calls
+
+	Se activa al detectar llamadas no documentadas, como al tratar de
+	desactivar el Vsafe... Generalmente no van a tener problemas con este
+	flag ya que la mayoria de las veces la rutina se encuentra en la zona
+	encriptada del virus, pero si este no estuviera encriptado se complica
+	un poco el llamado a funciones no documentadas... ademas de la de usar
+	el push mas adelante, les puede llegar a servir tambien esta otra:
+	definir una variable con los datos a pasar y despues hacer un
+	mov rr, word ptr cs:[variable]
+
+	codigo original:
+
+	VIRUS_START:
+		MOV AX, 0FFFFh
+		INT 21h
+		[...]
+	VIRUS_END:
+
+	otra forma:
+
+	VIRUS_START:
+		MOV AX, WORD PTR [VARIABLE]
+		INT 21h
+		[...]
+	VIRUS_END:
+		DW VARIABLE 0FFFFh
+
+	Tengan en cuenta que si la llamada la hacen fuera del rango de
+	detecci¢n del PUSH IMMEDIATE (flag "1"), pueden hacer la llamada
+	mediante el nunca bien ponderado PUSH VALOR, POP AX
+
+flag "O": Code Overwrite
+
+	Este flag detecta el overwriting de codigo en memoria, como el hecho de
+	reemplazar los primeros bytes en un COM para darle despues el salto a
+	100h... Lo que hay que hacer es ocultar la carga del registro DI o el
+	que sea.. Generalmente esa parte del codigo esta atras, asi que lo
+	mismo que antes, pushean y listo
+
+flag "X": Uses Stealth
+	Salta por dos motivos: dir stealth y por SFTS
+	Con ocultar la parte en que comparamos con 4eh, 4fh, 11h, 12h basta
+	para la primer parte. La segunda salta con las llamadas a la int 2fh
+	para encontrar el SFN apartir del handle y la SFT apartir del SFN.
+	Basta con ocultar estos llamados.
+
+flag "F": Suspicious File Access
+
+	Parece ahora que ademas de todo lo que hacia saltar esta alarma,
+	se le agrega a la lista la actualizacion de fecha del file a infectar
+	(ax = 5701h / int21h)... Basta con hacer lo que veniamos haciendo hasta
+	ahora para eludirlo.
+
+Bueno, despues de todo no fue dificil... La cuestion es que en la practica no
+tendrian que llegar ni a necesitar estos trucos... La idea es que todas las
+partes del virus esten encriptadas en el archivo con lo que una buena rutina 
+de encripcion bastaria para dejar de preocuparse por el TBAV en modo 
+heuristico. Aunque SI hay que tener en cuenta como piensan los chabones, para 
+adelantarnosles y no tener que modificar los virus mas viejos cada 2 x 3... 
+Sobra decir que cada boludez que le agregan nos obliga a tener que agregar mas 
+codigo y quitarle mas recursos a los sistemas infectados, asi que dejense de 
+joder y empiecen a encriptar
+
+Un Saludo a toda la comunidad virosica, 
+Drako, digital anarchy

@@ -1,0 +1,229 @@
+<HTML>
+<HEAD>
+</HEAD>
+<BODY  bgcolor=#FFFFFF HEIGHT=100 WIDTH=89 TEXT=#000000 LINK=#0000FF VLINK=#FF0000>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<A NAME="section-1"><H1>CLASS 17</H1></A>
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+
+<center>
+<H2>Data Structures ( continued )</H2>
+<H3>Structures</H3>
+</center>
+
+<PRE>
+struct example  {
+    int a, b;     ! 8 bytes
+    char c;       ! 1 byte, 1 wasted
+    short d, e;   ! 4 bytes, 2 wasted
+    int f, g;     ! 8 bytes
+}
+</PRE>
+
+<P>
+Total memory requirement for one structure of type <b>example</b> = <b>24 bytes</b>.
+
+<P>
+Hence, <b>example</b> should have 24 bytes.
+
+<Pre>
+define(example, -24)
+</Pre>
+
+<P>
+The corresponding save statement will be : 
+<Pre>
+save %sp, -88, %sp
+</Pre>
+
+<P>
+The best method is to define all the offsets for the structure, and 
+load the content of the first element in a register, use it to access 
+the other elements. For e.g.  
+
+<PRE>
+define(offset_a, 0)
+define(offset_b, 4)
+define(offset_c, 8)
+define(offset_d, 10)
+define(offset_e, 12)
+define(offset_f, 16)
+define(offset_g, 20)
+
+set %fp + example, %l0    ! pointer to the first element of structure
+</PRE>
+
+Now, to access the individual elements of this structure:
+<PRE>
+ld   [%l0 + offset_a], %o0   ! %o0 = a
+ldub [%l0 + offset_c], %o0   ! %o0 = c
+ldsh [%l0 + offset_d], %o0   ! %o0 = d
+and so on....
+</PRE>
+
+<P>
+Now, if in the code, there is a declaration like..
+
+<Pre>
+<STRONG>example  e1, e2;</STRONG>
+</Pre>
+
+<P>
+Then all we need to do is allocate 24 * 2 bytes of memory.
+
+<Pre>
+save %sp, (-64 - 48) &amp; -8, %sp
+==&gt; save %sp, -112, %sp
+</Pre>
+
+<P>
+Now, load the base values of both the structures in registers, 
+which can further be defined.
+
+<PRE>
+define(e1, -24)
+define(e2, -48)
+</PRE>
+
+<P>
+Now, load base of e1 into %l0, base of e2 into %l1
+<PRE>
+set %fp + e1, %l0<BR>
+set %fp + e2, %l1<BR>
+</PRE>
+
+<P>
+Now, the commands for accessing the elements of the structure are:
+
+<PRE>
+ld [%l0 + offset_a], %o0     ! %o0 = e1.a
+ld [%l1 + offset_a], %o1     ! %o1 = e2.a
+ldub [%l0 + offset_c], %o2   ! %o2 = e1.c
+and so on.......
+</PRE>
+
+<hr>
+<center>
+<h2> Nesting Of Structures </h2>
+</center>
+
+Here is an example of a nested structure:
+
+<pre>
+struct date 
+{
+  short day, month, year ; 
+} ;
+
+struct person 
+{  
+  struct date birth_date ; 
+  int age ; 
+  char sex ; 
+} ;
+
+main()
+{
+   struct date d1, d2 ; 
+   struct person p1, p2 ; 
+
+   d1.day = 13 ; 
+   d1.month = 5 ; 
+   d2.year = 1973 ; 
+
+   p1.birth_date = d1 ; 
+   p2.sex = 'M' ; 
+   p1.age = 23 ; 
+}
+</pre>
+
+Now, we need a 8 bytes of the structure "<b>date</b>" as it contains only 
+3 short variables. 
+
+<p>
+Further, for the structure "<b>person</b>", we need 16 bytes, and the offsets 
+from the starting address of the structure are given below: 
+<PRE>
+define(offset_date_day, 0)
+define(offset_date_month, 2)
+define(offset_date_year, 4)
+define(offset_age, 8)
+define(offset_sex, 12)
+</PRE>
+
+A better way of implementing nested structures is given below. Here, each of 
+the nested structures has an offset from the main structure, and each of the 
+fields of the nested structure have an offset specified from the start of the
+nested structure. Let us take the previous example to clarify things:
+
+<pre>
+struct date d1, d2 ;
+struct person p1, p2 ;
+</pre>
+
+Here, we have the offsets defined as follows: 
+<pre>
+define(d1, -8)
+define(d2, -16)
+define(p1, -32)
+define(p2, -48)
+define(birth_date, 0)
+define(date_day, 0)
+define(date_month, 2)
+define(date_year, 4)
+define(age, 8)
+define(sex, 12)
+
+	.global _main
+_main:  save    %sp, -112, %sp   !(64 + 48 = 112, -112 & -8 = -112)
+
+	! d1.day = 13
+	mov 	13, %o0
+	sth 	%o0, [%fp + d1 + date_day] 
+
+	! d1.month = 5 
+	mov 	5, %o0	
+	sth 	%o0, [%fp + d1 + date_month] 
+
+	! d2.year = 1973 
+	mov 	1973, %o0
+	sth 	%o0, [%fp + d2 + date_year] 
+
+ 	! p1.birth_date = d1 
+ 	! p1.birth_date.day = d1.day 
+	lduh	[%fp + d1 + date_day], %o0
+	sth 	%o0, [%fp + p1 + birth_date + date_day] 
+
+	! p1.birth_date.month = d1.month 
+	lduh	[%fp + d1 + date_month], %o0 
+	sth 	%o0, [%fp + p1 + birth_date + date_month] 
+
+  	! p1.birth_date.year = d1.year 
+	lduh	[%fp + d1 + date_year], %o0
+	sth 	%o0, [%fp + p1 + birth_date + date_year] 
+
+	! p2.sex = 'M' 
+	mov 	'M', %o0
+	stb 	%o0, [%fp + p2 + sex]
+
+	! p1.age = 23 
+        mov 	23, %o0
+	st 	%o0, [%fp + p1 + age] 
+ 
+	mov 	1, %g1
+	ta	0
+</pre>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<H3>
+For class 18 notes, <A HREF="class18.html">click here</A>
+</H3>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<H3>
+For more information, contact me at <A HREF="mailto:tvohra@mtu.edu">tvohra@mtu.edu</A>
+</H3>
+
+</BODY>
+</HTML>

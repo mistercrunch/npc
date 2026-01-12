@@ -1,0 +1,1113 @@
+==============================================================================
+------------[ BFi numero 7, anno 2 - 25/12/1999 - file 10 di 22 ]-------------
+==============================================================================
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ PR0GETT0 GiRiNGiR0 PARTE I - FuSyS 
+
+
+	        ---[ P r o g e t t o  G i R i N G i R O ]---
+			        P a r t e  I
+	 -----[ T C P / I P  R o u t i n g  P r o t o c o l s ]-----
+
+			      t r a t t o  d a 
+	    ----[ T C P / I P  T o o l s  U n l i m i t e d ]----
+
+	      NO(C)1999 FuSyS <fusys@s0ftpj.org> - [S0ftPj|BFi]
+
+#############################################################################
+Prima di tutto un po' di scuse. Il progetto GiRiNGiRO avrebbe dovuto essere
+completato in un solo articolo. Ahime', purtroppo ho perso un po' di tempo.
+Non a livello assoluto, ma disperdendomi dietro un mucchio di attivita' piu'
+o meno collaterali. Oltretutto l'implementazione delle idee che avevo in
+mente si e' rivelata meno immediata di quanto pensassi, considerato anche lo
+scarso tempo a mia disposizione. Quindi il progetto risulta diviso in due
+articoli separati. In questo valutero' i concetti teorici di base e cerchero'
+di approfondire la conoscenza di alcuni tra i meno considerati protocolli
+della 'nostra' benemerita suite. Nel prossimo vedremo di ottenere qualcosa di
+pratico da questo excursus.
+#############################################################################
+
+-[ P R E R E Q U I S I T I ]-
+
+Do per scontato che il lettore conosca le basi di TCP/IP, del suo funzionamento
+e delle sue caratteristiche. In questa prima parte non sono molto necessarie
+conoscenze specifiche di programmazione o dello stack di rete degli OS,
+sebbene possano essere utili per valutare le possibili implicazioni pratiche.
+Alcuni campi sono riportati in inglese. Non e' perche' io non abbia voglia di
+tradurveli, ma solo perche' e' piu' comodo confrontare poi RFC ed altri 
+documenti pescati in rete piuttosto che scervellarsi anche sul confronto 
+tra diverse traduzioni.
+
+-[ F I N A L I T A' ]-
+
+Introdurre il lettore ai protocolli piu' utilizzati nel campo del routing, dal
+solito punto di vista interno, e proprio dei pacchetti.
+
+Stimolare anche la voglia di prendere in mano gli RFC di questi protocolli, che
+costituiscono la base del funzionamento della rete in cui oggi sguazziamo.
+
+Permettere agli amministratori con un po' di tempo in piu' di non dover per
+forza telefonare alla Cisco, alla Ascend o al proprio ISP per diagnosticare
+'qualcosa di strano sulla rete'.
+
+Ovviamente questo e' un testo introduttivo su di un argomento che definire
+complesso e' un eufemismo.
+
+-[ P e r c h e' ... !? ]-
+
+Quello del routing e' un concetto che non sfugge all'attenzione di nessuno che
+lavori nel campo dell' internetworking. E' un concetto essenziale e decisivo.
+Purtroppo ho notato come invece sia del tutto sconosciuto dalla maggior parte
+dei frequentatori dei canali dell'underground italiano. Questo e' assurdo
+considerato l'interesse che invece trasmettono i protocolli di rete e trasporto
+della suite TCP/IP. Infatti i protocolli di instradamento forniscono non pochi
+punti deboli agli attaccanti e non pochi grattacapi ai responsabili della
+sicurezza di innumerevoli sistemi.
+
+Il concetto di instradamento non e' pertinente alla sola InterNet, ma questo e'
+quello che abbiamo oggi e quindi mi riferiro' soltanto ai protocolli piu'
+comuni e/o importanti utilizzati in questo ambiente eterogeneo.
+
+Se nessuno dei frequentatori di #hack.it si stupisce del fatto che i dati siano
+trasmessi da e per macchine con IP differenti, o se nessuno in #hackernow viene
+colpito dal fatto che singoli pacchetti IP possano raggiungere l'indirizzo di
+destinazione indipendentemente l'uno dall'altro, mi lascia invece perplesso che
+nessuno [o pochissimi ?!] di quelli che passano la propria vita a chiudere i
+canali suddetti e settarli +i, sappia invece come questo sia possibile e come
+vengano gestiti i canali di informazione tra chi si briga di operare i miracoli
+della rete.
+
+(...)
+
+-[ R o u t i n g ... ?! ]-
+
+Sostanzialmente possiamo semplificare il discorso, considerando InterNet come
+un interessante e gerarchizzato ammasso di reti locali, collegate tra di loro
+mediante router. In quest'ottica al ribasso possiamo associare al router il
+ruolo di semplice trasmettitore di pacchetti da una LAN all'altra. Ogni router
+deve poter sapere dove inviare i pacchetti in arrivo e perche'. Per far questo
+utilizza una tabella di routing.
+
+In questa tabella vengono inserite liste di altri router cui passare i nostri
+pacchetti a seconda della destinazione richiesta. Se ogni router dovesse
+inserire tutti gli altri router, possiamo immaginare come questa lista potrebbe
+crescere a dismisura ad ogni nuovo router collegato alla rete.
+
+Ecco perche' le tabelle di instradamento devono essere gestite in maniera
+differente. Se infatti un ISP vendesse 32 indirizzi IP ad un cliente, questi
+dovrebbe inserire nei sui router solo le informazioni strettamente necessarie
+a raggiungere ognuno dei suoi indirizzi, laddove ogni richiesta al di fuori di
+questi potrebbe essere indirizzata all'ISP senza porsi il problema della
+effettiva destinazione. Questo e' quello che succede ogni volta che siamo
+connessi in InterNet da casa nostra, o comunque mediante un collegamento in
+dial-up.
+
+Ad esempio:
+
+FuZZy:~ # route
+Kernel IP routing table
+Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
+ge2ie02u.iunet. *               255.255.255.255 UH    0      0        0 ppp0
+loopback        *               255.0.0.0       U     0      0        0 lo
+192.168.1.0	*		255.255.255.0   U     0      0        0 eth0
+default         ge2ie02u.iunet. 0.0.0.0         UG    0      0        0 ppp0
+FuZZy:~ #
+
+Questo e' la mia tabella di instradamento quando sono collegato ad InterNet.
+Come possiamo vedere posso raggiungere la mia rete locale direttamente mediante
+eth0, la mia interfaccia ethernet. Ma esiste una route speciale, definita di
+default, che permette a pacchetti indirizzati a sistemi non connessi alla mia
+macchina direttamente, di essere instradati attraverso il router del mio ISP,
+raggiungibile invece attraverso ppp0:
+
+Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
+ge2ie02u.iunet. *               255.255.255.255 UH    0      0        0 ppp0
+default         ge2ie02u.iunet. 0.0.0.0         UG    0      0        0 ppp0
+
+In questo modo posso raggiungere tutti i sistemi connessi alla rete senza dover
+mantenere una enorme tabella di instradamento.
+
+-[ I n s t r a d a m e n t i  I n t e r n i  e  t r a  D o m i n i ]-
+
+In realta' InterNet e' un insieme di sistemi cosiddetti autonomi che
+definiscono e gestiscono l'autorita' amministrativa ed i criteri di diverse
+aziende in merito all'instradamento. [B.Halabi]
+
+I router sono invece strumenti che regolano il traffico tra i vari host,
+costruendo tabelle di instradamento che contengono le informazioni sulle
+route migliori da seguire verso tutte le destinazioni conosciute. Inoltre
+inviano e ricevono informazioni sulle route possibili, che vengono utilizzate
+per la costruzione delle tabelle.
+
+I router sviluppano un meccanismo 'ad hop', secondo il quale e' possibile
+passare da un punto all'altro della rete attraverso salti successivi di router
+in router e, quindi, di tabella in tabella. Il classico esempio e':
+
+fusys@FuZZy:~ > traceroute www.linux.com -i ppp0
+traceroute to linux.com (216.200.201.193), 30 hops max, 40 byte packets
+ 1  ge2ie02u.iunet.it (151.5.152.62)  115 ms  110 ms  100 ms
+ 2  151.5.152.17 (151.5.152.17)  130 ms  100 ms  110 ms
+ 3  151.5.207.241 (151.5.207.241)  110 ms  110 ms  120 ms
+ 4  gw1.iunet.it (192.106.1.130)  110 ms  110 ms  120 ms
+ 5  192.106.7.165 (192.106.7.165)  110 ms  110 ms  120 ms
+ 6  195.219.98.1 (195.219.98.1)  160 ms  170 ms  150 ms
+ 7  if-3-0-0.bb2.London.Teleglobe.net (195.219.0.193)  150 ms  160 ms  150 ms
+ 8  195.66.225.76 (195.66.225.76)  230 ms  230 ms  220 ms
+ 9  core1-linx-oc3-1.lhr.above.net (216.200.254.81)  220 ms  230 ms  230 ms
+10  iad-lhr-stm-4.iad.above.net (216.200.254.77)  230 ms  250 ms  350 ms
+11  sjc-iad-oc12-2.sjc.above.net (216.200.0.22)  490 ms  380 ms  350 ms
+12  core1-core5-oc48.sjc2.above.net (216.200.0.178)  340 ms  330 ms  350 ms
+13  main2-core1-oc3.sjc2.above.net (216.200.0.250)  340 ms  340 ms  350 ms
+14  linux.com (216.200.201.193)  340 ms  360 ms  330 ms
+fusys@FuZZy:~ >
+
+In questo sistema ogni router che riceva un pacchetto verifica la possibilita'
+che l'IP di destinazione sia fisicamente collegato al segmento di rete servito,
+dopodiche' lo invia all'hop successivo piu' vicino, secondo la sua tabella,
+alla destinazione. Nel caso della mia macchina, il concetto di 'piu' vicino'
+non ha senso in quanto dispongo di una singola regola di default. Ma nel caso
+di questi sistemi, la scelta per l'hop successivo e' stata determinata dalle
+tabelle di routing dei singoli sistemi e dalle informazioni che ogni router
+inter-dominio scambia con i domini vicini. Ah ... ovviamente man traceroute
+per favore.
+
+Anche all'interno di un singolo dominio o ISP ci possono essere differenti
+segmenti di rete collegati da diversi router: non e' infatti pensabile che
+societa' od organizzazioni che hanno a disposizione centinaia o migliaia di
+sistemi possano collegarli sullo stesso segmento fisico. In questi casi si
+utilizzano dei protocolli ad 'uso interno' per far colloquiare i router interni
+ed i computer collegati alla rete da essi servita.
+
+I piu' famosi in assoluto sono sicuramente RIPv2 ed OSPF. Il primo fa parte
+dei protocolli basati sui vettori di distanza, mentre il secondo di quelli
+basati sullo stato della connessione. 
+
+a) vettori di distanza
+Questo tipo di protocolli si basa sulla valutazione dei punti di routing in
+termini semplici di hop. In pratica definiscono una serie di coppie composte
+da indirizzii di rete e hop necessari per raggiungerli. Questo purtroppo non
+permette di valutare ne' lo stato della connessione, ne' tantomeno il costo di
+gestione o la velocita' intrinseca del collegamento, equiparando quindi link
+a bassa ed alta velocita' qualora richiedano lo stesso numero di hop per il
+raggiungimento della connessione. Altra limitazione di questi protocolli e'
+il numero massimo di hop gestibili (normalmente 15) dopo i quali la route
+viene considerata irraggiungibile. Gli aggiornamenti hanno luogo mediante un
+invio senza controllo di stato di TUTTA la tabella di instradamento verso
+tutti i router vicini, cio' risultando in un elevato consumo di banda per
+tabelle di una certa dimensione.
+
+b) stato della connessione
+Questi protocolli invece non basano il loro funzionamento sullo scambio delle
+intere tabelle di instradamento. Invece, scambiano tra loro dati necessari ad
+una corretta compilazione della tabella locale. Non utilizzano il sistema degli
+hop, quindi non sono limitati dal loro numero massimo. Possono considerare la
+larghezza di banda di un collegamento e gerarchizzare la rete per gestire
+aggregati di routing. Non sono comunque in grado di gestire le complesse
+variazioni di instradamento interdominio, oggetto di diverse amministrazioni e
+gestioni tecniche.
+
+Per quanto riguarda invece il routing interdominio il protocollo cardine
+e' sicuramente BGP4, responsabile delle propagazioni tra diversi sistemi
+delle route interne ed esterne, mediante il quale e' possibile gestire al
+meglio le richieste dell'internetworking, quali simmetria, bilanciamento e
+ridondanza, che vedremo dopo.
+
+Passiamo ora ad analizzare RIPv2 e BGP4 piu' nel dettaglio. Il primo perche'
+comunque ancora il piu' usato in moltissime reti miste a prevalenza di UNIX e
+supportato da moltissimi router e gateway. Il secondo perche' e' il de facto
+standard dell' internet routing. Vedremo anche le basi teoriche riguardanti
+OSPFv2 che sta ormai prendendo piede come IGP.
+
+-[R o u t i n g  I n f o r m a t i o n  P r o t o c o l  (R I P)  v 2]-
+
+La nuova versione di RIP aggiunge, senza variare il funzionamento base del 
+protocollo, nuovi meccanismi per gestire piu' efficientemente l'instradamento
+e la sicurezza degli aggiornamenti di routing.
+
+Questo protocollo deriva dalle versioni Berkeley di UNIX, in particolare dal
+programma routed ed e' stato lo standard de facto di instradamento tra host e
+gateway per lungo tempo.
+
+RIP e' utile come IGP, o Interior Gateway Protocol, ovvero come protocollo di
+instradamento ad uso interno. Ha svariati problemi:
+
+- il limite massimo di 15 hop
+- il conteggio ad infinito, nel caso di caduta di collegamenti di rete, che
+  puo' portare a cicli di routing, che richiedono banda o tempo, in LAN ad
+  alta concentrazione di host, per risolversi
+- la metrica fissa basata su hop e non su parametri di funzionalita' e costo
+
+RIP non si cura della differenza esistente tra segmenti di rete e macchine
+singole. Associa semplicemente una metrica di hop ad un indirizzo. Nella sua
+tabella sono presenti numeri IP, gateway necessari a raggiungere gli IP,
+l'interfaccia fisica, la metrica ed il tempo di sopravvivenza della regola di
+instradamento.
+
+Il problema maggiore di questo protocollo e dei suoi simili e' essenzialmente
+il cosiddetto 'conteggio all'infinito'. Immaginiamo che ci siano quattro
+sistemi, A, B, C e Z. A e B sono connessi tra di loro con una metrica di 1,
+cosi' come B e C, connesso a sua volta con metrica uguale a Z:
+
+			A ------\
+			|	C-------Z
+			B-------/
+
+		A -> B e B -> A = 1 hop
+		A -> Z via C = 2 hop, via B = 3 hop
+		B -> Z via C = 2 hop, via A = 3 hop
+
+Secondo A e B, l'instradamento verso Z ha una metrica di 2 hop attraverso C. 
+E di 3 attraverso l'un l'altro. Mentre secondo C la metrica e' di 1. Tutti i 
+sistemi aggiornano le loro tabelle mediante invio di pacchetti di aggiornamento
+RIP.
+
+Se il collegamento tra C e Z venisse interrotto, C verrebbe subito a saperlo,
+modificando la sua tabella. Se pero' il suo aggiornamento raggiungesse A e B
+DOPO che questi hanno inviato il loro periodico aggiornamento con metrica 2
+verso Z, allora C potrebbe pensare di poter raggiungere Z attraverso A o B.
+Cosa in realta' impossibile fisicamente, ma possibile secondo RIP. E se un
+aggiornamento RIP di C colpisse A, prima che A possa aggiornare B, questo
+potrebbe pensare di poter raggiungere Z attraverso A con metrica uguale a 3.
+In una rete con svariati sistemi e gateway, questo rincorrersi di aggiornamenti
+porterebbe o ad una saturazione della banda nel caso di update frequenti oppure
+ad un lento ristabilirsi della corretta tabella.[da qui 'conteggo ad infinito']
+
+RIP e' basato su UDP. Ogni host che riceva aggiornamenti o messaggi di questo 
+tipo, possiede un processo che riceve ed invia datagrammi dalla porta 520/udp.
+Tutte le comunicazioni dirette al processo di routing sono dirette alla porta
+520 e tutti i messaggi di aggiornamento sono inviati dalla porta 520. Se gli
+aggiornamenti non sono stati richiesti allora sia la porta di destinazione che
+quella di sorgente devono essere settate a 520. Quelli invece in risposta ad
+una richiesta specifica vengono indirizzati alla porta di origine della query.
+I messaggi di query e debug possono essere inviati da una porta che non sia la
+520, ma devono raggiungerla sull'host remoto.
+
+Il protocollo prevede due modalita' di funzionamento. Una silente, passiva, ed
+una normale o attiva. 
+
+La silente permette la ricezione delle tabella da parte degli altri sistemi, 
+ma non l'invio di conferme, aggiornamenti o messaggi di debug. Questo permette
+di poter mantenere aggiornata la tabella della macchina, senza per questo
+partecipare alla sua compilazione dinamica. Questo pero' non dovrebbe essere
+permesso nel caso di macchine che possano risolvere un conteggio ad infinito
+nel caso di interruzione di linea tra due o piu' punti della rete.
+
+Vediamo ora l'header del pacchetto.
+Ogni dato viene scritto in Network Byte Order (BIG Endian).
+
+    0                   1                   2                   3 3
+    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   | Command (1)   | Version (1)   |           unused              |
+   +---------------+---------------+-------------------------------+
+   | Address Family Identifier (2) |        Route Tag (2)          |
+   +-------------------------------+-------------------------------+
+   |                         IP Address (4)                        |
+   +---------------------------------------------------------------+
+   |                         Subnet Mask (4)                       |
+   +---------------------------------------------------------------+
+   |                         Next Hop (4)                          |
+   +---------------------------------------------------------------+
+   |                         Metric (4)                            |
+   +---------------------------------------------------------------+
+
+Il comando puo' avere valore 1, il che presuppone una richiesta, o 2, uguale
+ad una risposta con invio di parte o tutta la propria tabella.
+
+La versione e' uguale a 2 per RIPv2 ed ovviamente a 1 per RIP.
+
+L'identificativo della famiglia di indirizzi e' uguale a 2 nel caso di IP.
+
+Route Tag viene utilizzato per gestire o identificare percorsi di routing
+inseriti mediante EGP, o Exterior Gateway Protocol, da router esterni alla
+rete interna gestita da RIP. Puo' contenere il numero di sistema autonomo da
+cui la route e' stata ricevuta, o magari contere valori arbitrari necessari
+per distinguerla dalle route interne.
+
+Next Hop identifica il gateway attraverso cui indirizzare il pacchetto. Questo
+indirizzo deve essere logicamente raggiungibile.
+
+RIPv2, a differenza della prima versione, dispone anche di un meccanismo di
+autenticazione, basato su un valore particolare dell'identificativo della
+famiglia:
+
+    0                   1                   2                   3 3
+    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   | Command (1)   | Version (1)   |            unused             |
+   +---------------+---------------+-------------------------------+
+   |             0xFFFF            |    Authentication Type (2)    |
+   +-------------------------------+-------------------------------+
+   ~                       Authentication (16)                     ~
+   +---------------------------------------------------------------+
+
+In questo caso, se l'AFI e' uguale a 0xFFFF, con il tipo di autenticazione
+uguale a 2, allora avremo a disposizione 16 ottetti per una password in
+chiaro. Nel caso sia minore di 16 ottetti dovremo preoccuparci di paddarla
+a destra mediante dei null (0x00).
+
+Questo richiede l'invio di almeno due pacchetti RIP. Il primo necessario alla
+autenticazione del peer, il secondo per il vero e proprio invio di messaggi 
+RIP.
+
+Un accenno va fatto riguardo alla metrica: i valori accettabili sono compresi
+nel range 1-15, mentre 16 equivale ad 'infinito' ed avvia il processo di
+cancellazione della route.
+
+RIP e RIPv2 utilizzano entrambi UDP. Questo vuol dire che NON ci sono stati di
+connessione. I pacchetti di aggiornamento e risposta circolano liberamente, 
+anche NON richiesti. Questo permette non pochi atti maligni contro singoli
+sistemi o intere LAN interne, sia in termini di DoS che di sovversione delle
+route con possibilita' di hijack e man-in-the-middle.
+
+Ad esempio risulta facile immaginare di poter aggiungere nuove route ad una
+macchina semplicemente inviando messaggi di update spoofati con l'indirizzo di
+uno dei gateway che il bersaglio usa. O magari bloccare definitivamente una
+macchina propagando una serie di metriche uguali a 16, che ricordo equivalere
+ad una specie di unreach, per tutte le sue regole di instradamento.
+
+O magari convincere una macchina di una sottorete a NON passare solo per il
+gateway predefinito per raggiungere un host remoto con una serie di
+aggiornamenti mirati a cancellare la prima route ed ad aggiungerne un'altra
+diretta verso una seconda sottorete. In questo modo potremmo sniffare senza
+problemi il traffico di macchine situate in un ambiente switchato. 
+
+Che cosa succederebbe se inviassimo ai ragazzini che usano linux da poco, e
+spesso e volentieri si ritrovano con routed tranquillamente attivo sulla porta
+520, messagi di update da parte del gateway predefinito dell'ISP che spostano
+il routing attraverso un'altra macchina della sottorete del provider, cosi'
+facendo bloccandone totalmente il traffico, se questo host fosse down ?
+
+RIP e' un protocollo semplice e dai sistemi di autenticazione inesistenti o
+facilmente forzabili da remoto, completamente nulli in locale in una LAN, dal
+momento che le informazioni sono passate in chiaro. Eppure e' molto utilizzato
+proprio per la sua semplicita' e facilita' di setup. Conoscerlo non aumenta
+solo la capacita' di rispondere ai trivia, quanto la possibilita' di riuscire
+a compromettere una rete, o di gestirla al meglio con un occhio alla sicurezza.
+
+A questo punto dovrebbe risultare comprensibile agli amministratori che ancora
+non lo facessero come il filtering della porta 520/udp non sia solo 'carino'
+quanto indispensabile. Necessario, IMHO, un ACL o Access Control List su questa
+porta, valutando l'arrivo di indirizzi interni da interfacce collegate alla
+rete esterna. Utile non solo per operazioni diagnostiche dei router, ma anche
+per capire qualcosa che un semplice logger IP non sia in grado di indicarci.
+
+Nella seconda parte del progetto controlleremo l'implementazione di routed
+sotto linux e cercheremo il modo di poter leggere, gestire e modificare le
+tabelle remote di instradamento.
+
+-[O p e n  S h o r t e s t  P a t h  F i r s t  (O S P F)  v 2]-
+
+OSPF e' un IGP e quindi necessario per lo smistamento e l'aggiornamento delle
+route interne ad un sistema autonomo [AS, lo vedremo meglio parlando di BGP].
+Disponde di un meccanismo di autenticazione e sfrutta il multicast per le
+operazioni di ricezione ed invio degli update.
+
+OSPF instrada i pacchetti basandosi solo sull'IP di destinazione. Consente la
+variazione dinamica delle tabelle mediante un sistema di convergenza rapido
+ed efficiente. Ogni router deve mantenere in questo caso un database che possa
+contenere le informazioni topografiche del sistema autonomo, ovvero i router
+presenti, le interfacce fisiche ad essi associate ed i vicini raggiungibili.
+Questo database viene poi propagato all'interno del sistema.
+
+Ogni router che utilizzi OSPF, disponendo del database, e' in grado di creare
+una mappa di route 'geografiche' che abbiano se' stesso come centro, in questo
+modo scegliendo i percorsi piu' corti per ogni destinazione possibile all'
+interno del sistema autonomo.
+
+Questo sistema autonomo, cardine di OSPF e BGP, altro non e' che l'insieme di
+router interni ad una societa' od organizzazione, che gestisca le route interne
+che non devono essere necessariamente propagate all'esterno del sistema, verso
+l'ISP o InterNet in toto.
+
+Non voglio entrare nel merito della costituzione e gestione del database del
+sistema autonomo. Per approfondire questa conoscenza e' possibile rifarsi al
+draft di OSPFv2 [consultare i link in fondo].
+
+Ritengo invece doveroso fornire, al solito, una conoscenza del protocollo dal
+punto di vista del pacchetto IP, in modo da poter aiutare a costruire i propri
+tool di debug, o a leggere il sorgente di quelli esistenti.
+
+Ecco l'header del pacchetto:
+
+        0                   1                   2                   3
+        0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+       |   Version #   |     Type      |         Packet length         |
+       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+       |                          Router ID                            |
+       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+       |                           Area ID                             |
+       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+       |           Checksum            |             AuType            |
+       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+       |                       Authentication                          |
+       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+       |                       Authentication                          |
+       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+Questo header e' comune a tutti i tipi (5) di messaggi OSPFv2. Il numero di
+versione sara' ovviamente 2, mentre il tipo dipende dal messaggio OSPF. I 5
+tipi sono:
+
+                    Tipo   Descrizione
+                   ________________________________
+                    1      Hello
+                    2      Database Description
+                    3      Link State Request
+                    4      Link State Update
+                    5      Link State Acknowledgment
+
+La lunghezza in byte dell'intero messaggio OSPF completa i primi 32bit.
+
+RouterID e AreaID sono due long associati ai router del sistema autonomo e
+dell'area di rete. In pratica, nella maggior parte dei casi, solo il primo
+e' davvero variabile, in quanto l'AreaID e' spesso uno solo.
+
+Il checksum e' il solito sum di IP calcolato su tutto il pacchetto OSPF,
+escludend i campi di autenticazione.
+
+AuType gestisce la modalita' di autenticazione. I tipi possibili sono:
+
+	          AuType       Descrizione
+                 ___________________________________________
+                  0            Null
+                  1            Password in chiaro
+                  2            Autenticazione crittografica
+                  Tutti gli    Riservato per future assegnazioni da
+                  altri        IANA (iana@ISI.EDU)
+
+Interessante notare come i 64bit a disposizione dell'autenticazione siano usati
+con AuType uguale a 2:
+
+        0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+       |              0                |    Key ID     | Auth Data Len |
+       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+       |                 Cryptographic sequence number                 |
+       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+In questo caso abbiamo infatti un identificativo della chiave segreta criptata 
+e del digest utilizzato, a esempio MD5, seguito dalla lunghezza del messaggio 
+stesso, ad esempio 16 per MD5, che deve essere postposto all'header OSPF. Poi 
+un numero di sequenza per evitare gli attacchi di replay, comuni in reti locali
+dove lo sniffing e' una realta' e non un problema teorico.
+
+Dopo i campi di autenticazione vengono incollati i dati necessari ai messaggi
+OSPF. Per il pachetto di tipo Hello:
+
+        0                   1                   2                   3
+        0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+       |                        Network Mask                           |
+       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+       |         HelloInterval         |    Options    |    Rtr Pri    |
+       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+       |                     RouterDeadInterval                        |
+       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+       |                      Designated Router                        |
+       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+       |                   Backup Designated Router                    |
+       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+       |                          Neighbor                             |
+       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+       |                              ...                              |
+
+Avremo la netmask associata all'interfaccia del router. Poi avremo l'intevallo
+in secondi prima di questo messaggio, le opzioni disponibili al router in
+questione, e la priorita' del router, Rtr Pri che determina la possibilita'
+che il router possa diventare Designated Router nell'algoritmo OSPF.
+
+Il router designato ed il suo backup, in termini di indirizzo IP, o nel caso
+non ve ne siano, 0.0.0.0.
+
+Il vicino, in termini di RouterID, che abbia inviato nell'ultimo intervallo,
+messaggi di tipo Hello validi in broadcast o multicast.
+
+Gli altri tipi di messaggio rivestono importanza relativa al database di stato
+del sistema autonomo. Per quelli, quindi, vi rimando all'RFC apposito.
+
+-[ B o r d e r  G a t e w a y  P r o t o c o l  (B G P)  v 4 ]-
+
+BGP4 e' un importante protocollo. Si puo' dire senza paura di essere smentiti
+che se da un giorno all'altro nessun router comprendesse piu' BGP, allora forse
+non avremmo piu' InterNet come la conosciamo oggi.
+
+BGP e' un EGP, o Exterior Gateway Protocol, e deriva dai lavori svolti sulla
+NFSNet proprio con il primitivo EGP. E' stato introdotto, una versione dopo
+l'altra, dalla IETF, Internet Engineering Task Force.
+
+Serve in sostanza al controllo, alla propagazione ed all'aggiornamento dinamico
+delle tabelle di instradamento tra differenti sistemi autonomi (autonomous
+system o AS, d'ora in poi).
+
+La definizione classica di un sistema autonomo e' quella di un insieme di
+router sotto una singola organizzazione ed amministrazione tecnica, utilizzante
+un IGP e metriche ad hop per gestire l'instradamento interno all'AS stesso, ed
+un EGP per gestire il routing verso altri AS.
+
+BGP necessita di un sistema di trasporto efficiente e robusto, necessario per
+le sue operazioni di update, che possa controllare da solo la frammentazione,
+il timeout e la ritrasmissione dei dati. E' stato scelto TCP per il suo
+funzionamento interno ed il sistema di sequenzialita' dei dati trasmessi, e
+per la sua possibilita' di effettuare delle chiusure indolori con un efficace
+flush degli ultimi dati trasmessi. La porta utilizzata e' la 179/tcp.
+
+-[ B G P 4 : F u n z i o n a m e n t o  d i  b a s e ]-
+
+Due sistemi danno luogo ad una connessione TCP tra di loro, dopodiche' si
+scambiano messaggi per aprire e confermare le modalita' di connessione.
+All'inizio inviano entrambi nel flusso dei dati la loro intera tabella di
+instradamento. Man mano che si presentino variazioni dinamiche della tabella,
+inviano aggiornamenti al peer. BGP non richiede periodici invii dell'intera
+tabella, quindi e' necessario che ogni dispositivo che comunichi mediante BGP
+gestisca e mantenga in memoria tutta la tabella di ognuno dei suoi peer.
+Vengono comunque impiegati dei sistemi di timeout propri di BGP con dei
+messaggi di tipo KeepAlive per assicurare il mantenimento della connessione.
+Inoltre vi sono degli altri tipi di notifica nel caso ci fossero condizioni di
+errore od altri eventi particolari.
+
+E' importante sottolineare che secondo l'RFC del protocollo, non e' detto che
+entrambi i capi della connessione debbano per forza essere router. E' difatti
+possibile che uno dei due sia un host che voglia solo controllare o gestire la
+propria tabella in maniera dinamica. O magari che faccia da punto di unione
+tra un segmento di rete di un AS ed il router perimetrale di un altro AS, senza
+per questo fungere da gateway del suo sistema autonomo.
+
+a) le route
+Una route viene definita come una coppia che abbini ad una destinazione gli
+attributi del percorso per quell'indirizzo.
+
+Queste vengono emanate come messaggi BGP di tipo UPDATE: la destinazione e'
+quel o quei sistemi i cui indirizzi IP sono riportati nell'NLRI o Network
+Layer Reachability Information [che vedremo piu' avanti in dettaglio], ed il
+percorso e' l'informazione riportata nei campi di attributi della route che
+vengono riportati all'interno dello stesso UPDATE.
+
+Le route vengono inserite e mantenute all'interno del RIB o Routing Information
+Bases [vedi b)].
+
+BGP permette anche di poter cancellare una route precedentemente immessa in un
+RIB remoto mediante 3 modi differenti:
+
+- Inserendo il prefisso IP della destinazione nel campo WITHDRAWN ROUTES di un
+  messaggio UPDATE
+
+- emanando una route alternativa che contenga lo stesso campo NLRI
+
+- terminando la connessione TCP, fatto che comporta la rimozione di tutte le
+  route che i due peer avevano emanato l'un l'altro.
+
+b) Routing Information Bases (RIB)
+Questo consta di tre parti:
+
+- Adj-RIBs-In: contiene le route ricevute mediante messaggi remoti di UPDATE.
+  Queste verranno prese in considerazione dal processo decisionale di BGP.
+
+- Loc-RIB: contiene le route presenti localmente che il processo decisionale
+  BGP ha scelto tra quelle contenute in Adj-RIBs-In
+
+- Adj-RIBs-Out: contiene le route che il processo ha selezionato per essere
+  emanate ai propri peer.
+
+In pratica, Adj-RIBs-In contiene informazioni ricevute mediante UPDATE e non
+ancora processate, Loc-RIB quelle scelte come facenti parte della tabella di
+routing, mentre Adj-RIBs-Out quelle da inviare mediante propri messaggi di
+UPDATE.
+
+-[ B G P 4 : F o r m a t o  d e i  M e s s a g g i ]-
+
+Vediamo ora gli header BGP ed i tipi di messaggio che i router scambiano
+tra di loro per iniziare una connessione BGP e mantere il loro RIB.
+
+I messaggi possono essere lunghi fino ad un massimo di 4096 ottetti e non
+piu' corti di un header BGP, o 19 ottetti.
+
+Ecco l'header BGP:
+
+       0                   1                   2                   3
+       0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+      |                                                               |
+      +                                                               +
+      |                                                               |
+      +                                                               +
+      |                           Marker                              |
+      +                                                               +
+      |                                                               |
+      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+      |          Length               |      Type     |
+      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+Il marker contiene un valore di 128 bit che puo' essere predetto dal peer.
+Infatti nel caso di un messaggio di tipo OPEN, o se un messaggio OPEN non 
+contiene alcuna informazione relativa ai meccanismi di autenticazione, allora
+sara' composto da soli 1. Altrimenti deve contenere un valore computabile
+secondo gli algoritmi di autenticazione usati. Questo viene usato non solo
+per autenticare i messaggi in arrivo, ma anche per stabilire stati di mancata
+sincronizzazione tra i peer BGP.
+
+La lunghezza indica mediante un unsigned int la lunghezza totale del messaggio
+in byte, incluso l'header. Minimo 19, massimo 4096, non deve contenere padding.
+
+Il tipo di messaggio puo' essere uguale a:
+
+			1 - OPEN
+                        2 - UPDATE
+                        3 - NOTIFICATION
+                        4 - KEEPALIVE
+
+Vediamoli ora in dettaglio.
+
+[1] Messagio di tipo OPEN
+
+Dopo una connessione TCP, il primo messaggio inviato da entrambi i peer e' un
+OPEN. Nel caso sia accettabile, viene inviato un KEEPALIVE di conferma. Dopo
+che la sequenza OPEN sia stata portata a termine, sara' possibile utilizzare
+i messaggi di tipo UPDATE, NOTIFICATION e KEEPALIVE.
+
+Oltre all'header BGP, sono presenti anche i seguenti dati:
+
+        0                   1                   2                   3
+       0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+       +-+-+-+-+-+-+-+-+
+       |    Version    |
+       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+       |     My Autonomous System      |
+       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+       |           Hold Time           |
+       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+       |                         BGP Identifier                        |
+       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+       | Opt Parm Len  |
+       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+       |                                                               |
+       |                       Optional Parameters                     |
+       |                                                               |
+       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+La versione e' un unsigned int che identifica la versione del protocollo. Ora
+e' uguale a 4.
+
+Dopo, un unsigned int di 16 bit contiene il valore dell' AS.
+
+Hold Time contiene il valore in secondi entro cui bisogna inviare un messaggio
+UPDATE o KEEPALIVE, pena la caduta della connessione BGP. Impostando 0, non
+ci saranno timeout. L'RFC specifica un valore di almeno 3 secondi come base
+del valore al di fuori di 0.
+
+L'identificativo BGP e' in pratica un indirizzo IP associato ad una interfaccia
+utilizzata per l'invio dei messaggi. Ad esempio Cisco calcola questo valore
+usando il numero IP maggiore associato al router.
+
+Opt Parm Len indica la lunghezza in byte degli eventuali Parametri Opzionali.
+
+I Parametri Opzionali vengono rappresentati da una tripletta che contiene:
+
+          0                   1
+          0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5
+         +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-...
+         |  Parm. Type   | Parm. Length  |  Parameter Value (variable)
+         +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-...
+
+il tipo di parametro, la sua lunghezza ed il suo valore.
+
+L'RFC di BGP4 specifica un solo parametro opzionale:
+
+a) Authentication Information (Parameter Type 1)
+Il campo value del parametro opzionale in questo caso contiene un codice di
+autenticazione seguito da un campo variabile contenente i dati necessari alla
+autenticazione:
+
+                0 1 2 3 4 5 6 7 8
+                +-+-+-+-+-+-+-+-+
+                |  Auth. Code   |
+                +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+                |                                                     |
+                |              Authentication Data                    |
+                |                                                     |
+                +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+E' stato anche proposto l'uso di un'opzione TCP come la MD5 Signature Option
+per la gestione sicura dei segmenti TCP nel corso di sessioni BGP per
+poter ovviare a problemi di hijack e man-in-the-middle.
+   
+Il messaggio di tipo OPEN deve essere lungo almeno 29 byte compreso l'header
+del messaggio.
+
+[2] Messaggio di tipo UPDATE
+
+Questo messaggio viene usato per emanare o ritirare una singola route dal
+servizio. Puo' farlo anche insieme specificando differenti route. Contiene
+sempre l'header BGP e puo' anche contenere i seguenti campi opzionali:
+
+      +-----------------------------------------------------+
+      |   Unfeasible Routes Length (2 octets)               |
+      +-----------------------------------------------------+
+      |  Withdrawn Routes (variable)                        |
+      +-----------------------------------------------------+
+      |   Total Path Attribute Length (2 octets)            |
+      +-----------------------------------------------------+
+      |    Path Attributes (variable)                       |
+      +-----------------------------------------------------+
+      |   Network Layer Reachability Information (variable) |
+      +-----------------------------------------------------+
+
+I primi due ottetti contengono la lunghezza totale in byte del campo successivo
+e deve permettere di calcolare la lunghezza del NLRI [vedi sotto]. Un valore
+uguale a 0 indica che nessuna route viene ritirata e che quindi il campo
+WITHDRAWN ROUTES non e' presente nel messaggio UPDATE.
+
+Il campo successivo contiene una lista di prefissi IP codati come una coppia
+<lugnhezza, prefisso> secondo questo schema:
+
+                  +---------------------------+
+                  |   Length (1 octet)        |
+                  +---------------------------+
+                  |   Prefix (variable)       |
+                  +---------------------------+
+
+la lunghezza indica il valore in bit del prefisso IP. Se uguale a 0 specifica
+tutti gli indirizzi IP. Ad esempio <24, 192.168.1.3> sta per 192.168.1.0/24
+secondo la notazione CIDR, o Classless Internet Domain Routing [non trattato
+in questo articolo].
+
+il prefisso invece l'indirizzo IP da associare ai bit di mascheramento.
+
+Segue il campo di lunghezza totale degli attributi di percorso che indica in
+byte la lunghezza del campo che lo segue. Deve permettere di calcolare anche
+il NLRI [vedi sotto]. Un valore uguale a 0 indica che non c'e' NLRI.
+
+Gli attributi di percorso sono presenti in ogni messaggio di tipo UPDATE. Ogni
+attributo consta di una tripletta <tipo, lunghezza, valore>.
+
+Il tipo consta di due ottetti, uno per delle flag, e l'altro per il codice
+vero e proprio:
+
+                0                   1
+                0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5
+               +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+               |  Attr. Flags  |Attr. Type Code|
+               +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+Il primo bit delle flag e' il bit delle opzioni. Se uguale a 1 il parametro
+e' opzionale, se uguale a 0 e' invece riconosciuto. Il secondo bit identifica
+invece se un parametro debba essere propagato o meno, ovvero se sia transitivo,
+con valore uguale a 1, o non transitivo, con valore uguale a 0. Se il primo e'
+uguale a 0, il secondo e' sempre uguale a 1. Ovvero i parametri riconosciuti
+sono sempre transitivi. Il terzo bit specifica se i parametri opzionali e
+transitivi (11) sia parziale, se uguale a 1, o totale, se uguale a 0. Il quarto
+specifica se la lunghezza degli attributi sia di un solo ottetto, uguale a 0,
+o di due, se uguale a 1. Questo quarto bit puo' essere usato solo in caso di
+lunghezza superiore a 255 byte. Gli ultimi 4 bit non sono utilizzati e devono
+essere settati a 0. Se il 4 bit e' uguale a 0, allora la lunghezza sara' 
+specificata nel terzo ottetto della tripletta degli attributi; nel quarto se
+invece sara' uguale a 1.
+
+I codici di attributo sono:
+
+ORIGIN (Type Code 1)		Contiene un valore per identificare la origine 
+				del'attributo di percorso.
+				0 - ottenuto mediante IGP
+				1 - ottenuto mediante EGP
+				2 - INCOMPLETO - ottenuto altrimenti
+
+AS_PATH (Type Code 2)		contiene triplette per indicare le sequenze di 
+				percorso in segmenti della rete di AS. La 
+				tripletta prende la forma <tipo, lunghezza, 
+				valore>. Il tipo e' un long con questi valori:
+				1 - AS_SET : set disordinato di AS
+				2 - AS_SEQUENCE : set ordinato
+				La lunghezza indica il numero di AS, mentre il
+				valore contiene i numeri di AS percorsi.
+
+NEXT_HOP (Type Code 3)		Indica il prossimo hop da usarsi per arrivare
+				alle destinazioni listate nell'NLRI.
+
+MULTI_EXIT_DISC (Type Code 4)	Opzionale non transitivo serve per il processo
+				decisionale BGP per scegliere tra diversi
+				punti di uscita verso il vicino AS
+
+LOCAL_PREF (Type Code 5)	Serve per far conoscere il grado di preferenza
+				del router mittente per una certa route
+
+ATOMIC_AGGREGATE (Type Code 6)	Di lunghezza 0, serve per informare i peer che
+				il sistema locale ha scelto una route non
+				specifica, o meno, scartandone una piu' 
+				specifica contenuta in essa.
+
+AGGREGATOR (Type Code 7)	Opzionale transitivo, contiene il numero di AS
+				che ha aggregato una route, seguito dal numero
+				di router che ha aggregato.
+					
+COMMUNITY (Type Code 8)		Implementato da Cisco, permette di definire la
+				propagazione delle route al di fuori di
+				comunita' virtuali tra AS o router.
+
+ORIGIN ID (Type Code 9)		Implementato da Cisco, serve per identificare
+				il router originante di una route dopo una
+				sua riflessione in un AS per evitare doppioni
+				nel caso venisse riflessa anche all'origine.
+
+CLUSTER LIST (Type Code 10)	Implementato da Cisco, contiene una lista di
+				ID attraversati durante la riflessione di
+				una route al di fuori del cluster di client.
+
+Dopo segue l'NLRI. La sua lunghezza viene calcolata sulla base della lunghezza
+degli altri campi del messaggio UPDATE, secondo questo algoritmo:
+
+Lunghezza del messaggio UPDATE - 23 - Path Attributes - Withdrawn Routes 
+dove 23 e' la lunghezza dell'header BGP, e dei due campi che contengono la 
+lunghezza degli attributi e dei WITHDRAWN.
+
+Le informazioni sulle destinazioni sono contenute mediante coppie di valori
+<lunghezza, prefisso> :
+
+                  +---------------------------+
+                  |   Length (1 octet)        |
+                  +---------------------------+
+                  |   Prefix (variable)       |
+                  +---------------------------+
+
+questi due valori sono gli stessi utilizzati anche per rimuovere le route,
+come visto in precedenza.
+
+La lunghezza minima e' di 23 byte come visto prima, 19 per l'header BGP, 2 per
+Unfeasible Routes Length e 2 per Total Path Attribute Length.
+
+Ogni messaggio UPDATE puo' al massimo emanare una sola route, come riportato
+nel campo dell' NLRI, e puo' descriverla con una serie di attributi. Puo' 
+invece ritirare piu' di una route con il campo Withdrawn Routes.
+
+[3] Messaggio di tipo KEEPALIVE
+
+BGP non usa il sistema di timeout e retransmission proprio di TCP per gestire
+e controllare la propria connessione tra peer, ma utilizza questo messaggio
+per valutare lo stato delle route emanate da ogni peer, prima che il livello
+di trasporto rilevi dei problemi di rete.
+
+I messaggi di tipo KEEPALIVE non devono essere inviati piu' velocemente di uno
+per secondo, ma devono comunque raggiungere il peer prima che il suo Hold Timer
+raggiunga la fine. Un valore ragionevole e' un terzo dell' Timer remoto. Se il
+valore e' stato negoziato uguale a 0, allora i messaggi non devono essere
+inviati.
+
+Questo messaggio consiste del solo header BGP di 19 byte.
+
+[4] Messaggio di tipo NOTIFICATION
+
+Questo messaggio viene inviato appena venga rilevata una condizione di errore.
+Dopodiche' la connessione BGP viene conclusa.
+
+Oltre all'header BGP, questo messaggio contiene i seguenti dati:
+
+        0                   1                   2                   3
+        0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+       | Error code    | Error subcode |           Data                |
+       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+                               +
+       |                                                               |
+       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+il codice di errore e' un unsigned int che puo' contenere i seguenti valori:
+
+              1         Message Header Error
+              2         OPEN Message Error 
+              3         UPDATE Message Error
+              4         Hold Timer Expired 
+              5         Finite State Machine Error 
+              6         Cease                     
+
+il sottocodice contiene dei valori associati ad ognuno dei codici per meglio
+definire il tipo di errore [un po' come succede nel caso dei pacchetti ICMP].
+Se non contiene alcun valore deve essere settato a 0.
+Ecco i sottocodici assegnati dall'RFC:
+
+         Message Header Error subcodes:
+
+                               1  - Connection Not Synchronized.
+                               2  - Bad Message Length.
+                               3  - Bad Message Type.
+
+         OPEN Message Error subcodes:
+
+                               1  - Unsupported Version Number.
+                               2  - Bad Peer AS.
+                               3  - Bad BGP Identifier. '
+         		       4  - Unsupported Optional Parameter.
+                               5  - Authentication Failure.
+                               6  - Unacceptable Hold Time.
+
+         UPDATE Message Error subcodes:
+
+                               1 - Malformed Attribute List.
+                               2 - Unrecognized Well-known Attribute.
+                               3 - Missing Well-known Attribute.
+                               4 - Attribute Flags Error.
+                               5 - Attribute Length Error.
+                               6 - Invalid ORIGIN Attribute
+                               7 - AS Routing Loop.
+                               8 - Invalid NEXT_HOP Attribute.
+                               9 - Optional Attribute Error.
+                              10 - Invalid Network Field.
+                              11 - Malformed AS_PATH.
+
+il campo dati invece contiene elementi necessari per diagnosticare l'errore.
+Dipende strettamente dal codice e dal sottocodice di errore. Per maggiori
+informazioni controllare l'RFC di BGP4.
+
+-[ B G P 4 : N e g o z i a z i o n e  d e l l a  V e r s i o n e ]-
+
+I dispositivi paritari BGP dispongono della possibilita' di negoziare durante
+il messaggio OPEN la versione d BGP supportata da entrambi.
+Nel caso di una versione non supportata, ogni router avra' la versione richiesta
+dal peer con l'OPEN, quella da lui tentata, quelle ricevute dal peer mediante
+un NOTIFICATION e quelle disponibili localmente. In questo modo saranno in
+grado di scegliere una versione comune per la connessione BGP. D'altra parte e'
+ovvio che future versioni di BGP, per poter supportare la negoziazione della
+versione, dovranno mantenere l'uso e la conformazione dei messaggi OPEN e
+NOTIFICATION.
+
+-[ B G P 4 : E l a b o r a z i o n e  d e i  M e s s a g g i  U P D A T E ]-
+
+Dopo che la connessione TCP sia stata effettuata, i messagi OPEN e KEEPALIVE
+scambiati, il timer inizializzato, e' possibile ricevere messaggi di tipo
+UPDATE.
+
+Se il messaggio contiene un campo WITHDRAWN ROUTES non vuoto, allora le route
+precedentemente emanate con quei prefissi IP saranno eliminate da Adj-RIB-In.
+Dopodiche' il processo decisionale pensera' a cancellare la route dal Local-RIB
+o a sostituirle con altre possibili.
+
+Se il messaggio contiene una route accettabile allora succedera' questo:
+
+1) se la nuova e' identica ad una gia' presente in Adj-RIB-In, allora quella
+vecchia verra' sostituita e quindi cancellata, costringendo il processo BGP a
+sostituirla in Local-RIB.
+
+2) se la nuova route fa parte di una precedente contenuta in Adj-RIB-In allora
+il processo decisionale fara' prevalere la nuova in quanto piu' specifica di
+quella precedente
+
+3) se la nuova ha uguali attributi ma e' piu' specifica allora non servono
+altre azioni
+
+4) se la nuova ha un NLRI non presente nelle vecchie route verra' inserita
+subito nel Adj-RIB-In
+
+5) se la nuova e' una meno specifica di una precedente allora il processo 
+decisionale valutera' solo il set di IP raggiungibili con la nuova route
+
+Come funziona questo processo decisionale ? Esso e' suddiviso in tre fasi
+distinte. Nella prima BGP deve calcolare un livello di preferenza per ogni
+route disponibile in Adj-RIB-In. Per route interne all'AS spesso il solo
+parametro LOCAL_PREF verra' usato, altrimenti i parametri di percorso saranno
+valutati secondo il PIB o Policy Information Base, i cui dati sono a cura di
+ogni AS.
+
+La seconda fase serve per scegliere la route considerata piu' efficiente tra
+quelle disponibili per ogni destinazione. Dopo averla scelta, per miglior
+livello di preferenza, od in quanto nuova ed unica route per una destinazione,
+la porra' in Local-RIB. Esistono comunque delle regole specifiche nel caso
+diverse route siano in parita' per quanto riguarda la preferenza.
+
+Nella terza fase BGP si occupa di valutare Local-RIB per poter ottimizzare
+secondo le policy dell'AS il Adj-RIB-Out. Nel momento in cui la valutazione di
+Local-RIB ed il processo di Adj-RIB-Out siano completi, allora potra' avere
+luogo l'invio di messaggi UPDATE.
+
+-[ B G P 4 : C o n s i d e r a z i o n i  e  p o s s i b i l i  f l a w ]-
+
+BGP fa parte di quella stregua di protocolli, come SNMP, che non sono subito
+attaccabili o facilmente exploitabili, ma che permettono, con un po' di
+astuzia, di poter ottenere interessanti informazioni sulla struttura interna
+di una rete, o di un sistema autonomo.
+
+Non tutte le sessioni BGP sembrano essere autenticate su InterNet ed anzi una
+buona parte dei router che richiedono l'autenticazione, escono di default con
+la possibilita' di negoziare verso il basso la versione di BGP, bypassando
+totalmente ogni sicurezza.
+
+Dal momento che il protocollo permette anche ad host non impiegati come router
+di poter colloquiare con dispositivi BGP, allora potremmo costruire un semplice
+scanner BGP in grado di trovare router che parlino questo protocollo, portare
+a termine la sessione OPEN e KEEPALIVE e ricevere allegramente le route
+gestite o servite da quel router.
+
+Inoltre alcuni router non hanno una gestione dell'ISN TCP adeguata ai loro
+scopi e sono passibili di IP Spoofing alla cieca che puo' permettere ad un
+attaccante di spacciarsi per un router paritario di un AS vicino, inserendo
+eventualmente route alternative o creando dei cicli di loop all'interno del
+sistema autonomo del bersaglio. Quindi magari il nostro scanner potrebbe
+decidere di tentare un possibile approccio attivo.
+
+Per quanto riguarda i DoS, non e' necessario sempre cambiare una route per
+bloccare un AS. Basta immobilizzare un router o farlo crashare, o mandarne
+la CPU al 99.9%. Per far questo potrebbe essere interessante inserire il
+router remoto in una serie di UPDATE e WITHDRAWN che lo porterebbero a forza
+e costantemente all'interno del processo decisionale, creando non poco
+sfruttamente di CPU e di banda per gli eventuali UPDATE esterni da Adj-RIB-Out.
+Questo viene bloccato in maniera sensibile dalla tecnica di smorzamento della
+route ideato da Cisco, che in pratica assegna una penalita' ad una route ogni
+volta che passi da un UPDATE ad un WITHDRAWN nell'unita' di tempo. Una volta
+capito dai NOTIFICATION remoti quale possa essere il numero di penalita'
+massime prima che la route sia scartata, potremmo inviarne un numero massimo
+meno 1 per poi passare ad una nuova route, nell'attesa che le propagazioni
+interne all'AS facciano il loro lavoro.
+
+C'e' da chiedersi poi quanto sia precisa l'implementazione nei vari router e
+dispositivi BGP del protocollo e delle sue funzioni. Probabilmente, come
+accade per i normali sistemi operativi, c'e' la possibilita' di creare danno
+remoto mediante pacchetti malformati o valori errati. Un semplice reboot puo'
+inchiodare un AS con i successivi problemi di ripristino delle sessioni BGP. 
+
+Queste possibilita' saranno prese in esame nella seconda parte del progetto
+GiRiNGiRO, con codice sorgente e qualche considerazione piu' specifica.
+
+-[C O N C L U S I O N E]-
+
+RIPv2, OSPFv2 e BGPv4. Tre importanti e conosciuti protocolli di rete, in
+realta' abbastanza ignoti ai piu' se non a chi si occupa di installare e
+gestire router, ed anche in quel caso, spesso solo dal punto di vista della
+gestione, e non dei meccanismi alla base.
+
+Il discorso non e' assolutamente esaurito con questo articolo, anzi. Spero
+invece di aver messo in luce qualche idea e considerazione, una volta spiegato
+come questi protocolli siano fatti dal punto di vista dei byte ...
+
+Ad ogni modo, come al solito, potete contattarmi via email per domande o per
+proporre idee o dare consigli.
+
+							FuSyS [S0ftpj|BFi]
+							  fusys@s0ftpj.org
+		-------------------------------------------------
+		|	RFC	1058, 1721, 1723, 1771, 1774, 	|
+		|		2328, 2385			|
+		|	LIBRI	Internet Routing Architectures	|
+		|		Bassam Halabi, Cisco-Press	|
+		|		TCP/IP Illustrated Vol.1	|
+		|		W.R.Stevens, Addison-Wesley	|
+		-------------------------------------------------
+	---------------------------------------------------------
+	|      Onori e squilli di tromba vanno a SMaster:	|
+	|	scusa il ritardo brotha ! 			|
+	|		  ed anche il minimeet mancato !	|
+	---------------------------------------------------------
+		---------------------------------------------------------
+		|Greets'n'ShoutOuts*in*no*particular*order:bELF,Nello^Z,|
+		|Kobaiashi,piGpEN,|scacco|,\sPIRIT\,B_Berry,Dold,Cavallo|
+		|del0rean,ins4ne,KaF,|TSuNaMi|,golem,MNeMoNiCo,ZCuL,Slay|
+		|awgn,raptor,LordFelix,ntf,vecna,Nail^d0d,#hackers@afork|
+		|tutti*coloro*non*nominati*xche'*sono*le*5*del*mattino!!|
+		---------------------------------------------------------
+			-----------------------------------
+			|#donne&pc*rulezza*nonostante*Koba|
+			|;PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP|
+			-----------------------------------
+
+
+==============================================================================
+---------------------------------[ EOF 10/22 ]--------------------------------
+==============================================================================

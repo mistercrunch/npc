@@ -1,0 +1,326 @@
+<HTML>
+<HEAD>
+</HEAD>
+<BODY  bgcolor=#FFFFFF HEIGHT=100 WIDTH=89 TEXT=#000000 LINK=#0000FF VLINK=#FF0000>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<A NAME="section-1"><H1>CLASS 8</H1></A>
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+
+<center>
+<H2>If-Then.</H2>
+</center>
+ <P>    
+If-then is pretty simple, just complement the condition and jump OVER
+the body of the "if" if it's not true.
+         <P>
+To translate:
+<PRE><hr>
+/* <b> six.c </b> */
+
+    d = a;
+    if ((a + b) > c) {
+	    a += b;
+	    c++;
+    }
+    a = c + d;
+<hr></PRE>
+
+We would get (before filling delay slots):
+<PRE><hr>
+/* <b> six.s </b> */
+
+	    mov     %a_r, %d_r
+	    add     %a_r, %b_r, %o0
+	    cmp     %o0, %c_r
+	    ble     next
+	    nop
+	    add     %a_r, %b_r, %a_r
+	    add     %c_r, 1, %c_r
+    next:
+	    add     %c_r, %d_r, %a_r
+<hr></PRE>
+Fill the delay slot with the first prior instruction that doesn't affect the
+condition code:
+<PRE><hr>
+/* <b> six1.s </b> */
+
+	    add     %a_r, %b_r, %o0
+	    cmp     %o0, %c_r
+	    ble     next
+	    mov     %a_r, %d_r
+	    add     %a_r, %b_r, %a_r
+	    add     %c_r, 1, %c_r
+    next:
+	    add     %c_r, %d_r, %a_r
+<hr></PRE>
+
+This is best.  However, sometimes you just can't find a good instruction to
+fill the delay slot.  In that case, using the annulled version, you can
+fill the delay slot "half the time":
+<PRE><hr>
+/* <b> six2.s </b> */
+
+	    mov     %a_r, %d_r
+	    add     %a_r, %b_r, %o0
+	    cmp     %o0, %c_r
+	    ble,a   next
+	    add     %c_r, %d_r, %a_r
+	    add     %a_r, %b_r, %a_r
+	    add     %c_r, 1, %c_r
+	    add     %c_r, %d_r, %a_r
+    next:
+<hr></PRE>
+
+Trace the number of instructions executed if the branch is taken, and
+if the branch isn't taken.
+
+<hr>
+<center>
+<H2>If-Then-Else.</H2>
+</center>
+
+<PRE><hr>
+/* <b> seven.c </b> */
+
+if ((a + b) >= c) 
+{
+   a += b;
+   c++;
+}
+else
+{
+   a -= b;
+   c--;
+}
+c += 10;
+<hr></PRE>
+
+Now, as before, we complement the condition and jump over the first
+block.  Don't interchange blocks -- it makes the assembly code too hard
+to compare to the C code.
+<PRE><hr>
+/* <b> seven.s </b> */
+
+	add     %a_r, %b_r, %o0
+	cmp     %o0, %c_r
+	bl      else
+	nop
+	add     %a_r, %b_r, %a_r
+	add     %c_r, 1, %c_r
+	ba      next
+	nop
+else:   sub     %a_r, %b_r, %a_r
+	sub     %c_r, 1, %c_r
+next:   add     %c_r, 10, %c_r
+<hr></PRE>
+
+There are a number of ways to <b>get rid of the nops</b> here.  The first nop
+can be removed using an annulled branch:
+<PRE><hr>
+/* <b> seven1.s </b> */
+
+           add     %a_r, %b_r, %o0
+           cmp     %o0, %c_r
+           bl,a    else
+           sub     %a_r, %b_r, %a_r
+           add     %a_r, %b_r, %a_r
+           add     %c_r, 1, %c_r
+           ba      next
+           nop
+           sub     %a_r, %b_r, %a_r
+   else:   sub     %c_r, 1, %c_r
+   next:   add     %c_r, 10, %c_r
+<hr></PRE>
+
+The second nop can be removed by moving code (eg, the c++ line):
+
+<PRE><hr>
+/* <b> seven2.s </b> */
+
+           add     %a_r, %b_r, %o0
+           cmp     %o0, %c_r
+           bl,a    else
+           sub     %a_r, %b_r, %a_r
+           add     %a_r, %b_r, %a_r
+           ba      next
+           add     %c_r, 1, %c_r
+           sub     %a_r, %b_r, %a_r
+   else:   sub     %c_r, 1, %c_r
+   next:   add     %c_r, 10, %c_r
+<hr></PRE>
+
+<center>
+<H2>Nesting of loops</H3>
+</center>
+
+Consider the following segment of C code:
+
+<PRE><hr>
+/* <b> eight.c </b> */
+
+for (i =15, i &gt; 3; i--)<BR>
+{
+   if (i == 12)
+        j = 10;<BR>
+   else 
+       j = 12;<BR>
+}
+<hr></PRE>
+
+<P>
+The assembly code for the following is given below : 
+<PRE><hr>
+/* <b> eight.s </b> */
+
+        mov 15, %i_r<BR>
+loop:
+        cmp %i_r, 3
+        ble   exit
+        nop
+        cmp %i_r, 12
+        bne  else
+        nop
+        mov 10, %j_r
+        sub   %i_r, 1, %i_r
+        ba     loop
+        nop
+else:
+        mov 12, %j_r
+        sub   %i_r, 1, %i_r
+        ba     loop
+        nop     
+exit:
+<hr></PRE>
+
+I leave it as an exercise for you to optimize this piece of code to 
+get rid of all the nops (if possible!!)
+
+<P>
+
+<hr>
+<P>
+
+<center>
+<H2>Implementation of the pipeline in SPARC</H2>
+</center>
+
+In the SPARC chip, designers used special logic to make the pipeline
+appear to be only two-deep.  
+ <P>
+
+There are two program counters.  %pc and %npc.  %npc is always copied to
+%pc; but %npc is sometimes incremented by four, other times modified.
+On each cycle, this occurs.  One can understand how delay slots work by
+tracking the contents of pc and npc.  Because there are TWO program
+counters, the <I>effective depth</I> of the SPARC pipeline is 2.
+ <P>
+
+The net effect is that instructions after branches and calls are always
+executed.  They are called "<b>delay slot</b>" instructions.
+ <P>
+
+Clearly, one can always put <b>nops</b> in there.  How can this be more useful?
+Well, it turns out that there is almost always an instruction that can
+be put there.  The instruction cannot be allowed to modify data that
+affects the branch however!
+ <P>
+        
+To fill a delay slot, find an instruction that can be placed immediately
+before the branch, but doesn't affect the condition tested by the
+branch.
+ <P>
+
+<hr>
+<p>
+<center>
+<H2>Delay Slots in SPARC Assembly</H2>
+</center>
+
+Now we return to the Assembly Language level.  We have seen that the
+result of pipelining in the processor is that the programmer has to be
+aware of, and plan for, delay slots.  Here is how that is done.
+ <P>
+
+Consider translating the following code into assembly:
+<PRE><hr>
+/* <b> nine.c </b> */
+
+  b = 0;
+  if (a <= 17)
+  {
+     a++;
+  }
+<hr></PRE>
+
+
+Assume we keep b in %l0 and we keep a in %l1.  The simplest translation
+would be: 
+
+<PRE><hr>
+/* <b> nine.s </b> */
+
+        clr     %l0
+        subcc   %l1, 17, %g0
+        bg      end
+        nop
+        add     %l1, 1, %l1
+end:    ! (rest of program here)
+<hr></PRE>
+
+This code is correct because we have put a "<b>nop</b>" in the delay slot.  A
+nop instruction simply does nothing.  However, it is also a waste of the
+processor's time.  The code is <b>less efficient</b> when it contains a nop --
+it takes longer to get the job done.  What can we do?
+ <P>
+
+We observe that the instruction "clr %l0" doesn't affect the branch 
+condition.  So we move it into the delay slot:
+<PRE><hr>
+/* <b> nine1.s </b> */
+
+        subcc   %l1, 17, %g0
+        bg      end
+        clr     %l0
+        add     %l1, 1, %l1
+end:    (rest of program here)
+<hr></PRE>
+
+This code is more efficient, because it only requires <b>4 clock cycles</b> to
+execute instead of 5 as before.  However, when reading the program, we
+have to read it <b>OUT OF ORDER</b> -- we think of the "clr" instruction as
+happening BEFORE the "bg" instruction.
+ <P>
+
+How should we fill a delay slot in general?  We cannot move an
+instruction into the delay slot that affects the condition codes we wish
+to test.  Find an instruction prior to the delay slot that doesn't
+affect the branch condition.
+ <P>
+
+One thing you should never do is put a control transfer instruction into
+a delay slot.  Chaos would ensue, as can be seen from tracking the
+contents of %pc and %npc for such a scenario.
+ <P>
+
+<b>Delay Slots - things to remember:</b>
+<UL>
+<LI> When filling delay slots, don't change the results the program
+computes.
+<LI> Fill all possible delay slots; the program is faster
+with full delay slots. 
+<LI> When reading the program, you should read the instructions  out of order.
+</UL>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">  
+<H3>
+For class 9 notes, click here<BR>
+</H3>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">  
+<H3>
+For more information, contact me at <A HREF="mailto:tvohra@mtu.edu">tvohra@mtu.edu</A><BR>
+</H3>
+
+</BODY>
+</HTML>

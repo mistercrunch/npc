@@ -1,0 +1,177 @@
+  
+           Sequence Number Attacks
+  
+*****
+ Dies ist eine Übersetzung aus dem Englischen des Textes 
+ 'Sequenze Number Attacks' geschrieben von Rik Farrow und erstmal
+ erschienen in der Zeitschrift UnixWorld.
+ Übersetzt von SnakeByte (SnakeByte@KryptoCrew.de)
+ mit freundlicher Genehmigung von Debbie Rizzo (Associate Producer,
+ Network Computing Magazine) und Mr. Fritz Nelson (Editor-in-chief)
+ für das 'KryptoCrew E-Zine Special TCP/IP'
+
+ 
+ Kevin Mitnick's angebliche Attacke auf Tsutomu Shimomura's Computer
+ wurde möglich durch die Verwundbarkeit von TCP/IP und irrtümlichen
+ Vertrauen
+
+ Am 25. Dezember 1994 machte sich Tsutomu Shimomura, ein Physiker des
+ San Diego Supercomputer Centers, auf den Weg nach Sierra Nevada zum
+ Skifahren. Er lies sein persönliches Computer-Netzwerk in seinem 
+ Strandhaus in Del Mar (nördlich von San Diego) eingeschaltet.
+ Vielleicht ist es Glück für uns das er dies tat.
+
+ Kurz nach 14:00 Uhr Shimomura's heiminternes Netz wurde ausgespäht
+ und dann vorsichtig mit einer komplett neuen Internetattacke 
+ angegriffen: Sequence Number Guessing
+ Shimomura arbeitete auch als Sicherheitsexperte, was seine Systeme 
+ zu besonders interessanten Zielen machte, und uns erlaubt genau zu 
+ verstehen, was damals passiert ist. Denn Shimomura benutzte, wie recht
+ wenige Netzwerkadministatoren tcpdump um alle einkommenden Signale der
+ Internet Verbindung aufzuzeichen. Diese Aufzeichnungen sendete er 
+ routinemäßig an eine Stelle auserhalb des Netzwerkes.
+
+ Sequence Number Guessing ist nicht wirklich etwas neues. Bereits 1989 
+ beschrieb Steve Bellovin, ein Forscher in den Bell Laboratorien (auch
+ CO-Author des 'Firewalls and Internet Security books'
+ (Addison-Wesley, 1994, ISBN 0-201-63357-4)) , in seinem Aufsatz 
+ 'Security Problems in the TCP/IP Protocol Suite' diese
+ Technik. Doch diese Attacke am Weihnachtsabend war die erste, die
+ diese Technik verwendete.
+
+ Um besser zu verstehen, was damals passierte ist es hilfreich etwas 
+ über TCP (Transport Control Protocol) zu lernen. TCP wird für 
+ Verbindungen benutzt, bei denen Daten in beide Richtungen übertragen
+ werden, wie zum Beispiel für Remote Terminal Connections (die mit
+ telnet oder rlogin aufgebaut werden können). TCP wird auch benutzt, wenn
+ man größere Mengen an Daten versenden möchte, wie zum Beispiel bei FTP
+ oder der Verbindung zu einem Web Server.
+
+ TCP erstellt eine zuverlässige Verbindung. Nicht so wie die anderen
+ Teile der Internet Protokoll Suite (wie ICMP, Internet Control Message
+ Protokoll, oder UDP, User Datagram Protocoll), erstellt TCP eine 
+ Verbindung zwischen der Lokalen und der Gegenseite. Wenn die 
+ Verbindung erstmal aufgebaut ist, werden Datenpackete zurück an den
+ Sender geschickt. Wenn der Sender diese nicht schnell genug erhält, 
+ werden die Daten nochmals gesendet. Wenn der Sender die Daten mehrmals
+ ohne Antwort gesendet hat, wird er eine Fehlermeldung an die Anwendung
+ ausgeben, die dem Benutzer sagt, das die Verbindung unterbrochen wurde.
+
+ Die Sequence Number wird benutzt um den Emfang der Daten zu quittieren.
+ Am Anfang einer TCP Verbindung schickt der Client (Sender) ein TCP
+ Packet mit einer Sequence Nummer, aber ohne Quittung (es kann noch
+ keine geben). Wenn an der anderen Seite der Verbindung eine Server
+ Anwendung läuft, schickt der Server (Emfänger) ein TCP Packet mit seiner
+ eigenen Sequence Nummer zurück und hängt eine Quittung an: Die Sequence
+ Nummer des Senders + 1. Wenn der Sender dieses Packet erhält, muss er 
+ eine eigene Quittung zum Emfänger schicken, die erhaltene Sequence 
+ Nummer erhöht um eins. 
+ Also braucht man drei Packete um eine TCP Verbindung aufzubauen
+ (siehe Teil A von Figur 1, die eine Zeitlinie zeigt)
+
+ Es gibt noch mehr über TCP zu lernen, aber das wirst du nicht in diesem
+ Kurzen Artikel lernen. (versuche mal Doug Comer's buch Internetworking
+ with TCP/IP, Volume 1, Principles, Protocols, and Architecture. Second
+ Edition (Prentice Hall, 1991 ISBN 0-13-468505-9) oder W. Richard
+ Steven's TCP/IP Illustrated, Volume 1 (Addison-Wesley, 1993, ISBN
+ 0-201-63346-9) [alle auf Englisch natürlich ;P ]
+ Im Moment ist es nur wichtig zu verstehen, das TCP-Pakete verschiedene
+ Flaggen-Bits haben, die als Indikatoren dienen. Wenn man Shimomuras 
+ Bericht liest, wird man feststellen, das er sich auf mehrere dieser
+ Flaggen (Flags) bezieht.
+
+ Die SYN Flagge (großes 'S' in der tcpdump Kommando Ausgabe) zeigt an,
+ das eine Verbindung eingeleitet wurde und die einleitende Sequent 
+ Nummer im TCP Packet enthalten war. Im ersten TCP Packet, vom Sender,
+ ist nur die SYN Flagge gesetzt. Wenn die Gegenseite antwortet ist die
+ SYN und die ACK Flagge gesetzt. Von diesem ersten Wechsel an ist die
+ ACK Flagge immer gesetzt, um zu zeigen, das dem TCP Packet die
+ Quittung (Sequence Nummer+1) beiliegt.
+ 
+ Die PUSH (großen 'P') zeigt an, das die Daten im TCP Packet nun an die
+ Anwendung weitergeleitet werden können und nicht gespeichert werden 
+ mpssen, bis das Datenpacket komplett ist. 
+
+ Die RESET ('R') Flagge teilt TCP mit, das die Verbindung abgebrochen 
+ werden soll, und wird angewendet, wenn der Sender versucht mit einem
+ Programm zu kommunizieren, das nicht läuft. In der Attacke, wurde dieses
+ Flag benutzt um halb-offene Verbindungen zu schließen, was den Server
+ beschäftigt hielt.
+ 
+ Das FIN bit ('F') wird benutzt um eine Verbindung zu beenden, aber im 
+ Gegensatz zum RESET, war das Programm am laufen und die Daten sind alle
+ Übertragen. Bei dieser Beendigungsweise sendet jeder (Sender+Emfänger)
+ ein TCP Packet mit diesem Flag, das der Gegenüber bestätigen muss,
+ es werden also 4 Packete versendet. In der Attacke gibt es keine 2
+ FIN Packete, da der Angreifer niemals die Antworten vom Zielsystem,
+ dem X Terminal, sieht.
+ 
+ Mit diesem Hintergrund wissen bist du bereit Shimomuras eigene
+ Beschreibung des Vorfalls zu lesen. Die Attacke beginnt damit, das
+ verschiedene Späher von toad.com (site von Nebula Consulting)
+ gestarted wurden. Wahrscheinlich wurde vorher in toad.com eingebrochen,
+ so das der Angreifer von dort agieren konnte.
+
+ Die Späher, finger, showmount und rpcinfos (wie die Späher von
+ Satan, wurden aber nicht automatisch gestartet) halfen dem 
+ Angreifer eine Verbindung herauszufinden zwischen Shimomuras X
+ Terminal (eine Workstation, die wie ein X Terminal benutzt wurde)
+ und einem lokalen Server. Dies war der eigentliche Schwachpunkt, der
+ bei der Attacke ausgenutzt wurde. Shimomuras Systeme vertrauten einander
+ (sie waren ein Internes Netzwerk und die dortige Software hatte mehr 
+ Rechte als die aus dem Internetz), wobei sie den Vertrauesnmechanismus
+ der 'r' Kommandos wie rsh und rcp verwendeten. Auch hinter starken
+ Schutzmauern wirde dieses Vertrauen immer wieder missbraucht, um
+ in Computersysteme einzubrechen, auch derm Internet Wurm nutzte im
+ November 1988 dieses Vertrauen um sich zu vermehren.
+ 
+ In der nächsten Phase des Angriffes wurden 30 TCP SYN Packete zum rlogin
+ port von Shimomura's Server geschickt. Diese Pakete kamen von einer unbenutzen
+ Internet Addresse, und ihre Anfangssequenznummern waren um 1 erhöht anstatt des
+ sonst üblichen 128,000. Der Sinn dieser Pakete war es den Speicher des Servers
+ mit halb-offenen Verbindungen zu füllen, so das dieser, als das Spoofing begann,
+ nicht in der Lage war den vermeintlichen TCP-Quittungen des X terminals zu 
+ antworten.
+
+ Als nächstes, wurde ein System der Loyola Universität in Chicago 
+ (apollo.it.luc.edu) benutzt um das X terminal zu testen. Wieder wurde eine
+ künstliche Serie von TCP Paketen (Anfangssequenznummer um 1 erhöht) gesendet, 
+ aber dieses mal wurden die Antworten an eine echte Addresse geschickt. Dies war
+ die Antwort, auf die der Angreifer aus war, denn jede Antwort enthielt eine
+ Anfangssequenznummer des X terminals. In Shimomura's Aufzeichnung beschrieb
+ tcpdump die Antworten mit
+ x-terminal.shell > apollo.it.luc.edu.1000 S, was ein Paket mit der SYN Flagge
+ bezeichnet. Wenn man nun von der ersten Anfangssequenznummer die Zweite 
+ subtrahiert (2021952000 - 2021824000) erhält man 128,000 eine Zahl die bei
+ allen Sequenznummern gleich blieb. Nun wusste der Angreiferm das die nächste 
+ Sequenznummer um 128,000 größer ist als die Letzte.
+ 
+ Nun waren alle Vorbereitungen getroffen, um das Vertrauen zwischen
+ dem X Terminal und dem Server auszunutzen. Der Angreifer erstellte
+ Packete, die aussahen, als würden sie von dem Server kommen und 
+ benutzte sie um eine TCP Verbindung mit dem rshell daemon des
+ X terminal aufzubauen. Das X Terminal schickte seine Quittung an den
+ Server, doch dort hing sie wegen der Überlastung im Speicher fest.
+ Im nächsten Schritt generierte der Angreifer eine Quittung, wie sie
+ der Server geschickt haben könnte, wenn er nicht überlastet wäre.
+ Nun war eine offene TCP Verbindung zwischen Server und dem X Terminal
+ hergestellt, die von Seiten des Servers gespooft wurde. Figur 1B zeigt,
+ wie die Pakete wirklich geschickt wurden.
+
+ Da das X Terminal dem Server vertraute, konnte der Angreifer, der sich
+ als root darstellte das kommando 'echo + + >> /.rhosts' zum X Terminal
+ schicken, wodurch jedem Benutzer mir root Zugriff vertraut wurde.
+ Nun schickte der Angreifer ein FIN Paket an das X Terminal, um die 
+ Verbindung zu schließen. Zum Schluß schickte er noch 30 RESET Pakete
+ an den Server um dessen Speicher zu löschen. Nun würde der Server ein
+ RESET Paket an das X Terminal schicken um die gespoofte rshell 
+ Verbindung  zu trennen, aber dafür ist es nun zu spät. Der Angreifer
+ kann nun als root an das X Terminal einloggen, indem er rlogin benutzt.
+
+ Es gibt noch mehr über diesen Angriff zu berichten, aber das will
+ ich mir für einen anderen Bericht aufheben. Es gibt auch einen
+ CERT Bericht über diesen Angriff, die man lesen sollte.
+     
+ 
+ 
+ 

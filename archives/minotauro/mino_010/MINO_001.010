@@ -1,0 +1,712 @@
+MINOTAURO MAGAZINE #10
+
+                              Disecci¢n de un NE
+			 (new executable) de windows
+                                  por Trurl
+
+% Intro %
+
+     Para hacer esta nota, tomamos el ejemplo de una aplicaci¢n Windows que
+viene con el TASM 4.0, lo simplificamos un poco, le agregamos un par de
+cositas, lo ensamblamos con el mismo TASM, y procedimos a explicar cada byte
+del EXE as¡ generado. En esta nota veremos todas las tablitas y detalles que
+hacen un NE. ¨Por que? Porque no ten¡amos nada mejor que hacer. Si quer¡an una
+explicaci¢n de la ca¡da del indice Dow Jones, esta no es la revista para
+buscarla.
+
+
+% El Source %
+
+     El c¢digo fuente consta de un .ASM y un .DEF; el ASM es el c¢digo en si,
+y el DEF es un file de definici¢n que sirve para especificarle al linker
+ciertas caracter¡sticos de la aplicaci¢n (como si los segmentos de datos van a
+ser descartables, el nombre del modulo, especificar los exports, etc). El
+programa lo £nico que hace es crear una ventana; y si uno clickea sobre el
+area cliente de la ventana, saca un message box que dice "Minotauro Magazine
+by [DAN]". Mis intentos de comentar el fuente se vieron frustrados por el
+hecho de que resulta imposible explicar desde cero como funciona una aplica-
+cion Windows desde un comentario. En todo caso sera en otro articulo. 
+     Solo tomen en cuenta una cosa, que la rutina "WndProc" esta exportada;
+eso significa que es una rutina que debera ser llamada por el sistema, y que
+por lo tanto hay que poner a su disposicion la posicion dentro del file de la
+rutina, de modo que pueda llamarla. En este articulo veremos como se hace eso
+(exportar una rutina) en un NE, ademas de muchas otras cosas. Van los dos
+files;
+
+= SAMPLE.ASM =================================================================
+locals
+jumps
+.model large, WINDOWS PASCAL
+include windows.inc
+
+extrn   BEGINPAINT:PROC
+extrn   CREATEWINDOW:PROC
+extrn   DEFWINDOWPROC:PROC
+extrn   DISPATCHMESSAGE:PROC
+extrn   ENDPAINT:PROC
+extrn   GETMESSAGE:PROC
+extrn   GETSTOCKOBJECT:PROC
+extrn   INITAPP:PROC
+extrn   INITTASK:PROC
+extrn   INVALIDATERECT:PROC
+extrn   LOADCURSOR:PROC
+extrn   MESSAGEBEEP:PROC
+extrn   MESSAGEBOX:PROC
+extrn   POSTQUITMESSAGE:PROC
+extrn   REGISTERCLASS:PROC
+extrn   SHOWWINDOW:PROC
+extrn   TEXTOUT:PROC
+extrn   TRANSLATEMESSAGE:PROC
+extrn   UPDATEWINDOW:PROC
+extrn   WAITEVENT:PROC
+.data
+
+     db 16 dup (0)
+
+; Parametros de WinMain
+psp            dw ?
+pszCmdline     dw ?
+hPrev          dw ?
+hInstance      dw ?
+cmdShow        dw ?
+
+newhwnd        dw 0                ; Handle de la ventana de la aplicaci¢n
+msg            MSGSTRUCT   <0>     ; MSG para el loop de mensajes
+wc             WNDCLASS    <0>     ; WNDCLASS para RegisterClass
+
+szTitleName    db 'Sample Application',0; Titulo de la ventana
+szClassName    db 'MINOCLASS',0         ; Clase de ventana
+
+mensaje        db   "Minotauro Magazine by [DAN]",0
+titulo         db "dis is a mesech bocs",0
+.code
+.286
+;-----------------------------------------------------------------------------
+start:
+     mov     ax, @data
+     mov     ds, ax           ; set up data segment
+
+;Windows initialization.  Sets up registers and stack.
+     ;INITTASK returns:
+     ;  Failure:
+     ;    AX = zero if it failed
+     ;  Success:
+     ;     AX = 1
+     ;    CX = stack limit
+     ;    DX = cmdShow parameter to CreateWindow
+     ;    ES:BX = -> DOS format command line (ES = PSP address)
+     ;    SI = hPrevinstance
+     ;    DI = hinstance
+     call    INITTASK
+     or      ax,ax
+     jnz     @@OK
+     jmp     @@Fail
+
+@@OK:
+     mov     [psp],es
+     mov     word ptr [pszCmdline],bx
+     mov     [hPrev],si
+     mov     [hInstance],di
+     mov     [cmdShow],dx
+
+;Initialize the Windows App
+     xor     ax,ax
+     push    ax
+     call    WAITEVENT
+     push    [hInstance]
+     call    INITAPP
+     or      ax,ax
+     jnz     @@InitOK
+
+@@Fail:
+     mov     ax, 4CFFh
+     int     21h
+
+@@InitOK:
+;-----------------------------------------------------------------------------
+; This is generally where WinMain is called.  We won't use a WinMain, since
+;  this app is 100% assembly.
+
+     cmp    [hPrev], 0
+     jne    already_running
+
+     mov    [wc.clsStyle], CS_HREDRAW + CS_VREDRAW
+     mov    word ptr [wc.clsLpfnWndProc], offset WndProc
+     mov    word ptr [wc.clsLpfnWndProc+2], seg WndProc
+     mov    [wc.clsCbClsExtra], 0
+     mov    [wc.clsCbWndExtra], 0
+     mov    ax, [hInstance]
+     mov    [wc.clsHInstance], ax
+     mov    [wc.clsHIcon], 0
+     push   0
+     push   IDC_ARROW
+     call   LOADCURSOR
+     mov    [wc.clsHCursor], ax
+     push   WHITE_BRUSH
+     call   GETSTOCKOBJECT
+     mov    [wc.clsHbrBackground], ax
+     mov    word ptr [wc.clsLpszMenuName], 0
+     mov    word ptr [wc.clsLpszMenuName+2], 0
+     mov    word ptr [wc.clsLpszClassName], offset szClassName
+     mov    word ptr [wc.clsLpszClassName+2], ds
+     push   ds
+     push   offset wc
+     call   REGISTERCLASS
+
+already_running:
+
+     push   ds
+     push   offset szClassName     ; Class name
+     push   ds
+     push   offset szTitleName     ; Title string
+     push   WS_OVERLAPPEDWINDOW+WS_VISIBLE    ; high word of Style
+     push   0                      ; low word of Style
+     push   CW_USEDEFAULT          ; x
+     push   CW_USEDEFAULT          ; y
+     push   CW_USEDEFAULT          ; width
+     push   CW_USEDEFAULT          ; height
+     push   0                      ; parent hwnd
+     push   0                      ; menu
+     push   [hInstance]            ; hInstance
+     push   0                      ; lpParam
+     push   0                      ; lpParam
+     call   CREATEWINDOW
+
+     mov    [newhwnd], ax
+
+     push   [newhwnd]
+     push   [cmdShow]
+     call   SHOWWINDOW
+
+     push   [newhwnd]
+     call   UPDATEWINDOW
+
+msg_loop:
+
+     push   ds
+     push   offset msg
+     push   0
+     push   0
+     push   0
+     call   GETMESSAGE
+     cmp    ax, 0
+     je     end_loop
+
+     push   ds
+     push   offset msg
+     call   TRANSLATEMESSAGE
+     push   ds
+     push   offset msg
+     call   DISPATCHMESSAGE
+     jmp    msg_loop
+
+end_loop:
+     mov    ax, [msg.msWPARAM]
+     mov    ah, 4Ch
+     int    21h
+
+;-----------------------------------------------------------------------------
+WndProc     proc hwnd:WORD, wmsg:WORD, wparam:WORD, lparam:DWORD
+
+     cmp       [wmsg], WM_DESTROY
+     je        wmdestroy
+     cmp       [wmsg], WM_CREATE
+     je        wmcreate
+     cmp       [wmsg], WM_LBUTTONDOWN
+     je        wmlbuttdown
+     jmp       defwndproc
+
+wmlbuttdown:
+     push [hwnd]
+     push ds
+     push offset mensaje
+     push ds
+     push offset titulo
+     push MB_OK
+     call MESSAGEBOX ; neat, uh?
+     jmp finish
+
+wmcreate:
+     mov     ax, 0
+     jmp     finish
+
+defwndproc:
+     push    hwnd
+     push    wmsg
+     push    wparam
+     push    lparam
+     call    DEFWINDOWPROC
+     jmp     finish
+
+wmdestroy:
+     push    0
+     call    POSTQUITMESSAGE
+     mov     ax, 0
+     jmp     finish
+
+finish:
+     mov     dx, 0
+     ret
+
+WndProc         endp
+;-----------------------------------------------------------------------------
+public WndProc
+ends
+end start
+= FIN DE SAMPLE.ASM ==========================================================
+
+= SAMPLE.DEF =================================================================
+NAME         
+
+DESCRIPTION 'Basic Stub'
+
+CODE         PRELOAD MOVEABLE DISCARDABLE
+DATA         LOADONCALL MOVEABLE MULTIPLE
+
+EXETYPE      WINDOWS
+
+HEAPSIZE     1024
+STACKSIZE    8192
+
+EXPORTS
+WndProc
+= FIN DE SAMPLE.DEF ==========================================================
+
+
+% El binario %
+
+     Este es un dump del EXE generado haciendo "tasm /ml /m3 /ic:\tasm\inclu-
+de" y luego "tlink /Twe sample.obj, sample,, import.lib, sample.def". Ahora lo
+iremos viendo por partes.
+
+0000  4D 5A 50 00 02 00 00 00-04 00 0F 00 FF FF 00 00   MZP............. 
+0010  B8 00 00 00 00 00 00 00-40 00 00 00 00 00 00 00   ........@....... 
+0020  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0030  00 00 00 00 00 00 00 00-00 00 00 00 90 00 00 00   ................ 
+0040  BA 10 00 0E 1F B4 09 CD-21 B8 01 4C CD 21 90 90   ........!..L.!.. 
+0050  54 68 69 73 20 70 72 6F-67 72 61 6D 20 6D 75 73   This program mus 
+0060  74 20 62 65 20 72 75 6E-20 75 6E 64 65 72 20 4D   t be run under M 
+0070  69 63 72 6F 73 6F 66 74-20 57 69 6E 64 6F 77 73   icrosoft Windows 
+0080  2E 0D 0A 24 00 00 00 00-00 00 00 00 00 00 00 00   ...$............ 
+0090  4E 45 06 00 78 00 0A 00-00 00 00 00 0A 00 02 00   NE..x........... 
+00A0  00 04 00 20 00 00 01 00-00 00 02 00 02 00 03 00   ... ............ 
+00B0  0E 00 40 00 50 00 50 00-61 00 67 00 12 01 00 00   ..@.P.P.a.g..... 
+00C0  01 00 09 00 00 00 02 00-00 00 00 00 00 00 00 03   ................ 
+00D0  01 00 7A 01 50 1D 7A 01-03 00 96 00 11 0C 96 00   ..z.P.z......... 
+00E0  03 57 41 50 00 00 07 57-4E 44 50 52 4F 43 01 00   .WAP...WNDPROC.. 
+00F0  00 01 00 05 00 0C 00 00-03 47 44 49 06 4B 45 52   .........GDI.KER 
+0100  4E 45 4C 04 55 53 45 52-01 FF 01 CD 3F 01 17 01   NEL.USER....?... 
+0110  00 00 0A 42 61 73 69 63-20 53 74 75 62 00 00 00   ...Basic Stub... 
+0120  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0130  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0140  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0150  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0160  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0170  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0180  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0190  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+01A0  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+01B0  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+01C0  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+01D0  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+01E0  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+01F0  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0200  B8 00 00 8E D8 9A FF FF-00 00 0B C0 75 02 EB 29   ............u..) 
+0210  8C 06 10 00 89 1E 12 00-89 36 14 00 89 3E 16 00   .........6...>.. 
+0220  89 16 18 00 33 C0 50 9A-FF FF 00 00 FF 36 16 00   ....3.P......6.. 
+0230  9A FF FF 00 00 0B C0 75-05 B8 FF 4C CD 21 83 3E   .......u...L.!.>
+0240  14 00 00 75 60 C7 06 2E-00 03 00 C7 06 30 00 17   ...u`........0.. 
+0250  01 C7 06 32 00 FF FF C7-06 34 00 00 00 C7 06 36   ...2.....4.....6 
+0260  00 00 00 A1 16 00 A3 38-00 C7 06 3A 00 00 00 6A   .......8...:...j 
+0270  00 68 00 7F 9A FF FF 00-00 A3 3C 00 6A 00 9A FF   .h........<.j... 
+0280  FF 00 00 A3 3E 00 C7 06-40 00 00 00 C7 06 42 00   ....>...@.....B. 
+0290  00 00 C7 06 44 00 5B 00-8C 1E 46 00 1E 68 2E 00   ....D.[...F..h.. 
+02A0  9A FF FF 00 00 1E 68 5B-00 1E 68 48 00 68 CF 10   ......h[..hH.h.. 
+02B0  6A 00 68 00 80 68 00 80-68 00 80 68 00 80 6A 00   j.h..h..h..h..j. 
+02C0  6A 00 FF 36 16 00 6A 00-6A 00 9A FF FF 00 00 A3   j..6..j.j....... 
+02D0  1A 00 FF 36 1A 00 FF 36-18 00 9A FF FF 00 00 FF   ...6...6........ 
+02E0  36 1A 00 9A FF FF 00 00-1E 68 1C 00 6A 00 6A 00   6........h..j.j. 
+02F0  6A 00 9A FF FF 00 00 3D-00 00 74 14 1E 68 1C 00   j......=..t..h.. 
+0300  9A FF FF 00 00 1E 68 1C-00 9A FF FF 00 00 EB D8   ......h......... 
+0310  A1 20 00 B4 4C CD 21 1E-58 90 45 55 8B EC 1E 8E   . ..L.!.X.EU.... 
+0320  D8 83 7E 0C 02 74 3E 83-7E 0C 01 74 1D 81 7E 0C   ..~..t>.~..t..~. 
+0330  01 02 74 02 EB 19 FF 76-0E 1E 68 65 00 1E 68 81   ..t....v..he..h. 
+0340  00 6A 00 9A FF FF 00 00-EB 27 B8 00 00 EB 22 FF   .j.......'....". 
+0350  76 0E FF 76 0C FF 76 0A-FF 76 08 FF 76 06 9A FF   v..v..v..v..v... 
+0360  FF 00 00 EB 0C 6A 00 9A-FF FF 00 00 B8 00 00 EB   .....j.......... 
+0370  00 BA 00 00 1F 5D 4D CA-0A 00 11 00 02 00 55 00   .....]M.......U. 
+0380  01 00 00 00 02 04 01 00-02 00 00 00 03 01 06 00   ................ 
+0390  02 00 5B 00 03 01 28 00-02 00 1E 00 03 01 31 00   ..[...(.......1. 
+03A0  03 00 05 00 03 01 75 00-03 00 AD 00 03 01 7F 00   ......u......... 
+03B0  01 00 57 00 03 01 A1 00-03 00 39 00 03 01 CB 00   ..W.......9..... 
+03C0  03 00 29 00 03 01 DB 00-03 00 2A 00 03 01 E4 00   ..).......*..... 
+03D0  03 00 7C 00 03 01 F3 00-03 00 6C 00 03 01 01 01   ..|.......l..... 
+03E0  03 00 71 00 03 01 0A 01-03 00 72 00 03 01 44 01   ..q.......r...D. 
+03F0  03 00 01 00 03 01 5F 01-03 00 6B 00 03 01 68 01   ......_...k...h. 
+0400  03 00 06 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0410  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0420  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0430  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0440  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0450  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0460  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0470  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0480  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0490  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+04A0  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+04B0  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+04C0  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+04D0  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+04E0  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+04F0  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0500  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0510  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0520  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0530  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0540  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0550  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0560  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0570  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0580  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0590  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+05A0  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+05B0  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+05C0  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+05D0  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+05E0  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+05F0  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0600  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0610  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0620  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0630  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00   ................ 
+0640  00 00 00 00 00 00 00 00-53 61 6D 70 6C 65 20 41   ........Sample A 
+0650  70 70 6C 69 63 61 74 69-6F 6E 00 4D 49 4E 4F 43   pplication.MINOC 
+0660  4C 41 53 53 00 4D 69 6E-6F 74 61 75 72 6F 20 4D   LASS.Minotauro M 
+0670  61 67 61 7A 69 6E 65 20-62 79 20 5B 44 41 4E 5D   agazine by [DAN] 
+0680  00 64 69 73 20 69 73 20-61 20 6D 65 73 65 63 68   .dis is a mesech 
+0690  20 62 6F 63 73                                    bocs
+
+
+% El stub %
+
+     El stub es un programa DOS com£n y corriente, id‚ntico a cualquier otro
+EXE excepto por un detalle. El header de un EXE de DOS com£n define hasta el
+offset 1Eh (ah¡ termina el £ltimo campo del header). Por lo tanto los linkers
+pueden empezar a poner a partir de ese offset la tabla de realocaci¢n del EXE.
+Pero en un EXE de Windows, el header MZ tiene definido un campo mas, que esta
+en el offset 3C del header (quedando el espacio entre 1Eh y 3Ch como reser-
+ved). Este campo es un DWORD y especifica el offset del NE dentro del file.
+Por lo tanto, todo EXE cuya tabla de realocaci¢n empiece antes del offset 40h
+no puede ser un NE. Si empieza en 40h o mas, entonces tomamos la dword en el
+offset 3Ch y vamos al offset que nos indica; ah¡ leemos dos bytes y si son
+iguales a NE, eureka.
+     Por lo general los stubs de las aplicaciones Windows son el programa
+est ndar que muestra "This program must be run under Microsoft Windows",
+porque este es el default que te pone el linker, pero no hay nada que fuerce a
+que el stub sea siempre as¡. El stub puede ser un programa DOS totalmente
+distinto; de hecho algunas versiones del control de volumen de las sound
+blaster vienen con un programa que es al mismo tiempo una aplicaci¢n Windows y
+un programa DOS; esto se debe a que por un lado esta la aplicaci¢n Windows, y
+por el otro, el mismo programa pero para DOS, como su stub. El QCD, que
+tambi‚n viene con algunas SoundBlaster, es lo mismo, una aplicaci¢n DOS-
+Windows.
+     En el caso de nuestro programita, el stub es el est ndar, que te muestra
+el mensajito, y va del offset 0 al 90h que es donde esta el NE seg£n podemos
+ver en el offset 3Ch.
+
+% El header NE (NewExe) %
+
+     En 90h vemos claramente el NE, que explicaremos campo a campo;
+
+offset    size      contenido descripcion
+090h      2         4E45      Signature NE (igual a "NE" :))
+092h      2         0006      Version del linker (6.0 en este caso)
+094h      2         0078      Offset de la Entry Table 
+096h      2         000A      Largo de la entry table en bytes
+098h      4         00000000  Reservado (el checksum.. no usado)
+09Ch      2         000A      Flags que describen el EXE. Los £nicos bits
+                              prendidos son reservados as¡ que ?. El EXE es
+                              SINGLEDATA (un solo segmento de datos)
+09Eh      2         0002      N£mero del segmento de datos autom tico.
+0A0h      2         0400      Tama¤o inicial de la heap local en bytes (1k)
+0A2h      2         2000      Tama¤o inicial de la stack
+0A4h      4         0001:0000 CS:IP inicial; apunta al primer segmento del EXE
+0A8h      4         0002:0000 SS:SP inicial; apunta al segmento de datos
+0ACh      2         0002      N£mero de entradas en la Segment Table
+0AEh      2         0003      N£mero de entradas en la module-reference table
+0B0h      2         000E      N£mero de bytes en la nonresident name table
+0B2h      2         0040      Offset a la segment table, relativo al principio
+                              del NE (osea en realidad 40h + 90h = D0h)
+0B4h      2         0050      Offset a la resource table relativo 
+0B6h      2         0050      Offset a la resident name table relativo 
+0B8h      2         0061      Offset a la module reference table relativo
+0BAh      2         0067      Offset a la imported name table relativo
+0BCh      4         00000112  Offset a la nonresident name table relativo al
+                              principio del file
+0C0h      2         0001      N£mero de entry points movibles
+0C2h      2         0009      Shift Count usado para alineamiento de sectores.
+                              Como 1 << 9 = 512, un offset de sector de "1"
+                              significa que esta en 512. Un offset 2 es 1024,
+                              etc. 
+0C4h      2         0000      N£mero de segmentos de recursos
+0C6h      1         02        Sistema operativo target: MS Windows (dumb)
+0C7h      1         00        Otras flags.. no usadas.
+0C8h      2         0000      Offset en sectores a la fast load area
+0CAh      2         0000      Largo en sectores de la fast load area
+0CCh      2         0000      Reservado.. (Uh?)
+0CEh      2         0300      Version esperada de Windows. (3.0)
+
+     Varias observaciones. Primero el shift count; entienden como es el
+esquema: Los "offsets en sectores" usan este shift count y un offset X es
+igual al offset X << Shift Count dentro del file. En este caso el shift count
+es nueve lo cual significa que esta todo puesto a cachos de 512 bytes.
+     Despu‚s la stack; como ven SS apunta al segmento n£mero dos, que es el
+segmento de datos (£nico) de la aplicaci¢n. SP es cero; esto significa que
+Windows autom ticamente asigna a SP el valor del tama¤o del segmento + el
+tama¤o reservado de stack. En este caso el segmento es de 96h bytes (se lo ve
+en la segment table) y la stack es de 2000h (offset A2h) por lo que inicial-
+mente SP valdr  2096h. 
+     Y por £ltimo, vemos todos los offsets y dem s yerbas concernientes a las
+diversas tablas a saber:
+tabla               offset NE offset real    n£mero de entradas
+Segment table       40h       D0h            2 entradas
+Resource table      50h       E0h            0 entradas
+Resident name       50h       E0h            varia
+Module reference    61h       F1h            3 entradas
+Imported name       67h       F7h            varia
+Entry Table         78h       108h           varia (10 bytes)
+Nonresident Name    -         112h           varia (14 bytes)
+     Ahora veamos tabla por tabla.
+
+
+% Segment Table %
+
+     En esta tabla est n definidos todos los segmentos en este caso dos.
+La tabla esta en D0h y cada entrada son ocho bytes, por lo tanto el primer
+segmento es (01 00 8A 01 50 1D 7A 01) y el segundo (03 00 96 00 11 0C 96 00).
+Veamos en mas detalle el primer segmento:
+     offset    valor     descripci¢n
+     0         0001      offset del segmento, en segmentos; osea 1 << 9 = 200h
+     2         017A      largo del segmento en bytes (en el FILE osea cuanto
+                         hay que leer)
+     4         1D50      Flags:
+                         - bit 0 clear: segmento de c¢digo
+                         - bit 4 set  : segmento m¢vil
+                         - bit 6 set  : segmento PRELOAD
+                         - bit 8 set  : el segmento contiene realocaci¢n
+                         - bit 12 set : el segmento es descartable
+     6         017A      largo del segmento en bytes (en MEMORIA, osea cuanto
+                         hay que alocatear)
+     Osea el primer segmento es el segmento de c¢digo. Y el segundo es el de
+datos:
+     offset    valor     descripci¢n
+     0         0003      offset del segmento (3 << 9 = 600h)
+     2         0096      largo del segmento en bytes en file
+     4         0C11      Flags:
+                         - bit 0 set: segmento de datos
+                         - bit 4 set: segmento m¢vil
+     6         0096      largo del segmento en bytes en memoria
+
+
+% Resident name table %
+
+     La siguiente tabla (en el offset E0h) es la resident name table. En esta
+tabla se especifican los "nombres" que Windows mantendr  siempre en memoria de
+la aplicaci¢n. Estos "nombres" son funciones exportadas, osea funciones que el
+sistema podr  llamar, o que otras aplicaciones pueden llamar. Es as¡ como
+funcionan las DLL y todo el linkeo dinamico. La primera entrada en vez de
+especificar una funci¢n exportada, contiene el nombre del modulo de la
+aplicaci¢n, en este caso WAP (Windows Assembly Program :)). Cada nombre
+empieza con un byte que especifica el n£mero de bytes del nombre, luego el
+nombre, y por £ltimo un n£mero que identificara a ese nombre; de este modo
+otra aplicaci¢n puede referenciar a esta funci¢n tanto por el nombre como por
+el n£mero (as¡ es como se llaman a las API por lo general, usando los numeros;
+esto se ver  en la tabla de realocaci¢n). Adem s este n£mero permite identifi-
+car qu‚ entry point corresponde a qu‚ nombre en la Entry Table.
+     El primer nombre entonces es (WAP, 0):
+00E0  03 57 41 50 00 00                                 .WAP..
+     Y el segundo es (WNDPROC, 1), y luego hay un cero que termina la tabla:
+00E6                    07 57-4E 44 50 52 4F 43 01 00         .WNDPROC.. 
+00F0  00 
+     Porque WndProc esta ac ? Recuerden que es un nombre exportado; es una
+rutina que es llamada solamente por el sistema, encargada de procesar los
+mensajes de la aplicaci¢n. Ponerlo aca en esta lista es una forma de especifi-
+carle al sistema la direccion de la rutina. (Esta direcci¢n esta en la segment
+table).
+
+
+% Module reference table e Imported Name Table %
+
+     Cada entrada de la module reference table es un word que contiene un
+offset dentro de otra tabla, la imported names table. La module reference
+table especifica que m¢dulos (DLLs) necesita la aplicaci¢n para funcionar.
+Cuando Windows carga la aplicaci¢n, verifica que todos los m¢dulos necesarios
+est‚n en memoria, y si no est n los carga (cargando una DLL impl¡citamente;
+tambi‚n se pueden cargar expl¡citamente). Si ya esta en memoria, el sistema
+mantiene una cuenta con todos los programas que usan la DLL de modo que la DLL
+no es sacada de memoria hasta que hay 0 m¢dulos que la usen. En este caso los
+£nicos m¢dulos que se usan son los tres m¢dulos del sistema, que est n siempre
+en memoria, y son GDI (Graphical Device Interface), KERNEL (el kernel del
+sistema, que provee todas las apis de manejo de memoria etc) y USER (el modulo
+que contiene todas las APIs de ventanas y dem s yerbas).
+     A su vez la imported name table es parecida a la resident name table
+excepto que no termina en un byte 0 sino que contiene cualquier n£mero de
+entradas y se la referencia solo con offsets dentro de la tabla, tanto en la
+module reference table como en las tablas de realocaci¢n. 
+     En este caso la module reference table (que sabemos tiene 3 entradas, por
+el header offset AEh), es:
+00F1     01 00 05 00 0C 00
+     Osea que los tres offsets son 1, 5, Ch. La imported name table es:
+00F7                       00 03 47 44 49 06 4B 45 52          ..GDI.KER 
+0100  4E 45 4C 04 55 53 45 52                           NEL.USER
+     Por lo tanto en offset 1 tenemos GDI, en offset 5 KERNEL, y en offset 12
+(Ch) USER.
+
+
+% Entry Table %
+
+     Los diez bytes a partir del offset 108h son la Entry Table. En esta tabla
+est n contenidos todos los entry points al ejecutable (es decir, las direccio-
+nes a donde buscar cada una de las funciones exportadas). En este caso hay una
+sola entrada en la entry table, que es la correspondiente a nuestra £nica
+rutina exportada, WndProc. A ver:
+ 
+0108                          01 FF 01 CD 3F 01 17 01         ....?... 
+0110  00 00 
+
+     La entry table esta organizada por paquetes, cada uno comienza con dos
+bytes. El primero indica cuantas entradas hay en el paquete, y el segundo
+indica si los segmentos (todos) referenciados en el paquete son moviles o no.
+En nuestro caso el valor es FF, lo que significa que el segmento de WndProc es
+m¢vil. 
+     Luego viene cada entrada individual para cada entry point. Para los
+segmentos m¢viles cada entrada son 6 bytes, el primero son flags, el segundo y
+tercero una INT 3F (!?), el cuarto es el n£mero de segmento de la referencia,
+y el quinto y sexto son el offset dentro de este segmento. En nuestro caso, el
+segmento es 1, y el offset 117h (osea 0001:0117). Esto apunta justamente al
+comienzo de nuestra rutina WndProc.
+     Recuerden que en la resident-name table establecimos que el n£mero
+identificador de WndProc era 1: bueno aqui encontramos que la primera entrada
+es WndProc. Una rutina con n£mero de identificaci¢n 2, estar¡a en segundo
+lugar en la entry table, y as¡ todos los entry points estan puestos uno a
+continuacion del otro. Por otro lado no olviden que la entry table empieza en
+uno, no en cero.
+     Esto plantea un problema, que es el siguiente; si nos ponemos a ver
+alguna DLL cualquiera con muchas rutinas exportadas, por ejemplo, WING.DLL,
+veremos que tiene "agujeros" de ordinales no definidos; por ejemplo WING.DLL
+define el entry point #1, #2, y luego empieza a partir del #3E9. Que pasa en
+la entry table con los entry points entre 2 y 3E9? Podr¡an estar definidos
+(como entry points legales en la entry table) en cuyo caso serian como unas
+APIs medio indocumentadas, probablemente accesibles (solo como ordinales).
+Pero por lo general no est n definidos, y son "salteados" con un mecanismo
+(que ojo, es INDOCUMENTADO, o al menos no esta en la especificaci¢n que yo
+tengo, que es la que distribuye Microsoft y es la que les dimos en el n£mero
+anterior) y que consiste en lo siguiente: si el segundo de los dos bytes del
+header del paquete de entry points es cero, el primero especifica el n£mero de
+entry points que hay que "saltearse", o si prefieren, el primer byte especifi-
+ca como siempre el n£mero de entry points definidos en ese paquete, y si el
+segundo byte es cero significa que esos entry points no est n definidos (como
+prefieran interpretarlo). Entonces veamos por ejemplo como seria la entry
+table de WING.DLL:
+     <02 FF XX XX XX XX XX XX YY YY YY YY YY YY> <- entry points 1 y 2
+     FF 00 FF 00 FF 00 E9 00 
+     <entry points validos 3E9 y subsiguientes>
+     as¡ como vemos: 3+FF+FF+FF+E9 = 3E9. Bueno y esto es todo con la entry
+table (al fin no?).
+
+
+% Non-resident name table %
+
+     Esta tabla es igual a la resident name table en formato, y la £nica
+diferencia es que los nombres que est‚n contenidos en esta tabla pueden ser
+descartados de memoria. Por otro lado es igual. La primera entrada de esta
+tabla en vez de especificar una funci¢n exportada contiene el nombre descrip-
+tivo de la aplicaci¢n (especificado en el DEF) y que aparenta no servir
+absolutamente para nada excepto para que aparezca en el Task Manager y cuando
+uno apreta ctrl-tab. En nuestro caso, esta es la £nica entrada en la tabla:
+
+0112       0A 42 61 73 69 63 20 53 74 75 62 00 00 00    .Basic Stub...
+0120 00
+
+% Los segmentos %
+
+     Los segmentos son f ciles de encontrar aun a simple vista, y como ya
+observamos en la segment table, est n en 200h el segmento de c¢digo y en 600h
+el segmento de datos. El de datos es bastante sencillo; en el vemos exactamen-
+te lo que nosotros pusimos y nada mas, no tiene mucho misterio.
+     El de c¢digo es otra historia. Lo vemos claramente en el offset 200h,
+pero en la segment table dec¡a que el segmento tiene 17Ah bytes, y ac  vemos
+mas bytes despu‚s de 37Ah; se trata de la tabla de realocaci¢n, que esta al
+final del segmento. Y en el c¢digo tambi‚n van a ver una cosa rara que es que
+las llamadas a APIs se compilaron as¡:
+     call MESSAGEBOX          ->        9A 00 00 FF FF = call FFFF:0000
+     Esto es porque esos cuatro bytes (00 00 FF FF) van a ser realocateados
+por el sistema usando la tabla de realocaci¢n para apuntar a la API cuando el
+programa sea cargado a memoria.
+
+
+% La tabla de realocaci¢n %
+
+     La reproducimos ac  en una forma mas entendible. El primer word es el
+n£mero de items en la tabla, y luego viene cada item, cada uno ocho bytes.
+El primer byte de estos ocho especifica el tipo de direcci¢n que hay que
+realocar. Si es 2 es "16-bit selector"; como todos uds. saben un selector es
+algo as¡ como un segmento de modo protegido (si no lo saben es hora de que lo
+vayan sabiendo), de modo que se trata de realocar un segmento, un valor de 16
+bits. Si este byte es 3, se trata de un "32-bit pointer" osea que hay que
+realocar segmento y offset. El segundo byte establece el tipo de realizaci¢n;
+un 1 especifica un ordinal importado, osea una llamada a API hecha usando su
+n£mero. Si es 0 (o 4) es una referencia interna, osea una referencia a un
+segmento dentro del propio ejecutable. En cualquier caso, el tercer y cuarto
+bytes especifican el offset en donde hay que hacer la realocaci¢n dentro del
+segmento. 
+     Si es internal reference, el quinto y el sexto byte indican el n£mero de
+segmento; el s‚ptimo y el octavo contendr¡an un offset, pero en nuestro caso
+se trata de realocar solo el segmento, as¡ que son cero.
+     Si es imported ordinal, el quinto y sexto byte contienen un ¡ndice dentro
+de la module-reference table que especifica indirectamente de que modulo es el
+ordinal en cuesti¢n. (De esta tabla a su vez se obtiene un offset a la
+imported-names table, y all¡ se obtiene el nombre del modulo). En nuestro caso
+y como vimos en la module-reference table, el ¡ndice 1 es GDI, el 2 es KERNEL,
+y el 3 es USER. El s‚ptimo y octavo byte por £ltimo definen el n£mero de la
+funci¢n en cuesti¢n.
+
+11 00 = 17 entradas
+02 00 55 00 01 00 00 00 - 16 bit selector (mov [..], seg WndProc) = Code Segm
+02 04 01 00 02 00 00 00 - 16 bit selector (mov ax, @data) = Data Segment
+03 01 06 00 02 00 5B 00 - 32 bit ptr, imported #, KERNEL, 5B (INITTASK)
+03 01 28 00 02 00 1E 00 - 32 bit ptr, imported #, KERNEL, 1E (WAITEVENT)
+03 01 31 00 03 00 05 00 - 32 bit ptr, imported #, USER, 5, (INITAPP)
+03 01 75 00 03 00 AD 00 - 32 bit ptr, imported #, USER, AD, (LOADCURSOR)
+03 01 7F 00 01 00 57 00 - 32 bit ptr, imported #, GDI, 57, (GETSTOCKOBJECT)
+03 01 A1 00 03 00 39 00 - 32 bit ptr, imported #, USER, 39 (REGISTERCLASS)
+03 01 CB 00 03 00 29 00 - 32 bit ptr, imported #, USER, 29 (CREATEWINDOW)
+03 01 DB 00 03 00 2A 00 - 32 bit ptr, imported #, USER, 2A (SHOWWINDOW)
+03 01 E4 00 03 00 7C 00 - 32 bit ptr, imported #, USER, 7C (UPDATEWINDOW)
+03 01 F3 00 03 00 6C 00 - 32 bit ptr, imported #, USER, 6C (GETMESSAGE)
+03 01 01 01 03 00 71 00 - 32 bit ptr, imported #, USER, 71 (TRANSLATEMESSAGE)
+03 01 0A 01-03 00 72 00 - 32 bit ptr, imported #, USER, 72 (DISPATCHMESSAGE)
+03 01 44 01 03 00 01 00 - 32 bit ptr, imported #, USER, 1 (MESSAGEBOX)
+03 01 5F 01-03 00 6B 00 - 32 bit ptr, imported #, USER, 6B (DEFWINDOWPROC)
+03 01 68 01 03 00 06 00 - 32 bit ptr, imported #, USER, 6 (POSTQUITMESSAGE)
+
+
+% Para finalizar %
+
+     Ahora ya saben para que es cada byte de un NE y porque esta all¡. No se
+sienten mejor, no se sienten realizados? No? Bueno al menos ahora entienden
+todo como para no sentirse amedrentados ante ning£n NE que se encuentren en su
+camino! Tampoco? Bueno, magia no puedo hacer.
+     Por si no lo aclare antes, una DLL es un NE tambi‚n. La £nica diferencia
+es en el c¢digo en si, no en el formato (por ejemplo en una DLL DS!=SS
+siempre, adem s tienen que definir una funci¢n llamada WEP y exportarla, etc)
+pero en el formato, es exactamente igual. Lo mismo corre para los DRV. Tambi‚n
+son NE. Ah¡ ya no se bien cual es la diferencia con un EXE y una DLL, pero es
+el mismo formato. 
+                                                                    Trurl, tgc
+
+NOTA: WING.DLL es una dll para manejo mas r pido de gr ficos bajo Windows (?)
+pensada para hacer juegos. Por lo tanto si tienen alg£n juego mas o menos
+grande para windows (3.1 o cualquier otro de 16 bits) probablemente la tengan;
+si no es as¡ no importa, para ver el salteo de entry points pueden fijarse en
+los mismos KRNL386.EXE o USER.EXE, etc, que tambi‚n tienen un poco.

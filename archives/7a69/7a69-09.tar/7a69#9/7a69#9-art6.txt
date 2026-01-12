@@ -1,0 +1,884 @@
+ษออออออออออออออออออออออออออออออหออออออออออออออออออออหอออออออออออออออออออออออป
+บ         * ARTICULO *         บ      * TEMA *      บ       * NIVEL *       บ
+บฤฤฤฤฤฤฤฤฤฤฤฤฤฤฤฤฤฤฤฤฤฤฤฤฤฤฤฤฤฤบฤฤฤฤฤฤฤฤฤฤฤฤฤฤฤฤฤฤฤฤบฤฤฤฤฤฤฤฤฤฤฤฤฤฤฤฤฤฤฤฤฤฤฤบ
+บ6.- Algoritmo DES             บ    Criptografia    บ       Medio/Alto      บ  
+ศออออออออออออออออออออออออออออออสออออออออออออออออออออสอออออออออออออออออออออออผ
+                                                                    [ Doing ]
+
+NOTA: Yo no me hago responsable de los dolores de cabeza que pueda producir
+      la lectura de este articulo xD.
+
+INTRODUCCION
+------------
+
+Bueno, ya estoy aqui otra vez para daros el coคazo (jeje). Pues en este
+articulo intentare explicar el funcionamiento del DES, que es un algoritmo
+de cifrado de datos simetrico (no es nada del otro mundo :). 
+
+Primero voy a explicar algo sobre criptografia. El proposito de la 
+criptografia es cifrar un texto conocido (llamado texto en plano) con una
+clave que solo conocen el que envia el mensaje y el que lo recibe (si el que
+lo recibe no conoce la clave no vamos bien xD), de forma que el texto
+resultante (llamado texto cifrado) solo pueda ser convertido al texto plano
+usando la clave de antes. De forma matematica seria algo asi:
+
+E : TEXTO CIFRADO
+M : MENSAJE EN TEXTO PLANO
+C : ALGORITMO DE CIFRADO
+D : ALGORITMO DE DESCIFRADO (Puede ser igual a C)
+K : CLAVE DE CIFRADO
+
+PARA CIFRAR:
+
+E = C( M, K ) 
+
+PARA DESCIFRAR:
+
+M = D( E, K );
+
+Pues este esquema es el que siguen absolutamente TODOS los sistemas de
+criptografia _simetrica_. Se llama simetrica porque la clave que se usa para
+cifrar es la misma que se usa para descifrar (voy a usar las palabras cifrar y
+descifrar en vez de encriptar y desencriptar, porque en espaคol, encriptar
+significa "meter en una cripta" xD). 
+
+
+PROGRAMANDO UN EJEMPLO
+----------------------
+
+Pues ahora que conocemos los principios basicos de la criptografia 
+simetrica, vamos a hacer un programilla de cifrado sencillito.
+
+Lo primero es elegir el algoritmo a usar. Hemos dicho sencillito, asi que
+lo que hara el programa sera leer un archivo (el archivo que queremos cifrar,
+evidentemente) e ira sumando al codigo ASCII de cada caracter un valor. Luego
+escribira el resultado en otro archivo, que sera el archivo que contiene el
+texto cifrado. El valor que se le suma a cada caracter va a ser la clave. 
+
+Nuestro algoritmo quedaria asi:
+C = ( M + K )
+D = ( E - K )
+
+Sencillo, จno?. El texto cifrado se obtiene sumando la clave al texto plano, y
+el texto plano se obtiene al reves. Hemos dicho que va a operar sobre el
+codigo ascii de los caracteres, lo quiere decir que cifrara en bloques de 8
+bits. Ok, vamos a hacer el programa.
+
+<++> programas/cifrador1.c
+
+#include <stdio.h>
+#include <stdlib.h>
+
+#define CARACTER unsigned char
+
+/*
+* Esta es la funcion que cifra
+*/
+CARACTER Cifra(CARACTER M, int K)
+{
+CARACTER ret;
+ret = M + K;
+return ret;
+}
+
+/*
+* Y esta la que descifra :)
+*/
+CARACTER Descifra(CARACTER E, int K)
+{
+CARACTER ret;
+ret = E - K;
+return ret;
+}
+
+void uso(char *ar)
+{
+printf("Uso:\n");
+printf("\t%s <fichero_entrada> <fichero_salida> <clave> <0|1>\n", ar);
+printf("\t0 : cifra\n");
+printf("\t1 : descifra\n");
+exit(0);
+}
+
+int main(int argc, char **argv)
+{
+FILE *fin, *fout;
+int K, cifrar;
+CARACTER buf;
+
+if (argc < 5) uso(argv[0]);
+
+fin = fopen(argv[1], "r");
+if (!fin) {
+printf(" Error abriendo el fichero de entrada\n");
+exit(0);
+}
+
+fout = fopen(argv[2], "w");
+
+printf(" Error creando el fichero de salida\n");
+exit(0);
+}
+
+K = atoi(argv[3]);
+printf(" Usando clave %i\n", K);
+
+cifrar = atoi(argv[4]);
+
+if (!cifrar) printf("Cifrando...");
+else printf("Descifrando...");
+fflush(stdout);
+
+while (fread(&buf, 1, 1, fin) == 1) {
+switch(cifrar) {
+case 0:
+buf = Cifra(buf, K);
+break;
+case 1:
+buf = Descifra(buf, K);
+break;
+}
+fwrite(&buf, 1, 1, fout);
+}
+fflush(NULL);
+printf("hecho!\n");
+
+fclose(fin);
+fclose(fout);
+return 0;
+}
+<-->
+
+Vamos a probarlo.
+
+# gcc -o cifrador1 cifrador1.c
+
+# echo "Hola, soy Doing, Feliz Navidad" > texto_plano1
+
+# ./cifrador1 texto_plano1 texto_cifrado 666 0
+
+# cat texto_cifrado
+โ บÞบ ฦบเÿบ่๛þ๛þค
+
+# ./cifrado1 texto_cifrado texto_plano2 666 1
+
+# cat texto_plano2
+Hola, soy Doing, Feliz Navidad
+
+
+Parece que funciona :) Como veis, este algoritmo no tiene ningun misterio. De
+hecho se podria romper en milesimas de segundo. 
+
+Para hacer a un algoritmo mas fuerte (con fuerte me refiero a que sea mas
+dificil romperlo) se usan dos tecnicas: confusion y difusion. El DES usa estas
+dos tecnicas como veremos mas adelante. 
+
+
+REDES DE FEISTEL
+----------------
+
+En criptografia existe un "tipo" de algoritmos llamados redes de Feistel.
+Estas redes dividen el texto a cifrar, M, en dos mitades, L y R, y van 
+cifrando iterativamente (repetitivamente :) una de las mitades, luego las 
+mitades se intercambian y el proceso de vuelve a repetir. Algo asi:
+
+                                  M
+                                 / \
+                                /   \
+                               L1   R1
+                                \   /
+                                 \ /
+                                  \C(K1)
+                                /   \
+                               L2   R2
+                                \   /
+                                 \ /
+                                  \C(K2)
+                                /   \
+                               L3   R3
+
+Como veis, se usan varias claves (K1, K2), una por cada ciclo. Pues bien,
+esta red tiene la curiosa propiedad de ser reversible, si las K? se aplican
+en sentido inverso. En el DES se usan 16 Ks, por lo tanto el DES es un red de
+Feistel con 16 ciclos, pero tiene varias permutaciones que ahora veremos.
+
+
+PERMUTACIONES
+-------------
+
+Una permutacion es basicamente un reordenamiento de los bits del numero
+a permutar. Para permutar un numero se siguen unas tablas que dicen como se
+debe permutar. Hay tres "tipos" de permutaciones.
+
+Las permutaciones en las que el numero de la salida tiene el mismo numero de
+bits que la entrada:
+
+Entrada: 1 0 1 0
+         \ / \ /
+         / \ / \
+Salida:  0 1 0 1
+
+Los bits simplemente se cambian de sitio.
+
+Otro tipo son las de compresion:
+
+Entrada: 1 0 1 0
+         \ /
+         / \
+Salida:  1 0
+
+Aqui la salida ocupa menos bits que la entrada, con lo que algunos bits se
+pierden.
+
+Y por ultimo las de expansion:
+
+Entrada:  0 1 
+          / \ 
+        / \ / \
+Salida: 0 0 1 1 
+
+Igual que las de compresion, pero al reves. Los bits se repiten para crear
+un numero de bits mayor.
+
+Luego veremos mas detenidamente las permutaciones en el DES.
+
+
+LAS (famosas) S-BOXES
+---------------------
+
+S-BOXES quiere decir cajas de sustitucion. En las permutaciones hemos 
+visto como los bits se reordenaban, pero aqui los bits de la salida no tienen
+por que ser los mismos que la entrada. Las S-BOXES son unas "cajas" que toman
+una entrada de 6 bits y devuelven 4 (en el caso del DES).
+
+Mas concretamente son arrays bidimensionales, con 4 filas y 16 columnas.
+Para obtener el indice en la fila se concatenan los bits 1 y 6, y para el
+indice en la columna se concatenan los bits 2, 3, 4 y 5. Voy a poneros un
+ejemplo porque me parace que no os estais enterando ;).
+
+Entrada: 1 0 0 0 1 0
+
+Indice en la fila: 1 0 [2]
+
+Indice en la columna: 0 0 0 1 [1]
+
+El grupo de cuatro bits que este en la posicion [2][1] sera la salida para la
+entrada 1 0 0 0 1 0.
+
+
+EL DES
+------
+
+Ahora empieza lo bueno :). Vamos a ir desde el principio. 
+
+Paso por paso:
+
+Lo primero es poner la clave a usar en el algoritmo. Se usa una clave de 64 
+bits de longitud. A esta clave se le aplica una permitacion que la trunca a
+56 bits, eliminando los bits de paridad, y reordenando los restantes. Ahora 
+la clave de 56 bits se parte en dos de 28, y se van *rotando* cada parte 
+independientemente de la otra dos bits hacia la izquierda en cada ciclo, 
+menos para los ciclos 1, 2, 9 y ultimo, que se despalaza solo uno. Ahora 
+tenemos 16 claves de 56 bits. Cada una de estas claves se permuta siguiendo
+una permutacion de compresion, que la trunca a 48 bits, y ya, (por fin :) 
+tenemos las 16 claves de 48 bits que usaremos en la red de Feistel.
+
+Ahora vamos a cifrar un bloque de 64 bits. Lo primero que se hace es 
+aplicarle una permutacion "normal" (ni de expansion ni de compresion), con lo
+que obtenemos el bloque permutado. Ahora se parte el bloque en dos mitades,
+L y R. A continuacion comienzan los 16 ciclos:
+
+- La parte derecha (R) se expande a 48 bits, siguiendo una permutacion de 
+expansion.
+
+- Ahora se realiza un XOR entre la R expandida y la clave correspondiente al
+ciclo, y el resultado se guarda en R.
+
+- Ahora llegan las S-BOXES. El DES tiene ocho distintas. El bloque de 48 bits
+"XOReado" se divide en 8 bloques de 6 bits, y cada uno de eso bloques de 6 
+bits se usa como entrada en las S-BOXES. Cada S-BOX devuelve un numero de 4
+bits. La salida de la S-BOXES se concatena, formando de nuevo un numero de 
+bits.
+
+- Ahora se realiza otra permutacion "normal" sobre el bloque de 32 bits, 
+oteniendose otro bloque de 32 bits permutado, que llamaremos F.
+
+- Este bloque (F) se XORea con la parte izquierda (L) del bloque inicial,
+y el resultado se guarda en F.
+
+- Ahora la parte izquierda se intercambia con la derecha, pero OJO, con la
+parte derecha del pricipio del ciclo, la que no ha sido permutada, y la
+parte derecha se intercambia con F. Entonces el ciclo vuelve a empezar.
+En el ultimo ciclo no hay que intercambiar las mitades.
+
+Ahora, despues de los 16 ciclos, tenemos las dos mitades del principio, ya
+encriptadas. Las volvemos a unir, en un bloque de 64 bits, y las permutamos
+con la permutacion _inversa_ de la inicial (esa que se aplicaba al bloque
+a encriptar). El resultado es el bloque encriptado. 
+
+Si quieres encriptar el bloque las claves se van aplicando desde la 1 a la 
+16. Si quieres desdencriptar se aplican desde la 16 a la 1. 
+
+Como veis es un algoritmo bastante complicado. 
+
+
+CODIGO FUENTE
+-------------
+
+Pues estuve buscando el codigo fuente, y encontre 3 o 4, pero curiosamente
+lo que un programa cifraba el otro no era capaz de descifralo :-?. Cifraban
+de forma distinta, จcomo es posible? Entonces estuve buscando algun estandar o
+algo parcido, y lo encontre en el libro "Criptografia" de Manuel Lucena, que
+os lo podeis bajar de Kriptopolis (os lo recomiendo). En el libro vienen unos
+valores de prueba para el DES, que os pongo a continuacion:
+
+Cifrando el bloque 0000000000000000 con clave 01234567890abcdef:
+
+Clave : 0123456789abcdef
+
+Eleccion Permutada : f0ccaa0aaccf00 -> L=f0ccaa0 R=aaccf00
+Llaves intermedias (Ki):
+K01 = 0b02679b49a5 K02 = 69a659256a26 K03 = 45d48ab428d2 K04 = 7289d2a58257
+K05 = 3ce80317a6c2 K06 = 23251e3c8545 K07 = 6c04950ae4c6 K08 = 5788386ce581
+K09 = c0c9e926b839 K10 = 91e307631d72 K11 = 211f830d893a K12 = 7130e5455c54
+K13 = 91c4d04980fc K14 = 5443b681dc8d K15 = b691050a16b5 K16 = ca3d03b87032
+
+Texto Plano : 0000000000000000
+Bloque permutado : 0000000000000000
+Paso01 : L=00000000 R=2f52d0bd Paso02 : L=2f52d0bd R=0cb9a16f 
+Paso03 : L=0cb9a16f R=15c84a76 Paso04 : L=15c84a76 R=8e857e15 
+Paso05 : L=8e857e15 R=20ac7f5a Paso06 : L=20ac7f5a R=526671a7 
+Paso07 : L=526671a7 R=d1ae9ee9 Paso08 : L=d1ae9ee9 R=6c4bbb2c 
+Paso09 : L=6c4bbb2c R=92882868 Paso10 : L=92882868 R=694a6072 
+Paso11 : L=694a6072 R=a0a3f716 Paso12 : L=a0a3f716 R=0a0d3f66 
+Paso13 : L=0a0d3f66 R=e672c20e Paso14 : L=e672c20e R=c0dbacf2 
+Paso15 : L=c0dbacf2 R=0b78e40c Paso16 : L=0b78e40c R=2f4bcfcd 
+Resultado sin permutar:2f4bcfcd0b78e40c
+Resultado final :d5d44ff720683d0d
+
+
+Pues bien, ninguno de los programas que me baje lo hacia asi, asi que decidi
+hacer mi propia implementacion del DES. Aqui teneis el programa. 
+Si lo compilais normal:
+
+gcc -o DES DES.c
+
+Creara el un programa igual que el que hicimos al principio, cifrara ficheros
+usando el DES.
+
+Pero si lo compilais asi:
+
+gcc -o DES -DDEBUG DES.c
+
+Y lo ejecutais os saldran los valores de prueba del libro "Criptografia",
+para que veais que de verdad funciona :).
+
+Aqui lo teneis:
+
+<++> programas/DES.c
+
+#include <stdio.h>
+#include <stdlib.h>
+
+/* 
+Variables globales
+*/
+
+u_long enclavesd[16];
+u_long enclavesi[16];
+
+u_long declavesd[16];
+u_long declavesi[16];
+
+u_long bits32[32];
+
+/* 
+Las tablas de permutaciones de la clave y el 
+bloque a encriptar
+*/
+
+u_char tabla_clave[56] = {
+57, 49, 41, 33, 25, 17, 9, 1, 
+58, 50, 42, 34, 26, 18, 10, 2, 
+59, 51, 43, 35, 27, 19, 11, 3, 
+60, 52, 44, 36, 63, 55, 47, 39,
+31, 23, 15, 7, 62, 54, 46, 38,
+30, 22, 14, 6, 61, 53, 45, 37,
+29, 21, 13, 5, 28, 20, 12, 4
+};
+
+u_char tabla_comp_clave[48] = {
+14, 17, 11, 24, 1, 5, 3, 28,
+15, 6, 21, 10, 23, 19, 12, 4,
+26, 8, 16, 7, 27, 20, 13, 2,
+41, 52, 31, 37, 47, 55, 30, 40,
+51, 45, 33, 48, 44, 49, 39, 56,
+34, 53, 46, 42, 50, 36, 29, 32
+};
+
+u_char PI[64] = {
+58, 50, 42, 34, 26, 18, 10, 2,
+60, 52, 44, 36, 28, 20, 12, 4,
+62, 54, 46, 38, 30, 22, 14, 6,
+64, 56, 48, 40, 32, 24, 16, 8,
+57, 49, 41, 33, 25, 17, 9, 1,
+59, 51, 43, 35, 27, 19, 11, 3,
+61, 53, 45, 37, 29, 21, 13, 5,
+63, 55, 47, 39, 31, 23, 15, 7
+};
+
+u_char tabla_expan[48] = {
+32, 1, 2, 3, 4, 5, 4, 5,
+6, 7, 8, 9, 8, 9, 10, 11,
+12, 13, 12, 13, 14, 15, 16, 17,
+16, 17, 18, 19, 20, 21, 20, 21,
+22, 23, 24, 25, 24, 25, 26, 27,
+28, 29, 28, 29, 30, 31, 32, 1 
+};
+
+u_char PF[64];
+
+u_char sbox[8][64];
+
+u_char sboxes[8][64] = {
+/* S1 */
+14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7 ,
+0, 15, 7, 4, 14, 2, 13, 1, 10, 6, 12, 11, 9, 5, 3, 8,
+4, 1, 14, 8, 13, 6, 2, 11, 15, 12, 9, 7, 3, 10, 5, 0,
+15, 12, 8, 2, 4, 9, 1, 7, 5, 11, 3, 14, 10, 0, 6, 13 ,
+
+/* S2 */
+15, 1, 8, 14, 6, 11, 3, 4, 9, 7, 2, 13, 12, 0, 5, 10,
+3, 13, 4, 7, 15, 2, 8, 14, 12, 0, 1, 10, 6, 9, 11, 5,
+0, 14, 7, 11, 10, 4, 13, 1, 5, 8, 12, 6, 9, 3, 2, 15,
+13, 8, 10, 1, 3, 15, 4, 2, 11, 6, 7, 12, 0, 5, 14, 9,
+
+/* S3 */
+10, 0, 9, 14, 6, 3, 15, 5, 1, 13, 12, 7, 11, 4, 2, 8,
+13, 7, 0, 9, 3, 4, 6, 10, 2, 8, 5, 14, 12, 11, 15, 1,
+13, 6, 4, 9, 8, 15, 3, 0, 11, 1, 2, 12, 5, 10, 14, 7,
+1, 10, 13, 0, 6, 9, 8, 7, 4, 15, 14, 3, 11, 5, 2, 12,
+
+/* S4 */
+7, 13, 14, 3, 0, 6, 9, 10, 1, 2, 8, 5, 11, 12, 4, 15,
+13, 8, 11, 5, 6, 15, 0, 3, 4, 7, 2, 12, 1, 10, 14, 9,
+10, 6, 9, 0, 12, 11, 7, 13, 15, 1, 3, 14, 5, 2, 8, 4,
+3, 15, 0, 6, 10, 1, 13, 8, 9, 4, 5, 11, 12, 7, 2, 14,
+
+/* S5 */
+2, 12, 4, 1, 7, 10, 11, 6, 8, 5, 3, 15, 13, 0, 14, 9,
+14, 11, 2, 12, 4, 7, 13, 1, 5, 0, 15, 10, 3, 9, 8, 6,
+4, 2, 1, 11, 10, 13, 7, 8, 15, 9, 12, 5, 6, 3, 0, 14,
+11, 8, 12, 7, 1, 14, 2, 13, 6, 15, 0, 9, 10, 4, 5, 3,
+
+/* S6 */
+12, 1, 10, 15, 9, 2, 6, 8, 0, 13, 3, 4, 14, 7, 5, 11,
+10, 15, 4, 2, 7, 12, 9, 5, 6, 1, 13, 14, 0, 11, 3, 8,
+9, 14, 15, 5, 2, 8, 12, 3, 7, 0, 4, 10, 1, 13, 11, 6,
+4, 3, 2, 12, 9, 5, 15, 10, 11, 14, 1, 7, 6, 0, 8, 13,
+
+/* S7 */
+4, 11, 2, 14, 15, 0, 8, 13, 3, 12, 9, 7, 5, 10, 6, 1,
+13, 0, 11, 7, 4, 9, 1, 10, 14, 3, 5, 12, 2, 15, 8, 6,
+1, 4, 11, 13, 12, 3, 7, 14, 10, 15, 6, 8, 0, 5, 9, 2,
+6, 11, 13, 8, 1, 4, 10, 7, 9, 5, 0, 15, 14, 2, 3, 12,
+
+/* S8 */
+13, 2, 8, 4, 6, 15, 11, 1, 10, 9, 3, 14, 5, 0, 12, 7,
+1, 15, 13, 8, 10, 3, 7, 4, 12, 5, 6, 11, 0, 14, 9, 2,
+7, 11, 4, 1, 9, 12, 14, 2, 0, 6, 10, 13, 15, 3, 5, 8,
+2, 1, 14, 7, 4, 10, 8, 13, 15, 12, 9, 0, 3, 5, 6, 11
+};
+
+u_char pbox[32] = {
+16, 7, 20, 21, 29, 12, 28, 17,
+1, 15, 23, 26, 5, 18, 31, 10,
+2, 8, 24, 14, 32, 27, 3, 9,
+19, 13, 30, 6, 22, 11, 4, 25
+};
+
+u_char desplaza[16] = {
+1, 1, 2, 2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 2, 1
+};
+
+void DES_clave(char *clave)
+{
+u_long sclavei, sclaved;
+u_long dclavei, dclaved;
+u_long ti, td, tmpi, tmpd;
+int c,bit,ciclo,desp = 0;
+
+sclavei = *(long*) clave;
+sclaved = *(long*) (clave + 4);
+
+/*
+Permutacion de la clave:
+Se reordenan los bits de la clave para dar un numero de 56
+bits. Los bits de paridad se eliminan.
+
+NOTA: el bit Nง1 corresponde al MSD, asi que los bits eliminados
+son el 8, 16, 24, ...
+*/
+
+dclavei = dclaved = 0;
+for (c = 0; c < 28; c++) {
+bit = tabla_clave[c];
+dclavei |= (((bit > 32) ? (sclaved & bits32[bit - 33]) : (sclavei & bits32[bit - 1])) << (bit - ((bit > 32 ? 33 : 1)))) >> c; 
+bit = tabla_clave[c + 28];
+dclaved |= (((bit > 32) ? (sclaved & bits32[bit - 33]) : (sclavei & bits32[bit - 1])) << (bit - ((bit > 32 ? 33 : 1)))) >> c; 
+}
+
+#ifdef DEBUG
+printf(" Clave : %08x%08x\n\n",sclavei,sclaved);
+printf(" Eleccion Permutada : %07x%07x -> L=%07x R=%07x\n",(dclavei >> 4),(dclaved >> 4),(dclavei >> 4),(dclaved >> 4));
+#endif
+
+tmpi = dclavei;
+tmpd = dclaved;
+
+for (ciclo = 0; ciclo < 16; ciclo++) {
+
+desp += desplaza[ciclo];
+
+dclavei = (tmpi << desp) | (tmpi >> (28 - desp));
+dclaved = (tmpd << desp) | (tmpd >> (28 - desp)); 
+
+/*
+La clave permutada se desplaza 2 bits a la izquierda
+en cada ciclo, menos en el 1, 2, 9 y el ultimo, que se
+desplaza 1.
+Despues se comprime de acuerdo a la tabla tabla_comp_clave[]
+y se guarda en arrays para usarla en DES_cifrar()
+*/
+
+ti = td = 0;
+for (c = 0; c < 24; c++) {
+bit = tabla_comp_clave[c];
+ti |= ((((bit > 28) ? (dclaved & bits32[bit - 29]) : (dclavei & bits32[bit - 1])) << (bit - (((bit > 28) ? 29 : 1)))) >> c);
+bit = tabla_comp_clave[c + 24];
+td |= ((((bit > 28) ? (dclaved & bits32[bit - 29]) : (dclavei & bits32[bit - 1])) << (bit - (((bit > 28) ? 29 : 1)))) >> c);
+}
+
+enclavesi[ciclo] = declavesi[15 - ciclo] = ti;
+enclavesd[ciclo] = declavesd[15 - ciclo] = td;
+/*
+enclavesx contiene las claves ordenadas para encriptar y 
+declavesx contiene (evidentemente) las claves para
+esencriptar
+*/
+}
+
+#ifdef DEBUG
+printf(" Llaves intermedias (Ki):\n");
+for (c = 1; c <= 16; c++) {
+printf(" K%02i = %06x%06x",c,(enclavesi[c - 1] >> 8),(enclavesd[c - 1] >> 8));
+if (!(c % 4)) printf("\n");
+}
+#endif
+
+} 
+
+void DES_cifrar(char bloque[8], char salida[8], int flag)
+{
+u_long d, i, iz, de;
+u_long d48, i48;
+u_long pb, f;
+u_long ri, rd;
+u_long *clavesi, *clavesd;
+int c, bit, ciclo;
+
+iz = *(long*) bloque;
+de = *(long*) (bloque + 4);
+
+if (!flag) {
+clavesi = enclavesi;
+clavesd = enclavesd;
+} else {
+clavesi = declavesi;
+clavesd = declavesd;
+}
+
+/*
+Aqui se permuta el bloque a encriptar siguiendo 
+la tabla PI[] (Permutacion Inicial)
+*/
+
+i = d = 0;
+
+for (c = 0; c < 32; c++) {
+bit = PI[c];
+i |= (((bit > 32) ? (de & bits32[bit - 33]) : (iz & bits32[bit - 1])) << (bit - ((bit > 32 ? 33 : 1)))) >> c; 
+bit = PI[c + 32];
+d |= (((bit > 32) ? (de & bits32[bit - 33]) : (iz & bits32[bit - 1])) << (bit - ((bit > 32 ? 33 : 1)))) >> c; 
+}
+
+#ifdef DEBUG 
+printf("\n Texto Plano : %08x%08x\n",iz,de);
+printf(" Bloque permutado : %08x%08x\n",i,d);
+#endif
+
+/* 
+Comienzan los 16 ciclos
+*/
+
+for (ciclo = 0; ciclo < 16; ciclo++) {
+
+d48 = i48 = 0;
+
+/*
+Aqui se expande la parte derecha del bloque
+de 32 a 48 bits, siguendo la tabla tabla_expan[]
+*/
+
+for (c = 0; c < 24; c++) {
+bit = tabla_expan[c];
+i48 |= ((d & bits32[bit - 1]) << (bit - 1)) >> c; 
+bit = tabla_expan[c + 24];
+d48 |= ((d & bits32[bit - 1]) << (bit - 1)) >> c; 
+}
+
+/*
+XOR de la clave correspondiente al ciclo y el
+trozo de bloque expandido
+*/
+
+i48 ^= clavesi[ciclo];
+d48 ^= clavesd[ciclo];
+
+/* 
+Desplazo el bloque "XOReado" 1 byte a la derecha,
+ya que esta alienado a la izquierda
+*/
+
+i48 >>= 8;
+d48 >>= 8;
+
+/*
+Este es el unico paso no-lineal. Se usan los bits
+del bloque "XOReado" en grupos de 6 como indices
+para las S-Boxes. Estas ultimas devuelven 4 bits,
+que se van concatenando para dar un numero de 32 
+bits.
+*/
+
+pb = (sbox[0][(i48 >> 18)] << 28);
+pb |= (sbox[1][((i48 >> 12) & 0x3f)] << 24);
+pb |= (sbox[2][((i48 >> 6) & 0x3f)] << 20);
+pb |= (sbox[3][(i48 & 0x3f)] << 16);
+pb |= (sbox[4][(d48 >> 18)] << 12);
+pb |= (sbox[5][((d48 >> 12) & 0x3f)] << 8);
+pb |= (sbox[6][((d48 >> 6) & 0x3f)] << 4);
+pb |= (sbox[7][(d48 & 0x3f)]);
+
+/*
+Y la ultima permutacion del ciclo. Se reordenan
+los bits de 'pb', de acuerdo a la tabla pbox[]
+*/
+
+f = 0;
+for (c = 0; c < 32; c++) {
+bit = pbox[c];
+f |= ((pb & bits32[bit - 1]) << (bit - 1)) >> c; 
+}
+
+/*
+Se "XORean" 'f' y la parte izquierda del bloque, guardandose
+el resultado en la parte derecha, pero antes se copia la derecha
+en la izquierda
+*/
+
+f ^= i;
+i = d;
+d = f;
+
+#ifdef DEBUG
+printf(" Paso%02i : L=%08x R=%08x ",ciclo+1,i,d);
+if (!((ciclo+1) % 2)) printf("\n");
+fflush(stdout);
+#endif
+
+}
+
+/*
+En el ultimo ciclo no hay que intercambiar la parte derecha con
+la izquierda, asi que deshacemos el cambio
+*/
+
+f = i;
+i = d;
+d = f;
+
+/*
+Y aqui se permuta el resultado de acuerdo a PF[],
+que es la inversa de PI[]
+*/
+
+ri = rd = 0;
+for (c = 0; c < 32; c++) {
+bit = PF[c];
+ri |= (((bit > 32) ? (d & bits32[bit - 33]) : (i & bits32[bit - 1])) << (bit - ((bit > 32 ? 33 : 1)))) >> c; 
+bit = PF[c + 32];
+rd |= (((bit > 32) ? (d & bits32[bit - 33]) : (i & bits32[bit - 1])) << (bit - ((bit > 32 ? 33 : 1)))) >> c; 
+}
+
+#ifdef DEBUG
+printf(" Resultado sin permutar:%08x%08x\n",i,d);
+printf(" Resultado final :%08x%08x\n",ri,rd);
+#endif
+
+*(long*) salida = ri;
+*(long*) (salida + 4) = rd;
+
+/* The End */
+}
+
+void DES_inicializa()
+{
+u_long c, d, e, f, g;
+
+/* Rellenar el array bits32[] */
+
+for (c = 0, d = 0x80000000; c < 32; c++, d /= 2) bits32[c] = d; 
+
+/* Rellenar la permutacion inversa de PI (PF) */
+
+for (c = 0; c < 64; c++) PF[PI[c] - 1] = c + 1;
+
+/*
+Colocar el array de S-Boxes en sbox de forma que 
+en este ultimo se puedan utilizar los grupos de 6
+bits como indices, sin tener que concatenar b0,b5 
+para la fila y b1-b4 para la columna
+*/
+
+for (c = 0; c < 8; c++) 
+for (d = 0; d < 64; d++) 
+sbox[c][d] = sboxes[c][((((d & 32) >> 4) | (d & 1)) * 16) + ((d & 30) >> 1) ];
+
+
+}
+
+
+void uso(char *ar)
+{
+printf("Uso:\n");
+printf("\t%s <fichero_entrada> <fichero_salida> <clave> <0|1>\n", ar);
+printf("\t0 : cifra\n");
+printf("\t1 : descifra\n");
+exit(0);
+}
+
+int main(int argc, char **argv)
+{
+char clave[9];
+char bloque1[8], bloque2[8];
+long *b1, *b2;
+FILE *fin, *fout;
+int cifrar;
+
+#ifdef DEBUG
+b1 = &clave[0];
+b2 = &clave[4];
+
+*b1 = 0x01234567;
+*b2 = 0x89ABCDEF;
+
+memset(bloque1, 0, 8);
+
+DES_inicializa();
+DES_clave(clave);
+DES_cifrar(bloque1, bloque2, 0);
+exit(0);
+#endif
+
+if (argc < 5) uso(argv[0]);
+
+fin = fopen(argv[1], "r");
+if (!fin) {
+printf(" Error abriendo el fichero de entrada\n");
+exit(0);
+}
+
+fout = fopen(argv[2], "w");
+if (!fout) {
+printf(" Error creando el fichero de salida\n");
+exit(0);
+}
+
+memset(clave, 0, 9);
+strncpy(clave,argv[3], 8);
+printf(" Usando clave %s\n", clave);
+
+DES_inicializa();
+DES_clave(clave);
+
+cifrar = atoi(argv[4]);
+
+if (!cifrar) printf("Cifrando...");
+else printf("Descifrando...");
+fflush(stdout);
+
+memset(bloque1, 0, 8);
+while (fread(bloque1, 1, 8, fin) > 0) {
+DES_cifrar(bloque1, bloque2, cifrar);
+fwrite(bloque2, 1, 8, fout);
+memset(bloque1, 0, 8);
+}
+fflush(NULL);
+printf("hecho!\n");
+
+fclose(fin);
+fclose(fout);
+return 0;
+}
+<-->
+
+Un pequeคo apunte: la clave tiene que ser de 8 caracteres.
+
+
+CIFRANDO PASSWORDS EN UNIX
+--------------------------
+
+Seguro que mas de uno sabeis que el famoso crypt() de unix es una
+variante del DES, pero, จsabeis realmente como es?. Yo me hice esa misma
+pregunta, y aqui teneis la respuesta:
+
+- Se usa una variacion llamada salt, que varia el algoritmo en uno de 4096
+modos diferentes. El salt es un numero de 12 bits, que lo que hace es lo
+siguiente:
+
+- Primero se "da la la vuelta", si el salt es 0011, se convierte en 1100.
+El resultado son los llamdados "saltbits". Es decir, que si el salt es 1,
+saltbits valdra, 0x80000000, un 1 con 31 ceros detras.
+
+- Ahora volvamos a los 16 ciclos, justo despues de la expansion de la parte
+derecha (R) a 48 bits. Yo os dije que ahora se Xoreaba la parte derecha
+expandida con la clave correspondiente a ese ciclo; pues ahora no. La
+parte derecha expandida se parte en dos, r48l y r48r, de 24 bits cada una,
+y estas se Xorean entre si, y el resultado se somete a un AND logico con
+los saltbits, y el resultado (me estoy rallando xD) se guarda en una 
+variable temporal f. Ahora la clave correspondiente al ciclo tambien se
+parte en dos, y se Xorean de la siguiente manera:
+
+r48l ^= f ^ clave_izquierda; 
+r48r ^= f ^ clave_derecha;
+
+Ahora las dos mitades se vuelven a unir y se sigue el algoritmo normalmente.
+
+- Pero todavia queda una modificacion: los 16 ciclos del DES... se repiten 25
+veces. Si habeis leido bien, 25.
+
+Pero todavia se me queda algo en el tintero: si el DES opera con numeros,
+จcomo es posible que los passwords cifrados sean 13 caracteres imprimibles?
+Pues muy facil. Para cifrar un password se usa como clave el password en si,
+y como entrada se usa un bloque de 64 bits en los que todos son ceros, y 
+devuelve un bloque de 64 bits. Este bloque de salida se cifra con algoritmo
+parecido al base64, cogiendo bloques de 6 bits y sustituyendolos por una
+del array ascii64[]. 64 / 6 da 10 coma algo, redondeando a 11, y los dos
+caracteres restantes, ญel salt!, 12 bits entre 6 da 2. 11 + 2 = 13. 
+
+
+            <Ripe: Hemos decidido adjuntar un fichero con la
+                   libreria libcrypt que contiene la funcion
+                   crypt() de manera que podais entenderlo
+                   mejor>

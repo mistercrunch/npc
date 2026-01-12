@@ -1,0 +1,256 @@
+diff -Naur grub-0.90/stage2/cmdline.c grub-0.90-1232/stage2/cmdline.c
+--- grub-0.90/stage2/cmdline.c	Tue Oct 17 15:37:27 2000
++++ grub-0.90-1232/stage2/cmdline.c	Fri Jun 28 11:08:58 2002
+@@ -191,8 +191,8 @@
+       if (errnum)
+ 	{
+ 	  errnum = ERR_NONE;
+-	  grub_printf ("\nPress any key to continue...");
+-	  (void) getkey ();
++	//  grub_printf ("\nPress any key to continue...");
++	//  (void) getkey ();
+ 	  return 1;
+ 	}
+ 
+@@ -241,3 +241,4 @@
+       (builtin->func) (arg, BUILTIN_SCRIPT);
+     }
+ }
++
+diff -Naur grub-0.90/stage2/stage2.c grub-0.90-1232/stage2/stage2.c
+--- grub-0.90/stage2/stage2.c	Fri May 25 09:57:57 2001
++++ grub-0.90-1232/stage2/stage2.c	Fri Jun 28 11:29:10 2002
+@@ -27,6 +27,7 @@
+ static const char *preset_menu = PRESET_MENU_STRING;
+ static int preset_menu_offset;
+ 
++
+ static int
+ open_preset_menu (void)
+ {
+@@ -312,6 +313,10 @@
+   int disp_up = DISP_UP;
+   int disp_down = DISP_DOWN;
+ 
++  /* ----- ORK Begin ----- */
++  int Bcmos, FB_default = 0, FB_fallback = 0, FB_nlast, cmos_address, i, FB_ndefault, FB_nfallback;
++  /* ----- ORK End ----- */
++
+   /*
+    *  Main loop for menu UI.
+    */
+@@ -794,13 +799,86 @@
+  boot_entry:
+   /* Enable the auto fill mode.  */
+   auto_fill = 1;
+-  
++
++  /* ----- ORK Begin ----- */
++
++  cmos_address = 120;
++
++  cls ();
++
++  Bcmos = cmos_read_byte (cmos_address);  
++
++  FB_default= Bcmos & 0x1;
++  FB_fallback= (int) (Bcmos & 0x2)>>1;
++  FB_ndefault= (int) (Bcmos & 0xc)>>2;
++  FB_nfallback= (int) (Bcmos & 0x30)>>4;
++  FB_nlast= (int) (Bcmos & 0xc0)>>6;
++
++  // first_entry + entryno = current selection
++  // first_entry + fallback_entry = fallback selection
++
++  // If FB_nfallback != fallback (in config file) change
++  if (fallback_entry >= 0)
++    {
++       if (FB_nfallback!=(first_entry + fallback_entry))
++         {
++            FB_nfallback = fallback_entry + entryno;
++            FB_fallback = 0;
++         }
++    }
++  else
++    {
++       goto esegui;  // Momentaneamente, forse da rivedere !!
++    }
++
++
++fallback:
++
++
++  if (FB_ndefault == (first_entry + entryno))
++    {
++       if (FB_default==0)
++         {
++           grub_printf("ESEGUO IL KERNEL DI DEFAULT !\n");
++           FB_default=1;
++         }
++       else
++         {
++           grub_printf("L'ULTIMA VOLTA IL KERNEL DI DEFAULT NON E' PARTITO CORRETTAMENTE !\n");
++           grub_printf("ESEGUO IL KERNEL DI FALLBACK !\n");
++           FB_fallback=1;
++           
++           cur_entry = NULL;
++           first_entry = 0;
++           entryno = fallback_entry;
++           fallback_entry = -1;
++         }
++    }
++  else
++    {
++       grub_printf("ESEGUO IL KERNEL SELEZIONATO (NON QUELLO DI DEFAULT) !\n");
++    }
++
++esegui:
++
++    FB_nlast = first_entry + entryno;
++
++    // Update the cmos byte
++    Bcmos = (char) FB_default | (char) FB_fallback <<1 | (char) FB_ndefault <<2 | (char) FB_nfallback <<4 | (char) FB_nlast <<6;
++
++    cmos_write_byte (cmos_address, Bcmos); 
++
++
++    // Inizialize watchdog
++    activate_watchdog();
++
++  /* ----- ORK End ----- */
++
+   while (1)
+     {
+-      cls ();
+ 
+       if (config_entries)
+-	printf ("  Booting \'%s\'\n\n",
++	printf ("\n  Booting \'%s\'\n\n",
+ 		get_entry (menu_entries, first_entry + entryno, 0));
+       else
+ 	printf ("  Booting command-list\n\n");
+@@ -817,16 +895,15 @@
+ 	    break;
+ 	  else
+ 	    {
+-	      cur_entry = NULL;
+-	      first_entry = 0;
+-	      entryno = fallback_entry;
+-	      fallback_entry = -1;
++               goto fallback;
+ 	    }
+ 	}
+       else
+ 	break;
+     }
+ 
++after:
++
+   show_menu = 1;
+   goto restart;
+ }
+@@ -1053,3 +1130,104 @@
+ 	}
+     }
+ }
++
++
++//
++// Funzioni per leggere e scrivere nella CMOS 
++//
++
++static inline unsigned char
++inb (unsigned short port)
++{
++  unsigned char data;
++
++  __asm __volatile ("inb %1,%0" :"=a" (data):"d" (port));
++  return data;
++}
++
++static inline void
++outb (unsigned short port, unsigned char val)
++{
++  __asm __volatile ("outb %0,%1"::"a" (val), "d" (port));
++}
++
++
++static inline void
++cmos_write_byte (int loc, int val)
++{
++  outb (0x70, loc);
++  outb (0x71, val);
++}
++
++static inline unsigned
++cmos_read_byte (int loc)
++{
++  outb (0x70, loc);
++  return inb (0x71);
++}
++
++
++
++
++//
++// Funzioni per il supporto al watchdog
++//
++
++
++#define WDT_CTRL_REG		0x30
++#define WDT_OUTPIN_CFG		0xe2
++#define WDT_EVENT_INT		0x00
++#define WDT_EVENT_REBOOT	0x08
++#define WDT_UNIT_SEL		0xf1
++#define WDT_UNIT_SECS		0x80
++#define WDT_TIMEOUT_VAL		0xf2
++#define WDT_TIMER_CFG		0xf3
++
++void eurwdt_write_reg(unsigned char index, unsigned char data)
++{
++   int io = 0x3F0;
++   outb(io, index);
++   outb(io+1, data);
++}
++
++void eurwdt_set_timeout(int timeout)
++{
++   eurwdt_write_reg(WDT_TIMEOUT_VAL, (unsigned char) timeout);
++}
++
++void eurwdt_disable_timer(void)
++{
++   eurwdt_set_timeout(0);
++}
++
++void activate_watchdog(void)
++{
++   grub_printf("Activate WD\n");
++   outb(0x3f0, 0x55);
++   eurwdt_write_reg(0x07, 0x08);   /* set the logical device */
++
++   eurwdt_disable_timer();
++   eurwdt_write_reg(WDT_CTRL_REG, 0x01);      /* activate the WDT */
++   eurwdt_write_reg(WDT_OUTPIN_CFG, WDT_EVENT_REBOOT);
++   eurwdt_write_reg(WDT_TIMER_CFG, 11<<4);
++   eurwdt_write_reg(WDT_UNIT_SEL, WDT_UNIT_SECS);   /* we use seconds */
++   eurwdt_set_timeout(0);
++   eurwdt_set_timeout(200);                           
++}
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++

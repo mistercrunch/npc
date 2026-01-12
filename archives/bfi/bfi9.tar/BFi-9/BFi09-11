@@ -1,0 +1,817 @@
+==============================================================================
+------------[ BFi numero 9, anno 3 - 03/11/2000 - file 11 di 21 ]-------------
+==============================================================================
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ LiBVSK - LiBRERiE PER iL C0NTR0LL0 DEL TRAFFiC0 A USERLEVEL
+-----[ vecna <vecna@s0ftpj.org> 
+
+
+Quando ho avuto quest'idea non lo so` proprio... poco a poco pero` una cosa
+che mi pareva impossibile prendeva poco a poco forma nella mia testa e dopo
+un po` di mesi di sofferenza erano nati 2 file addirittura compilabili :)
+
+Per leggere questo articolo e comprenderlo un po' e` necessario conoscere:
+a) un po' di C, 
+b) un po' di programmazione di rete, 
+c) le man page packet(4) ipfw_chains(4) ip(4) ioctl_list(2).
+
+
+1 - INTRODUZIONE 
+
+Cosa sono queste "libvsk"?
+Ssono delle funzioni raccolte in una libreria, ma cosa permettono di fare?
+Bhe... ti consentono di prendere i pacchetti in arrivo al kernel prima del
+kernel stesso e girano a userlevel... e qualcosa di particolare si puo`
+fare :) .
+Sono sviluppate su linux 2.2.* ma anche sul 2.4.* girano.
+
+Il principio di funzionamento e` questo:
+
+1) settiamo una regola di filtraggio come se lo facessimo con ipchains, in
+   questo modo i pacchetti corrispondenti a certe caratteristiche verrano
+   bloccati dal kernel
+2) prendiamo un programmino che legga i pacchetti in arrivo a datalink layer,
+   come uno sniffer
+3) spedendo dei pacchetti tali da essere filtrati, noteremo che questi si
+   fermeranno a kernel level, ma a datalink layer noi riusciamo a leggerli.
+
+e questo ci consente di costruire una serie di funzioni che ci faccia lavorare
+sia con i pacchetti in uscita che con i pacchetti in entrata indipendetemente
+dal kernel... per assurdo si potrebbe costruire uno stack TCP/IP a se` stante
+a userlevel, ma penso sia superfluo.
+
+Per entrare piu` nei dettagli:
+
+         [2]<-------------[1]<----[device esterno] pacchetto in arrivo
+    	                   |
+         voi siete qui-----|
+
+[1]: parte del kernel addetta al filtraggio e al check dei pacchetti.
+[2]: parte del kernel che controlla il pacchetto e verifica se corrisponde
+     a qualcuno dei socket aperti, in questo caso lo passa al processo a 
+     userlevel, altrimenti risponde a dovere (RST o port unreachable di 
+     solito).
+
+Noi siamo, come dice il disegnino stupido, li` in mezzo, in questo modo
+potremo a nostra discrezione decidere cosa prendere e cosa lasciar passare;
+il bello e` che noi possiamo anche prendere con il nostro processo, fare
+qualcosa, e poi riinviare al kernel come se non fosse succeso niente... o se
+non al kernel lo possiamo inviare a un altro host, o cambiare qualcosa dentro
+il pacchetto...
+Insomma, questa tecnica offre il controllo completo di tutto il traffico di
+rete a vosta discrezione e pericolo :)
+
+
+2 - CODICE
+
+Il pacchetto "libvsk-1.0.tar.gz" contiene i seguenti file:
+README = una brevissima descrizione del funzionamento e delle funzioni 
+libvsk.h = header da includere nel caso si usasse libvsk
+libvsk.c = l'unico file, con un semplice "gcc -c libvsk.c -o libvsk.o" lo
+           compilate e poi lo linkate normalmente, non ho ritenuto utile
+           far usare opzioni stile "-lvsk" ...
+ipfwc_kernel_headers.h = header necessario per il controllo del filtraggio
+                         (preso da ipchains-1.3.9)
+example/spf.c = simple packet forwarder, codice che trovate spiegato dopo
+example/Makefile = ... :)
+
+- FUNZIONI DI LIBRERIA -
+
+Le funzioni sono 11, di cui 4 normalmente utlizzabili dai codici propri, e 7
+chiamate da queste 4.
+
+Considerando che un programma che le usa solitamente ha come scopo quello di
+leggere un determinato traffico e poi farci qualcosa, le funzioni saranno
+piu` o meno:
+
+	1) setto la regola di filtraggio e inizio lo sniffing
+	2) leggo il traffico che arriva su quell'interfaccia
+	   (questo punto puo` essere migliorato usando i filtri delle
+	    libpcap, altrimenti si usa il punto 3)
+	3) controllo i campi del pacchetto e vedo se corrisponde
+	   al tipo di pacchetto filtrato.
+	4) faccio quello che devo fare con il pacchetto e magari lo
+	   riinvio.
+
+- FUNZIONI DI ALTO LIVELLO -
+
+Le 4 funzioni *normalmente* usate sono:
+
+[1]	int set_vsk(struct vskopt *);
+
+In questo modo si setta la regola di filtraggio, viene fatta passandogli un
+puntatore ad una struttura di tipo "vskopt" che vediamo qui:
+
+	struct vskopt
+		{
+		char *source;
+		char *dest;
+		int l_sport, h_sport;
+		int l_dport, h_dport;	
+		char *iface;
+		int command;
+		int proto;
+		char io:1;
+		};
+
+grazie alla quale specifichiamo il tipo di pacchetto da filtrare; i campi
+sono:
+	
+	source & dest = host sorgente e destinazione passati sotto forma di
+			ip come puntatore (quello che poi viene passato a
+			inet_addr(char *); )
+	*_*port       = low source port, high source port, low dest port,
+			high dest port, se le porte vengono indicate uguali
+			non viene usato alcun range (come se filtrassimo tutto
+			il traffico diretto alla http dovremmo indicare:
+			l_sport =0;
+			h_sport =0;
+			l_dport =h_dport =80;
+			potremmo indicare come porta sorgente dalla 1024 in su
+			per essere piu` corretti).
+	iface	      = interfaccia sul quale filtrare, e` molto importante
+			che non sia NULL altrimenti verra` applicato a tutte
+			le interfaccie, e anche il sistema che uso per il	
+			riinvio dei pacchetti verrebbe fregato, si puo` usare
+			come NULL quando si sa` per certo che quel tipo di
+			pacchetto non dovra` arrivare in alcun modo dopo
+			il kernel.
+	command	      = IP_FW_INSERT o IP_FW_DELETE (ce ne sono altri,
+			li trovate in ipfwc_kernel_headers.h questi 2 
+			servono per inserire o cancellare regole.
+	proto	      = numero che indica il protocollo da usare filtrare, se 
+			e` 0 si riferisce a tutti i protocolli (0 e` IP e cmq
+			0 o NULL sono il valore che si deve dare a questi 
+			campi nella struttura nel caso si voglia sostituirlo 
+			con "any")
+	io            = Input/Output, 1 nel caso si voglia controllare il 
+			traffico in entrata, 0 nel caso si controlli 
+			quello in uscita.
+
+Questa funzione chiama set_vsk_param() dopo aver espanso i paramentri, 
+l'utilizzo della struttura per il passaggio dei dati l'ho implementato 
+solo per facilitare il passaggio degli argomenti.
+
+Dopo aver settato la regola di filtraggio, con:
+# ipchains -L 
+si potra` vedere il proprio operato letto da /proc/net/ip_fwchains.
+
+La funzione restituisce un valore < di 0 in caso di errore (ed e` -errno),
+questa regola vale per tutti le chiamate che restituiscono un valore int.
+o il file descriptor a datalink level che si usera` per sniffare.
+
+[2]	int get_offset(int, char *);
+
+Questa funzione si prende come argomenti il fd del socket a datalik e il
+nome dell'interfaccia attraverso un puntatore e restituisce un numero pari
+alla grandezza dell'header a datalink (header PPP, Ethernet, FDDI...) e serve
+quando bisogna scartare questi byte dal pacchetto letto per farlo analizzare.
+
+[3]	int resend(int, void *, struct sockaddr_in, int, char *, int);
+
+resend serve per riinviare i pacchetti dopo che sono stati elaborati o meno, 
+gli si passa in ordine:
+
+	file descriptor, di tipo SOCK_RAW
+
+	puntatore a void, lo dichiaro cosi` perche` i pacchetti
+			  possono essere lavorati dal programma con le
+			  strutture previste in libvsk.h (ipkt tipkt, 
+			  uipkt, iipkt) senza dar troppi problemi. 
+
+	struttura sockaddr_in del caso da passare a sendto.
+
+	il quarto int e` la lunghezza del pacchetto, di solito 
+	ntohs(struct.ip.tot_len)	
+
+	puntatore a nome dell'interfaccia = da usare (vedi dopo dettagli in
+					    "manipolate_route")
+	flag 	= per indicare un'altra cosa riguardate il "manipulate_route",
+		  di solito va bene passare il nome dell'interfaccia e 0, 
+		  cmq leggete bene la descrizione di "manipulate_route".
+
+Questa funzione restituisce il numero di byte inviati o -1 in caso di errore
+(restituisce lo stesso valore della sendto() usata all'interno).
+
+[4]	int check_packet(void *, int);
+
+Legge il pacchetto e lo verifica con la struttura di controllo firewall 
+(essendo globale statica in libvsk.c), se e` uno dei pacchetti filtrati torna 
+1, se no torna 0.
+
+Gli si passa come primo argomento un puntatore al pacchetto e come secondo il 
+valore identificativo del protocollo come definito in /etc/protocols .
+
+Con queste 4 funzioni elementari e` gia` possible creare programmi che prima
+non era possibile fare se non a kernelevel, come vedrete dopo negli esempi :)
+
+- FUNZIONI DI BASSO LIVELLO -
+
+[5]	int set_vsk_param(char *, char *, 
+		int [], char *, int, int, int, int, int);
+
+Questa e` la funzione chiamata da set_vsk, a sua volta chiama una serie di
+funzioni che svolgono i vari lavori e controlla il valore di ritorno; se
+si vogliono impostare particolari flag o inverted flag (gli ultimi 2
+campi) bisogna usare questa funzione. Di default passo 0, 0, piu` sotto
+trovate info.
+
+[6]	int fill_fw(int [], char *, int, int, int, int, int);
+	int setmaskaddr(char *, int);
+
+Queste funzioni preparano la struttura da passare a setsockopt() in modo
+da rendere funzionante la regola di filtraggio. setmaskaddr e` una funzione
+in via si sviluppo, nel senso che potrebbe prendere sia l'indirizzo da
+filtrare che la netmask a cui far riferimento, e volevo gestire anche gli
+hostname da qui, quindi poter passare da "host.com/24" a "123.123.123.123/8",
+per ora prende solo l'ip senza netmask e lo setta come unico ip a cui far
+riferimento, se gli si passa NULL prende tutto in considerazione, il secondo
+parametro serve per indicare se l'indirizzo passato va` riferito agli ip
+sorgenti o destinatari.
+Nel codice trovarte un #ifdef TEST #else #endif, il codice incluso e` quello
+dopo l'#else, che firewalla solo un ip per volta (sorgente e destinazione) e
+non risolve l'hostname, non prende la netmask. In ogni caso, quel codice
+funziona e puo` essere utile se si voglia lavorare con delle subnet.
+(occhio che check_packet non fa' il check della netmask anche se dovrebbe!).
+
+La struttura da loro poco a poco riempita e` contenuta in
+"ipfwc_kernel.headers.h" ed e`:
+
+struct ip_fw
+	{
+        struct in_addr fw_src, fw_dst; 
+        struct in_addr fw_smsk, fw_dmsk;
+        __u32 fw_mark;
+        __u16 fw_proto;
+        __u16 fw_flg;
+        __u16 fw_invflg;
+        __u16 fw_spts[2];
+        __u16 fw_dpts[2];
+        __u16 fw_redirpt;
+        __u16 fw_outputsize;
+        char  fw_vianame[IFNAMSIZ];
+        __u8  fw_tosand, fw_tosxor;
+	};
+
+	fw_src fw_dst	= ip mittente e destinatario.
+	fw_smsk fw_dmsk = netmask per l'estensione delle classi di ip da
+			  considerare durante il filtraggio.
+	fw_mark		= se vien settato tra i flag IP_FW_F_MARKABS,
+			  fw_mark viene sostituito alla mark della skbuff.
+			  non e` implementato (forse ora lo e`, ma non l'ho
+			  mai visto)
+	fw_proto	= tipo di numero di protocollo, visualizzabile
+			  in /etc/protocols o tramite getprotobyname()
+	fw_flag		= tutti i flag che possono essere indicati:
+
+#define IP_FW_F_PRN     0x0001  /* Print packet if it matches */
+#define IP_FW_F_TCPSYN  0x0002  /* For tcp packets-check SYN only */
+#define IP_FW_F_FRAG    0x0004  /* Set if rule is a fragment rule */
+#define IP_FW_F_MARKABS 0x0008  /* Set the mark to fw_mark, not add. */
+#define IP_FW_F_WILDIF  0x0010  /* Need only match start of interface name. */
+#define IP_FW_F_NETLINK 0x0020  /* Redirect to netlink: 2.1.x only */
+#define IP_FW_F_MASK    0x003F  /* All possible flag bits mask   */
+
+			  di cui trovate la spiegazione nella man page,
+		 	  se vi interessa implementarli sara` necessario
+			  che la leggiate :)
+
+	fw_invflg 	= nel caso alcuni campi/flag si volessere usare
+			  nel modo inverso, in modo da lavorare su 
+			  tutti i pacchetti tranne quelli indicati in
+			  tal campo o dal flag.
+
+#define IP_FW_INV_SRCIP 0x0001  /* Invert the sense of fw_src. */
+#define IP_FW_INV_DSTIP 0x0002  /* Invert the sense of fw_dst. */
+#define IP_FW_INV_PROTO 0x0004  /* Invert the sense of fw_proto. */
+#define IP_FW_INV_SRCPT 0x0008  /* Invert the sense of source ports. */
+#define IP_FW_INV_DSTPT 0x0010  /* Invert the sense of destination ports. */
+#define IP_FW_INV_VIA   0x0020  /* Invert the sense of fw_vianame. */
+#define IP_FW_INV_SYN   0x0040  /* Invert the sense of IP_FW_F_TCPSYN. */
+#define IP_FW_INV_FRAG  0x0080  /* Invert the sense of IP_FW_F_FRAG. */
+
+			  Per il significato dei flag man ipfw_chains :)
+
+	fw_spts, fw_dtps= array con dentro low source port ecc... come 
+			  precedentemente messo nella vskopt per indicare 
+			  i range di porte.
+	fw_redirpt	= porta ove redirigiere il traffico (REDIRECT)
+	fw_outputsize	= e` possibile impostare la grandezza massima 
+			  dei pacchetti in uscita se e` settato il flag 
+			  IP_FW_F_NETLINK tramite una verifica con il 
+			  netlink device (dove fwdump e altri codici
+			  simili leggevano i pacchetti).
+	fw_vianame	= nome dell'interfaccia dove effettuare il
+			  filtraggio, se NULL tutte
+	fw_tosand	
+	fw_tosxor	= nel caso la regola sia "ACCEPT", quindi i
+			  pacchetti specificati vengano comunque
+			  accettati, e` possibile fare l'and o xor del ToS
+			  del pacchetto con il valore contenuto qui dentro.
+
+L'utilizzo completo di questa struttura si ha mediante ipchains, io l'ho 
+riportata perche` non e` troppo facile implementarla nei propri codici, ma
+risulta utile, sia con le libvsk che senza.
+
+[7]	int make_dl_socket(char *);
+
+In se non ha nulla di particolare... prende una certa interfaccia e
+restituisce un socket a datalink da usare per sniffer... ma qui si puo` vedere
+una delle poche implementazioni della chiamata PF_PACKET, ovvero
+un'interfaccia sostitutiva della chiamata SOCK_PACKET per accedere al datalink
+layer. E` implementata nel kernel 2.2, siccome questo sistema (a causa del
+sistema di filtraggio) funziona solo sul 2.2 (e 2.4 anche, c'e` il modulo per
+tenere la compatibilita` di ipchains al posto di netfilter) non sara`
+necessario definire "SOCKPKT" (che includerebbe il vecchio codice).
+
+int make_dl_socket(char *device)
+	{
+	int fd;
+#ifdef SOCKPKT 
+	fd =socket(AF_INET, SOCK_PACKET, /* htons(ETH_P_IP) */ 0);
+	if(fd == -1)
+		return -errno;
+#else
+        struct sockaddr_ll dlsfd;
+	struct ifreq ifr;
+
+	memset(&ifr, 0, sizeof(struct ifreq));
+	memset(&dlsfd, 0, sizeof(struct sockaddr_ll));
+
+        fd = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_IP));
+	if(fd ==-1)
+		return -errno;
+
+        dlsfd.sll_family =AF_PACKET;
+        dlsfd.sll_protocol =htons(ETH_P_IP);
+
+        strncpy(ifr.ifr_name, device, sizeof(ifr.ifr_name));
+
+        if (ioctl (fd, SIOCGIFINDEX, &ifr) == -1)
+                return -errno;
+        dlsfd.sll_ifindex =ifr.ifr_ifindex;
+
+        if (ioctl (fd, SIOCGIFHWADDR, &ifr) == -1)
+                return -errno;
+        memcpy(&dlsfd.sll_addr,&ifr.ifr_hwaddr.sa_data,sizeof(dlsfd.sll_addr));
+
+        dlsfd.sll_halen =sizeof(dlsfd.sll_addr);
+
+#endif
+
+	return fd;
+	}
+
+E cosi` vanno :) per maggiori info man page di packet(4).
+
+Mentre finivo di scrivere quest'articolo ho visto i programmi fwdump e
+return-rst: questi programmi leggevano i pacchetti filtrati a netlink. Questo
+sistema e` molto piu` semplice che usare l'accesso al datalink, per info
+potete consultare le man page netlink(3) e netlink(7) oltre che questi due
+codici che trovate su packetstorm.  
+
+Ho aggiunto in seguito una funzione sostitutiva a make_dl_socket in modo che
+vengano letti i pacchetti sul netlink device:
+
+[7.1]	int open_netlink(void);
+[4.1]	void *get_nl_packet(int);
+
+Sostituiscono make_dl_socket e check_packet, non serve in questo caso lavorare
+sull'offset del datalink header. get_nl_packet legge i pacchetti e restituisce
+solo quelli interessati, l'argomento passato e` il descrittore restituito 
+da open_netlink.
+NB: queste funzioni non le ho mai usate (le ho implementate dopo aver visto
+    l'utilizzo del netlink device cosi` a titolo informativo). Fatemi sapere
+    se ci sono problemi. 
+
+[8]	int manipulate_route(char *, int, int);
+
+Questa funzione e` essenziale se si vuole ritrasmettere il pacchetto sullo
+stesso host dove gira il filtro, se noi applichiamo una regola di filtraggio
+per un certo tipo di pacchetto, dopo averlo anche letto confrontato loggato o
+altro, e` possibile che lo vogliamo ritrasmettere anche senza aver cambiato 
+parametri che lo fanno rientrare tra i pacchetti filtrati (ne` il pacchetto 
+arriverebbe ne` il nostro programma funzionerebbe, perche` lo stesso pacchetto
+continuerebbe ad essere ritrasmesso facendoci entrare in un loop infinito).
+
+Supponiamo di voler fare un programma che legga tutto il traffico verso
+telnetd, lo legga e lo mandi su telnetd (ovvero lo rimandi a se stesso in
+modo che il kernel legga il pacchetto e lo passi al socket che ascolta
+sulla 23).
+
+1 -> filtro interfaccia estrna + mio socket a datalink
+2	-> nostro programma 
+3		-> kernel
+4			-> telnetd.
+
+Tuttavia, in questo caso, siccome l'ip destinazione non verrebbe alterato,
+quando il kernel riceve il pacchetto lo inoltra secondo la propria tabella di
+routing, MA, sull'interfaccia sul quale routera` il pacchetto, c'e` il nostro
+filtro... (dal punto 2 al punto 3 si troverebbe ancora in filtro...) e si
+entrerebbe in un ciclo infinito.
+
+Quindi, per ovviare a questo inconveniente ho messo questa funzione che cambia
+la tabella di routing per se stesso (per l'indirizzo sull'interfaccia esterna)
+in modo da forzare quel traffico sull'interfaccia interna ("lo" di default).
+
+int manipulate_route(char *iface, int action, int flag)
+	{
+        struct rtentry rt;
+        struct sockaddr_in sin;
+	static int do_force;
+        int fd, ret =1;
+
+	if(!flag && do_force)
+		return ret;
+	else
+		do_force =1;
+
+        memset( (char *)&rt, 0, sizeof(struct rtentry));
+
+        /* Target address. (ip of external interface) */
+        strncpy(ifr.ifr_name, iface, sizeof(ifr.ifr_name));
+        if (ioctl (fd, SIOCGIFHWADDR, &ifr) == -1)
+                return -errno;
+
+        memcpy(&rt.rt_dst, &ifr.ifr_hwaddr.sa_data, sizeof(struct sockaddr));
+
+        /* Target network mask (IP).  */
+        sin.sin_family = AF_INET;
+        sin.sin_addr.s_addr =inet_addr("255.255.255.255");
+        memcpy(&rt.rt_genmask, (struct sockaddr*)&sin, sizeof(struct sockaddr));
+
+        rt.rt_flags = RTF_HOST;
+        rt.rt_dev =iface;
+
+        fd = socket(AF_INET, SOCK_DGRAM, 0);
+
+	/* if action != 0 ADD, if action == 0 DEL */
+        if (action) 
+		{
+                if (ioctl(fd, SIOCADDRT, &rt) < 0)
+			ret =0;
+		}
+	else
+		{
+                if (ioctl(fd, SIOCDELRT, &rt) < 0)
+			ret =0;
+		}
+
+        close(fd);
+	return ret;
+	}
+
+[9]	int work_entry(ip_chainlabel, struct ip_fwuser *, int );
+[10]	int do_setsockopt(int, void *, int);
+
+Queste due funzioni servono per ultimare la struttura di controllo per il
+filtraggio, vengono ultimate con dei valori fissi e poi viene passata a
+setsockopt(), ipchains -L e vedrete la entry aggiunta.
+Queste funzioni cmq non dovrebbero servirvi. 
+
+3 - ESEMPI
+
+Esempi di codice ce ne possono essere a bizzeffe... ids? firewall attivi?
+sistemi per dirottare il traffico? hijacker remoti? dns hijacker? sistemi di
+amministrazione remota solo per un certo host o solo con particolari requisiti
+che convivono con un servizio qualunque :) ? sistemi per lo spoofing vedente?
+l'unico limite e` la fantasia :)
+
+Qui ne propongo uno semplice semplice.
+
+<-| libvsk/spf.c |->
+	/* 	
+	**	vecna - vecna@s0ftpj.org
+	**	simple packet forwarder from datalink level
+	**	using libvsk - unique file "spf.c"
+	*/
+
+#include "libvsk.h"
+#include <errno.h>
+
+extern int errno;
+
+#define fatal(M)	{	   \
+			perror(M); \
+			exit(0);   \
+			}
+
+int check_dup(struct ipkt *);
+void setport(char *, char *, int[]); 
+
+int main(int argc, char **argv)
+	{
+	int dlsfd, rsfd, opt, proto, forward, hdrincl =1, offset =0, x,
+	port[4]={0, 0xFFFF, 0, 0xFFFF};
+	/* 
+	**	datalink sockfd, raw sockfd, options index, proto 
+	**	listened, offset is size datalink protocol header 
+	**	port[4] array for puts source/dest/high/low port
+	*/
+	char *iface;
+	/* 	
+	**	interface name.
+	*/
+	char *ipsrc, *ipdst;
+	/* 
+	**	ipsrc =fucked host, ipdst =bnc ip
+	*/
+	unsigned int real;
+	/*
+	**	real ip of attacker where forward packets
+	*/
+	char *rcvd =malloc(sizeof(struct ipkt));
+	/*
+	**	memory area where put packet, packet is readed with
+	**	datalink header, offset is size of this header and
+	**	is used on main cicle, *rcvd is delclared here for
+	**	make only one allocation.
+	*/
+
+	printf("\t simple packet forwarded for multiple pourpose\n");
+	printf("\t by vecna - vecna@s0ftpj.org - www.s0ftpj.org\n\n");
+
+	if(argc != 11)
+		{
+		printf( "\t usage %s -t -n -p -i -s"
+			"\n\t -t source of packet"
+			"\n\t -n new destination"
+			"\n\t -s service (UDP/TCP) type (ICMP) 0 if any"
+			"\n\t -p protocol"
+			"\n\t -i interface"
+		        "\n",argv[0]);
+		exit(0);
+		}
+
+	while(( opt = getopt(argc, argv, "t:n:i:p:s:")) != -1)
+		{
+		struct protoent *pe;	
+		switch(opt)
+			{
+			case 't':
+				ipsrc =optarg;
+				break;
+			case 'n':
+				if(( real =inet_addr(optarg)) == -1)
+					{
+					errno =EINVAL;
+					fatal("-r option required IP");
+					}
+				break;
+			case 'p':
+				if ((pe = getprotobyname(optarg)) == NULL)
+					fatal("getprotobyname");
+				proto = pe->p_proto;
+				break;
+			case 'i':
+				iface =optarg;
+				break;
+			case 's':
+                                if(!atoi(optarg))
+                                        break;
+				port[2] =port[3] =atoi(optarg);
+				break;
+			default:
+				if(optarg)
+					fprintf(stderr,"%s on",optarg);
+				errno =EINVAL;
+				fatal(" getopt()");
+				break;
+			}
+		}
+
+	ipdst =NULL;
+
+	if(( dlsfd =set_vsk_param(ipsrc, ipdst, port,
+				iface, proto, IO_IN, IP_FW_INSERT, 0, 0))<0)
+	 	fatal("set_vsk: IP_FW_INSERT");
+
+	/* 
+	**	IP_FW_DELETE must be used on signal(SIGCLOSE, unset_vsk()); 
+	**	or use "ipchains -F", as in this example where filtering 
+	**	rules is not clean after end of program.
+	*/
+
+	if((offset =get_offset(dlsfd, iface)) <0)
+		fatal("get device offset");
+
+	if((forward = socket(AF_INET, SOCK_RAW, proto)) == -1)
+		fatal("forward socket - SOCK_RAW");
+
+	if((x = setsockopt(forward, IPPROTO_IP, IP_HDRINCL, 
+					&hdrincl, sizeof(hdrincl))) == -1)
+		fatal("setsockopt - IP_HDRINCL");
+
+	while(1)
+		{
+		struct ipkt *packet;
+                static int last_id;
+
+		read(dlsfd, rcvd, sizeof(struct ipkt));
+
+		(char *)packet = rcvd + offset; 
+
+		if(check_dup(packet))
+			continue;
+
+/* 	questo e` il ciclo principale, in ordine:
+leggo sul socket a datalink quello che mi arriva, faccio un cast in una
+struttura ipkt che contiene ip header + buffer dati (in questo momento non
+conosco ancora il protocollo di livello inferiore) dopo aver sommato l'offset
+per levare l'header di livello 2, poi con check_dup controllo se e` il 
+pacchetto che ho appena ristrasmesso o se e` un altro pacchetto, poi con
+check_packet controllo se e` uno dei pacchetti filtrati, poi ... vediamo il
+codice ... 	*/ 
+
+		if(check_packet(packet, packet->ip.protocol))
+			{
+			struct sockaddr_in sin;
+
+			struct udphdr *udp;
+			struct tcphdr *tcp;
+			struct icmphdr *icmp;
+
+	/** other manipulation on iphdr can applied here **/
+			packet->ip.daddr = real;
+			packet->ip.check = 0x00;
+
+/* 	bhe, e` abbastanza semplice, qui ho il pacchetto in una struttura 
+ipkt, a seconda del campo "protocol" riesco a fare degli opportuni cast e 
+lavorare anche su quell'header, dopo aver letto o cambiato o fatto qualunque
+cosa al pacchetto...	*/
+
+			switch(packet->ip.protocol)
+				{
+				case IPPROTO_ICMP:
+					(char *)icmp =(char *)packet 
+						+sizeof(struct iphdr);
+					sin.sin_port =htons(0);
+					break;				
+				case IPPROTO_TCP:
+					(char *)tcp =(char *)packet 
+						+sizeof(struct iphdr);
+					sin.sin_port =tcp->dest;
+					break;
+				case IPPROTO_UDP:
+					(char *)udp =(char *)packet 
+						+sizeof(struct iphdr);
+					sin.sin_port =udp->dest;
+					break;
+				default:
+					printf(" PROTOCOL NOT SUPP\n");
+					break;
+	/* 
+	**	other manipulation at icmp/udp/tcp header 
+	**	can applied on switch() 
+	*/
+				}
+
+			sin.sin_family = AF_INET;
+			sin.sin_addr.s_addr = packet->ip.daddr;
+
+			x =resend(forward, packet, sin, 
+					ntohs(packet->ip.tot_len), NULL, 0);
+			if(x < 0)
+				fatal("sendto on forwarding packet");
+			}
+		}
+	free(rcvd);	
+	/* never used :) */
+	}
+
+int check_dup(struct ipkt *packet)
+	{
+	static int last_id;
+	int id =htons(packet->ip.id);
+
+	if(id ==htons(last_id))
+		return 1;
+
+	last_id =packet->ip.id;
+
+	return 0;
+	}
+<-X->
+
+I commenti li ho aggiuti nel codice, quelli in inglese sono il minimo 
+essenziale per mettere il file su packetstorm :) qui un piccolo esempio
+del funzionamento:
+
+-- su un host:
+# ifconfig ed0 
+ed0: flags=8843<UP,BROADCAST,RUNNING,SIMPLEX,MULTICAST> mtu 1500
+        inet 192.168.0.1 netmask 0xffffff00 broadcast 192.168.0.255
+        inet6 fe80::280:48ff:fe8d:7dc%ed0 prefixlen 64 scopeid 0x2
+
+-- sull'altro:
+arkmp:~# ifconfig
+eth0      Link encap:Ethernet  HWaddr 00:A0:24:55:82:91
+          inet addr:192.168.0.10  Bcast:192.168.0.255  Mask:255.255.255.0
+
+arkmp:/home/vecna/wrk/my/libvsk-1.0/example# ./spf
+         simple packet forwarded for multiple pourpose
+         by vecna - vecna@s0ftpj.org - www.s0ftpj.org
+
+         usage ./spf -t -n -p -i -s
+         -t source of packet
+         -n new destination
+         -s service (UDP/TCP) type (ICMP) 0 if any
+         -p protocol
+         -i interface
+arkmp:/home/vecna/wrk/my/libvsk-1.0/example# ./spf -t 192.168.0.1 
+-n 192.168.0.1 -s 0 -p icmp -i eth0
+
+-- quindi tutti gli icmp diretti all'host su cui gira spf, verranno riinviati
+-- all'host mittente.
+
+Ed ecco la dismostrazione, avvio spf e:
+# ping arkmp
+PING arkmp.ubriaco.net (192.168.0.10): 56 data bytes
+64 bytes from 192.168.0.1: icmp_seq=0 ttl=255 time=0.677 ms
+64 bytes from 192.168.0.1: icmp_seq=1 ttl=255 time=0.635 ms
+64 bytes from 192.168.0.1: icmp_seq=2 ttl=255 time=0.622 ms
+64 bytes from 192.168.0.1: icmp_seq=3 ttl=255 time=0.642 ms
+64 bytes from 192.168.0.10: icmp_seq=9 ttl=255 time=0.629 ms
+64 bytes from 192.168.0.10: icmp_seq=10 ttl=255 time=0.560 ms
+
+-- Dal primo ping al terzo spf girava e rimandava i pacchetti a .1 dopo il
+-- terzo ho spento spf, e i pacchetti non sono tornati perche` spf non pulisce
+-- /proc/net/ip_fwchains, dopo l'ottavo invece ho avviato ipchains -F, e ping
+-- e` tornato a funzionare normalmente. 
+-- Non c'e` da stupirsi se ping mostra i pacchetti che riceve anche se non 
+-- sono echo reply, come si trova nei src di ping:
+
+                 * We've got something other than an ECHOREPLY.
+                 * See if it's a reply to something that we sent.
+                 * We can compare IP destination, protocol,
+                 * and ICMP type and ID.
+
+Con tcpdump vediamo chiaramente che, a coppie di due:
+03:40:24.647007 rossa.ubriaco.net > arkmp.ubriaco.net: icmp: echo request
+03:40:24.647318 rossa.ubriaco.net > rossa.ubriaco.net: icmp: echo request
+03:40:25.657101 rossa.ubriaco.net > arkmp.ubriaco.net: icmp: echo request
+03:40:25.657454 rossa.ubriaco.net > rossa.ubriaco.net: icmp: echo request
+
+Ogni pacchetto diretto verso arkmp.ubriaco.net viene immediatamente girato 
+verso rossa.ubriaco.net con l'ip sorgente di rossa. 
+
+Questo cmq e` per quanto riguarda l'icmp... il bello viene quando si fanno
+queste cose con il tcp (il concetto e` lo stesso anche con udp). In questo
+modo pero' dovremo mettere due spf e in questo modo si potrebbe fare
+l'equivalente di uno spoofer vedente...
+
+(1) spf(host mio) -> (2) host target -> (3) spf(host bnc) 
+
+1 = e` il mio host, io telnetto host bnc e l'spf sul mio computer tramuta
+    tutti i pacchetti destinati a bnc host in pacchetti destinati a target
+    host
+2 = target host riceve i miei pacchetti che appaiono provenire da host bnc
+3 = host bnc riceve i pacchetti da target host, e li gira un spf che tutti
+i pacchetti provenienti da target host deve rimandarli a casa mia a nome suo.
+
+In questo modo noi telnettiamo un host, illudiamo sia il nostro kernel che
+il nostro telnet di essere su quell'host, ma invece il traffico che esce
+e` diretto ad un altro :)
+
+In Phrack56 c'e` un bell'articolo dove spiega come dirottare la
+comunicazione di un router in GRE tunnel verso un host, questo host sniffa 
+e rimanda i pacchetti; l'esempio e` fatto con un modulo kernel e uno sniffer.
+Qui potete farlo senza problemi con un programma "simile" a spf, che dopo
+aver ricevuto i pacchetti dal router (e` il router l'host firewallato e
+ricercato dal vostro codice) li riinstrada. Dico "simile" perche` si tratta
+di GRE tunnel e non e` supportato, ma non ci vuole molto per modificarlo e
+farglielo supportare.
+La stessa cosa vale per moduli come OTP che possono essere facilmente
+rimpiazzati a userlevel.
+
+4 - !EOF 
+
+E l'articolo e` finito. Le possibilita` che possono dare queste librerie
+sono tante, magari con le implementazioni del kernel 2.4.* potranno essere
+ancora di piu`. Inizialmente le sviluppai perche` volevo lavorare a kernel
+level senza dover ricorrere agli LKM, di tempo ce n'e` voluto anche perche`
+mi ero intestardito a leggere il sorgente di ipchains, forse sara` per questo
+che ora odio Rusty :) . Il codice non sara` sicuramente perfetto (credo che
+la parte relativa al netlink sia un po` buggata, ripeto che non l'ho mai
+provata)... Per il resto spero qualcuno le utilizzi :)
+
+KNOWLEDGE IS POWER, PUSSY IS LUCK! (c) Master :)
+
+Saluti in ordine di sort: 
+Adryana, ~/amici/*/*, awgn, Ax1s, Christian, !EOF, gli amici spippolatori,
+Gigi Sullivan, Jon Zaid, le strane persone di #boscaglia :), litos, Lisi, 
+LordFelix, maruz, Md, N0bodY88, naif, NaiL, NERvOus, raptor, Sharra, Smilzo, 
+scai, smav, TheDuke, tutta la s0ftpj, Viny
+
+(phroid, se hai fatto "grep -i phroid BFi*" come tuo solito, ciao :)
+
+bye, vecna - questo articolo e` scritto per mezzo dell'editor:
+vecna@arkmp:~$ ls -l /bin/dd
+-rwxr-xr-x    1 root     root        25936 mag  6 14:46 /bin/dd
+
+
+==============================================================================
+--------------------------------[ EOF 11/21 ]---------------------------------
+==============================================================================

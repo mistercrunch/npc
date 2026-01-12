@@ -1,0 +1,296 @@
+<HTML>
+<HEAD>
+</HEAD>
+<BODY  bgcolor=#FFFFFF HEIGHT=100 WIDTH=89 TEXT=#000000 LINK=#0000FF VLINK=#FF0000>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<A NAME="section-1"><H1>CLASS 16</H1></A>
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+
+<center>
+<H2>Data Structures ( continued )</H2>
+
+<H3>Out of Bounds errors</H3>
+</center>
+
+Previously we were looking at the following C declarations:  
+<PRE>
+        int   a[20];
+        char  b[20];
+        short c[20];
+</PRE>
+
+What happens if we access <TT>c[45]</TT>?  What do we get?  Well, the C
+compiler doesn't care, it blindly calculates the offset and adds it to
+the base.  The result is that we make a reference to address:
+<PRE>
+        860 + 45 * 2 = 950;
+</PRE>
+
+Previously we noted that <TT>&a = 920, &b = 900,</TT> and 
+<TT>&c = 860</TT>.    So a reference to <TT>c[45]</TT> is really a 
+reference to part of the array <TT>a</TT>! 
+ <P>
+
+This could happen all too easily.  Say we executed:
+<PRE>
+        short j;
+        int x = 45;
+        j = c[x];
+</PRE>
+
+What would j contain?  It would contain a short made up of the low two
+bytes from element <TT>a[7]</TT>.  That is, <B>garbage</B>.  There is no
+check either in C or in assembly language that an array reference is
+safe; you just have to be sure of what you are doing.
+ <P>
+
+Even more dangerously, consider what might happen if an assignment were
+made to <TT>c[45]</TT>.  The programmer might not even know that she had
+inadvertently (and wierdly) modified the value of <TT>a[7].</TT>
+ <P>
+
+In contrast to C and assembler, some languages do provide bounds-checks
+on each array reference.  As you can see, the hardware doesn't help do
+this, so the language's compiler must insert extra code before each
+array reference to make sure that the index is in range.   These bounds
+checks slow the program down, but they ensure that the programmer is
+always notified as soon as an erroneous array reference is made.   This is
+another example of a tradeoff between ease-of-use and performance.
+ <P>
+
+How should we decide this tradeoff?  A language like C has decided to
+.... you guessed it, <B>optimize the common case</B>.  (Note that C has become
+a very popular language, in part due to design decisions like this
+one).  Most often, array references are <I>not</I> in error.  So the reference
+checks are usually not reporting anything.  However, if reference checks
+are used, the programmer must always pay for them.   
+ <P>
+
+Two alternative approaches are sometimes used.  First, languages like
+Pascal allow <b>reference checks to be "turned off"</b>.  That is, while the
+program is being developed and debugged, we tell the compiler to insert
+reference checks.  Correctness is more important than performance at
+this point in the process.   Later, when we are (more or less) convinced
+that the program is correct, we turn reference checks off.  Then program
+will run at top speed.
+ <P>
+
+The other approach is the one used with C and assembler.  The basic idea
+is to <b>use some other tool to tell us when references are out of bounds</b>
+-- that is, the <b>debugger</b>.  Some debuggers don't work as well for this
+job, but if it's not a common problem, then we are willing to use this
+approach in the rare instances it's necessary.  And we get fast code
+from the compiler all the time.
+ <P>
+
+<hr>
+<center>
+<H3>Multidimensional Arrays</H3>
+</center>
+
+The mapping of a one-dimensional array onto memory is particularly
+simple because the array index and the memory locations both increase
+linearly, so we can use an expression like
+<PRE>
+ address_of_first_element + i * size_of_array_element_in_bytes
+</PRE>
+to calculate the address of array element <TT>i</TT>.
+ <P>
+
+However, arrays of two dimensions and higher are quite useful so we need
+a way of mapping them onto linear memory, too.   If you look at a 2D
+array, there are two obvious ways to map it onto memory:  
+<UL>
+<LI> place all the rows side by side in memory -- <I>row major order</I>
+<LI> place all the columns side by side in memory -- <I>column major order</I>
+</UL>
+
+For the most part we will concentrate on row major order, since that is
+used in C and most other languages, but be aware that Fortran uses
+column major order!
+ <P>
+
+When indexing an array, the index order is always (row, column).  That
+is, the column index is last.  So under row-major ordering, if you look
+at the elements in memory, it is the column index that varies fastest.
+For example, consider the array
+<PRE>
+        int a[3][3];
+</PRE>
+in memory this looks like:
+<PRE>
+----------------------------------------------------------------------
+| a[0][0] | a[0][1] | a[0][2] | a[1][0] | a[1][1] | a[1][2] | a[2][0]  ...
+----------------------------------------------------------------------
+</PRE>
+So, for row major ordering, the <B>LAST</B> index varies <B>FAST</B>est.
+ <P>
+
+How do you calculate the location in memory of array element <TT>a[i][j]</TT>?
+<p>
+You need to calculate the start of its row in memory, which is:
+<PRE>
+  row index * elements per row * sizeof an element =
+  i * 3 * 4
+</PRE>
+and then determine its offset within a row, which is:
+<PRE>
+  column index * sizeof an element =
+  j * 4
+</PRE>
+So the complete expressions is
+<PRE>
+  (row index * elements per row * sizeof an element) +
+  (column index * sizeof an element)
+</PRE>
+For the array <TT>a</TT>, this is: <TT>(i * 3 * 4) + (j * 4)</TT>.
+
+<p>
+It's important to note that in order to calculate the address of an
+element, you need to know the size of a row.   Compare this to 1-D
+arrays where the size of the array was unimportant in calculating
+addresses. 
+ <P>
+
+We can define higher dimension arrays analogously.  In the case of
+<PRE>
+  int b[4][3][2];
+</PRE>
+the last dimesion varies fastest, the middle dimension not as fast, and
+the first dimension varies slowest:
+<PRE>
+----------------------------------------------------------------------
+| b[0][0][0] | b[0][0][1] | b[0][1][0] | b[0][1][1] | b[0][2][0] ...
+----------------------------------------------------------------------
+</PRE>
+
+<P>
+The element of the array can be accessed as:
+
+<P>
+<b>int arr[i][j][k]</b> ;
+
+<P>
+Here, i,j,k, are the locations of the element to be accessed.
+
+<P>
+Here also, if we assume a <b>row-major ordering</b> of the array, then the 
+elements of the array are stored in contiguous memory locations 
+such that the elements increase in the order. 
+
+<P>
+The element stored in arr[i][j][k] can be accesssed by : 
+
+<P>
+%fp + (arr_s) + (i * dj * dk * 4) + (j * dk * 4) + (k* 4)
+
+<P>
+or
+
+<P>
+%fp + (arr_s) + ((i * dj + j) * dk + k) * 4
+
+<P>
+where 4 is the number of bytes required to store an integer.
+
+<P>
+Also, <b>di,dj,dk</b> are the <b>maximum values for each dimension</b>.
+
+<P>
+In <b>column major</b>, the formula will be the same, but i,j,k would be 
+replaced by k,j,i respectively, and di,dj,dk by dk,dj,di respectively.
+
+<P>
+In case of Sparc Assembly, C qnd C++, we assume a row-major 
+ordering of arrays and other data structures.
+
+<P>
+<b>Another Example</b>: 
+
+<pre>
+int ary[5][10][6];
+</pre>
+
+<P>
+In this case, a total of 5*10*6*4 = 1200 bytes of storage 
+required on the stack. 
+
+<PRE>
+define(ary_s, -1200)
+save %sp, (-64 -1200) &amp; -8, %sp
+==&gt; save %sp, -1264, %sp
+</PRE>
+
+<P>
+Also, to access any element, eg. arr[3][4][5], the offset 
+will be: 
+
+<PRE>
+[%fp + ary_s + (3 * 10 * 6 * 4) + (4 * 6 * 4) + ( 5 * 4)]
+</PRE>
+
+<P>
+<b>Another simple example</b>: Let us consider a two dimensional array:
+
+<PRE>
+arr[3][2]
+</PRE>
+
+<P>
+There are a total of <b>6 elements</b> in this array :
+
+<P>
+arr[0][0], arr[0][1], arr[1][0], arr[1][1], arr[2][0], arr[2][1] in 
+that order at locations -24, -20, -16, -12, -8, and -4.
+
+<P>
+They require 3 * 2 * 4 bytes of memory = <b>24 bytes</b>.  So the array 
+would be defined as:
+<Pre>
+define(arr_s, -24)
+</Pre>
+
+Now, to access element <b>arr[2][1]</b>, the command will be:
+<Pre>
+    [%fp + arr_s + (2 * 2 * 4 + 1 * 4)]
+ =  [%fp + (-24) + (16 + 4)]
+ =  [%fp - 4] 
+</Pre>
+
+<hr>
+<P>
+<center>
+<H3> Address Arithmetic </H3>
+</center>
+
+<P>
+When we have to calculate the offset from an address in case of 
+multi-dimensional arrays, it usually involves multiplication of 
+addresses with constants. 
+
+<P>
+The best way to accomplish these multiplications is by shifting 
+and adding rather than by using .mul instruction. e.g.
+
+<Pre>
+<b>Multiply contents of %o0 by 5</b> 
+
+mov  %o0, %o1             ! times 1
+sll  %o0, 2, %o0          ! times 4
+add  %o0, %o1, %o1        ! times 5
+</Pre>
+
+<P>
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<H3>
+For class 17 notes, <A HREF="class17.html">click here</A>
+</H3>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<H3>
+For more information, contact me at <A HREF="mailto:tvohra@mtu.edu">tvohra@mtu.edu</A>
+</H3>
+
+</BODY>
+</HTML>

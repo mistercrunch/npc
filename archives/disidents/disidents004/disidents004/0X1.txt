@@ -1,0 +1,424 @@
+
+                     -+-| DisidentS Hack Journal #4 |-+-
+
+
+
+
+
+
+  _____________________________________________________________________
+ |                                                                     |
+ | -- Titulo_____: Conociendo el funcionamiento de la Pila             |
+ | -- Autor______: ZevenheX                                            |
+ | -- Team_______: Disidents España - http://www.disidents.org         |
+ | -- Tema_______: Ensamblador                                         |
+ |_____________________________________________________________________|
+
+
+
+
+.==========================================================================.
+|===========~ INDICE ~======================================================
+|===========================================================================
+|=~ 1.0 Introducción                                                       | 
+|=~ 2.0 Importancia de la pila                                             | 
+|=~ 3.0 La pila                                                            |
+|=~ 4.0 Instrucciones para manejar la pila                                 |
+|=~ 5.0 Registros para manejar la pila                                     |
+|=~ 6.0 Puntos claves para comprender su funcionamiento                    |
+|=~ 7.0 Estructura de una función                                          |
+|=~ 8.0 Administración de funciones                                        |
+|=~ 9.0 Prologo de una funcion                                             |
+|=~ 10.0 Epilogo de una funcion                                            |
+|=~ 11.0 Convenciones de llamada                                           |
+|=~ 12.0 Convencion _cdecl                                                 |
+|=~ 13.0 Convencion _stdcall                                               |
+|=~ 14.0 Notas finales                                                     |
+|=~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~=.
+======================================================~ INDICE ~============
+============================================================================
+
+
+
+.==========================================================================.
+|=======~ 1.0 INTRODUCCION     ~============================================
+|===========================================================================
+
+
+Antes que nada, decirles que este es el primer tutorial que escribo, asi que 
+espero no se desesperen si no se explicarme bien. Aqui pretendo  explicar de 
+forma amena, explicita y muy "estructurada" el funcionamiento de la pila del 
+sistema y como identificar parametros de  funciones  para poder  seguirlos y 
+espiar lo que se hace con ellos, ya que  como  alguien  dijo  alguna vez los 
+problemas se resuelven y se comprenden mas rapido y  facil  dividiendolos en 
+secciones para estudiar cada una de ellas y asi poder sacar conclusiones ;-D
+
+ Bueno, despues de esto, espero comprendan lo que tratare de explicarles, ya 
+que nada basta con memorizar, sino que hay que "comprenderlo".
+
+
+.==========================================================================.
+|=======~ 2.0 IMPORTANCIA DE LA PILA   ~====================================
+|===========================================================================
+
+Para un cracker el funcionamineto de la pila es indispensable(no necesario), 
+ya que facilita el traceo de todo programa, y te ahorrara  tiempo si  es que 
+quieres localizar variables y/o seguir los procedimientos  que se le aplican 
+a alguna de ellas. Por ejemplo puede ser  que  quieras  programar un keygen, 
+para esto tendras que  seguir  la  variable que te interese y ver a donde se 
+copea, donde se  utiliza, donde se encripta, etc, ya que localizes ese punto 
+podras seguir con calma el procedimiento que se le aplica a la variable para 
+generar  el  serial  valido. Otro ejemplo puede ser que sigas paso a paso el 
+serial  incorrecto  que  ingresaste  dentro  de la función clave para ver en 
+donde se compara con el  valido.  Asi  que  definitivamente si comprendes el 
+funcionamiento de la pila te ahorraras bastante tiempo crackeando ;-P.
+
+
+.==========================================================================.
+|=======~ 3.0 LA PILA     ~=================================================
+|===========================================================================
+
+La  pila  es  un sitio en la memoria, que es direccionado por medio del Seg-
+mento de Pila(SS(Stack Segment)). Sirve para almacenar datos, ya sean  argu-
+mentos de alguna función, direcciones de memoria o algun parametro  devuelto 
+por una función. Las instrucciones basicas para manejar la  son  PUSH y POP,
+aunque existen algunas variaciones de estas que adelante describire.
+
+El funcionamiento de la pila es muy simple, imagina que tienes varios platos 
+y te dispones a  apilarlos, el primer plato que pongas quedara hasta abajo y 
+por consiguiente sera el ultimo que puedas sacar,y el ultimo que pongas sera 
+el que primero puedas sacar. Pero hay un detalle si encimas los platos, esto
+ira creciendo hacia arriba cada vez que pongas uno y la pila del sistema  no 
+crece de esa manera, crece hacia abajo, va de direcciones de memoria altas a 
+direcciones de memoria bajas, cada vez que empujas un dato con PUSH  la pila 
+se decrementara y cada vez que saques un dato con POP la pila crecera(no  en 
+tamaño, sino  en  direccion de memoria),  asi de simple funciona la pila del 
+sistema.
+
+Hay otro par de detalles, el sistema  se vale del Segmento  de Pila(SS) para 
+direccionar la pila, ESP(Puntero Extendido a la Pila) y EBP(Puntero Extendi-
+do a la Base de la Pila) para poder manejar la pila, ESP apuntara siempre  a 
+la cima de la pila y EBP a la base de la pila, que no por ser la  base  sera 
+una dirección mas baja en memoria que la cima como ya explique. 
+
+Veamos una animacion que simule la pila para que quede mas claro.
+
+.==========================================================================.
+|=======~ 4.0 INSTRUCCIONES PARA MANEJAR LA PILA     ~======================
+|===========================================================================
+
+
++ PUSH
+
+Descipción: Guarda en la pila una doble palabra para uso posterior.El regis-
+tro ESP apunta a la doble palabra actual en la cima de la pila. Disminuye en 
+4 ESP y transfiere una doble palabra desde el  operando  especificado  a  la 
+nueva cima de la pila. El origen puede ser un registro de proposito general, 
+un registro de segmento, una localidad de memoria o un dato directo.
+
+
++ PUSHA - PUSHAD
+
+Descripción: Guarda en la pila los valores actuales de los registros de pro-
+posito general, como son: AX,  CX,  DX, BX, SP, BP, SI, DI, en el orden men-
+cionado y disminuye ESP en 16 o en 32 si se usa PUSHAD para  guardar  dobles 
+palabras. 
+
+Codificación: 0110 0000, 60h
+
++ PUSHF
+
+Descripción: Guarda en la pila los valores del registro de banderas y decre-
+menta ESP en 2 bytes o en 4 bytes si se usa PUSHFD, depositando en  la  pila 
+dobles palabras.
+
+Codificacion: 1001 1100, 9Ch
+
+
++ POP
+
+Descipción:  Saca de la pila una doble palabra previamente guardada, envian-
+dolo el dato a alguna localización en especifico, ya sea registro de propos-
+ito general, registro de segmento o localidad de memoria. Incrementa tambien 
+ESP en 4.
+
+
++ POPA - POPAD
+ 
+Descripción:  Saca de la pila ocho palabras, enviandolas a DI,  SI,  BP, SP, 
+BX, DX, CX, AX en ese orden e incremeneta ESP en 16 o en 32 si se usa POPAD, 
+sacando de la pila ocho dobles palabras.
+
+Observación: Modifica el registro de banderas.
+
+Codificación: 0110 0001, 61h
+
+
++ POPF - POPFD
+
+Descripción: Saca una palabra de la pila y la manda al regsitro de banderas 
+e incrementa ESP en 2, o en 4 si se usa POPFD, usando dobles palabras.
+
+Codificación: 1001 1101, 9Dh
+
+
+.==========================================================================.
+|=======~ 5.0 REGISTROS PARA MANEJAR LA PILA     ~==========================
+|===========================================================================
+
++ Registro SS
+
+El registro SS permite el direccionamiento de una pila en  la  memoria  para 
+almacenamiento temporal de direcciones y datos. Como SS contiene la direcci-
+on en que se encuentra la pila en el sistema se puede deducir que si sumamos
+SS mas un valor de desplazamiento es la dirección de algun dato dentro de la
+pila.
+
+
++ Registro ESP
+
+ Es un registro apuntador al ultimo dato que se ingreso a la pila, es de 32 
+bits y  esta asociado con el registro SS. El sistema maneja de manera auto-
+matica estos registros. Para localizar la  doble  palabra  que  esta siendo
+procesada actualmente en la pila el procesador estos registros de la sigui-
+ente manera SS:ESP. Suponiendo que SS contiene la dirección del segmento de
+pila y es E8C2 y ESP tiene 12, entonces: E8C2h + 12h da como  resultado  la 
+dirección del ultimo dato ingresado, que es E8D4h.
+
+
++ Registro EBP
+
+Este registro de 32 bits facilita la referencia de parametros,ya que apunta 
+a la base de la pila. Cuando se tiene que llamar una función y se depositan 
+varios parametros previamente en la pila para que  la  función  las utilice, 
+dentro de la función se hace referencia a  los  parametros  de la siguiente 
+manera: EBP + Desplazamiento  del  parametro.  Supongamos que se ingresaron 
+tres parametros en la  pila  que  son  dobles  palabras  y  se quiere hacer 
+referencia a el  segundo parametro, para esto se hace EBP + 04h, ya que una 
+doble  palabra ocupa 4 bytes se sabe que el primer parametro ingresado ocu-
+para desde EBP hasta EBP + 04h, y que el segundo parametro estara localiza-
+do desde EBP + 04h hasta EBP + 08h.
+
+.==========================================================================.
+|=======~ 6.0 PUNTOS CLAVES PARA COMPRENDER SU FUNCIONAMIENTO     ~=========
+|===========================================================================
+
++ La pila va creciendo hacia direcciones cada vez mas bajas.
+
++ ESP siempre apuntara a la cima de la pila y EBP a la base.
+
++ Al realizar un POP el dato de la cima de la pila no se borra,solo se copia 
+a alguna parte y se incrementa ESP.
+
++ El  primer dato en entrar sera el ultimo en salir y el ultimo sera el pri-
+mero.
+
++ Hay  veces que se tienen que empujar a la pila otros datos que no ocupan 4 
+bytes,  como  por ejemplo numeros decimales o estructuras, lso cuales ocupan 
+mas de 4 bytes.
+
++ La codificacion de los datos en la memoria de forma hexadecimal no se pre-
+sentan como normalmente estas acostumbrado a verlos, supongamos  que  tienes 
+0956h, esto en al memoria se guarda en al memoria  como  5609h,  si observas 
+solo es lo inverso, el byte(dos digitos hexadecimales) mas bajo(menos signi-
+ficativo) se guarda primero en la memoria y despues el  siguiente.  Asi  que 
+esto es muy importante, si ves algo sospechoso debugeando en la memoria  in-
+viertelo rapidamente en tu mente, ya que talvez pueda ser una pista para lo-
+grar tu proposito 8-D.
+
+
+.==========================================================================.
+|=======~ 7.0 ESTRUCTURA DE UNA FUNCION    ~================================
+|===========================================================================
+
+Cualquier función programada en algun lenguaje de programación sea cual sea 
+este, al ser compilada se traducira a lenguaje ensamblador que pasara para-
+metros por medio de la pila(siempre que los necesite) y llamara a la funcion
+por medio de la instrucción CALL de ensamblador, siempre y cuando la función
+no sea del tipo inline, tipica del C/C++, ya que una función declarada  como
+inline no es llamada para luego volver el curso del  programa  a  donde  fue
+llamada, sino que al ser compilado el trozo de codigo que representa la fun-
+ción, este se inserta en todas las partes donde se mande a llamar. Por ejem-
+plo, una función programada en C/C++ de la siguiente manera:
+
+void GenerarSerial(nombre, apellido, 1084) {
+//Cuerpo de la función
+}
+
+Al ser compilada se traducira a:
+
+PUSH 0000043C//43C en hexadecimal es 1084
+PUSH 039D9007//Esta direccion de memoria contiene el apellido
+PUSH 002F470C//Esta direccion de memoria contiene el nombre
+CALL 34506E0A//Es equivalente a llamar a la funcion GenerarSerial
+
+Como ves, n o es  nada  dificil, solo se trata de depositar en la pila los 
+argumentos que necesitara la función,siempre de derecha a izquierda y des-
+pues llamar a la función con la instrucción CALL, la cual cambiara el rumbo
+del programa para ejecutar el codigo necesario y  al  terminar  la  funcion
+ejecutara la instrucción RET para regresar a donde fue llamada y seguir  el
+curso  normal del programa. Algunas veces la instruccion RET tendra un ope-
+rando,  por ejemplo RET 000F, que consiste en reajustar la pila en 16 bytes
+(8 palabras), para que al salir de la función  la pila este  limpia  y como 
+estaba antes de que se llamara dicha función.
+
+ No siempre se pasaran los argumentos por la pila como se vio en este ejem-
+plo, aveces se pasaran por los registros, esto ya lo  veremos  mas adelante
+cuando explique algunas de las diferentes convenciones de llamada que exis-
+ten.
+
+.==========================================================================.
+|=======~ 8.0 ADMINISTRACION DE FUNCIONES     ~=============================
+|===========================================================================
+
+Si tu te haces la misma pregunta que yo cuando aprendia el funcionamiento de 
+la pila , ¿Como demonios hace la computadora para  mantener  un  control  de
+tantas  y tantas funciones que se llaman constantemente, incluso unas dentro 
+de  otras?.  Pues el truco esta aqui mismo, en el prologo y el epilogo, y es 
+que cuando se va a entrar a una nueva función, se guarda en la pila EBP(act-
+ual base de la pila), y se le asigna a EBP la cima de la pila  para  que  la
+use de ahi en adelante para la funcion que se esta llamando, al terminar  de
+procesar dicha función se regresara a EBP su valor anterior, sacandolo de la
+pila durante el epilogo.
+
+
+.==========================================================================.
+|=======~ 9.0 PROLOGO DE UNA FUNCION    ~===================================
+|===========================================================================
+
+El prologo de toda funcion consiste en poner a  disposicion  la  base  de la 
+pila en la cima, esto  para que  EBP sirva  al  procesador  para referenciar 
+parametros que se han pasado a la función, ya  que  al sumar la dirección de 
+la base de la pila  mas  un  desplazamiento  se  obtendra la direccion de un 
+parametro ingresado. La estructura basica del prologo de una función es como 
+sigue:
+
++ Guarda EBP en la pila
++ Asigna a EBP el actual ESP
++ Disminuye ESP el desplazamiento necesario para las variables locales
++ Guarda lso registros que se usaran durante la llamada
+
+	PUSH EBP
+	MOV EBP, ESP
+	SUB ESP, BytesNecesarios
+	PUSH RegistrosNecesarios
+
+Constantemente nos encontraremos con funciones, que ademas de lo ya 
+indicado, guardan tambien ESI y EDI. Estos registros son muy utiles para el 
+tratamiento de cadenas, por lo tanto se guardaran, se  usaran dentro  de la 
+funcion y una vez terminada la funcion se les devolvera el valor que conte-
+nian antes de que se llamara a dicha función.
+
+
+.==========================================================================.
+|=======~ 10.0 EPILOGO DE UNA FUNCION     ~=================================
+|===========================================================================
+
+Antes de  salir de la función, se ejecuta un trozo de codigo, el cual se co-
+noce como epilogo.  Este  consiste  en restaurar la pila a como estaba antes 
+de que  se  llamara  la función, de modo que peuda seguir su curso normal el 
+progama. Es lo mismo que el prologo porsupuesto, pero a la inversa.
+ 
+basicamente el esqueleto de todo epilogo es como el siguiente:
+
++ Saca el valor de los registros guardados
++ Restaura la cima de la pila
++ Saca la base de la pila(EBP)
++ Regresa a donde fue llamada dicha función
+
+	POP RegistrosGuardados
+	MOV ESP, EBP
+	POP EBP
+	RET
+
+.==========================================================================.
+|=======~ 11.0 CONVENCIONES DE LLAMADA     ~================================
+|===========================================================================
+
+Una  convencion de llamada  es una forma en que va ser ejecutada una función 
+dentro de un programa. Existen diversas convenciones, como pro ejemplo: 
+
+pascal, cdecl, fastcall,  stdcall,  thiscall,  etc. Aqui solo trataremos las 
+convenciones  cdecl  y  stdcall, esto porque son las mas usadas actualmente.
+
+Las convenciones difieren en los siguientes puntos:
+
++ Define como han de pasarse los parametros a una funcion(izquierda, 
+derecha).
+
++ Define por donde han de pasarse los parametros(pila o registros).
+
++ Define que funcion(llamador o llamada) sera responsable de limpiar la pila 
+
+una vez que la funcion se ha ejecutado.
+
+
+.==========================================================================.
+|=======~ 12.0 CONVENCION _CDECL     ~======================================
+|===========================================================================
+
++ Es la convención de llamada estandar de C/C++
+
++ No tiene un numero fijo de parametros. Por ejemplo la funcion printf del C
+
++ Pasa parametros por la pila de derecha a izquierda
+
++ ECX y EDX no son utilizados
+
++ La funcion limpia la pila
+
++ El codigo del ejecutable es ligeramente mas grande
+
++ Al final casi siempre hay un ret limpio, sin operandos
+
+
+.==========================================================================.
+|=======~ 13.0 CONVENCION _STDCALL     ~====================================
+|===========================================================================
+
++ Solo para C/C++
+
++ Genera menos codigo que cdecl por lo de la limpieza
+
++ Pasa los parametros por la pila de derecha a izquierda
+
++ Necesita el numero de parametros exactos
+
++ Necesita el tipo de argumentos exacto
+
++ ECX no se usa
+
++ Restaura la pila como estaba con un ret XXXX
+
++ Es la convención usada por la API de windows
+
+.==========================================================================.
+|=======~ 14.0 NOTAS FINALES     ~==========================================
+|===========================================================================
+
+
++ Cuando una funcion termine y regrese checa los registros que han cambiado, 
+probablemente alguno de ellos tenga algo interesante, por lo regular es  EAX 
+donde se suelen regresar valores.
+
++ Con la instruccion ? *ESP del Softice puedes ver a donde apunta la cima de 
+la pila. Para ver algun argumento pasado a la funcion solo escribe ? 
+
+*(ESP+Desplazamiento), donde desplazamiento puede ser 2, 4, 6, etc, depende 
+del parametro que quieras ver.
+
++ Si en la pila hay alguna direccion de memoria, peudes observar su 
+contenido con D *(ESP+Desplazamiento).
+
++ Puedes jugar con la pila de muchas formas. Un ejemplo es que, si has loca-
+lizado en  que parte  de la  memoria  se  encuentra el numero de serie, y el 
+programa esta dispuesto a llamar un MessageBox de error o algo por el estilo,
+puedes anticiparte y ensamblar una instruccion a modo de pasarle como  para-
+metro a MessageBox el numero de serie o la direccion donde esta y asi lograr
+que el progama mismo te lo muestre, y  muchas  otras  cosas que puedes hacer 
+X-D.
+
+
+	Bueno, pues espero hayan entendido lo que trate de explicarles...
+                              Saludos!!! ZevenheX...
+

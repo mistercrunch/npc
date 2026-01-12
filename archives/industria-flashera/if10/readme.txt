@@ -1,0 +1,8 @@
+
+No se porque, pero con el intro.exe, hay que correrlo varias
+veces para que aparezca el efecto loco, y no esa linea choronga.
+Desde dos shell, o preferentemente, plain-dos.
+
+coderz, el source esta en el numero ;) open source! ;))
+tsh
+

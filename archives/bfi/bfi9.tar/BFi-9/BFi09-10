@@ -1,0 +1,988 @@
+==============================================================================
+------------[ BFi numero 9, anno 3 - 03/11/2000 - file 10 di 21 ]-------------
+==============================================================================
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ PEEK DELLE STRUTTURE iNTERNE DEL KERNEL ViA /DEV/KMEM
+-----[ pIGpEN <pigpen@s0ftpj.org>, FuSyS <fusys@s0ftpj.org>
+
+			
+			Della serie:
+
+---[ s c e g l i e r e  l a  v i a  m e n o  b a t t u t a ]---
+
+		     by pIGpEN & FuSyS
+		     -----------------
+
+Questo progetto vede la luce partendo dalla considerazione nei
+confronti di rootkit e troyan vari. E' spesso difficile avere
+fiducia nei propri binari, dopo aver subito una intrusione.
+Questa difficolta' si fa insormontabile nel momento in cui venga
+modificato il kernel mediante ricompilazione statica o mediante
+il link di codice attravero i moduli caricabili nel kernel stesso.
+
+L'obbiettivo e' fornire un tool sufficientemente robusto e
+flessibile che possa gettare almeno un po' di luce sull'ombra
+degli attaccanti. Bypassando i normali mezzi di raccolta delle
+informazioni, e osservando direttamente lo stato del kernel
+attraverso il file /dev/kmem , possiamo accorgerci di quello che
+non dovremmo [ovviamente secondo il punto di vista del nostro
+attaccante ;P]
+
+----[ BSD
+----[ KSec - Kernel Security Checker	(ex. FreeBSD, OpenBSD)
+
+
+---[ SYSTEM CALL
+
+KSec e' in grado di trovare da user space se alcune syscall sono state 
+modificate (via lkm, kld o altro). Questa e' la maniera meno invasiva e 
+altrettanto sicura...
+
+Checking for Altered Syscall:
+exit syscall points to 0xc0137264, function is at 0xc0137264 : ok
+fork syscall points to 0xc0137cdc, function is at 0xc0137cdc : ok
+read syscall points to 0xc014ada4, function is at 0xc014ada4 : ok
+write syscall points to 0xc014b144, function is at 0xc014b144 : ok
+open syscall points to 0xc0169cdc, function is at 0xc0169cdc : ok
+close syscall points to 0xc013553c, function is at 0xc013553c : ok
+link syscall points to 0xc016a430, function is at 0xc016a430 : ok
+unlink syscall points to 0xc016a8d0, function is at 0xc016a8d0 : ok
+chdir syscall points to 0xc0169acc, function is at 0xc0169acc : ok
+fchdir syscall points to 0xc016998c, function is at 0xc016998c : ok
+mknod syscall points to 0xc0169fd8, function is at 0xc0169fd8 : ok
+chmod syscall points to 0xc016b578, function is at 0xc016b578 : ok
+chown syscall points to 0xc016b774, function is at 0xc016b774 : ok
+getpid syscall points to 0xc013c0e4, function is at 0xc013c0e4 : ok
+mount syscall points to 0xc0168c70, function is at 0xc0168c70 : ok
+unmount syscall points to 0xc01693a4, function is at 0xc01693a4 : ok
+setuid syscall points to 0xc013c3b8, function is at 0xc013c3b8 : ok
+getuid syscall points to 0xc013c1b4, function is at 0xc013c1b4 : ok
+geteuid syscall points to 0xc013c1d8, function is at 0xc013c1d8 : ok
+ioctl syscall points to 0xc014b508, function is at 0xc014b508 : ok
+fcntl syscall points to 0xc0134f10, function is at 0xc0134f10 : ok
+setsockopt syscall points to 0xc015ca70, function is at 0xc015ca70 : ok
+getsockopt syscall points to 0xc015caf4, function is at 0xc015caf4 : ok
+setsid syscall points to 0xc013c294, function is at 0xc013c294 : ok
+setegid syscall points to 0xc013c508, function is at 0xc013c508 : ok
+seteuid syscall points to 0xc013c444, function is at 0xc013c444 : ok
+fstat syscall points to 0xc013565c, function is at 0xc013565c : ok
+getdirentries syscall points to 0xc016c8dc, function is at 0xc016c8dc : ok
+getdents syscall points to 0xc016cad0, function is at 0xc016cad0 : ok
+modstat syscall points to 0xc013042c, function is at 0xc013042c : ok
+modfind syscall points to 0xc013051c, function is at 0xc013051c : ok
+kldload syscall points to 0xc0130ecc, function is at 0xc0130ecc : ok
+kldunload syscall points to 0xc0130fa4, function is at 0xc0130fa4 : ok
+kldfind syscall points to 0xc0131014, function is at 0xc0131014 : ok
+kldnext syscall points to 0xc01310a0, function is at 0xc01310a0 : ok
+kldstat syscall points to 0xc0131118, function is at 0xc0131118 : ok
+kldfirstmod syscall points to 0xc0131220, function is at 0xc0131220 : ok
+getsid syscall points to 0xc013c174, function is at 0xc013c174 : ok
+
+---[ FreeBSD LiNKER FiLES & MODULES
+
+In FreeBSD ogni link files puo' contenere piu' moduli. Mentre e' possibile 
+vedere i link files, non esiste un vero comando per vedere i moduli interni.
+Questo vuol dire che molti freebsd attackers non badano molto al nome di 
+questi ma pensano piu' che altro a nascondere come possono i link files.
+
+
+Kernel linker files
+name: kernel, id: 1, addr: 0xc0100000, refs: 3, size: 2272c0
+flags: 1, userrefs: 1, dependancies: 0, file_ops at 0xc0299c5c
+Modules in this file:
+Id=1 (rootbus) mod_handler at 0xc01467a0 refs=1
+Id=2 (isa/vga) mod_handler at 0xc0146838 refs=1
+Id=3 (isa/sc) mod_handler at 0xc0146838 refs=1
+Id=4 (isa/sio) mod_handler at 0xc0146838 refs=1
+Id=5 (atkbdc/psm) mod_handler at 0xc0146838 refs=1
+Id=6 (isa/ppc) mod_handler at 0xc0146838 refs=1
+Id=7 (isa/atkbdc) mod_handler at 0xc0146838 refs=1
+Id=8 (atkbdc/atkbd) mod_handler at 0xc0146838 refs=1
+Id=9 (nexus/pcib) mod_handler at 0xc0146838 refs=1
+Id=10 (nexus/npx) mod_handler at 0xc0146838 refs=1
+Id=11 (fdc/fd) mod_handler at 0xc0146838 refs=1
+Id=12 (isa/fdc) mod_handler at 0xc0146838 refs=1
+Id=13 (root/nexus) mod_handler at 0xc0146838 refs=1
+Id=14 (nexus/apm) mod_handler at 0xc0146838 refs=1
+Id=15 (scrndr-vga) mod_handler at 0xc023c388 refs=1
+Id=16 (scterm-sc) mod_handler at 0xc023aebc refs=1
+Id=17 (nexus/eisa) mod_handler at 0xc0146838 refs=1
+Id=18 (isab/eisa) mod_handler at 0xc0146838 refs=1
+Id=19 (eisa/mainboard) mod_handler at 0xc0146838 refs=1
+Id=20 (isa/ed) mod_handler at 0xc0146838 refs=1
+Id=21 (atapci/ata) mod_handler at 0xc0146838 refs=1
+Id=22 (pci/atapci) mod_handler at 0xc0146838 refs=1
+Id=23 (isa/ata) mod_handler at 0xc0146838 refs=1
+Id=24 (isa/pnp) mod_handler at 0xc0146838 refs=1
+Id=25 (isa/isahint) mod_handler at 0xc0146838 refs=1
+Id=26 (isa/unknown) mod_handler at 0xc0146838 refs=1
+Id=27 (nexus/isa) mod_handler at 0xc0146838 refs=1
+Id=28 (isab/isa) mod_handler at 0xc0146838 refs=1
+Id=29 (pci/ign) mod_handler at 0xc0146838 refs=1
+Id=30 (pci/chip) mod_handler at 0xc0146838 refs=1
+Id=31 (pci/isab) mod_handler at 0xc0146838 refs=1
+Id=32 (pci/pcib) mod_handler at 0xc0146838 refs=1
+Id=33 (pcib/pci) mod_handler at 0xc0146838 refs=1
+Id=34 (ppbus/ppi) mod_handler at 0xc0146838 refs=1
+Id=35 (ppc/ppbus) mod_handler at 0xc0146838 refs=1
+Id=36 (ppbus/lpt) mod_handler at 0xc0146838 refs=1
+Id=37 (ppbus/plip) mod_handler at 0xc0146838 refs=1
+Id=38 (pci/ed) mod_handler at 0xc0146838 refs=1
+Id=39 (fpu) mod_handler at 0xc024d7f8 refs=1
+Id=40 (mfs) mod_handler at 0xc01653e0 refs=1
+Id=41 (ufs) mod_handler at 0xc01653e0 refs=1
+Id=42 (nfs) mod_handler at 0xc01653e0 refs=1
+Id=43 (msdos) mod_handler at 0xc01653e0 refs=1
+Id=44 (procfs) mod_handler at 0xc01653e0 refs=1
+Id=45 (cd9660) mod_handler at 0xc01653e0 refs=1
+Id=46 (ipfw) mod_handler at 0xc0190fa0 refs=1
+Id=47 (dummynet) mod_handler at 0xc018e530 refs=1
+Id=48 (if_tun) mod_handler at 0xc0182648 refs=1
+Id=49 (if_sl) mod_handler at 0xc0181328 refs=1
+Id=50 (if_ppp) mod_handler at 0xc017f54c refs=1
+Id=51 (if_loop) mod_handler at 0xc017eae0 refs=1
+Id=52 (if_gif) mod_handler at 0xc017e4fc refs=1
+Id=53 (if_faith) mod_handler at 0xc017e344 refs=1
+Id=54 (shell) mod_handler at 0xc012f63c refs=1
+Id=55 (elf) mod_handler at 0xc012f4f8 refs=1
+Id=56 (aout) mod_handler at 0xc012e20c refs=1
+Id=57 (ipfilter) mod_handler at 0xc01a56a8 refs=1
+
+
+name: linux.ko, id: 2, addr: 0xc08ba000, refs: 1, size: 10000
+flags: 1, userrefs: 1, dependancies: 1, file_ops at 0xc0299c5c
+Modules in this file:
+Id=58 (linuxelf) mod_handler at 0xc08c6d8c refs=1
+Id=59 (linuxaout) mod_handler at 0xc08c74e8 refs=1
+
+
+name: logo_saver.ko, id: 3, addr: 0xc08db000, refs: 1, size: 4000
+flags: 1, userrefs: 1, dependancies: 1, file_ops at 0xc0299c5c
+Modules in this file:
+Id=60 (logo_saver) mod_handler at 0xc08db920 refs=1
+
+
+---[ PROMiSC DETECTiON 
+
+Ksec si basa su tre livelli per trovare un'interfaccia in modalita' promiscua
+da locale garantisce di scovare i dumper, di sapere se questi sono in
+modalita' promiscua, quali processi hanno aperto bpf e molto altro...
+
+1) controllo dei descrittori di bpf all'interno della struttura ifnet
+
+   (con questa opzione troviamo le interfacce in modalita' promiscua in modo
+    sicuro, infatti il descrittore non puo' essere rimosso e ne deriva che 
+    siamo sempre in grado di trovare un dumper)
+
+    Il problema e': "Questo dumper e' in promisc mode?"
+
+    Lo si puo' sapere da piu' elementi: il piu' banale (e meno affidabile) e'
+    l'IFF_PROMISC nelle flag della struttura ifnet (if_flags). Questo potrebbe
+    pero' essere coperto in piu' modi, ecco perche' ksec lo confronta con 
+    la flag bd_promisc della struttura bpf_d).
+
+    E' stato dimostrato in BFi 8 che coprendo pure questo siamo in grado di
+    dare un'oscurita' del promisc mode maggiore anche se temporanea :O
+
+    Ksec inoltre e' in grado di distingure se un dumper in modalita' non 
+    promiscua riceve cmq pacchetti non generati/destinati a quell'host come
+    effetto di un altro dumper in modalita' promiscua.
+    Questo e' un "bug" ben conosciuto del supporto bpf; in realta' non si puo'
+    parlare di baco quanto di una scelta nell'implementazione: infatti si 
+    preferisce far ricevere i pacchetti promiscui a tutti i descrittori che
+    possono pero' filtrarli se l'utente ha settato una struttura bpf_program,
+    passandola al supporto kernel attraverso una ioctl(BIOCSETF) vedi bpf(4).
+
+    Nel kernel questo e' visibile dalla bpf_mtap():
+
+    for (d = bp->bif_dlist; d != 0; d = d->bd_next) {
+	    ++d->bd_rcount;
+	    slen = bpf_filter(d->bd_filter, pkt, pktlen, pktlen);
+	    /*
+	     * se non c'e' un filtro questa funzione ritorna -1
+	     * e cosi' prende il pacchetto
+	     */
+	    if (slen != 0)
+		    catchpacket(d, pkt, pktlen, slen, bcopy);
+    }
+
+    Esempio:
+
+    $ ksec -i ed0
+
+    Interface: ed0 (internal index = 2) Ether 00:4f:4c:05:3a:31 
+    State: up bcast running promisc simplex multicast  
+    Addr: 192.168.1.2 NetMask: 0xffffff00 Broadcast: 192.168.1.255 
+    Expected 1 promisc listener/s
+    Found a nopromisc listener: (0 rcvd pkt, 0 drop pkt) on  #1 listener
+    Found a promisc   listener: (12 rcvd pkt, 0 drop pkt) on  #2 listener
+    Warning 1 nopromisc dumpers probably receive promisc packets as effect of
+    another file requesting this mode...
+    Information for this Ethernet interface:
+		(address length = 6, header length = 14)
+		MTU:       1500	Linespeed: 10000000
+		87 packets received, 0 packets sent
+		0 input errors, 89 output errors on interface
+		1424 collisions on interface
+		15331 octets received, 16755 octets sent
+		0 packets received, 2 packets sent via multicast
+		0 dropped on input
+		0 destined for unsupported protocols
+
+
+2) controllo dei file aperti dai processi cercando quelli con major device =
+   a quello di bpf (FreeBSD)
+
+   In pratica si scorre la tabella dei processi guardando per ognuno i 
+   file aperti da questi si ricava i vnode considerando solamente quelli 
+   che interessano bpf (se ci sono).
+
+   In FreeBSD questo avviene leggendo dai vnode la struttura specinfo e poi
+   checkando che questa abbia il major device = a quello di bpf (23)
+
+   ovvero: 
+   
+   if((spec.si_udev >> 8) & 0xff)==23)
+   	// bpf!
+
+   oppure:
+
+   if(strstr(spec.si_name, "bpf")) // oppure strncmp() chiaro :)
+   	// bpf!
+
+   Il risultato e' il seguente:
+
+   checking for proc with bpf descriptor opened (use -i all to detect interface)
+
+   Process with id 545 (tcpdump) has opened bpf1
+   Process with id 447 (trafd) has opened bpf0
+
+3) controllo della character device switch di bpf (FreeBSD)
+
+   Quest'ultimo livello controlla se la cdevsw e' stata modificata e quindi se
+   i puntatori interni alla cdevsw puntano alle funzioni corrette o meno.
+
+   Checking BPF cdevsw:
+
+   cdevsw open function points to: 0xc017b11c bpfopen() is at: 0xc017b11c ok
+   cdevsw close function points to: 0xc017b1b0 bpfclose() is at: 0xc017b1b0 ok
+   cdevsw read function points to: 0xc017b208 bpfread() is at: 0xc017b208 ok
+   cdevsw write function points to: 0xc017b304 bpfwrite() is at: 0xc017b304 ok
+   cdevsw ioctl function points to: 0xc017b3dc bpfioctl() is at: 0xc017b3dc ok
+   cdevsw poll function points to: 0xc017b988 bpfpoll() is at: 0xc017b988 ok
+
+---[ PR0T0C0L MODiFiCATION
+
+Come avevo dimostrato e come fanno anche alcuni supporti, la inetsw[] e' 
+facilmente modificabile via kld e lkm ... Questo vuol dire che le funzioni
+di un protocollo possono essere cambiate in mille modi per bypassare fw,
+non loggare particolari pacchetti, accettare condizioni particolari in 
+maniera privilegiata (es. introduzione di nuovi icmp code che scrivono su
+file o ricevono comandi) e tante altre cose spiacevoli.
+Tutto questo pero' puo' essere facilmente scovato nella stessa maniera che
+avevo utilizzato per le syscall e per la cdevsw di bpf.
+
+L'unico problema dovuto al tempo e' che la pr_usrreqs (in FreeBSD) non l'ho 
+ancora implementata e quindi i puntatori interni alla struttura non sono
+letti e checkati.
+
+Checking integrity for inetsw:
+ IP:
+     inet domain at: 0xc02a19c0 ipproto domain points to: 0xc02a19c0 ok
+     ip_init at: 0xc0191b64 ipproto init points to: 0xc0191b64 ok
+     ip_slowtimo at: 0xc0192840 ipproto slowtimo points to: 0xc0192840 ok
+     ip_drain at: 0xc01928b8 ipproto drain points to: 0xc01928b8 ok
+ UDP:
+     pr_input: ok (addr: 0xc019c378)
+     pr_ctlinput: ok (addr: 0xc019c9b8)
+     pr_ctloutput: ok (addr: 0xc0194390)
+     pr_usrreq: ok (addr: 0xc02a3600)
+ TCP:
+     pr_input: ok (addr: 0xc0195fa0)
+     pr_ctlinput: ok (addr: 0xc019a7d0)
+     pr_ctloutput: ok (addr: 0xc019bf50)
+     pr_usrreq: ok (addr: 0xc02a3280)
+ RAW:
+     pr_input: ok (addr: 0xc0195140)
+     pr_ctlinput: ok (addr: 0xc01956a4)
+     pr_ctloutput: ok (addr: 0xc0195540)
+     pr_usrreq: ok (addr: 0xc02a2b00)
+ ICMP:
+     pr_input: ok (addr: 0xc0191258)
+     pr_ctlinput: /
+     pr_ctloutput: ok (addr: 0xc0195540)
+     pr_usrreq: ok (addr: 0xc02a2b00)
+ IGMP:
+     pr_input: ok (addr: 0xc018a5f4)
+     pr_ctlinput: /
+     pr_ctloutput: ok (addr: 0xc0195540)
+     pr_usrreq: ok (addr: 0xc02a2b00)
+
+IP Packet Log puo' modificare la protosw del protocollo IP, ksec dovrebbe
+essere in grado di dire se le funzioni puntano al codice di iplog o no.
+
+Es. nel mio OpenBSD 2.7 di casa
+
+ip_slowtimo at: 0xe01864ac ipproto init points to: 0xe0192b04 altered
+it points to iplinit (IP Packet log Support)
+
+---[ E i PROCESSI?!?
+
+In BSD se avessi lasciato questo avrei fatto la stessa cosa che fa 
+il comando ps(1)... Nel senso che esso utilizza gia' la kvm per 
+leggere i processi, in particolare la chiamata kvm_getprocs(3) per cui 
+ho tolto questa parte che secondo me era ridondante...
+Puo' darsi che in futuro la implementi in altri modi... Comunque la tabella
+dei processi e' stata utilizzata all'interno di ksec per altre cose... per
+esempio in FreeBSD per controllare quali processi avevano aperto bpf
+
+---[ CONCLUSIONE
+
+Per quanto i simboli possano essere sovrascritti, l'hacker possa ricompilare
+il kernel o si sfruttino altri modi per eludere ksec, questo e' comunque un 
+tool utile per controllare il proprio sistema e che fornisce buoni spunti a
+chi voglia addentrarsi dentro il kernel.
+Molti metodi di copertura di un programma che legga i valori direttamente del
+kernel, non sono proprio banali e richiedono una conoscenza del kernel in cui 
+si agisce, delle sue strutture e delle sue funzioni ...
+Un metodo per FreeBSD di copertura dei simboli si ottiene guardando 
+l'implementazione della libreria kvm, questa nella ricerca di essi sfrutta
+il supporto kld chiamando la kldsym()... e' quindi possibile modificare questa
+per far ritornare in determinati simboli i nostri indirizzi, ma ci sono pure
+altri modi ...
+
+<-| kmem/bsd/kldsym.c crc32: 3523658060 |->
+/*
+ * Questo semplice kld elude la libreria kvm in FreeBSD, facendo credere che
+ * il simbolo kldsym sia locato nella stessa posizione di hacked_kldsym,
+ * ksec (basandosi su kvm) non potra' localizzare cosi' la differenza tra dove 
+ * punta la syscall kldsym e la vera locazione in cui questa risiede...
+ * 
+ * Questo comportamento e' riproducibile su ogni simbolo, ovviamente occorre
+ * sempre coprire la kldsym visto che noi andiamo a modificare almeno questa
+ * chiamata di sistema :)
+ *
+ * Un comportamento simile si potrebbe ottenere cambiando la lookup_symbol()
+ * nelle strutture linker_file_ops
+ *
+ * Nota: nm(1) non viene eluso da questo kld, in quanto gestisce da solo il 
+ * posizionamento all'interno di un file nella ricerca dei simboli, non 
+ * sfruttando quindi la chiamata di sistema kldsym()
+ *
+ * E' altrettanto chiaro che questa implementazione vale solo per FreeBSD
+ * mentre su altri sistemi la kvm e' differente
+ *
+ * 						pIGpEN [ S0ftPj Y2K ]
+ */
+
+#include <sys/param.h>
+#include <sys/proc.h>
+#include <sys/module.h>
+#include <sys/kernel.h>
+#include <sys/systm.h>
+#include <sys/malloc.h>
+#include <sys/syscall.h>
+#include <sys/sysent.h>
+#include <sys/sysproto.h>
+#include <sys/linker.h>
+
+
+
+static int	hacked_kldsym	__P((struct proc *, struct kldsym_args *));
+
+extern linker_file_list_t linker_files; /* this has a sym */
+
+static int
+module_handler(module_t mod, int cmd, void *arg)
+{
+	switch(cmd) {
+		case MOD_LOAD:
+			sysent[SYS_kldsym].sy_call = (sy_call_t *)hacked_kldsym;
+			break;
+		case MOD_UNLOAD:
+			sysent[SYS_kldsym].sy_call = (sy_call_t *)kldsym;
+			break;
+	}
+
+	return 0;
+}
+			
+static moduledata_t KldSym = {
+	"kldsym",
+	module_handler,
+	NULL
+};
+
+DECLARE_MODULE(kldsym, KldSym, SI_SUB_DRIVERS, SI_ORDER_MIDDLE);
+
+
+static int
+hacked_kldsym(struct proc *p, struct kldsym_args *uap)
+{
+    char *symstr = NULL;
+    c_linker_sym_t sym;
+    linker_symval_t symval;
+    linker_file_t lf;
+    struct kld_sym_lookup lookup;
+    int error = 0;
+
+    if ((error = copyin(SCARG(uap, data), &lookup, sizeof(lookup))) != 0)
+	goto out;
+    if (lookup.version != sizeof(lookup) || SCARG(uap, cmd) != KLDSYM_LOOKUP) {
+	error = EINVAL;
+	goto out;
+    }
+
+    symstr = malloc(MAXPATHLEN, M_TEMP, M_WAITOK);
+    if ((error = copyinstr(lookup.symname, symstr, MAXPATHLEN, NULL)) != 0)
+	goto out;
+
+    if (SCARG(uap, fileid) != 0) {
+	lf = linker_find_file_by_id(SCARG(uap, fileid));
+	if (lf == NULL) {
+	    error = ENOENT;
+	    goto out;
+	}
+	if (lf->ops->lookup_symbol(lf, symstr, &sym) == 0 &&
+	    lf->ops->symbol_values(lf, sym, &symval) == 0) {
+	    if(!strcmp(symstr, "kldsym"))
+		lookup.symvalue = (uintptr_t)hacked_kldsym;
+	    else
+	    	lookup.symvalue = (uintptr_t)symval.value;
+	    lookup.symsize = symval.size;
+	    error = copyout(&lookup, SCARG(uap, data), sizeof(lookup));
+	} else
+	    error = ENOENT;
+    } else {
+	for (lf = TAILQ_FIRST(&linker_files); lf; lf = TAILQ_NEXT(lf, link)) {
+	    if (lf->ops->lookup_symbol(lf, symstr, &sym) == 0 &&
+		lf->ops->symbol_values(lf, sym, &symval) == 0) {
+		if(!strcmp(symstr, "kldsym"))
+		    lookup.symvalue = (uintptr_t)hacked_kldsym;
+		else
+		    lookup.symvalue = (uintptr_t)symval.value;
+		lookup.symsize = symval.size;
+		error = copyout(&lookup, SCARG(uap, data), sizeof(lookup));
+		break;
+	    }
+	}
+	if (!lf)
+	    error = ENOENT;
+    }
+out:
+    if (symstr)
+	free(symstr, M_TEMP);
+    return error;
+}
+<-X->
+
+---[ CERCARE i SiMBOLI
+
+Ok esistono librerie e comandi per fare questo ... ma puo' capitare di dover
+scrivere un programma che legga i simboli da un kernel o da un altro file e
+di dover sbattere contro le strutture di Elf... (per esempio in FreeBSD si
+potrebbe voler bypassare la system call kldsym())
+
+L'esempio che segue prima verifica il nome del bootfile da dove ricavare i
+simboli (il modo piu' attendibile e' via sysctl usando il mib kern.bootfile
+o usando la getbootfile() ) e dopo lo apre per cercare un simbolo o una serie 
+di simboli desiderato/i.
+
+Un esempio:
+
+$ elfo ipfr	(ipfilter stuffs)
+
+opening .. /kernel
+symbol found at 0xc02fb3b8 (ipfr_inuse)
+symbol found at 0xc0335720 (ipfr_heads)
+symbol found at 0xc0335f60 (ipfr_stats)
+symbol found at 0xc0335b40 (ipfr_nattab)
+symbol found at 0xc01c5a68 (ipfr_new)
+symbol found at 0xc01c5c3c (ipfr_lookup)
+symbol found at 0xc01c5dfc (ipfr_delete)
+symbol found at 0xc02fb800 (sysctl___net_inet_ipf_fr_ipfrttl)
+symbol found at 0xc02c2388 (__set_sysctl_set_sym_sysctl___net_inet_ipf_fr_ipfrttl)
+symbol found at 0xc02fb3bc (fr_ipfrttl)
+symbol found at 0xc0356b2c (ipfr_slowtimer_ch)
+symbol found at 0xc01c5fa4 (ipfr_slowtimer)
+symbol found at 0xc01c0aac (ipfr_fastroute)
+symbol found at 0xc01c5a40 (ipfr_fragstats)
+symbol found at 0xc01c5d38 (ipfr_nat_knownfrag)
+symbol found at 0xc01c5d8c (ipfr_knownfrag)
+symbol found at 0xc01c5e48 (ipfr_unload)
+symbol found at 0xc01c5bb0 (ipfr_newfrag)
+symbol found at 0xc01c5dc8 (ipfr_forget)
+symbol found at 0xc01c5ed0 (ipfr_fragexpire)
+symbol found at 0xc01c5bec (ipfr_nat_newfrag)
+closing /kernel
+
+<-| kmem/bsd/elfo.c |->
+/*
+ * Example to locate symbols on your kernel
+ * ----------------------------------------
+ *
+ * This source code reads symbol table on you kernel and looks for a symbol
+ * it's a bit like nm(1)
+ *
+ * pig / s0ftpj
+ */
+
+#include <stdio.h>
+#include <elf.h>
+#include <err.h>
+#include <string.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/sysctl.h>
+#include <sys/stat.h>
+#include <sys/fcntl.h>
+#include <sys/mman.h>
+
+
+int
+main(int argc, char **argv)
+{
+	Elf_Ehdr h;
+	int mib[2], len, i; 
+	char *buf;
+	const char *base;
+	void *mapbase;
+	struct stat s;
+	int fd;
+        const Elf_Shdr *shdrs, *sh_symtab, *sh_strtab;
+        const char *strtab;
+        const Elf_Sym *symtab;
+	int symtabct;
+	off_t offset = 0;
+	 
+	if (argc != 2) {
+		printf("Usage %s <symbol>\n", argv[0]);
+		exit(0);
+	}
+
+	/*
+	 * First we look for boot file name where we can find symbols
+	 *
+	 * ex. nm /bsd
+	 * getbootfile() also works
+	 */
+
+	mib[0] = CTL_KERN;
+	mib[1] = KERN_BOOTFILE;
+	
+
+	if (sysctl(mib, 2, NULL, &len, NULL, 0) < 0)
+		err(1, "sysctl()");
+
+	if ((buf = malloc(len)) == NULL) 
+		err(1, "malloc");
+
+	if (sysctl(mib, 2, buf, &len, NULL, 0) < 0)
+		err(1, "sysctl()");
+
+	/*
+	 * Now we open it
+	 */
+
+	printf("opening .. %s\n", buf);
+
+        if ((fd = open(buf, O_RDONLY)) == -1)
+		err(1, "%s", buf);
+	
+	if (read(fd, &h, sizeof h) != sizeof h || !IS_ELF(h)) {
+		close(fd);
+		return -1;
+	}
+
+	if (fstat(fd, &s) == -1)
+		err(1, "Cannot fstat %s", buf);
+
+	/*
+	 * Align hdrs
+	 */
+
+	mapbase = mmap(0, s.st_size, PROT_READ, MAP_SHARED, fd, 0);
+	
+	if (mapbase == MAP_FAILED)
+		 err(1, "Cannot mmap %s", buf);
+
+
+	base = (const char *) mapbase;
+	shdrs = (const Elf_Shdr *)(base + h.e_shoff);
+
+	for (i = 1;  i < h.e_shnum;  i++)
+		if (shdrs[i].sh_type == SHT_SYMTAB)
+			break;
+	if (i == h.e_shnum)
+		errx(1, "%s has no symbol table", buf);
+
+	sh_symtab = &shdrs[i];
+	sh_strtab = &shdrs[sh_symtab->sh_link];
+
+	symtab = (const Elf_Sym *)(base + sh_symtab->sh_offset);
+	symtabct = sh_symtab->sh_size / sh_symtab->sh_entsize;
+	strtab = (const char *)(base + sh_strtab->sh_offset);
+
+	/*
+	 * Locate our symbol
+	 */
+
+	for (i = 1;  i < symtabct;  i++) {
+		if (strstr(strtab + symtab[i].st_name, argv[1]) &&
+		    !strchr(strtab + symtab[i].st_name, '.')) {
+			printf("symbol found at 0x%x (%s)\n", 
+			 symtab[i].st_value, strtab + symtab[i].st_name);
+			
+			offset = (off_t) symtab[i].st_value;		
+		}
+	}	
+
+	if (offset == 0L)
+		printf("Symbol not found\n");
+
+	printf("closing %s\n", buf);
+	close(fd);
+
+	return 0;
+}
+<-X->
+
+
+---[ KSeC
+
+E' giunto il momento di vedere ksec. Trovate il .tar.gz all'interno
+dell'archivio di questo numero di BFi.. buon divertimento :)
+
+--
+
+----[ Linux
+----[ Kstat - Kernel Security Therapy Anti-Trolls
+
+Una premessa. Linux, al contrario di *BSD, non possiede una libreria
+come kvm. Questo vuol dire che in kmem siamo in mare aperto, e dobbiamo
+trovare precisamente gli offset corretti mediante studio dei sorgenti
+del kernel, e in seguito, mediante la chiamata di sistema query_module
+con parametro QM_SYMBOLS. E' poi possibile reperire un elenco completo
+di tutti i simboli mediante il file vmlinuz ottenuto durante la nuova
+compilazione del kernel, mediante il comando nm(1)
+
+
+---[ SYSTEM CALL
+
+kstat e' in grado di capire se per caso le chiamate di sistema siano
+state dirottate mediante un LKM con il metodo, ad esempio, dei
+puntatori a funzione. Un tipico utilizzo:
+
+
+SLaCKy:~/KSTAT# ./kstat -s
+SysCall                         Address
+sys_exit                        0xc011608c
+sys_fork                        0xc0107668
+sys_read                        0xc012356c
+sys_write                       0xc0123904
+sys_open                        0xc0123414
+sys_close                       0xc0123564
+sys_waitpid                     0xc01165a0
+sys_vfork                       0xc0107818
+
+(snip)
+
+sys_creat                       0xc01231c4
+sys_link                        0xc012ad6c
+sys_unlink                      0xc283838c WARNING! Should be at 0xc012abb8
+sys_execve                      0xc2838168 WARNING! Should be at 0xc01076c4
+sys_chdir                       0xc2838440 WARNING! Should be at 0xc0122a08
+
+(snip)
+
+sys_socketcall                  0xc2838730 WARNING! Should be at 0xc01534b0
+sys_syslog                      0xc011269c
+sys_setitimer                   0xc0116898
+sys_getitimer                   0xc01166f8
+sys_newstat                     0xc01286d8
+sys_newlstat                    0xc0128798
+sys_newfstat                    0xc0128874
+sys_uname                       0xc010cc88
+sys_iopl                        0xc010bc3c
+sys_vhangup                     0xc01235cc
+sys_idle                        0xc0107110
+sys_vm86old                     0xc0109fb0
+sys_wait4                       0xc011629c
+sys_swapoff                     0xc0121a58
+
+(snip)
+
+sys_vm86                        0xc0109e70
+sys_query_module                0xc28388bc WARNING! Should be at 0xc0115058
+sys_poll                        0xc012d19c
+sys_nfsservctl                  0xc012e998
+sys_setresgid                   0xc01138ec
+sys_getresgid                   0xc01139c8
+sys_prctl                       0xc01144a0
+sys_rt_sigreturn                0xc0107da8
+sys_rt_sigaction                0xc010f664
+sys_rt_sigprocmask              0xc010ebbc
+sys_rt_sigpending               0xc010ed68
+sys_rt_sigtimedwait             0xc010ede4
+sys_rt_sigqueueinfo             0xc010f110
+sys_rt_sigsuspend               0xc010791c
+sys_pread                       0xc0123ce0
+sys_pwrite                      0xc0123dac
+sys_chown                       0xc01230b8
+sys_getcwd                      0xc012f4d4
+sys_capget                      0xc0118668
+sys_capset                      0xc0118824
+sys_sigaltstack                 0xc0107b08
+sys_sendfile                    0xc011bed0
+sys_ni_syscall                  0xc0112e34
+sys_ni_syscall                  0xc0112e34
+sys_vfork                       0xc0107818
+
+
+Come potete vedere, nel caso ci fosse una differenza tra il normale indirizzo
+della chiamata di sistema ed il nuovo indirizzo, verrebbe stampato un
+messaggio di errore. In questo esempio tutti i nuovi indirizzi delle chiamate
+dirottate sono molto vicini, essendo infatti modificati da un unico LKM come
+oMBRa ...
+
+Per fare questo, purtroppo, sotto Linux e' necessario appoggiarsi al
+famigerato file System.map non essendo esportati come simboli interrogabili
+le chiamate di sistema. Ovviamente questo comporta un fastidio iniziale,
+minimo, per ottenere la lista dei simboli. Ed un impegno successivo per
+mantenere la sicurezza del file stesso. D'altronde, come anche l'immagine di
+boot del kernel, e' il caso di assicurarsi bene della sicurezza di questo
+file. Visto che e' molto semplice crearlo, e' anche possibile copiare su un
+supporto separato il file vmlinuz ottenuto dalla compilazione, e creare un
+System.map qualora servisse.
+
+
+---[ LOADABLE KERNEL MODULES
+
+Kstat permette di ottenere una lista dei vari moduli linkati. Questo puo'
+essere molto interessante ed utile. Immaginiamo infatti che alcune chiamate
+siano state dirottate in modo da non presentare a lsmod e sotto /proc/modules
+il modulo troyan. Ebbene con kstat e' comunque possibile mostrarlo.
+
+
+SLaCKy:~/KSTAT# ./kstat -M
+Module              Address
+knull               0xc283a000
+oMBRa               0xc2838000
+serial_cs           0xc2835000
+pcnet_cs            0xc282f000
+8390                0xc282c000
+ds                  0xc2827000
+i82365              0xc281c000
+pcmcia_core         0xc2810000
+bsd_comp            0xc280e000
+
+
+Ecco che oMBRa, nonostante una aggiunta alla sys_read che lo occulta anche da
+/proc/modules viene mostrato, in quanto kstat attraversa tutta la lista dei
+moduli linkati al kernel.
+E' poi possibile querare il singolo indirizzo per avere informazioni piu'
+specifiche sul modulo (per ora non un granche' esauriente: kstat e' ancora in
+beta).
+
+Il modulo knull e' un modulo che non fa assolutamente nulla, e serve per
+trovare l'indirizzo apice della lista, in modo da traversarla seguendo poi i
+puntatori che collegano le varie strutture.
+
+Nella pagina man di kstat vengono spiegati alcuni esempi di utilizzo.
+
+
+---[ NETWORK INTERFACES
+
+Kstat permette di querare una/tutte le interfacce di rete presenti nel
+sistema.
+Ovviamente utilizza kmem e non il fs proc, quindi preleva le sue informazioni
+direttamente dalle strutture in memoria.
+
+
+[root@MaNTRa /root]# kstat -i ppp0
+ppp0    Link encap:Point-to-Point Protocol  Internal Index:6
+        UP POINTOPOINT RUNNING NOARP MULTICAST  MTU:1500
+        inet addr:62.149.133.30  P-t-P:62.149.132.15  Mask:255.255.255.255
+        Sysctl Params:
+                accept_redirects:       yes
+                send_redirects:         yes
+                secure_redirects:       yes
+                accept_source_route:    yes
+                shared_media:           yes
+                rp_filter:              no
+                proxy_arp:              no
+                bootp_relay:            no
+                log_martians:           no
+                forwarding:             yes
+                mc_forwarding:          no
+
+
+Oltre ad un output simile a quello di ifconfig, e' possibile mostrare anche le
+opzioni di configurazione mediante sysctl delle interfacce. Ecco l'output
+relativo ad eth0:
+
+
+[root@MaNTRa /root]# kstat -i eth0
+eth0    Link encap:Ethernet  Internal Index:2  MAC:00:10:5A:18:68:34
+        UP BROADCAST RUNNING MULTICAST  MTU:1500  IRQ:9 Base:0xe400
+        inet addr:192.168.1.1  Bcast:192.168.1.255  Mask:255.255.255.0
+        Sysctl Params:
+                accept_redirects:       yes
+                send_redirects:         yes
+                secure_redirects:       yes
+                accept_source_route:    yes
+                shared_media:           yes
+                rp_filter:              yes
+                proxy_arp:              no
+                bootp_relay:            no
+                log_martians:           no
+                forwarding:             yes
+                mc_forwarding:          no
+
+
+E' utile notare come nella struttura delle interfacce sia possibile valutare
+lo stato di promiscuita' in una maniera differente da quella usata normalmente
+attraverso la chiamata di sistema sys_ioctl. Questo ci permette di mostrare
+una interfaccia promiscua laddove un LKM che abbia dirottato ioctl non ce lo
+permetterebbe.
+
+
+---[ PROCESSES
+
+Dal momento che Linux utilizza il filesystem proc per mostrare i processi, e
+dal momento che una banale modifica a sys_getdents permetterebbe
+all'attaccante di nascondere ogni processo che lui eventualmente volesse, ecco
+che kstat permette di avere una lista dei processi attraverso la memoria di
+sistema.
+
+
+[root@MaNTRa /root]# kstat -P
+   PID    PPID    UID   GID     COMMAND
+   1      0       0     0       init
+   2      1       0     0       kflushd
+   3      1       0     0       kupdate
+   4      1       0     0       kpiod
+   5      1       0     0       kswapd
+   125    1       0     0       apmd
+   315    1       0     0       syslogd
+   326    1       0     0       klogd
+   340    1       0     0       atd
+   354    1       0     0       crond
+   368    1       0     0       inetd
+   382    1       0     0       lpd
+   403    1       0     0       sendmail
+   418    1       0     0       gpm
+   423    1       0     0       diald
+   478    1       0     0       tail
+   479    1       0     0       tail
+   480    1       0     0       tail
+   485    1       0     500     login
+   486    1       0     500     login
+   487    1       0     500     login
+   488    1       0     0       mingetty
+   489    1       0     0       mingetty
+   490    1       0     0       login
+   493    485     500   500     bash
+   505    493     500   500     BitchX
+   507    423     0     0       pppd
+   547    486     500   500     bash
+   586    487     500   500     bash
+   598    547     500   500     vim
+   603    490     0     0       bash
+   680    603     0     0       kstat
+
+
+Utili sono ovviamente anche le informazioni sui privilegi e sul parente dei
+vari processi.
+Ma questo non e' sufficiente nel caso di una intrusione a livello kernel. Ecco
+allora che kstat permette di avere un maggiore controllo sui singoli processi:
+
+
+[root@MaNTRa /root]# kstat -p 1
+Name:   init
+State:  S (sleeping)
+Pid:    1
+PPid:   0 (swapper)
+Uid:    0       0       0       0
+Gid:    0       0       0       0
+Flags:  PF_SUPERPRIV
+Crucial Capabilities Check
+        Can override every restriction regarding fs
+        Can modify immutable(+i) and append-only(+a) flags
+        Can modify network and firewall configuration
+        Can access RAW sockets
+        Can insert and remove LKMs
+        Can modify system configuration and access devices
+Open Files
+        10      FIFO            /dev/initctl
+
+
+Le flags del processo, il controllo delle piu' cruciali capabilities
+(introdotte regolarmente con il kernel 2.2.13) e dei descrittori aperti,
+permette di avere una idea di cosa faccia il processo. Ad esempio nel caso di
+una sessione IRC nascosta:
+
+
+[root@MaNTRa /root]# kstat -p 505
+Name:   BitchX
+State:  S (sleeping)
+Pid:    505
+PPid:   493 (bash)
+Uid:    500     500     500     500
+Gid:    500     500     500     500
+Flags:
+Crucial Capabilities Check
+Open Files
+        0       CHAR            /dev/tty1
+        1       CHAR            /dev/tty1
+        2       CHAR            /dev/tty1
+        3       0.0.0.0:0        0.0.0.0:0
+        4       62.149.133.30:1024       129.27.8.23:6667
+        5       REGULAR         /fusys/.BitchX/BitchX.away
+
+
+Ecco che in questo caso vengono mostrati anche i socket aperti. Questa
+funzione non e' ancora del tutto tarata a dovere (ricordo ancora come il
+codice sia in beta), per alcuni problemi rilevati testando kstat in varie
+distro. Nonostante le uniche operazioni siano quelle di lettura di
+/dev/kmem mi e' capitato di notare differenze tra una distro e l'altra i
+per la risposta dei nomi dei files di tipo REGULAR .... in alcuni casi
+non viene mostrata l'ultima directory prima di '/' mentre in alcuni casi
+si'. In attesa che la consapevolezza mi colga tra un impegno e l'altro, se
+qualcuno avesse lumi e' pregato di farsi vivo =)
+
+Ovviamente ci sono modi per bypassare kstat. Ma questi sono, strano
+a dirsi, piu' semplici sotto *BSD. Linux infatti, mancando di kvm,
+necessita di offset fissi, kernel per kernel, ottenibili mediante
+ricerca a campione, audit dei sorgenti o System.map. E' sufficiente
+quindi avere un file di map per ogni kernel compilato e tenerlo su
+un supporto non scrivibile (o su uno scrivibile ma non da remoto).
+
+A questo punto, il semplice uso di kstat mediante quei file, scoprira'
+la presenza di troyan al livello user o kernel, senza problemi.
+Non tutte le funzioni di kstat richiedono un file di simboli, anzi.
+Praticamente solo il controllo delle chiamate di sistema. Tutte le
+altre funzioni sono in grado di trovare da se' gli offset corretti
+per leggere vantaggiosamente all'interno di /dev/kmem.
+
+NOTA: prossime versioni di kstat avranno supporto per le funzioni di
+rete, in modo da controllare i protocol handler e in modo da fornire
+un output simile a netstat per valutare la presenza di porte sconosciute,
+nonostante questo possa gia' esser fatto nella maggior parte dei casi
+cercando processi nascosti e vedendo quali socket aprano.
+
+Ora date pure un occhio ai sorgenti di kstat. All'interno e' presente
+anche una pagina man in inglese con esempi e spiegazioni (in inglese
+nel caso si decida di far girare un po' questo codicillo).
+
+Cos'altro dire, se non amen =) ...
+
+							PigPEN & FuSyS
+
+
+==============================================================================
+--------------------------------[ EOF 10/21 ]---------------------------------
+==============================================================================

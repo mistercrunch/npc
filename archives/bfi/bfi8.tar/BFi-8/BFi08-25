@@ -1,0 +1,550 @@
+==============================================================================
+------------[ BFi numero 8, anno 3 - 30/04/2000 - file 25 di 28 ]-------------
+==============================================================================
+
+
+-[ MISCELLANE0US ]------------------------------------------------------------
+---[ PF_* E AF_* : iL DiLEMMA C0NTiNUA?
+-----[ pIGpEN <pigpen@s0ftpj.org> <deadhead@sikurezza.org>
+		     
+ 
+Uno degli argomenti piu' strani e' la differenza che c'e' tra PF_ e AF_
+riguardo cui W. Richard Stevens ha fornito spiegazioni esaurienti... Vediamo
+pero' di scendere un po' piu' sulla pratica, andando a spulciare sul kernel
+tali valori...
+
+Analizzando sys/socket.h nel kernel notiamo:
+
+#define AF_UNSPEC	0
+#define AF_LOCAL	1
+#define AF_UNIX		AF_LOCAL
+#define AF_INET		2
+.....
+
+E un paio di righe piu' sotto:
+
+#define PF_UNSPEC	AF_UNSPEC
+#define	PF_LOCAL	AF_LOCAL
+#define PF_UNIX		AF_UNIX
+#define PF_INET		AF_INET
+.....
+
+A prima vista si capisce quindi che i valori sono fino a questo momento
+interscambiabili per cui per es. chiamare la socket() con primo parametro
+AF_* o PF_* e' la stessa cosa...
+
+Pero' se sono state messe entrambe probabilmente dal punto di vista logico
+qualche differenza di utilizzo ci deve pure stare...
+
+In effetti le macro AF_* sembrerebbero legate alle sockaddr* :
+
+struct sockaddr {
+	u_char sa_len;
+	u_char sa_family; <--- AF_*
+	char sa_data[14];
+};
+
+e le PF_* alla sp_family di una struttura interna al kernel utilizzata per
+per passare le informazioni del protocollo ai raw sockets:
+
+struct sockproto {
+	u_short sp_family;   <--- PF_*
+	u_short sp_protocol; <--- AF_* (ricevuta da una sockaddr)
+};
+
+Ecco qui come:
+
+(tipica funzione di input che attacca l'mbuf sulla so_rcv del socket
+ corretto, vedi pFi#2 (http://www.s0ftpj.org/bfi/pfi2.tar.gz) per spiegazioni)
+
+da net/raw_usrreq.c
+
+/*
+ * Raw protocol input routine.  Find the socket
+ * associated with the packet(s) and move them over.  If
+ * nothing exists for this packet, drop it.
+ */
+/*
+ * Raw protocol interface.
+ */
+void
+raw_input(m0, proto, src, dst)
+	struct mbuf *m0;
+	register struct sockproto *proto;
+	struct sockaddr *src, *dst;
+{
+	register struct rawcb *rp;
+	register struct mbuf *m = m0;
+	register int sockets = 0;
+	struct socket *last;
+
+	last = 0;
+	LIST_FOREACH(rp, &rawcb_list, list) { /* cerca un elemento dalla
+						 lista */
+		if (rp->rcb_proto.sp_family != proto->sp_family)
+			continue;
+		if (rp->rcb_proto.sp_protocol  &&
+		    rp->rcb_proto.sp_protocol != proto->sp_protocol)
+			continue;
+		/*
+		 * We assume the lower level routines have
+		 * placed the address in a canonical format
+		 * suitable for a structure comparison.
+		 *
+		 * Note that if the lengths are not the same
+		 * the comparison will fail at the first byte.
+		 */
+#define	equal(a1, a2) \
+  (bcmp((caddr_t)(a1), (caddr_t)(a2), a1->sa_len) == 0)
+		if (rp->rcb_laddr && !equal(rp->rcb_laddr, dst))
+			continue;
+		if (rp->rcb_faddr && !equal(rp->rcb_faddr, src))
+			continue;
+		if (last) {
+			struct mbuf *n;
+			n = m_copy(m, 0, (int)M_COPYALL);
+			if (n) {
+				if (sbappendaddr(&last->so_rcv, src,
+				    n, (struct mbuf *)0) == 0)
+					/* should notify about lost packet */
+					m_freem(n);
+				else {
+					sorwakeup(last);
+					sockets++;
+				}
+			}
+		}
+		last = rp->rcb_socket;
+	}
+	if (last) {
+		if (sbappendaddr(&last->so_rcv, src,  
+		    m, (struct mbuf *)0) == 0)	/* attacca mbuf al socket */	
+			m_freem(m);
+		else {
+			sorwakeup(last);
+			sockets++;
+		}
+	} else
+		m_freem(m);
+}
+
+Dicevo che la sp_protocol e' un AF_* , eccone la conferma:
+
+/*
+ * This routine is called to generate a message from the routing
+ * socket indicating that a redirect has occured, a routing lookup
+ * has failed, or that a protocol has detected timeouts to a particular
+ * destination.
+ */
+void
+rt_missmsg(type, rtinfo, flags, error)
+	int type, flags, error;
+	register struct rt_addrinfo *rtinfo;
+{
+	register struct rt_msghdr *rtm;
+	register struct mbuf *m;
+	struct sockaddr *sa = rtinfo->rti_info[RTAX_DST];
+
+	if (route_cb.any_count == 0)
+		return;
+	m = rt_msg1(type, rtinfo);
+	if (m == 0)
+		return;
+	rtm = mtod(m, struct rt_msghdr *);
+	rtm->rtm_flags = RTF_DONE | flags;
+	rtm->rtm_errno = error;
+	rtm->rtm_addrs = rtinfo->rti_addrs;
+	route_proto.sp_protocol = sa ? sa->sa_family : 0;
+	raw_input(m, &route_proto, &route_src, &route_dst);
+}
+
+Notate che riceve il valore di una sa_family (struttura sockaddr).
+
+Un altro esempio e' la rts_attach() (net/rtsock.c) che contiene il seguente
+switch:
+
+switch(rp->rcb_proto.sp_protocol) {
+	case AF_INET: ....
+
+	case AF_IPX: ....
+
+	case AF_NS: ....
+
+	case AF_ISO: ...
+.
+.
+.
+}	
+
+Ancora sull'argomento:
+
+Article: 49920 of comp.protocols.tcp-ip
+From: ddl@harvard.edu (Dan Lanciani)
+Newsgroups: comp.protocols.tcp-ip
+Subject: Re: sockets: AF_INET vs. PF_INET
+Message-ID: <3561@news.IPSWITCH.COM>
+Date: 10 Apr 96 01:27:20 GMT
+
+In article <3169B256.41C6@engr.sgi.com>, sam@engr.sgi.com (Sam Leffler) writes:
+| Dan Lanciani wrote:
+|> 
+|> In article <4k1grt$5gq@noao.edu>, rstevens@noao.edu (W. Richard Stevens) 
+|> writes:
+|> | > So why the difference?
+|> | > AF vs PF?
+|> | > What does the difference mean?
+|> |
+|> | AF = address family.  These constants go into the sin_family member of the
+|> | socket address structure.
+|> |
+|> | PF = protocol family.  These constants are the first argument to socket().
+|> 
+|> There is a little more to it than that.  Although I don't have the ancient
+|> sources handy to check (and my memory of this particular aspect is fading),
+|> I recall that the original socket code (4.1c/2.8/2.9BSD) employed a protocol
+|> structure similar in concept to the sockaddr structure.  The protocol
+|> structure contained a family element and a family-specific protocol number.
+|> The PF_ constants were used for the family element of the protocol structure.
+|> A protocol structure (or, rather, the address of one) could be passed to the
+|> socket() call to serve a purpose similar to that of the last (integer)
+|> argument
+|> of the current socket() call.  (Keep in mind that the old socket() call did
+|> not
+|> take a family/domain argument at all, so interpretation of the protocol
+|> number
+|> would not have been possible without the PF_ cue.)  Originally, then, the PF_
+|> and AF_ constants had a much more parallel purpose as structure tags.  When
+|> socket() started requiring a family/domain argument, the protocol structure
+|> was dropped.
+| 
+| Well, actually your memory is a bit off.
+
+While that may well be true in general, I was correct on this issue. :)
+
+| The original socket design included
+| a concept termed a "communications domain" (or "communication domain", never
+| could decide which was correct :-)).  A domain encapsulated many aspects of
+| communication including the protocol family and address format.  Sockets were
+| to be created "within a domain" and carried with them the semantics of the
+| domain.  This was originally to be carried out using a domain() system call
+| that
+| returned a descriptor that was then passed as the first argument to socket().
+
+The above may describe the original *concept*, but it was not the implementation
+in 4.1c/2.9BSD.  Whether what you describe ever existed in an implementation, I
+can't say.  I do remember that early 4.2 manuals described all sorts of neat
+IPC mechanisms that did not exist in the operating system.  Something about
+``portals'' comes to mind.
+
+| Along the way we decided this was not worthwhile and replaced the descriptor
+| with a manifest constant (PF_*) that referenced a fixed set of domains with
+| the associated semantics.
+
+No, the evolution really did include the version I described.  It did not
+jump from the (hypothetical?) domain() semantics to the current state.
+Here is an excerpt from the socket() man page of old:
+
+-----------------------------------------------------------------------------
+SOCKET(2X)          UNIX Programmer's Manual           SOCKET(2X)
+
+NAME
+     socket - create an endpoint for communication
+
+SYNOPSIS
+     #include <sys/socket.h>
+
+     s = socket(type, pf, addr, options);
+     int type;
+     struct sockproto *pf;
+     struct sockaddr *addr;
+     int options;
+-----------------------------------------------------------------------------
+
+The type is what you would expect.  The pf is the object of interest.
+The addr was used in place of a separate bind() and the options argument
+encoded bits similar to those used in current setsockopt() calls (plus
+the important SO_ACCEPTCONN which pre-dated listen()).
+
+Here is the interesting section from sys/socket.h:
+
+-----------------------------------------------------------------------------
+struct sockproto {
+	short	sp_family;		/* protocol family */
+	short	sp_protocol;		/* protocol within family */
+};
+
+#define	PF_UNSPEC	0		/* unspecified */
+#define	PF_UNIX		1		/* UNIX internal protocol */
+#define	PF_INET		2		/* internetwork: UDP, TCP, etc. */
+#define	PF_IMPLINK	3		/* imp link protocols */
+#define	PF_PUP		4		/* pup protocols: e.g. BSP */
+#define	PF_CHAOS	5		/* mit CHAOS protocols */
+#define	PF_OISCP	6		/* ois communication protocols */
+#define	PF_NBS		7		/* nbs protocols */
+#define	PF_ECMA		8		/* european computer manufacturers */
+#define	PF_DATAKIT	9		/* datakit protocols */
+#define	PF_CCITT	10		/* CCITT protocols, X.25 etc */
+-----------------------------------------------------------------------------
+
+I programmed to these interfaces extensively; I assure you they were/are real.
+
+[...]
+
+|> Now, I would argue that the AF_ family is the correct set of constants
+|> for the first argument of socket().  My reason is simply that the constants
+|> in the tables in the socket code itself are AF_ values, and the first
+|> argument
+|> of socket() is compared to these to find the correct domain structure for
+|> the request.
+| 
+| The correct parameter is a PF_foo.
+
+Why?
+
+| In practice however AF_foo = PF_foo and
+| at this point any implementation that does not maintain this will break lots
+|of code.  FWIW my fingers automatically type AF_ when making a socket call :-).
+
+Good, you are doing the right thing. :)
+
+				Dan Lanciani
+				ddl@harvard.*
+
+Uhm vi faccio notare che c'e' un evidente errore nella frase: "The correct
+parameter is a PF_foo..." lo si puo' capire dal ragionamento corretto che fa
+prima e dalla conclusione che probabilmente voleva essere AF_foo
+Comunque andiamo a verificare: 
+
+Cominciamo dalla chiamata a livello utente:
+
+int
+socket(int domain, int type, protocol)
+
+In cui:		domain    ---> e' il dominio AF_* per intenderci...
+		type   	  ---> sono le SOCK_*
+		protocol  ---> e' il numero del protocollo
+
+Fin qui ci siamo... 
+
+La socket() naturalmente ha una sua chiamata di sistema...
+
+[sys/kern/uipc_syscalls.c]
+
+int
+socket(p, uap)
+	struct proc *p;
+	register struct socket_args /* {
+		int	domain;
+		int	type;
+		int	protocol;
+	} */ *uap;
+{
+	struct filedesc *fdp = p->p_fd;
+	struct socket *so;
+	struct file *fp;
+	int fd, error;
+
+	error = falloc(p, &fp, &fd);	/* alloca un nuovo file su quel
+				      	   processo e da' un file descriptor */
+	if (error)
+		return (error);
+		
+	fp->f_flag = FREAD|FWRITE;
+	fp->f_type = DTYPE_SOCKET;
+	fp->f_ops = &socketops;
+
+	/* sono assegnate le specifiche per questo nuovo file aperto dal 
+	   processo */
+	
+	error = socreate(uap->domain, &so, uap->type, uap->protocol, p);
+
+	/* descritta sotto */
+
+	if (error) {
+		fdp->fd_ofiles[fd] = 0; /* libera il descrittore ed il nuovo 
+					   file aperto dal processo */
+		ffree(fp);
+	} else {			/* il socket e' stato creato
+					   f_data del nostro file puntera'
+					   al nostro socket !! */
+	
+		fp->f_data = (caddr_t)so;
+		p->p_retval[0] = fd;	
+	}
+	return (error);
+}
+
+[ sys/kern/uipc_socket.c ]
+
+int
+socreate(dom, aso, type, proto, p)
+	int dom;
+	struct socket **aso;
+	register int type;
+	int proto;
+	struct proc *p;
+{
+	register struct protosw *prp;
+	register struct socket *so;
+	register int error;
+
+	if (proto)		/* cerca il dominio ed il protocollo
+			 	   appartenente ad esso */
+		prp = pffindproto(dom, proto, type);
+	else			/* cerca il dominio ed il tipo specificato */
+		prp = pffindtype(dom, type);
+	if (prp == 0 || prp->pr_usrreqs->pru_attach == 0)
+		return (EPROTONOSUPPORT);
+	if (prp->pr_type != type)
+		return (EPROTOTYPE);
+		
+	so = soalloc(p != 0);	/* crea una nuova struttura socket */
+	if (so == 0)
+		return (ENOBUFS);
+
+	/* inizializza le 2 code dello stato delle connessioni qui sono su
+	   FreeBSD su S.O. che seguono le BSD 4.4 Networking Implementation
+	   Notes sono rispettivamente la so_q0 e la so_q */
+	
+	TAILQ_INIT(&so->so_incomp);
+	TAILQ_INIT(&so->so_comp);
+
+	/* assegna la SOCK_* specificata come secondo parametro della chiamta
+	   socket() */
+	
+	so->so_type = type;
+	if (p) {
+		so->so_cred = p->p_cred;
+		so->so_cred->p_refcnt++;
+	} else so->so_cred = NULL;
+	
+	/* facciamo puntare a so_proto la protosw appropriata ricavata dalla
+	   pffindproto() o pffindtype() */
+	
+	so->so_proto = prp;
+
+	/* eseguiamo la pru_attach() di quel particolare protocollo sara' 
+	   lei a controllare se si puo' creare una nuova connessione 
+	   e a restituire un errore per un esempio vedi
+	   "Attaccare e staccare un inpcb" sull'articolo del divert in
+	   pfi2 dopo l'attach sara' possibile agire le tipiche operazioni per
+	   es se il socket verra' connesso so_state verra' settato con 
+	   valore SS_ISCONNECTED direttamente (il divert fa cosi') o 
+	   tramite funzione soisconnected() /sys/kern/uipc_socket2.c */
+	   
+	error = (*prp->pr_usrreqs->pru_attach)(so, proto, p);
+	if (error) {
+		so->so_state |= SS_NOFDREF;
+		sofree(so);
+		return (error);
+	}
+	*aso = so;
+	return (0);
+}
+
+
+Per capire se AF_* e' corretto bisogna soprattutto tenere in mente che la
+socreate() cerca la protosw corretta attraverso due funzioni:
+
+(nb: ricordo che la protosw e' una struttura che collega tutte le funzioni
+ di gestione di un particolare protocollo ... l'ho spiegata in pFi#2) 
+
+[ kern/uipc_domain.c ]
+
+- pffindproto() chiamata se il terzo parametro della socket(2) e' specificato
+		con valore diverso da zero
+
+struct protosw *
+pffindproto(family, protocol, type)
+	int family, protocol, type;
+{
+	register struct domain *dp;
+	register struct protosw *pr;
+	struct protosw *maybe = 0;
+
+	if (family == 0)
+		return (0);
+	for (dp = domains; dp; dp = dp->dom_next) /* ricerca del dominio */
+		if (dp->dom_family == family)
+			goto found;
+	return (0);
+found:
+	for (pr = dp->dom_protosw; pr < dp->dom_protoswNPROTOSW; pr++) {
+		if ((pr->pr_protocol == protocol) && (pr->pr_type == type))
+			return (pr);	/* trovata la protosw con con
+					   family /protocol/type specificati */ 
+
+		if (type == SOCK_RAW && pr->pr_type == SOCK_RAW &&
+		    pr->pr_protocol == 0 && maybe == (struct protosw *)0)
+			maybe = pr;	/* eccezione per SOCK_RAW con 
+						protocol 0 */ 
+	}
+	return (maybe);
+}
+
+- pffindtype() chiamata se il terzo parametro nella socket(2) e' zero 
+
+struct protosw *
+pffindtype(family, type)
+	int family, type;
+{
+	register struct domain *dp;
+	register struct protosw *pr;
+
+	for (dp = domains; dp; dp = dp->dom_next)
+		if (dp->dom_family == family)	/* ricerca del dominio */
+			goto found;
+	return (0);
+found:
+	for (pr = dp->dom_protosw; pr < dp->dom_protoswNPROTOSW; pr++)
+		if (pr->pr_type && pr->pr_type == type) /* ricerca del secondo
+							parametro della socket*/
+			return (pr);
+	return (0);
+}
+
+Bene, capito questo rimane da vedere com'e' organizzata la struttura domain...
+
+Ogni dominio e' una struttura:
+
+struct	domain {
+	int	dom_family;		/* AF_xxx */
+	char	*dom_name;
+	void	(*dom_init)		/* initialize domain data structures */
+		__P((void));
+	int	(*dom_externalize)	/* externalize access rights */
+		__P((struct mbuf *));
+	void	(*dom_dispose)		/* dispose of internalized rights */
+		__P((struct mbuf *));
+	struct	protosw *dom_protosw, *dom_protoswNPROTOSW;
+	struct	domain *dom_next;
+	int	(*dom_rtattach)		/* initialize routing table */
+		__P((void **, int));
+	int	dom_rtoffset;		/* an arg to rtattach, in bits */
+	int	dom_maxrtkey;		/* for routing layer */
+};
+
+Gia' questo ci dice AF_ , un semplice esempio e' l'inetdomain
+(netinet/in_proto.c):
+
+struct domain inetdomain =
+    { AF_INET, "internet", 0, 0, 0, 
+      inetsw, &inetsw[sizeof(inetsw)/sizeof(inetsw[0])], 0,
+      in_inithead, 32, sizeof(struct sockaddr_in)
+    };
+
+Sembra quindi chiaro che AF_ e' corretto... ma ovviamente e' inutile
+discuterne ancora... basta pensare che la ip_input() usa al suo interno
+il seguente if:
+
+	if(pr->pr_domain->dom_family == PF_INET && ..... ) ....
+
+Questo ci fa capire che ormai non c'e' distinzione e cambiare i valori
+di PF da quelli di AF porterebbe non pochi problemi...
+ 
+pIGpEN
+
+
+==============================================================================
+--------------------------------[ EOF 25/28 ]---------------------------------
+==============================================================================

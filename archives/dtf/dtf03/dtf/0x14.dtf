@@ -1,0 +1,943 @@
+       ## #######   ####### #######      ####### ### ######## ######## ##
+       ## ########  ####### #######      ####### ### ######## ######## ##
+      ##      ##### ####### #######      ####### ### #### ### ########  ##
+      ##        ###                                  ###  ###           ###
+     ###  ###   ###   ###   #######  ###    ###  ### ###   ## ########  #####
+   #####  ###   ###   ###   #######  ###   ###   ### ###   ## ########  #####
+   #####  ###   ###   ###   #######        ###   ### ###   ## ########  ### #
+   # ###  ###  ####   ###   ###           ###  # ### ###   ## ###       ##  #
+   #  ##  ########   #####  ###           ###  # ### ###   ## ########  ##  #
+   #  ##  #######    #####  ###          ####### ### ###   ## ######## ##   #
+   #   ## ######     #####  ###          ####### ### ###   ## ######## ##   #
+   #   ##                                                                   #
+   #              ############################################              #
+   #             ##  DTF-Zine ISSUE #3   Abril-02            ##             #
+   #             #   Titulo: Procesos en el kernel Linux      #             #
+   ###############   Autor : OuterMind                        ###############
+     #############   EMail : outermind@eresmas.net            #############
+                 ##  Web   : http://dtfzine.cjb.net          ###
+                  ##############################################
+                   ############################################
+                                    ######
+                                    #    #
+                                  ###    ###
+                                 ####    ####
+            ########         ########    ########      ########
+            #     #######################################     #
+            #   ##      INDICE:                          ##   #
+            #  ##       -------                           ##  #
+            # ###                                         ### #
+            #####    1. Introducción                      #####
+            #####    2. Estructuras de datos en el kernel #####
+            #####    3. Creación, destrucción y cambios   #####
+            #####       de contexto                       #####
+            # ###    4. Despedida                         ### #
+            #  ##                                         ##  #
+            #   ##                                       ##   #
+            #     #######################################     #
+            #######                                     #######
+				
+
+ 1º- Introducción:
+
+     Hola a todos, os voy a hablar de los procesos en el kernel Linux: cómo se
+ crean,  cómo  se  eliminan  y  cómo  se  producen  los  cambios  de contexto.
+ Procuraré  dar  referencia  al  código  fuente  de  todas  las  estructuras y
+ algoritmos  de  los  que  hable  pero  he  de  advertir  que  antes de que os
+ pongáis   como   locos   a   mirar   el  código  sería  recomendable  que  os
+ familiarizaseis  con  la  sintaxis de ensamblador ATT para i386 que es la que
+ voy  a  usar,  y  sobretodo con el ensamblador en línea ya que es ampliamente 
+ utilizado  y  es  garantía  de  confusión  si no lo conocéis bien (no es nada
+ intuitivo).
+
+     También  presupondré para mis explicaciones que tenéis unos conocimientos
+ medios  de  sistemas  operativos  y  unos conocimientos básicos de gestión de
+ memoria.
+
+     Para  que  no  se  os  haga muy pesado el artículo es recomendable que lo
+ leáis  con  las  fuentes delante para entender un poco mejor las cosas y para
+ ir acostumbrándoos a las fuentes de Linux.
+
+
+
+ 2º- Estructuras de datos en el kernel:
+ 
+     Antes  de  hablar  de  los  procesos  en  el  kernel Linux, necesitaremos 
+ definir  y  explicar  algunas estructuras de datos que utiliza el kernel para 
+ manejar los procesos.
+
+     La  primera  estructura que utiliza el kernel es el descriptor de proceso 
+ (process  descriptor) y consiste en un registro task_struct del cual se puede 
+ ver  la  definición  en  "include/linux/sched.h" (todas las referencias a las 
+ fuentes  se  hacen  relativas  al  directorio raíz de las fuentes del núcleo, 
+ p.e.: "/usr/src/kernel-source-2.4.18"):
+ 
+     struct task_struct {
+         volatile long state;
+         unsigned long flags;
+         ...
+         struct task_struct *next_task, *prev_task;
+         ...
+	 pid_t pid;
+         ...
+         struct task_struct *p_opptr, *p_pptr, *p_cptr, *p_ysptr, *p_osptr;
+         ...
+         struct task_struct *pidhash_next;
+         struct task_struct **pidhash_pprev;
+         ...
+     };
+     
+     El  campo 'state' del registro contiene información sobre el estado en el
+ que se encuentra el proceso:
+ 
+ TASK_RUNNING: El  proceso  está  en ejecución o esperando para ser ejecutado.
+ TASK_INTERRUPTIBLE: El  proceso  se  encuentra  suspendido a la espera de que
+                     ocurra algún evento.
+ TASK_UNINTERRUPTIBLE: Igual   que  el  estado  anterior  pero  una  señal  no
+                       despertará al proceso.
+ TASK_STOPPED: La  ejecución  del  proceso ha sido interrumpida al recibir una
+               señal SIGSTOP, SIGTSTP, SIGTTIN o SIGTTOU.
+ TASK_ZOMBIE: El  proceso ha terminado de ejecutarse pero está esperando a que
+              el padre haga un wait() (o muera).
+
+     El  campo  'pid'  contiene  el identificador de proceso (process ID) que,
+ aunque  en  la  mayoría de los casos el kernel se refiere a un proceso por su
+ dirección  (process  descriptor  pointer),  es  necesario  para  llamadas  al
+ sistema  como kill()  o  wait() que se refieren a los procesos por su PID. El
+ campo  PID  es  un  entero  de 32 bits con lo que tenemos hasta 2^32 posibles
+ PIDs. En versiones anteriores a Linux 2.4, aunque también era un entero de 32
+ bits,  sólo se podían ocupar hasta 32768 procesos, a partir de Linux 2.4 este
+ límite ya no existe.
+
+     Los descriptores de procesos en Linux se guardan en memoria dinámica y se 
+ referencian  mediante  su  dirección en memoria. Para cada proceso se guardan
+ dos  estructuras en la pila del kernel: el descriptor de proceso y la pila en
+ modo kernel. Con este objeto se define una union:
+     
+     # define INIT_TASK_SIZE 2048*sizeof(long)
+     ...
+     union task_union {
+         struct task_struct task;
+         unsigned long stack[INIT_TASK_SIZE/sizeof(long)];
+     };
+ 
+     Esta estructura es guardada en dos páginas consecutivas en memoria (8KB),
+ de  forma  que cuando se produce el cambio de modo usuario a modo kernel, esp
+ contiene  la  dirección  de  la  cima de la pila y en la dirección inicial se
+ sitúa el descriptor de proceso. Un gráfico:
+
+                ______________________________
+       fondo--> |___________PILA_____________| <--- OFFSET + 2000h (8KB)
+                |            ||              |
+                |            ||              |
+                .            \/              .
+                .      (la pila decrece)     .
+                .                            .
+ esp (cima)---> |----------------------------|
+                |                            |
+                .                            .
+                .                            .
+                .                            .
+                |____________________________|
+                |                            | <--- OFFSET + tamaño del PD
+                |          PROCESS           |
+	        |         DESCRIPTOR         |
+                |____________________________| <--- OFFSET
+
+     En  este  ejemplo se puede ver claramente cómo se guarda el descriptor de
+ proceso  en  la pila. Algún lector avispado se habrá dado cuenta de que, dado
+ el  esp,  sacar  el puntero al descriptor de proceso es algo tan trivial como
+ quitar  los  últimos  13 bits del esp. Para obtener ésta dirección existe una
+ macro  muy utilizada: la macro current. Lo que hace básicamente es enmascarar
+ los últimos 13 bits de esp y devolver el puntero al descriptor de proceso. El
+ código se puede encontrar en "include/asm-i386/current.h" y más o menos viene
+ a hacer lo siguiente:
+
+         movl $ffffe000, %eax ;(u otro registro)
+	 andl %esp, %eax
+	 movl %eax, p
+
+ dejando  en  'p'  el  puntero  al descriptor de proceso. Esta macro suele ser
+ utilizada  de  la  siguiente manera. Supongamos que queremos saber el PID del
+ proceso  que  está  ejecutandose  en  ese  momento, current->pid nos dara esa
+ información.  Por supuesto donde pone pid podemos poner cualquier otro de los
+ campos del descriptor de proceso (state, flags, thread...).
+
+     Para  reservar  espacio  para  las dos páginas que ocupa el descriptor de
+ proceso,   existen   dos  macros:  free_task_struct()  y  alloc_task_struct()
+ definidas  en  "include/asm/processor.h".  Estas  macros  hacen  uso  de  una
+ pequeña  cache  que  se  usa  para  evitar  la  pérdida de rendimiento que se
+ produce  cuando  nada  más  sacar  un proceso de ejecución se reserva espacio
+ para otro (es costoso liberar y reservar memoria y se hace inecesario en este
+ caso).
+
+     Todos  los  punteros  a  descriptores de procesos se guardan en una lista
+ llamada  lista  de  procesos  (process  list). Se trata de una lista circular
+ dóblemente enlazada que contiene punteros a los descriptores de procesos y se
+ gestiona  con  los  campos  'prev_task'  y 'next_task' de los descriptores de
+ proceso.  En  la  lista el proceso "init" hace de primer elemento, el proceso
+ init  (llamado  también proceso 0 o swapper) es el proceso padre de todos los
+ demás y se puede referenciar como 'init_task'. Para añadir y quitar elementos
+ de  la  lista  existen  las  macros  SET_LINKS  y  REMOVE_LINKS  definidas en
+ "include/linux/sched.h" que se encargan de poner los punteros de los nodos de
+ la  lista  apuntando  a donde deben cuando se añaden y se quitan elementos de
+ ésta.
+
+     Además,  si  lo  que  queremos  es  recorrer la lista de procesos, se nos
+ proporciona  una  macro muy útil: for_each_task ("include/linux/sched.h") que
+ funciona de la siguiente manera:
+
+     #define for_each_task(p) \
+             for (p = &init_task; (p = p->next_task) != &init_task; )
+
+ de forma que si hacemos:
+
+     for_each_task(p) {
+             ...
+	     <instrucciones>
+	     ...
+     }
+
+ las  instrucciones del cuerpo del bucle se ejecutaran para cada proceso de la
+ lista  y  en  p  tendremos  el  puntero  al descriptor de proceso que se este
+ tratando  en  cada iteración del bucle. Se puede ver que lo que hace la macro
+ es  empezar  desde  init_task  e  ir siguiendo los enlaces hasta completar la
+ vuelta a la lista.
+
+     Por  razones  de  eficiencia el kernel, además de una lista con todos los
+ procesos,  guarda  listas  aparte  de procesos "de un mismo tipo". Un ejemplo
+ es  la  cola  de  ejecución  (runqueue). En la cola de ejecución se almacenan
+ todos  los  procesos que se encuentran en el estado TASK_RUNNING. De nuevo se
+ trata  de  una  lista  circular  con  doble enlace y se maneja con los campos
+ next_run  y  prev_run  de  los  descriptores  de proceso. Para añadir y sacar
+ elementos  de  la  lista  se  proporcionan  las  funciones  add_to_runqueue y
+ del_from_runqueue,     además   de   las   funciones   move_last_runqueue   y
+ move_fist_runqueue  que  mueven  un  descriptor  de proceso al principio o al
+ final   de  la  cola  de  ejecución.  Estas  funciones,  así como la variable
+ nr_running  que  guarda  el  número  de  procesos  que  están  en  la cola de
+ ejecución,  se  utilizan  para  realizar  tareas de scheduling (se encuentran
+ definidas en "kernel/sched.c").
+
+     Los  procesos  que  no se encuentran en el estado TASK_RUNNING se guardan
+ en   listas  distintas  de  la  cola  de  ejecución.  Los procesos  en estado
+ TASK_STOPPED  y  TASK_ZOMBIE no se guardan en ninguna lista especifica puesto
+ que  toda  la  información  que  se pueda requerir de ellos se puede coseguir
+ desde   el   padre.   Para   los  procesos  en  estado  TASK_INTERRUPTIBLE  y 
+ TASK_UNINTERRUPTIBLE se crean las colas de espera (waitqueues).
+
+     Estas  colas  se  manejan  con  listas  del  tipo  list_head definidas en
+ "include/linux/list.h".   Para   las  colas  de  espera  se  define  el  tipo
+ wait_queue_head_t que viene a ser así ("linux/include/wait.h"):
+
+     typedef struct wait_queue_head_t {
+         wq_lock_t lock;
+	 struct list_head task_list;
+     };
+ 
+     El  campo  task_list contiene la cabecera de la list. Cada nuevo elemento
+ de la lista se define como del tipo wait_queue_t:
+
+     typedef struct wait_queue_t {
+         unsigned int flags;
+	 struct task_struct * task;
+	 struct list_head task_list;
+     };
+
+     El  campo  task  contiene un puntero al descriptor del proceso y el campo
+ task_list  un  elemento  de  la  lista.  Llegados  a este punto, antes seguir
+ resulta apropiado comentar cómo funcionan las list_heads.
+
+    Cada  list_head  son  dos  punteros a la siguiente y anterior list_head de
+ forma  que cuando se inicia una nueva lista, ambos apuntan a si mismos. Si se
+ quiere  añadir  un nuevo elemento a la lista se utiliza la función list_add()
+ que  inserta  el elemento después de la list_head de referencia y antes de la
+ list_head  siguiente a la de referencia. Así los nuevos elementos son siempre
+ insertados después del primero y antes del segundo. Estas listas no tienen un
+ contenido  por  si  mismas,  sólo  sirven  como  una manera de manejar listas
+ circulares  génericas,  proporcionan  los punteros y las funciones necesarias
+ para manejarlas.
+
+     Ahora  veamos  cómo  aprovechan  estas  listas las colas de espera. No se
+ utilizan diréctamente las funciones de las list_heads, para manejar las colas
+ de  espera  disponemos  de  un  interfaz  que  utiliza  las  funciones de las 
+ list_heads.  Cuando  queremos  crear  una  cola de espera la creamos del tipo
+ wait_queue_head_t  y  llamamos  a init_waitqueue_head() para que sus punteros
+ apunten a si mismos creando así una cola vacía.
+     
+     Para  añadir  elementos  a una cola de espera disponemos de las funciones
+ sleep_on(),        interruptible_sleep_on(),        sleep_on_timeout()      e
+ interruptible_sleep_on_timeout()   que   añaden   el   proceso  current  como
+ TASK_UNINTERRUPTIBLE  o  TASK_INTERRUPTIBLE  (interruptible_*)  y  durante un 
+ tiempo  máximo  determinado  (*_on_timeout) o hasta que el evento que esperan
+ llegue. Lo que hacen estas funciones es añadir el proceso current a la cola y
+ llamar a la función schedule() para seleccionar un nuevo proceso que entre en
+ ejecución:
+
+     sleep_on(wait_queue_head_t *q)
+     {
+         unsigned long flags;
+	 wait_queue_t wait;
+	 init_wait_queue_entry(&wait, current); // Crea el elemento de la
+                                                // lista correspondiente.
+         current->state = TASK_UNINTERRUPTIBLE;
+	 
+         __add_wait_queue(q, &wait);
+	 schedule();
+	 __remove_wait_queue(q, &wait); // Al salir del estado de espera,
+                                        // esto es lo primero que ejecuta
+                                        // current.
+     }
+     
+     interruptible_sleep_on() es análoga.
+
+     sleep_on_timeout(wait_queue_head_t *q, long timeout)
+     {
+         unsigned long flags;
+	 wait_queue_t wait;
+	 init_wait_queue_entry(&wait, current); // Crea el elemento de la
+                                                // lista correspondiente.
+         current->state = TASK_UNINTERRUPTIBLE;
+	 
+         __add_wait_queue(q, &wait);
+	 timeout = schedule_timeout(timeout);
+	 __remove_wait_queue(q, &wait); // Al salir del estado de espera,
+                                        // esto es lo primero que ejecuta
+                                        // current.
+     }
+
+     schedule_timeout()  es similar  a  schedule pero da la señal al kernel de
+ que despierte a current después de transcurrido un tiempo timeout.
+
+     Los  procesos  en  las  colas de espera vuelven al estado de TASK_RUNNING
+ mediante  la  función  __wake_up(), la cual recorre toda la cola de espera en
+ busca  de  procesos  que  deban  ser  despertados. De este modo ya tenemos un
+ mecanismo completo para poner procesos en colas de espera y para despertarlos
+ cuando el evento que esperan ocurra.
+ 
+     Como   ya  he  contado  antes,  algunas  llamadas  al  sistema toman como
+ referencia  el PID de un proceso y no su descriptor de proceso. Para hacer la
+ tarea  de  obtener  el  descriptor de proceso a partir del PID, Linux utiliza
+ una tabla hash para derreferenciar el descriptor de proceso a partir del PID.
+ Esta  tabla  se  llama pidhash y se encuentra definida en "kernel/fork.c". Se
+ trata  de un vector de punteros a descriptores de proceso de tamaño PIDHAS_SZ
+ (constante  definida  en "include/linux/sched.h"). Para obtener la entrada de
+ la  tabla correspondiente a un determinado PID se utiliza la macro pid_hashfn
+ (definida también en "include/linux/sched.h"):
+
+     #define pid_hashfn(x)   ((((x) >> 8) ^ (x)) & (PIDHASH_SZ - 1))
+ 
+     Para  evitar  las colisiones, típicas en las funciones hash, Linux guarda
+ en  cada  entrada  de la tabla una lista con doble enlace a los procesos cuyo
+ PID  coincide  en  la  misma  entrada  de  la tabla. Esta lista es gestionada
+ mediante  los  campos pidhash_next y pidhash_pprev del descriptor de proceso.
+ Para  añadir  y  quitar  entradas  de  la  tabla  hash, Linux proporciona las
+ funciones  hash_pid  y  unhash_pid (definidas en "include/linux/sched.h") que
+ añaden  y  sacan  de  la  tabla  pidhash  un  proceso dado.  Para obtener una  
+ entrada  de  la  tabla  dado  el  PID  del proceso, se proporciona la función
+ find_task_by_pid() ("include/linux/sched.h").
+
+     Otro  tema  importante  son  las relaciones de parentesco entre procesos.
+ En  Linux,  los  descriptores  de  procesos tienen campos que crean grafos de
+ parentesco entre los procesos: 
+ 
+     p_opptr: Es  un  puntero al descriptor de proceso del padre original o al
+              proceso 1 (init) en caso de que el padre haya muerto.
+
+     p_pptr: Apunta  al  padre  actual  que suele ser el mismo que el original
+             pero  puede  no ser así como, por ejemplo, cuando el proceso está
+	     siendo trazado (ptrace()).
+
+     p_cptr: Apunta al hijo más joven del proceso.
+
+     p_ysptr: Apunta  a  su hermano menor, al primer proceso que creo su padre
+              después de él.
+
+     p_osptr: Apunta  a  su hermano  mayor, al proceso que creo su padre antes
+              que a él.
+
+     Un  ejemplo: Tenemos al proceso P0 que crea al proceso H1. En ese momento
+ P0->p_cptr  apunta a H1 y H1->p_opptr apunta a A0 al igual que H1->p_pptr. Si
+ ahora  P0  crea otros dos procesos H2 y H3, los campos p_opptr y p_pptr de H2
+ y  H3, al igual que los de H1, apuntan a P0. A su vez, P0->p_cptr apunta a H3
+ que  es  su  hijo  más  joven. Los tres procesos hijos guardan su relación de
+ parentesco  en los campos p_ysptr y p_osptr de forma que H1->p_ysptr apunta a
+ H2,  H2->p_ysptr  apunta a H3, H3->p_osptr apunta a H2 y H2->p_osptr apunta a
+ H1.  Si  ahora  H2 crease otro proceso N4, H2->p_ycptr apuntaria a N4 y tanto
+ N4->p_opptr  como  N4->p_pptr  apuntarian  a H2 y así seguiría sucesívamente.
+ Como  fijo que no te has enterado de nada, tienes un dibujo de lo descrito en
+ "parentesco.png".
+
+     Otro  campo  importante  del  descriptor  de proceso es el campo rlim. Se
+ trata  de  un  vector  de  registros  rlimit que guardan información sobre la 
+ limitación de recursos del proceso ("inclide/linux/resource.h"):
+
+     struct rlimit {
+         unsigned long   rlim_cur;
+         unsigned long   rlim_max;
+     };
+ 
+ El  campo rlim_cur guarda el límite actual del recurso y rlim_max es el valor
+ del  límite  máximo  del  recurso.  Con las llamadas al sistema getrlimit() y
+ setrlimit()  un  usuario puede cambiar el valor de rlim_cur (como mucho hasta
+ rlim_max)  pero sólo el root puede cambiar el valor de rlim_max o subir el de
+ rlim_cur  por  encima  del  límite  impuesto. La mayoria de los límites están
+ establecidos en RLIMIT_INFINITY, lo que quiere decir que no existe ningún
+ límite. Los diferentes límites que existen son:
+
+ RLIMIT_CPU: El  tiempo  máximo  de  CPU. Si el proceso sobrepasa el límite el
+             kernel  envía  una señal SIGXCPU y si el proceso no termina envía
+	     una señal SIGKILL.
+
+ RLIMIT_FSIZE: El  tamaño  máximo  permitido  para  un  fichero. Si el proceso
+               sobrepasa el límite el kernel le envía una señal SIGXFSZ.
+
+ RLIMIT_DATA: El tamaño máximo del heap. El kernel comprueba este límite antes
+              de expandir el heap.
+
+ RLIMIT_STACK: El  tamaño  máximo  de la pila. El kernel comprueba este límite
+               antes de expandir la pila en modo usuario del proceso.
+
+ RLIMIT_CORE: El  tamaño  máximo del archivo de volcado de memoria (coredump).
+              Cuando  un  proceso  es abortado el kernel comprueba este límite
+	      antes de crear un archivo 'core'.
+
+ RLIMIT_RSS: El  máximo  número  de  páginas  de  memoria  que  puede tener un
+             proceso.  Esto  aun  no ha sido implementado así que aun no sirve
+             para nada.
+
+ RLIMIT_NPROC: El número máximo de procesos que puede poseer el usuario.
+
+ 
+ RLIMIT_NOFILE: El número máximo de fichero abiertos.
+
+ 
+ RLIMIT_MEMLOCK: La    cantidad    máxima   de   memoria   no   intercambiable
+                 (nonswappable).  La  memoria  no intercambiable es la memoria
+		 que  el  proceso  bloquea  en  RAM  de  forma que no es nunca
+                 guardada  en  disco  (swapped o intercambiada). La memoria se
+                 bloquea mediante las llamadas al sistema mlock y mlockall.
+
+ RLIMIT_AS: El  tamaño máximo del espacio de direcciones del proceso. El valor
+            se  comprueba  cuando  el  proceso  llama a malloc() para reservar
+	    memoria.
+
+
+
+ 3º- Creación, destrucción y cambios de contexto:
+ 
+     Ahora que ya sabemos un poco más sobre cómo se guarda y maneja un proceso
+ en  el  kernel,  veamos cómo se crean, destruyen y se producen los cambios de
+ contexto.
+
+     Para la creación de procesos, dado que la mayoría de las veces no se hace
+ necesario  hacer  una  copia del padre ya que el hijo o bien hace una llamada
+ a  execve() lo cual hace que todo el espacio tenga que ser creado nuevo, o no
+ modifica mucho del espacio de memoria del padre (como sus páginas de código),
+ no  se  hace  necesaria  la  copia  del  padre  cada vez que se crea un nuevo
+ proceso.   Para  ahorrar  el  tiempo  de  la  copia  Linux  proporciona  tres
+ mecanismos:
+
+   - Copy  on  write  (copia  en escritura): Permite tanto a padre como a hijo
+     leer del mismo espacio de memoria, pero si uno de ellos trata de escribir
+     en alguna de las páginas de memoria compartida, se produce la copia.
+
+   - Lightweight  processes  (procesos  ligeros):  Permite   a  padre  e  hijo
+     compartir  algunas  de  las  estructuras  de  datos per-process, como las
+     tablas  de paginado (y consecuéntemente todo el espacio de direcciones en
+     modo usuario) y la tabla de ficheros abiertos.
+
+   - La llamada al sistema vfork(): La llamada crea un proceso que comparte el
+     espacio  de  direcciones del padre. Para evitar que el padre sobreescriba
+     información  necesitada  por  el  hijo,  es  bloqueado  hasta que el hijo
+     termina o ejecuta otro programa.
+
+     Para  la  creación  de  procesos  ligeros,  Linux  proporciona la función
+ __clone() la cual toma cuatro parametros:
+     
+     fn: Especifica la función que será ejecutada por el proceso.
+     
+     arg: Un puntero a los parametros que recibe fn().
+     
+     flags: El  byte  menos significativo especifica la señal que será enviada
+     al  padre  cuando  el  proceso  muera y los 3 bytes restantes guardan una
+     serie de flags que especifican los recursos que serán compartidos:
+
+         CLONE_VM: El descriptor de memoria y todas las tablas de páginas.
+         CLONE_FS: La  tabla que identifica el directorio raiz y el directorio
+                   de trabajo.
+         CLONE_FILES: La tabla de ficheros abiertos.
+         CLONE_SIGHAND: La  tabla  de  los  signal  handlers  (manejadores  de 
+                        señal).
+         CLONE_PID: El PID, sólo utilizable por el proceso 0.
+         CLONE_PTRACE: Si  el  proceso  padre  está siendo trazado, el proceso
+                       hijo estará trazado también.
+         CLONE_VFORK: Utilizada  por vfork para indicar que despierte al padre
+                      al morir.
+         CLONE_PARENT: El  proceso  creado tendrá  el mismo padre que su padre
+                       (yo soy mi abuelo :P).
+         CLONE_THREAD: El grupo de threads al que pertence.
+         CLONE_SIGNAL: Por definición (CLONE_SIGHAND | CLONE_THREAD).
+
+     child_stack: El  esp  del  proceso  creado, es la dirección de la pila en
+     modo usuario del nuevo proceso.
+
+     En  realidad  __clone()  es una función que se encuentra en la clib y que
+ utiliza  la llamada al sistema clone(), la cual recibe los parametros flags y
+ child_stack.  Cuando  la llamada al sistema vuelve a la función __clone(), si
+ se trata del hijo le hace ejecutar la función fn().
+
+     La  función  fork() se emplementa en Linux como una llamada a clone() con
+ todas  las  flags  a  0  y  la  señal  especificada como SIGCHLD y el segundo
+ parametro a 0.
+ 
+     La función vfork(), al igual que fork(), llama a clone() con SIGCHLD como
+ señal  y  el  segundo  parametro  a  0,  pero  con  las  flags  de CLONE_VM y 
+ CLONE_VFORK.
+
+     Cuando  se realizan las llamadas al sistema clone(), fork() o vfork(), el
+ kernel llama a la función do_fork() ("kernel/fork.c") que hace lo siguiente:
+
+     1º- Si  la  flag  CLONE_PID  ha sido establecida, comprueba si el pid del
+         padre es 0. Si no lo es devuelve un error.
+
+     2º- Llama a alloc_task_struct para conseguir una task_union para el nuevo
+         proceso donde guardar su descriptor y su pila en modo kernel.
+
+     3º- Copia el descriptor de proceso en el espacio reservado al del hijo.
+
+     4º- Se  comprueban  los  límites (RLIMIT_NPROC) y devuelve un error si se
+         han superado.
+
+     5º- Se   comprueba  que  nr_threads  no  excede  el  límite  impuesto  de 
+         max_threads y devuelve un error de ser así.
+
+     6º- Si  el  proceso padre usa algún modulo, se incrementan los contadores
+         correspondientes  de  referencia  (un  módulo  no puede ser eliminado
+	 hasta que sus contadores de referencia se ponen a 0).
+
+     7º- Los campos did_exec, swappable y state se ponen a un valor apropiado,
+         0  para  did_exec  y swappable, y TASK_UNINTERRUPIBLE para state y se
+         llama  a  la  función  copy_flags  que  borra las del campo flags del
+         descriptor   PF_SUPERPRIV  y  PF_USEDFPU  (el  proceso  no  ha  usado
+         privilegios  de  superusuario  ni  la FPU), y si la flag CLONE_PTRACE
+         estaba  a  0 pone el campo ptrace del descriptor a 0. Las demás flags
+	 las deja como están.
+
+     8º- Se llama a la función get_pid para obtener un pid para el proceso.
+
+     9º- Se  actualizan  todos  los  campos  del  descriptor que no pueden ser
+         heredados por el hijo, como las relaciones de parentesco.
+
+     10º- A  no  ser que se haya especificado otra cosa en el parametro flags,
+          se  llama  a  copy_files, copy_fs, copy_sighand y copy_mm para crear
+          las  estructuras  de datos adecuadas y guardar en ellas una copia de
+          las del padre.
+
+     11º- Se  llama  a copy_thread para inicializar la pila en modo kernel del
+          hijo  con  los  valores de los registros contenidos en la CPU cuando
+          se  llamo  a clone() excepto en eax que se sustituye lo que haya por
+          0,  esp  que  se inicializa con la dirección base de la pila en modo
+          kernel  del  proceso, y eip que se inicializa con la dirección de la
+          función ret_from_fork. Estos registros se hallan en el campo thread,
+          que  es  un  registro  del  tipo  thread_struct  del que hablaré más
+          adelante.
+
+     12º- Se  actualizan ciertos campos no actualizables hasta ahora, se añade
+          el  proceso  a  la  lista de su grupo de procesos (thread_group), se
+          establecen  las relaciones de parentesco y si se ha activado el flag
+          de  CLONE_PARENT  y/o  CLONE_THREAD  se  copia  el padre y/o el tgid
+          (thread group id).
+
+     13º- Se  utiliza la macro SET_LINKS para añadir a la lista de procesos el
+          nuevo proceso.
+
+     13º- Usa la función hash_pid para añadir el proceso a la tabla pidhash.
+
+     14º- Se  incrementa  el  valor  de  nr_threads  y  se  llama a la función
+          wake_up_process para poner al nuevo proceso en al cola de ejecución.
+
+     15º- Si  se  estableció  la  flag  CLONE_VFORK,  la  función  suspende al
+          proceso padre.
+
+     16º- Por último se devuelve el pid del nuevo proceso.
+
+     Ahora  que  tenemos  listo  un  proceso  nuevo  para correr, es tarea del
+ scheduler  ponerlo  en  ejecución  cuando le parezca bien. Cuando esto ocurra
+ el   proceso   se   encontrará   ejecutando   ret_from_fork   que   llama   a
+ ret_from_sys_call  que  recarga  todos  los  demás  registros con los valores
+ guardados  en  la  pila  y  fuerza  a la CPU a volver a modo usuario. Aqui el
+ proceso  inicia  su ejecución justo después de la llamada fork, vfork o clone
+ con  el valor devuelto por la llamada en eax. Este valor será el PID del hijo
+ para el padre y 0 para hijo.
+ 
+     Todo  esto  que  puede  parecer muy confuso se ve mucho más claro con las
+ fuentes  delante.  En realidad es código bastante sencillo de entender.
+
+     Existen  un  tipo  especial  de  procesos  llamados kernel threads que se
+ diferencian  de  los  procesos  normales  en  tres  cosas: cada kernel thread
+ ejecuta  una función del kernel especifica mientras que los procesos normales
+ ejecutan  funciones  del kernel sólo mediante llamadas al sistema; los kernel
+ threads  se  ejecutan  sólo en modo kernel mientras que los procesos normales
+ cambian  de  modo  kernel a modo usuario y viceversa; y puesto que los kernel
+ threads  se  ejecutan  sólo  en  modo  kernel utilizan únicamente direcciones
+ mayores  que  PAGE_OFFSET  mientras  que un proceso normal utiliza el espacio
+ de direcciones completo (4GB).
+
+     Estos  procesos  están  destinados  a tareas críticas como vaciar caches,
+ intercambiar  páginas de memoria o servir conexiones de red. Para crear estos
+ procesos    se    dispone   de   la   función   kernel_thread   definida   en 
+ "arch/i386/kernel/process.c",  la  cual  crea un kernel thread y la cual sólo
+ puede ser ejecutada por otro kernel thread.
+
+     Esta  función,  lo  que  viene  a  hacer  es llamar a clone() con el flag
+ CLONE_VM y si es el padre devolver el PID del hijo, si es el hijo ejecutar la 
+ función que se le pasa como argumento y llamar a exit():
+     
+     ** Le pasamos como parametros la función a ejecutar, los argumentos que
+     ** recibe esa función y las flags con las que será creado el proceso.
+     int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
+     {
+         long retval, d0;
+	 
+         __asm__ __volatile__(
+	   ** Se guardan los parametros que se le pasan a la función
+	   ** en distintos registros. Se hace mediante ensamblador en
+	   ** línea extendido y no voy a explicar aquí lo que significa
+	   ** cada cosa así que lo obvio.
+	     "..."
+	     "..."
+	   ** Preparamos la llamada al sistema clone()
+             "movl %%esp,%%esi\n\t"
+	   ** Ejecutamos clone()
+             "int $0x80\n\t"
+	   ** Comprobamos el valor devuelto por clone()
+             "cmpl %%esp,%%esi\n\t"
+	   ** Si es el PID del hijo estamos en el padre y saltamos a '1:'
+             "je 1f\n\t"
+	   ** Sino estamos en el hijo y cargamos los argumentos (previamente 
+	   ** guardados en %4) en eax y lo guardamos en la pila.
+             "movl %4,%%eax\n\t"
+             "pushl %%eax\n\t"
+	   ** Llamamos a fn (previamente guardada en %5)
+             "call *%5\n\t"
+	   ** Preparamos la llamada al sistema exit()
+             "movl %3,%0\n\t"
+	   ** Y ejecutamos exit()
+             "int $0x80\n"
+	   ** Aqui es donde el padre retoma el control después de clone().
+             "1:\t"
+	   ** Se restauran ciertas estructuras y se cargan ciertos registros
+	   ** con información de salida. Todo también por ensamblador
+	   ** en línea extendido.
+	     "..."
+	     "...");
+	     
+	 return retval;
+     }
+
+     El  antecesor de todos los procesos es el llamado proceso 0 (process 0) o
+ swapper.  El  proceso  0  es  un  kernel  thread  creado  durante  la fase de
+ inicialización  del  kernel  por la función start_kernel(). Este proceso hace
+ uso de las siguientes estructuras:
+ 
+     - Un descriptor de proceso y una pila en modo kernel que se guardan en la
+       variable  init_task_union.  Las  macros  init_task  y init_stack dan la
+       dirección del descriptor y la pila en modo kernel del proceso 0.
+
+     - Las siguientes tablas a las que apunta el descriptor de proceso:
+         - init_mm
+         - init_mmap
+         - init_fs
+         - init_files
+         - init_signals
+       que son inicializadas por las macros:
+         - INIT_MM
+	 - INIT_MMAP
+	 - INIT_FS
+	 - INIT_FILES
+	 - INIT_SIGNALS
+
+     - Dos  Descriptores  de  Segmento  (Segment  Descriptor)  llamados TSSD y
+       LDTD que se guardan en la GDT (Global Descriptor Table).
+
+     - Un  Directorio  Global  de  Paginas (Page Global Directory) guardado en
+       swapper_pg_dir,  que puede ser considerado el PGD del kernel puesto que
+       es el que todos los kernel threads lo usan.
+
+     La  función  start_kernel()  inicializa  todas  las  estructuras de datos
+ necesitadas  por  el kernel, habilita las interrupciones, y el proceso 0 crea
+ otro  kernel  thread  llamado  proceso  1  y conocido como proceso init. Este
+ proceso  tiene  el PID 1 y comparte con el proceso 0 todas las estructuras de 
+ datos  per-process,  pero  cuando  es  seleccionado  por el scheduler empieza 
+ ejecuta la función init().
+ 
+     Tras  crear al proceso init, el proceso 0 ejecuta cpu_idle() que consiste
+ en  ejecutar  repetídamente  la  instrucción  de  ensamblador  'hlt'  con las
+ interrupciones  habilitadas.  El  proceso  0 es seleccionado por el scheduler
+ sólo cuando ya no quedan más procesos en la cola de ejecución.
+
+     El proceso init,  como ya he dicho ejecuta la función init() nada más ser
+ seleccionado   por   el   scheduler.   Esta   función  inicializa  los kernel
+ threads  bdflush,  kupdate, kpiod y kswapd que son necesarios para las tareas
+ rutinarias  del  kernel.  Las  tareas de cada uno son: para bdflush, volcar a
+ disco los buffers marcados como "dirty" (sucios) para recuperar memoria; para
+ kupdate,  hacer lo mismo que bdflush pero con los buffers viejos para reducir
+ el   riesgo   de  incosistencia  en  el  sistema  de  ficheros;  para  kpiod,
+ intercambiar páginas de zonas de memoria compartida; y finálmente kswapd, que
+ se  encarga  de  reclamar  memoria.  Seguídamente,  init realiza una serie de
+ execve()  para  ejecutar el programa init, convirtiendo al proceso init en un
+ proceso  corriente  que  nunca  termina  y  que  es  el  encargado de crear y
+ monitorizar todos los procesos que forman la capa exterior del sistema.
+
+     Lo  siguiente  que veremos es cómo destruir un proceso. Cuando un proceso
+ termina  de  ejecutarse  se dice que el proceso muere. Cuando esto sucede hay
+ que  avisar al kernel para que proceda a liberar los recursos ocupados por el
+ proceso.  La forma normal en la que acaba un proceso es ejecutando la llamada
+ al   sistema exit(),  la  cual  puede  ser  incluida  explícitamente  por  el
+ programador  o  se  ejecutará  después de la última instrucción de la función
+ main().
+
+     Además,  el  kernel  puede  provocar la muerte de un proceso, normálmente
+ cuando  el proceso recibe una señal que no puede capturar o ignorar, o cuando
+ se lanza una excepción irrecuperable en modo kernel.
+
+     La   muerte   de   un  proceso  es  manejada  por  la  función  do_exit()
+ ("kernel/exit.c"),  que  elimina la mayor parte de las referencias al proceso
+ de  las  estructuras  de  datos  del  kernel.  La  función  do_exit() hace lo
+ siguiente:
+
+   1º- Poner  en  el  campo  flag del descriptor de proceso la flag PF_EXITING
+       para indicar que el proceso está siendo eliminado.
+   2º- Elimina  el  proceso la cola de temporización (timer queue) mediante la
+       llamada del_timer_sync().
+   3º- Elimina  las estructuras de datos relativas a la paginación mediante la
+       función __exit_mm().
+   4º- Si  es  necesario  se  elimina  el  descriptor de proceso de la cola de
+       semáforos mediante la llamada sem_exit().
+   5º- Elimina las estructuras de datos relativas a los ficheros abiertos y al
+       sistema   de   ficheros   mediante   las   funciones  __exit_files()  y
+       __exit_fs().
+   6º- Elimina  las  estructuras  de  datos  relativas  al  manejo  de señales 
+       mediante la función exit_sighand().
+   7º- Establece el campo exit_code al valor del código de salida y llama a la
+       función  exit_nofify() que reajusta  las relaciones de parentesco tanto
+       del  proceso  padre  como del proceso hijo (todos sus hijos pasan a ser
+       hijos de init), y pone el estado del proceso en TASK_ZOMBIE.
+   8º- Llama  a la función schedule() para seleccionar un nuevo proceso y dado
+       que  los procesos en estado TASK_ZOMBIE no pueden ser seleccionados por
+       el scheduler, el proceso detiene su ejecución justo en ese punto.
+
+     Nótese  que desde este punto el proceso no volverá a entrar en ejecución,
+ y  que a pesar de que toda su memoria ha sido liberada, sus estructuras en el
+ espacio  del kernel se conservan (para que el padre pueda recuperar el código
+ de  salida del hijo).  En definitiva, tenemos un proceso que no ocupa memoria
+ mas  que  en  espacio  del kernel,  y que estará bloqueado hasta que el padre
+ haga una llamada a wait() o bien muera.
+
+     Una  vez el padre ya ha ejecutado la llamada a wait() o ha muerto y lo ha
+ hecho  el  proceso init por él, la función release_task() libera los recursos
+ que aun ocupa un proceso zombie:
+
+   1º- Decrementa  el  número  de  procesos  creados  hasta ese momento por el
+       usuario,  el cual se guarda en un registro del tipo user_struct al cual
+       apunta el campo user del descriptor.
+   2º- Llama a free_uid() la cual decrementa un contador de referencia.
+   3º- Llama  a  unhash_process()  para  quitar el proceso de la tabla pidhash
+       haciendo  una llamada a unhash_pid(), eliminando el proceso de la lista
+       de  procesos llamando a REMOVE_LINKS(). También lo borra de la lista de
+       su thread group.
+   4º- Finálmente  llama  a free_task_struct() para disponer de la memoria que
+       ocupaba en proceso en modo kernel.
+
+     Ahora  que  ya sabemos cómo nuestros procesos se ponen en ejecución y son
+ eliminados,  pasemos a ver cómo se producen los cambios de contexto. Linux es
+ un  kernel multitarea, lo que quiere decir que puede ejecutar varios procesos
+ a  la vez.  Como  en  realidad  sólo  disponemos  (en principio)  de  un sólo 
+ procesador,  los  procesos  deben compartir sus ciclos de reloj para poder ir
+ ejecutandose  simultáneamente. En caso del multiprocesador también pasa, solo
+ que en lugar de estar ejecutandose un sólo contexto a la vez, se puede seguir
+ hasta uno por procesador.
+
+     Al  estado  en  el  que  se  encuentra  un  proceso (instrucción que está
+ ejecutando,  contenido de los registros de la CPU, etc) se le llama contexto,
+ y  a  la  acción  de  realizar  el  cambio  de un contexto a otro se le llama
+ (lógicamente) cambio de contexto.
+
+     Dado que, aunque cada proceso tiene su propio espacio de direcciones pero
+ los  registros  de  la CPU tienen que ser compartidos, lo primero que tenemos
+ que  hacer  es  asegurarnos  de  que  los  registros del proceso que sale son
+ guardados  y  que  los registros del proceso que entra son restaurados con el
+ valor  que  tenían antes del cambio. A la información que debe ser restaurada
+ en  los  registros  se  le  llama contexto de hardware (hardware context). El
+ contexto  de  hardware es una parte del contexto de ejecución del proceso que
+ es  guardada en el campo thread del descriptor de proceso, que es un registro
+ del tipo thread_struct ("include/asm-i386/processor.h"):
+
+     struct thread_struct {
+            unsigned long   esp0;
+            unsigned long   eip;
+            unsigned long   esp;
+            unsigned long   fs;
+            unsigned long   gs;
+            unsigned long   debugreg[8];
+            unsigned long   cr2, trap_no, error_code;
+            union i387_union        i387;
+            struct vm86_struct      * vm86_info;
+            unsigned long           screen_bitmap;
+            unsigned long           v86flags, v86mask, v86mode, saved_esp0;
+            int             ioperm;
+            unsigned long   io_bitmap[IO_BITMAP_SIZE+1];
+     };
+ 
+     La  información de contexto restante es salvada en la pila en modo kernel
+ del  proceso. Asumiremos que la variable prev es el proceso que está saliendo
+ de  ejecución  y next el que está entrando, de esta forma se puede definir el
+ cambio de contexto como la tarea de guardar el contexto de hardware de prev y
+ reemplazarlo en la CPU por el del proceso next.
+ 
+     Los  cambios de contexto se producen sólo en modo kernel. El contenido de
+ todos  los  registros  usados  por  el  proceso  en  modo usuario ya han sido
+ salvados antes de realizar el cambio de contexto.
+
+     Es  la macro switch_to ("include/linux/sched.h") la encargada de realizar
+ el  cambio de contexto. Supongamos que en eax está guardado prev y que en edx
+ está guarado next. La macro switch_to realiza las siguientes operaciones:
+
+     1º- Guardar  el  contenido  de los registros esi, edi y ebp en la pila en
+         modo kernel de prev:
+
+           pushl %esi
+           pushl %edi
+           pushl %ebp
+	   
+     2º- Guarda  el  contenido  de  esp en prev->thread.esp y cargar en esp el
+         valor  de  next->thread.esp.  De esta forma ya estamos apuntando a la
+         pila de next y hemos guardado la de prev:
+
+            movl %esp, 532(%eax)
+            movl 532(%edx), %esp
+
+     3º- Guarda la dirección de "1:" en el eip de prev, de este modo cuando se
+         retome el control la primera instrucción que ejecutará será "1:":
+
+           movl $1f, 508(%eax)
+    
+     4º- Guarda   en   la  pila  en  modo  kernel  de  next  el  contenido  de
+         next->thread.eip  (normalmente  "1:")  y  hace  un salto a la función
+         __switch_to de C ("arch/i386/kernel/process.c"):
+
+           pushl 508(%edx)
+           jmp __switch_to
+
+     La función  __switch_to()  completa  el  cambio  de contexto iniciado por
+ switch_to():
+
+     - Se  realizan ciertas operaciones para obtener el tss y cargar en prev y
+       next  las  direcciones  de  los  campos  thread  del proceso saliente y
+       entrante.
+     - Se llama a unlazy_fpu() que se encarga de los registros de la FPU.
+     - Se carga en el tss el tope de la pila de next (esp0).
+     - Se guardan %fs y %gs en prev y se cargan los propios de next.
+     - Se  cargan  los  registros  de depuración, para lo cual se usa la macro
+       loaddebug().
+     - Se  comprueban los permisos de entrada/salida y se cargan en el tss los
+       mapas de entrada salida de next (si los hay).
+     
+ Al  terminar  la  ejecución  de la función, el retorno se hace a la dirección
+ almacenada  en pila (ret), que será la eip del proceso next y que seguramente
+ apuntará  a  la  instrucción  etiquetada  como ":1" en la macro switch_to. Al
+ seguir  en  ":1",  switch_to  termina  el  proceso que empezó cuando next fue
+ sacado de la CPU la última vez y ejecuta:
+
+     popl %ebp
+     popl %edi
+     popl %esi
+     
+ esta  vez sacados de la pila de next, culminando así el proceso del cambio de
+ contexto.
+
+     Otro  contexto que debería ser salvado es el de la FPU (unidad de proceso
+ en  coma  flotante).  La  arquitectura  i386  no  guarda automáticamente este
+ contexto  pero  proporciona  mecanismos  para  poder  hacerlo  sólo cuando es
+ necesario.  Este  mecanismo  consiste  en  la  flag TS (Task Switching) en el
+ registro  cr0,  que  se  pone  a  uno  cada  vez  que se produce un cambio de
+ contexto de hardware, y si una instrucción de escape o una instrucción MMX es 
+ utilizada cuando ese bit está a 1, el procesador lanza una excepción del tipo
+ "Device Not Available" (dispositivo no disponible).
+
+     El flag TS permite salvar y recuperar los registros de la FPU sólo cuando
+ es  imprescindible.  Imaginemos  que  un  proceso  utiliza  la FPU, cuando se
+ produce  el  cambio  de  contexto  el  kernel  pone el flag TS a 1 y salva el
+ contenido  de  los registros de la FPU. Mientras el nuevo proceso no haga uso
+ de  la  FPU, el kernel no necesita restaurar el contenido de los registros de
+ la  FPU.  En  cuanto el proceso utilice la FPU, se lanza la excepción "Device
+ Not Available", entonces es cuando el manejador de la excepción se encarga de
+ restaurar los registros del segundo proceso.
+
+     Para realizar esta tarea, se incluye la flag PF_USEDFPU en el campo flags
+ del  descriptor de proceso y el campo used_path que indica si el contenido de
+ thread.i387, que  es  una  estructura del tipo i387_union en el que se guarda 
+ el  contenido de los registros de la FPU, es significante y la cual es puesta
+ a  0 cuando un proceso inicia la ejecución de un programa mediante la llamada
+ a execve, o cuando se está ejecutando algún manejador de señales del proceso.
+ 
+     Antes  hemos visto que se llamaba a unlazy_fpu() para guardar el contexto
+ de  la  FPU  (si hubiese alguno). Ahora nos detendremos con más detalle a ver
+ cómo funciona la función unlazy_fpu() ("include/asm-i386/i387.h"):
+
+     - Lo  primero  que  hace  es mirar en el campo flags del proceso para ver
+       si  ha  usado  la  fpu.  Si la flag PF_USEDFPU está a 1 entonces es que
+       la ha usado y hay que guardar sus registros.
+
+     - Si  efectivamente  hay  que  guardar  los registros, llama a la función
+       save_init_fpu()  ("arch/i386/kernel/i387.c")  que es la encargada de la 
+       tarea. Esta función hace dos cosas: primero llama a __save_init_fpu() y
+       segundo llama a stts().
+
+     - __save_init_fpu()  transfiere  el  contenido  de los registros al campo
+       thread.i387.fxsave  o  thread.i387.fsave  (según  el  tipo  de FPU), y
+       limpia el flag PF_USEDFPU.
+
+     - stts()  es  una macro encargada de poner a 1 la flag TS de cr0 definida
+       en "include/asm-i386/system.h". Lo que hace, básicamente es:
+
+          movl %cr0, %eax
+	  orb  $8, %al
+	  movl %eax, %cr0
+ 
+     Ahora  ya  tenemos  guardado el contexto de la FPU, pero este contexto no
+ será  restaurado  hasta que el proceso intente ejecutar una instrucción de la
+ FPU  (o  MMX),  momento en el que se lanzara una excepción que será capturada
+ por  el  manejador  del kernel que ejecutará math_state_restore() definida en
+ "arch/i386/kernel/traps.c".  Esta  función  comprueba  si  el campo used_math
+ está   a   1,   caso   en   el   cual   ejecutará   la   función  restore_fpu
+ ("arch/i386/kernel/i387.c")  y sino se ejecuta la función init_fpu(). Después
+ de esto se pone a 1 la flag PF_USEDFPU.
+
+     - restore_fpu()   comprueba   el  tipo  de  FPU  y  carga  los  registros
+       almacenados en  thread.i387.fxsave  o thread.i387.fsave, recuperando el
+       contexto de de la FPU que tenía el proceso.
+
+     - init_fpu()  ejecuta  las  instrucciones  en ensamblador necesarias para
+       reiniciar  la  FPU  y pone el campo used_math a 1, dejando así lista la 
+       FPU para ser utilizada por el proceso.
+ 
+
+ 
+ 4º- Despedida:
+ 
+     Bueno,  pues  eso  es  todo,  ya  tenemos mecanismos para crear procesos,
+ destruirlos  y  hacer  cambios  de  contexto  entre  ellos. Y ya sabemos cómo
+ funcionan estos mecanismos en un caso real como puede ser el kernel Linux.
+
+     Lo  más  importante  de  todo  es  que  os quedeis con los conceptos, los
+ mecanismos,  porque las implementaciones, sólo de una versión de Linux a otra
+ cambian  mucho  y  resulta imposible del todo dominar un kernel. Sin embargo,
+ los mecanismos en un kernel tipo Unix son siempre similares y es conocimiento
+ que no caduca :)
+
+     Toda esta información la he sacado del libro Understanding Linux Kernel y
+ de  las  propias  fuentes  de  Linux.  Si tenéis algo bueno que decirme de mi
+ artículo pues mandadme un mail, bienvenidos sean.
+
+ Un saludo para todos!

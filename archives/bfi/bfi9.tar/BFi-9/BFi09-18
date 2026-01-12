@@ -1,0 +1,517 @@
+==============================================================================
+-------------[ BFi numero 9, anno 3 - 03/11/2000 - file 18 di 21 ]------------
+==============================================================================
+
+
+-[ REVERSiNG ]----------------------------------------------------------------
+---[ KEYGEN REVERSiNG - STUDIAMOCi L'ALGO
+-----[ syscalo
+
+
+Tool
+dasm (lo trovate su http://racl.immagika.org sezione tool e risorse)
+
+Allegato
+keygen.tgz
+
+Descrizione
+Keygen e' un piccolo programmino che ho trovato nella mia distibuzione linux
+(/usr/bin/keygen appartenente al package rpm xf86-3.3.5-29)
+Il programma genera una chiave pseudo-casuale; a noi interessa vedere
+l'algoritmo che hanno utilizzato i programmatori e per fare questo procediamo
+disassemblando l'eseguibile.
+
+Iniziamo
+Disassembliamo il programma:
+rev@rVm:~/keygenRev > dasm keygen keygen.dasm
+(tralascio l'output di dasm)
+
+Innanzitutto rechiamoci all'entry point del programma; lo trovate scritto in
+chiaro nel disassemblato:
+start address 0x080484b0
+
+Ok, ora vediamo un po' di codice: i miei commenti sono indicati tra /* */ o
+preceduti da #
+
+Disassembly of section .text: /* Come potete ben vedere siamo giunti al
+				 disassemblato della sezione text che come ben
+				 noto contiene il codice eseguibile del
+				 programma */
+
+/* Tutte queste istruzioni vengono aggiunte dal compilatore per "lanciare" il
+codice da noi scritto */
+0x080484b0 xorl   %ebp,%ebp
+0x080484b2 popl   %esi
+0x080484b3 movl   %esp,%ecx
+0x080484b5 andl   $0xfffffff8,%esp
+0x080484b8 pushl  %eax
+0x080484b9 pushl  %esp
+0x080484ba pushl  %edx
+0x080484bb pushl  $0x8048688
+0x080484c0 pushl  $0x80483ac
+0x080484c5 pushl  %ecx
+0x080484c6 pushl  %esi
+0x080484c7 pushl  $0x8048520
+
+Reference to function : __libc_start_main
+
+0x080484cc call   0x08048438 /* E da qui viene "lanciato" il codice che
+				abbiamo scritto noi */
+0x080484d1 hlt
+
+Ma come facciamo a sapere dove inizia il programma vero e proprio? Semplice,
+basta guardare l'ultimo valore pushato a __libc_start_main:
+0x080484c7 pushl  $0x8048520
+
+Il valore 0x8048520 e' l'indizzo della prima istruzione del programma.
+Ricerchiamo questo valore nel disassemblato e andiamo a leggere le istruzioni
+assembly; ho inserito anche la descrizione delle funzioni chiamate (estratte
+dalle pagine di man) per capire meglio cosa fa il programma:
+
+##############################################
+##
+##  Procedura generazione "numeri" casuali
+##  Estratta dal disassemblato di keygen
+##  /usr/bin/keygen
+##
+##############################################
+
+# allocazione stack frame
+0x08048520 pushl  %ebp
+0x08048521 movl   %esp,%ebp
+
+# allocazione spazio per var locali
+0x08048523 subl   $0x50,%esp #50h=80 -> 20 word
+
+# bkp registri a cura della funzione chiamata
+# infatti questa parte di programma e' a tutti gli effetti una funzione e
+# quindi deve preoccuparsi di salvare i registri
+0x08048526 pushl  %edi
+0x08048527 pushl  %esi
+0x08048528 pushl  %ebx
+
+
+# INIZIO CHIAMATE A FUNZIONI PER OTTENERE VALORI DA UTILIZZARE COME SEME PER
+# LA FUNZIONE RANDOM
+
+# Reference to function : gethostid
+#
+#  #include <unistd.h>
+#
+#  long int gethostid(void);
+#
+#
+#      Get a unique  32-bit  identifier  for  the  current
+#      machine.
+# 
+
+0x08048529 call   0x08048488
+0x0804852e movl   %eax,%esi #%esi=(#1)
+
+# Reference to function : getuid
+#
+#  #include <unistd.h>
+#  #include <sys/types.h>
+#
+#  uid_t getuid(void);
+#
+#
+#      getuid returns the real user ID of the current process.
+#
+
+0x08048530 call   0x08048458
+0x08048535 movl   %eax,%edi #%edi=(#2)
+
+# Reference to function : getgid
+#
+#  #include <unistd.h>
+#  #include <sys/types.h>
+#
+#  gid_t getgid(void);
+#
+#      getgid returns the real group ID of the current process.
+#
+
+0x08048537 call   0x08048468
+0x0804853c movl   %eax,0xffffffb4(%ebp) #(%ebp-4Ch)=(#3)
+
+# Reference to function : getpid
+#
+#  #include <unistd.h>
+#
+#  pid_t getpid(void);
+#
+#
+#      getpid  returns  the  process  ID  of the current process.
+#      (This is often used by routines that generate unique  tem-
+#      porary file names.)
+#
+
+0x0804853f call   0x080483e8
+0x08048544 movl   %eax,%ebx #%ebx=(#4)
+
+# Reference to function : getppid
+#
+#      #include <unistd.h>
+#
+#       pid_t getppid(void);
+#
+#      getppid  returns  the process ID of the parent of the cur-
+#      rent process.
+#
+
+0x08048546 call   0x08048428
+# NON SALVA IL VALORE DI RITORNO - chiamata inutile
+
+
+# Reference to function : getpgrp
+#
+#  #include <unistd.h>
+#
+#  pid_t getpgrp(void);
+#
+#      getpgid returns the process group ID of the process speci-
+#      fied by pid.  If pid is zero, the process ID of  the  cur-
+#      rent process is used.
+#
+#      getpgrp is equivalent to getpgid(0).
+#
+
+0x0804854b call   0x080483f8
+0x08048550 movl   %eax,0xffffffb0(%ebp) #(%ebp-50h)=(#6)
+
+0x08048553 pushl  $0x0 #parametro2 per gettimeofday
+0x08048555 leal   0xffffffb8(%ebp),%eax #copia ind %ebp-48h in %eax
+0x08048558 pushl  %eax #parametro1 per gettimeofday
+
+# Reference to function : gettimeofday
+#
+#      #include <sys/time.h>
+#      #include <unistd.h>
+#
+#      int gettimeofday(struct timeval *tv, struct timezone *tz);
+#
+#      gettimeofday  and settimeofday can set the time as well as
+#      a timezone.  tv is a  timeval  struct,  as  specified   in
+#      /usr/include/sys/time.h:
+#
+#      struct timeval {
+#              long tv_sec;        /* seconds */
+#              long tv_usec;  /* microseconds */
+#      };
+#
+#
+#      and tz is a timezone :
+#
+#      struct timezone {
+#              int  tz_minuteswest; /* minutes W of Greenwich */
+#              int  tz_dsttime;     /* type of dst correction */
+#      };
+#
+
+0x08048559 call   0x08048478
+
+0x0804855e leal   0xffffffc0(%ebp),%eax #copia ind %ebp-40h in %eax
+0x08048561 pushl  %eax #parametro2 per statfs
+# Possible reference to string:
+# "."
+0x08048562 pushl  $0x80486ac #parametro1 per statfs
+
+# Reference to function : statfs
+#
+#  #include <sys/vfs.h>
+#
+#  int statfs(const char *path, struct statfs *buf);
+#
+#
+#      statfs  returns  information  about a mounted file system.
+#      path is the path name  of  any  file  within  the  mounted
+#      filesystem.   buf  is  a  pointer  to  a  statfs structure
+#      defined as follows:
+#
+#             struct statfs {
+#                long    f_type;     /* type of filesystem (see below) */
+#                long    f_bsize;    /* optimal transfer block size */
+#                long    f_blocks;   /* total data blocks in file system */
+#                long    f_bfree;    /* free blocks in fs */
+#                long    f_bavail;   /* free blocks avail to non-superuser */
+#                long    f_files;    /* total file nodes in file system */
+#                long    f_ffree;    /* free file nodes in fs */
+#                fsid_t  f_fsid;     /* file system id */
+#                long    f_namelen;  /* maximum length of filenames */
+#                long    f_spare[6]; /* spare for later */
+#             };
+#
+
+0x08048567 call   0x08048408
+
+# a questo punto e' terminato il "recupero" dei valori da usare come seme per
+# la funzione random.
+# ora il programma prende tutti i valori ottenuti e li passa uno alla volta
+# alla funzione da me chiamata Call_much (per non dover sempre trascrivere
+# l'indirizzo)
+
+0x0804856c pushl  %esi #passa (#1)
+# chiama Call_much
+0x0804856d call   0x08048610
+
+0x08048572 pushl  %edi #passa (#2)
+# chiama Call_much
+0x08048573 call   0x08048610
+
+0x08048578 movl   0xffffffb4(%ebp),%edx #copia ind %ebp-4Ch in %edx (#3)
+0x0804857b pushl  %edx #passa (#3)
+# chiama Call_much
+0x0804857c call   0x08048610
+
+0x08048581 pushl  %ebx #passa (#4)
+# chiama Call_much
+0x08048582 call   0x08048610
+0x08048587 addl   $0x20,%esp #libera lo stack da 8 word
+
+0x0804858a pushl  %ebx #passa (#4) -- seconda volta (al posto di #5)
+# chiama Call_much
+0x0804858b call   0x08048610
+
+0x08048590 movl   0xffffffb0(%ebp),%edx #copia %ebp-50h in %edx (#6)
+0x08048593 pushl  %edx #passa (#6)
+# chiama Call_much
+0x08048594 call   0x08048610
+
+0x08048599 movl   0xffffffb8(%ebp),%eax #copia %ebp-48h in %eax (#7)
+0x0804859c pushl  %eax #passa (#7)
+# chiama Call_much
+0x0804859d call   0x08048610
+
+0x080485a2 movl   0xffffffbc(%ebp),%eax #copia %ebp-44h in %eax (#7+1)
+0x080485a5 pushl  %eax #passa (#7+1)
+# chiama Call_much
+0x080485a6 call   0x08048610
+
+0x080485ab movl   0xffffffc8(%ebp),%eax #copia %ebp-38h in %eax (#8+2)
+0x080485ae pushl  %eax #passa (#8+2)
+# chiama Call_much
+0x080485af call   0x08048610
+
+0x080485b4 movl   0xffffffcc(%ebp),%eax #%ebp-34h (#8+3)
+0x080485b7 pushl  %eax
+# chiama Call_much
+0x080485b8 call   0x08048610
+
+0x080485bd movl   0xffffffd0(%ebp),%eax #%ebp-30h (#8+4)
+0x080485c0 pushl  %eax
+# chiama Call_much
+0x080485c1 call   0x08048610
+
+0x080485c6 movl   0xffffffd4(%ebp),%eax #%ebp-2Ch (#8+5)
+0x080485c9 pushl  %eax
+# chiama Call_much
+0x080485ca call   0x08048610
+
+0x080485cf addl   $0x20,%esp #libera lo stack di 8 word
+
+0x080485d2 movl   0xffffffd8(%ebp),%eax #%ebp-28h (#8+6)
+0x080485d5 pushl  %eax
+# chiama Call_much
+0x080485d6 call   0x08048610
+
+# terminata l'eleborazione procede a stampare la key ottenuta; i valori
+# vengono stampati come esadecimali
+
+# passa gli indirizzi dei 4 campi dati per la printf
+0x080485db movl   0x80497c4,%eax  #ultimo
+0x080485e0 pushl  %eax
+0x080485e1 movl   0x80497c0,%eax  #sono nelle locazioni da 0x80497b8
+0x080485e6 pushl  %eax
+0x080485e7 movl   0x80497bc,%eax  #a 0x80497c4
+0x080485ec pushl  %eax
+0x080485ed movl   0x80497b8,%eax  #primo
+0x080485f2 pushl  %eax
+
+# stringa di formattazione per la printf
+# Possible reference to string:
+# "%08lx%08lx%08lx%08lx"
+0x080485f3 pushl  $0x80486ae  #passa il formato della stringa
+
+# Reference to function : printf
+0x080485f8 call   0x08048448 #chiama la printf
+
+# ripristino registri e disallocazione stack frame
+0x080485fd leal   0xffffffa4(%ebp),%esp
+0x08048600 popl   %ebx
+0x08048601 popl   %esi
+0x08048602 popl   %edi
+0x08048603 movl   %ebp,%esp
+0x08048605 popl   %ebp
+0x08048606 ret    #ritorna dalla chiamata
+
+
+###############################################################
+# Spiegazione della funzione Call_much
+#
+# La funzione Call_much usa il valore passato come seme per la funzione
+# random.
+# Poi effettua uno xor dei valori della chiave da ottenere con i valori
+# restituiti da random.
+#
+###############################################################
+
+# Referenced from call at 0804856d ; 08048573 ; 0804857c ; 08048582 ; 0804858b ;
+# 08048594 ; 0804859d ; 080485a6 ; 080485af ; 080485b8 ; 080485c1 ; 080485ca ;
+# 080485d6 ;
+
+# Call_much:
+0x08048610 pushl  %ebp
+0x08048611 movl   %esp,%ebp
+0x08048613 pushl  %esi
+0x08048614 pushl  %ebx
+# fine allocazione stack frame e salvataggio registri
+
+0x08048615 movl   0x8(%ebp),%eax #copia il parametro passato in %eax
+0x08048618 pushl  %eax #passa %eax alla funzione srandom
+
+# Reference to function : srandom
+#
+#  #include <stdlib.h>
+#
+#  void srandom(unsigned int seed);
+#
+#
+#    The srandom() function sets its argument as the seed for a
+#    new sequence of pseudo-random integers to be  returned  by
+#    random().  These sequences are repeatable by calling sran-
+#    dom() with the same seed value.  If no seed value is  pro-
+#    vided,  the random() function is automatically seeded with
+#    a value of 1.
+#
+
+
+0x08048619 call   0x08048498 #chiama srandom
+0x0804861e addl   $0x4,%esp #libera lo stack
+
+# %ebx, %esi indirizzi inizio e fine numero da elaborare
+0x08048621 movl   $0x80497b8,%ebx #copia l'indirizzo in %ebx
+# 0x80497b8 locazione dove INIZIA il numero da elaborare
+
+0x08048626 movl   $0x80497c4,%esi #copia l'indirizzo in %esi
+# 0x80497c4 locazione dove FINISCE il numero da elaborare
+
+0x0804862b nop    
+
+# Reference to function : random
+# Referenced from jump at 08048638 ; 
+#
+# #include <stdlib.h>
+#
+# long int random(void);
+# 
+#    The random() function uses a non-linear additive  feedback
+#    random  number generator employing a default table of size
+#    31 long integers to return successive  pseudo-random  num-
+#    bers  in the range from 0 to RAND_MAX.
+#
+
+# call_m1:  #etichetta aggiunta da me per avere un riferimento per il salto
+0x0804862c call   0x08048418 #chiama la funzione random
+# xora il valore ritornato da random con quello puntato da %ebx
+0x08048631 xorl   %eax,(%ebx)
+0x08048633 addl   $0x4,%ebx #incrementa %ebx di 4; passa alla word successiva
+0x08048636 cmpl   %esi,%ebx #confronta %esi con %ebx
+
+# salta a call_m1
+0x08048638 jle    0x0804862c #esegue l'elaborazione fino a quando %ebx<=%esi
+
+# ripristina registri e disalloca stack frame per il ritorno dalla chiamata
+0x0804863a leal   0xfffffff8(%ebp),%esp
+0x0804863d popl   %ebx
+0x0804863e popl   %esi
+0x0804863f movl   %ebp,%esp
+0x08048641 popl   %ebp
+0x08048642 ret
+
+Ecco spiegato l'algoritmo utilizzato dal programma. A mio avviso e' un buon
+metodo per generare chiavi "casuali" per un uso giornaliero 8-)
+
+Riproduciamo l'algoritmo in C:
+/*file syskeygen.c*/
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/time.h>
+#include <sys/vfs.h>
+#include <stdlib.h>
+
+void call_much(long int);
+
+/*array per contenere la key*/
+static long int key[4];
+
+void call_much(long int num)
+{
+ int i;
+ srandom(num);
+ for(i=0; i<4; i++)
+  key[i]^=random();
+}
+
+main(void)
+{
+ long int hostid, uid, gid, pid, pgrp;
+
+/*parametri per gettimeofday*/
+ struct timeval *tv;
+ struct timezone *tz=0;
+
+/*parametri per statfs*/
+ char path[]=".";
+ struct statfs *buf;
+
+/*allocazione delle strutture*/
+ tv=(struct timeval *) malloc(sizeof(struct timeval));
+ buf=(struct statfs *) malloc(sizeof(struct statfs));
+
+ hostid=gethostid();
+ uid=getuid();
+ gid=getgid();
+ pid=getpid();
+ pgrp=getpgrp();
+ gettimeofday(tv, tz);
+ statfs(path, buf);
+ 
+/* inizio chiamate a call_much */
+ call_much(hostid);
+ call_much(uid);
+ call_much(gid);
+ call_much(pid);
+ call_much(pid); /* ripetuta due volte con il valore pid, come nel
+                    disassemblato*/
+ call_much(pgrp);
+ call_much(tv->tv_sec);
+ call_much(tv->tv_usec);
+ call_much(buf->f_blocks);
+ call_much(buf->f_bfree);
+ call_much(buf->f_bavail);
+ call_much(buf->f_files);
+ call_much(buf->f_ffree);
+
+ printf("\n\033[10G\033[1m\033[31m\033[44m syscalo key generator \033[m\n");
+ printf("\nkey: %08lx%08lx%08lx%08lx\n", key[0], key[1], key[2], key[3]);
+
+ exit(0);
+}
+
+Credo non sia il caso di commentare il codice vista la semplicita'.
+
+Note finali
+Spero abbiate trovato interessante questo tutorial, nonostante sia abbastanza
+semplice; per chi inizia credo possa essere un buon punto di partenza.
+Ora potreste sfruttare questo algoritmo per migliorarlo, ottimizzarlo, o
+semplicemente prendere spunto per crearne uno vostro.
+
+   -x bye to all x-
+       syscalo
+
+
+==============================================================================
+---------------------------------[ EOF 18/21 ]--------------------------------
+==============================================================================

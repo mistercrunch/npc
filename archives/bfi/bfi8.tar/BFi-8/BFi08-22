@@ -1,0 +1,503 @@
+==============================================================================
+------------[ BFi numero 8, anno 3 - 30/04/2000 - file 22 di 28 ]-------------
+==============================================================================
+
+
+-[ MiSCELLANE0US ]------------------------------------------------------------
+---[ LiNUX ViRTUAL SERVER - HiGH AVAiLABiLiTY
+-----[ felipe <felipe@hackernet.zzn.com>
+
+
+Eccoci qui... il mio primo articolo per BFi, e subito le domande nascono.
+Cosa c'entrano il virtual server e l'high availability con BFi? Semplice:
+nulla.
+Invece non e' proprio vero, perche' quello che trattero' non sara' solo una 
+descrizione dei suddetti metodi per rendere le nostre macchine un pochino meno
+"stupide", ma vedremo anche di non tralasciare il lato sicurezza, che per un 
+servizio del genere non e' un aspetto da trascurare. Non voglio dire che tutto
+cio' sia di facile comprensione e implementazione, ma solamente che e' 
+(..pausa riflessiva..) "strepitoso"; piu' rifletto e piu' mi vengono in mente 
+ambienti in cui una delle tantissime implementazioni possibili con questi 
+meccanismi e' la soluzione a tanti problemi. Per chi non sapesse cosa siano i 
+geroglifici scritti nel titolo niente paura vi assicuro che non siete i soli, 
+ed io sono qui per chiarire questi concetti (e non sara' facile). 
+Il virtual server non e' altro che un progetto nato per distribuire il carico
+di un servizio o di piu' servizi (web server, database, mail , ftp, etc.) su 
+piu' macchine (cluster vi dice niente?). 
+High availability e' un modo elegante per dire "garantire" (che parolone in 
+networking) un servizio 24/24 ore al giorno e 365/365 giorni all'anno, il 
+terzo non mi sembra bisognoso di spiegazioni.
+Ok cominciamo con il virtual server che in linux e' possibile per mezzo di una
+patch per il kernel e di un programmino per settare i flag giusti. Da notare 
+che una cosa del genere "dentro" il kernel presenta un vantaggio dato dalla
+velocita' (cazzo sta nel kernel, ad un livello piu' basso non si puo' andare),
+ma anche dal fatto che il codice li' residente puo' provocare 
+"malfunzionamenti" (crash?). Vi posso quasi assicurare che non succedera', ma 
+e' giusto sapere che potrebbe accadere, evento non drastico visto che in 
+questo ammasso di discorsi si tratta pure il backuppaggio (uurko) dei server.
+Bene, parliamo un secondino dei cluster, che fondamentelmente si dividono in 
+due specie: uno piu' costoso costituito da hardware apposito, tipo bus scsi 
+esterni etc. etc. (vedi ibm netfinity) e l'altro costituito da semplici server
+che interagiscono solo dialogando attraverso la rete.
+Chiaramente la seconda soluzione e' la nostra, che non solo e' la piu' 
+economica visto che ci possiamo mettere qualsiasi tipo di macchina e 
+addirittura qualsiasi tipo di s.o. (non sempre), ma in alcuni casi diventa la 
+piu' comoda, se teniamo conto che possiamo aggiungere e rimuovere server dal 
+cluster in maniera quasi completamente indolore.
+Cominciamo con le cose serie, il concetto e' questo:
+
+                                                        |¯¯¯¯¯|   192.168.1.1
+                                                       /| sv1 |
+                                      )  xy.xy.xy.xy  / |_____|
+                             intranet  )      |¯¯¯¯¯|/    |¯¯¯¯¯| 192.168.1.2
+                                o       )-----| lvs |-----| sv2 |
+                             internet  )      |_____|\    |_____|
+                                      )               \ |¯¯¯¯¯|   192.168.1.3
+                                                       \| sv3 |
+                                                        |_____|
+
+Madonna che schifo... vabbeh lasciamo perdere, spero che almeno renda il 
+concetto, il lvs chiaramente e' il nostro server detto anche LinuxDirector, 
+che rende di piu' l'idea del suo ruolo, ovvero ridirigere le richieste verso
+una porta su uno dei server numerati sulla destra chiamati RealServer. 
+L'implementazione attuale prevede tre diversi metodi di bilanciamento sulle 
+macchine, il che rende questo meccanismo molto elastico ed adattabile a 
+svariati ambienti, la cui stima di carico puo' o meno dipendere dal carico di
+rete sviluppato. 
+Uno dei metodi, il piu' immediato, e' il round robin (non lo conoscete???),
+semplice ed abbastanza efficace; un altro e' il weighted round robin, ovvero 
+si va in round robin, ma si tiene conto del "peso" dei vari server; inoltre,
+visto che siamo pure il router (gateway) per quelle macchine, e' possibile 
+servirsi di un altro metodo che e' il least connection in cui si tiene conto 
+del numero di connessioni attive verso ogni server e gli assegnamenti vengono
+fatti al server con il minor numero. Il weighted least connection invece tiene
+conto del peso di ogni server e del numero di connessioni attive.
+Faccio notare che implementando i tipi di bilanciamento in moduli del kernel 
+non si presentano particolari problemi di sicurezza o di qualsiasi altro 
+genere, ma sicuramente si hanno vantaggi per quanto riguarda le prestazioni 
+(rispetto ad un'implementazione a livello applicazione) e comunque ne possiamo
+utilizzare piu' tipi diversi contemporaneamente sulla stessa macchina, il che
+rende piu' facile la fase di test, oltre a rendere le dimensioni in memoria 
+nulle se non utilizzati (mica stupidi sa').
+Inoltre il lvs puo' essere implementato in tre modalita' diverse a seconda 
+dell'ambiente in cui si deve inserire e delle vostre esigenze: la piu' 
+semplice e' quella del direct routing, dove le macchine nel cluster hanno ip
+conosciuti alle macchine della intranet/internet, un'altra e' via NAT, ovvero
+il LinuxDirector funge da ip masquerader per quelle macchine, oppure via ip 
+tunneling.
+Chiaramente le tre soluzioni hanno vantaggi e svantaggi che vedremo di 
+analizzare velocemente.
+Le prime due sono molto simili, visto che il Director in entrambi i casi e' il
+gateway per i RealServer, quindi non solo deve svolgere il compito di 
+Director, ma si deve anche occupare del forward dei pacchetti (nel primo caso)
+e della modifica dell'ip sorgente/destinazione e poi del forward dei pacchetti
+(nel secondo caso), il che limita il numero di RealServer presenti nel 
+cluster. Il problema non si presenta nel caso della soluzione tramite 
+ip-tunneling dove il Director compie solo il ruolo della gestione delle 
+connessioni verso i RealServer (per mezzo di un tunnel ip, che spero voi 
+conosciate) che a loro volta rispondono ai client direttamente senza passare 
+dal Director. Un altro vantaggio dell'implementazione via ip-tunnel e' data 
+dal fatto che i RealServer non sono vincolati ad avere il Director come 
+gateway ed in questo modo possono risiedere in qualsiasi punto della rete. 
+L'implementazione via ip-tunnel ha comunque un problema, che l'implementazione
+via nat non presenta, ovvero i client devono supportare l'ip-tunneling (GRE),
+purtroppo pochi sistemi operativi lo supportano attualmente, anche se ormai 
+sta diventando sempre piu' uno standard.
+La limitazione dell'espandibilita' dell'implementazione fatta via nat puo' 
+essere oltrepassata facendo un'implementazione mista, in poche parole quando
+il collo di bottiglia diventa il Director e' possibile creare un altro 
+Director con una serie di RealServer separata e compiere una sorta di 
+bilanciamento tramite DNS sui due Director dei due VirtualServer distinti.
+Quella del bilanciamento di carico fatta tramite bind e' cosa ampiamente
+discussa, con il risultato che in alcuni casi non ha funzionato come 
+aspettato... se vi puo' interessare una volta trovai una specie di bind fatto
+in perl da non ricordo quale universita' studiato appositamente per il round 
+robin, dovrei solamente andare a scartabellare fra i miei archivi di 
+porcherie =) Se a qualcuno interessa fatemi un fischio.
+Gia' che ci siamo vi faccio presente un aspetto che puo' risultare comodo di
+questo tipo di architettura, paragonata soprattutto ad architetture composte
+da un big server costituito da una sola macchina, quello della manutenzione:
+in questo caso e' possibile rimuovere un RealServer dal cluster in maniera
+quasi indolore, effettuare le modifiche/sostituzioni hardware o software 
+necessarie e reinserirlo nel cluster. Con un unico server per effettuare le
+varie manutenzioni e' necessario molto spesso un reboot o uno spegnimento
+della macchina che causa la sospensione del servizio.
+Diamo adesso un'occhiata dal punto di vista della sicurezza. Nel caso 
+dell'implementazione via direct routing, visto che tutti gli ip in questione 
+(director e realserver) sono "pubblici", non c'e' bisogno di masquerading, ma
+e' doveroso comunque impostare decentemente le regole con ipchains (sul 
+Director ovviamente) per permettere solo la connessione verso le porte 
+necesarie (un normale firewall) tenendo conto dei servizi che dovete offrire e
+per proteggere il Director stesso.
+Chiaramente utilizzando il secondo metodo dall'esterno e' possibile 
+raggiungere solamente le porte dei RealServer configurate nel Director senza 
+bisogno di configurazioni particolari; e' solamente necessario proteggere il 
+Director con le appropriate regole utilizzando ipchains.
+Nell'implementazione via ip-tunneling invece ogni server (Director o 
+RealServer) fa storia a se' e comunque vista l'elasticita' di adattamento, in
+questo modo e' consentito mettere i RealServer un po' ovunque, quindi non mi 
+e' possibile consigliarvi qualche configurazione.
+
+
+High Availability
+
+Questo e' l'aspetto piu' interessante di questa specie di articolo. 
+Purtroppo devo partire piuttosto da lontano, poiche' i modi per rendere un 
+servizio abbastanza stabile e sicuro (dal punto di vista della disponibilita')
+sono parecchi.
+Purtroppo non esiste un modo migliore, poiche' a seconda del tipo di servizio
+e del tipo di hardware a disposizione, il problema cambia faccia.
+Sicuramente il metodo che utilizzeremo e' uno dei migliori disponibili
+attualmente poiche' 1) funziona 2) si ambienta abbastanza bene in parecchie
+situazioni 3) non richiede l'impiego di hardware specifico (leggi costoso).
+Il programma, anzi diciamo un assemblato di pezzi di codice, che ci permette
+di fare tutto cio' si chiama heartbeat e si basa su un semplice concetto: 
+ip address takeover. 
+Andiamo al sodo con un esempietto: due server, una rete ethernet, un paio di
+cavi nullmodem e/o una seconda interfaccia di rete sono il necessario per 
+implementare questa soluzione (azz economia totale). Occhei, il nostro scopo
+e' quello di fare in modo che se il server con un certo ip dovesse schiantare
+per una qualsiasi ragione, come rottura di un disco, rottura della scheda di
+rete, crash del programma che offre il servizio che ci interessa o qualsiasi
+altra cosa, venga rimpiazzato senza l'intervento dell'essere umano.
+Quindi con l'attrezzatura sopra elencata possiamo costruire un marchingegno
+come questo:
+
+                                       serial cable 2
+                                +--------------------------+
+                                |   +------------------+   |
+                                |   |  serial cable 1  |   |
+                              +------+                +------+
+                              |      |                |      |
+                  192.168.1.1 | sv1  |                | sv2  | 192.168.1.2
+                              |      |                |      |
+                              +------+                +------+   
+                                  |      ethernet         |
+                                  +-----------+-----------+ 
+                                              |
+                                              |
+                                           lan/wan 
+
+In questo modo i due server possono "chiaccherare" tra di loro attraverso le
+porte seriali (che possono essere solo una, ma diventerebbe il famoso single 
+point of failure (spof)) per scambiarsi i messaggi che permettono ad heartbeat
+di funzionare.
+Questa chiaramente e' una delle implementazioni piu' semplice, visto che i 
+server sono solo due ed hanno una sola interfaccia di rete, comunque il 
+concetto e' questo: il sv1 (192.168.1.1) e' il server principale, quello che
+non deve "morire", qualsiasi cosa gli succeda sv2 deve rimpiazzarlo.
+Qui entra in campo un meccanismo ingegnoso chiamato arp spoofing.
+Lo spoofing arp e' una tecnica che puo' essere utilizzata solo(?!?!) in una 
+lan, ma e' molto piu' semplice e sicuro che qualsiasi altro metodo di 
+spoofing. Dentro il pacchetto heartbeat c'e' un file send_arp.c che riporto
+qui di seguito per chiarezza:
+
+--- snip ---
+/*
+Send_Sppof_Arp.c
+*/
+
+/* 
+
+This program sends out one ARP packet with source/target IP and Ethernet
+hardware addresses suuplied by the user.  It compiles and works on Linux
+and will probably work on any Unix that has SOCK_PACKET.
+
+The idea behind this program is a proof of a concept, nothing more.  It
+comes as is, no warranty.  However, you're allowed to use it under one
+condition: you must use your brain simultaneously.  If this condition is
+not met, you shall forget about this program and go RTFM immediately.
+
+*/
+
+#include <stdio.h>
+#include <ctype.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+#include <netdb.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#if 0
+#	include <linux/in.h>
+#endif
+#include <netinet/in.h>
+#include <netinet/if_ether.h>
+#include <arpa/inet.h>
+
+#ifdef linux
+#	define	NEWSOCKET()	socket(AF_INET, SOCK_PACKET, htons(ETH_P_RARP))
+#else
+#	define	NEWSOCKET()	socket(SOL_SOCKET, SOCK_RAW, ETHERTYPE_REVARP)
+#endif
+
+#define ETH_HW_ADDR_LEN 6
+#define IP_ADDR_LEN 4
+#define ARP_FRAME_TYPE 0x0806
+#define ETHER_HW_TYPE 1
+#define IP_PROTO_TYPE 0x0800
+#define OP_ARP_REQUEST 2
+
+const static char * _send_arp_c = "By someone";
+char usage[]={"send_arp: sends out custom ARP packet. \n\
+\tusage: send_arp dev src_ip_addr src_hw_addr targ_ip_addr tar_hw_addr\n\n"};
+
+struct arp_packet {
+        u_char targ_hw_addr[ETH_HW_ADDR_LEN];
+        u_char src_hw_addr[ETH_HW_ADDR_LEN];
+        u_short frame_type;
+        u_short hw_type;
+        u_short prot_type;
+        u_char hw_addr_size;
+        u_char prot_addr_size;
+        u_short op;
+        u_char sndr_hw_addr[ETH_HW_ADDR_LEN];
+        u_char sndr_ip_addr[IP_ADDR_LEN];
+        u_char rcpt_hw_addr[ETH_HW_ADDR_LEN];
+        u_char rcpt_ip_addr[IP_ADDR_LEN];
+        u_char padding[18];
+};
+
+void die(const char *);
+void get_ip_addr(struct in_addr*,char*);
+void get_hw_addr(u_char*,char*);
+
+int main(int argc,char** argv){
+
+struct in_addr src_in_addr,targ_in_addr;
+struct arp_packet pkt;
+struct sockaddr sa;
+int sock;
+
+(void)_send_arp_c;
+if(argc != 6)die(usage);
+
+sock=NEWSOCKET();
+if(sock<0){
+        perror("socket");
+        exit(1);
+        }
+
+pkt.frame_type = htons(ARP_FRAME_TYPE);
+pkt.hw_type = htons(ETHER_HW_TYPE);
+pkt.prot_type = htons(IP_PROTO_TYPE);
+pkt.hw_addr_size = ETH_HW_ADDR_LEN;
+pkt.prot_addr_size = IP_ADDR_LEN;
+pkt.op=htons(OP_ARP_REQUEST);
+
+get_hw_addr(pkt.targ_hw_addr,argv[5]);
+get_hw_addr(pkt.rcpt_hw_addr,argv[5]);
+get_hw_addr(pkt.src_hw_addr,argv[3]);
+get_hw_addr(pkt.sndr_hw_addr,argv[3]);
+
+get_ip_addr(&src_in_addr,argv[2]);
+get_ip_addr(&targ_in_addr,argv[4]);
+
+memcpy(pkt.sndr_ip_addr,&src_in_addr,IP_ADDR_LEN);
+memcpy(pkt.rcpt_ip_addr,&targ_in_addr,IP_ADDR_LEN);
+
+bzero(pkt.padding,18);
+
+strcpy(sa.sa_data,argv[1]);
+if(sendto(sock,&pkt,sizeof(pkt),0,&sa,sizeof(sa)) < 0){
+        perror("sendto");
+        exit(1);
+        }
+exit(0);
+}
+
+void die(const char* str){
+fprintf(stderr,"%s\n",str);
+exit(1);
+}
+
+void get_ip_addr(struct in_addr* in_addr,char* str){
+
+struct hostent *hostp;
+
+in_addr->s_addr=inet_addr(str);
+if(in_addr->s_addr == -1){
+        if( (hostp = gethostbyname(str)))
+                bcopy(hostp->h_addr,in_addr,hostp->h_length);
+        else {
+                fprintf(stderr,"send_arp: unknown host %s\n",str);
+                exit(1);
+                }
+        }
+}
+
+void get_hw_addr(u_char* buf,char* str){
+
+int i;
+char c,val = 0;
+
+for(i=0;i<ETH_HW_ADDR_LEN;i++){
+        if( !(c = tolower(*str++))) die("Invalid hardware address");
+        if(isdigit(c)) val = c-'0';
+        else if(c >= 'a' && c <= 'f') val = c-'a'+10;
+        else die("Invalid hardware address");
+
+        *buf = val << 4;
+        if( !(c = tolower(*str++))) die("Invalid hardware address");
+        if(isdigit(c)) val = c-'0';
+        else if(c >= 'a' && c <= 'f') val = c-'a'+10;
+        else die("Invalid hardware address");
+
+        *buf++ |= val;
+
+        if(*str == ':')str++;
+        }
+}
+--- snip ---
+
+La comprensione di questo sorgente e' veramente banale e ci aiuta a capire
+come funziona lo spoofing arp.
+Il concetto dello spoofing arp e' abbastanza semplice, per esempio pensiamo
+che il sv1 (192.168.1.1) vada fuori servizio, il sv2 fa in modo che le 
+macchine in rete (altri pc, switch, bridge, etc...) credano che il mac 
+associato all'ip 192.168.1.1 (l'ip da rimpiazzare) sia quello dell'interfaccia
+di rete di sv2 su cui viene creato un alias per l'ip 192.168.1.1 quindi tutto
+quello che era diretto alla macchina spoofata adesso arriva all'interfaccia di
+rete di sv2.
+Pe fare cio' usiamo un pacchetto arp chiamato gratuitous arp, ovvero un 
+semplice pacchetto che serve ad aggiornare le cache arp delle macchine
+presenti nella nostra rete con una entry IP_SERVER_DA_FOTTERE--> NOSTRO_MAC 
+che viene utilizzato solo in rari casi quando una nuova apprecchiatura entra
+in rete e segnala la sua presenza, ma oggi probabilmente non viene piu'
+utilizzato.
+In poche parole ci creiamo il nostro pacchetto dove mettiamo l'ip del server
+da rimpiazzare, il nostro MAC address, l'ip destinazione e il MAC di 
+destinazione e lo spediamo. Heartbeat ha gia' provveduto a creare un alias per
+l'ip da rimpiazzare per fare in modo che i pacchetti destinati a questo ip non
+vengano scartati, il mac address e' il nostro mac, l'ip di destinazione e' 
+l'indirizzo di broadcast della nostra rete, e il mac e' bada ben bada ben 
+ffffffffffff (se non vi dice niente.... vabbe'). E' inutile che vi dica che
+questo coso puo' essere usato pure per altri scopi molto divertenti *yawn*.
+Una cosa da non trascurare e' data dal fatto che se le macchine sono attaccate
+a switch o hub intelligenti il giochetto non funziona poiche' codesti
+marchingegni diabolici si tengono una tabella con le mappe ip-->mac addr 
+(altrimenti uno switch sarebbe costretto ad emettere un broadcast per ogni
+pacchetto in transito) che alle volte e' difficile prendere in giro :), per
+esempio se i due server in HA sono attaccati ad una porta dello switch e la
+nostra postazione e' su un altra porta il gioco non funziona perche' in questo
+caso dobbiamo attraversare lo switch che segnala l'errore, purtroppo non ho a
+disposizione un ambiente di test visto che l'azienda dove lavoro usufruisce di
+tecnologie medievali.
+Se pensate di usare questo meccanismo su internet vuol dire che non avete 
+capito come funziona arp e per la salvaguardia dei miei polpastrelli non saro'
+io a spiegarvelo visto che doc sull'argomento si trovano pure nei tombini :DDD
+Heartbeat spedisce un bcast di questo tipo ogni t secondi per tenere viva la
+cache delle apparecchiature di rete, per fare in modo che se le macchine che
+gestiscono le cache hanno delle scadenze non inviino delle richieste arp e ci
+freghino perche' il server rimpiazzato potrebbe rispondere prima di noi e
+fotterci.
+Adesso che il modo di rimpiazzare un server fuori servizio ci e' chiaro
+(spero) possiamo tirare qualche conclusione su come organizzare il nostro
+cluster, la prima cosa da mettersi in testa e' l'identificazone dei single
+point of failure (spof), ovvero i "punti" cruciali del nostro sistema, gli 
+elementi vitali, gli apparati essenziali senza cui il sistema va in failover.
+Immaginiamo il cluster piu' semplice possibile, quello composto da un unica
+macchina, il spof e' il sistema stesso, qualsiasi cosa gli succeda il servizio
+non e' piu' funzionante; immaginiamo adesso un sistema un tantino piu'
+avanzato, quello composto da due macchine con una scheda ethernet collegata
+alla rete ed un cavo seriale tra i due sistemi, i spof sono il collegamento
+seriale che permette ad heartbeat di funzionare, quindi quello e' il nostro
+punto debole, quello da ridondare, e cosi' via fino ad eliminare tutti i punti
+"deboli".
+Rimanendo nel pratico, il primo disegno (se tale si puo' definire) e' una 
+configurazione accettabile e soprattutto economica (se volevamo spendere
+installavamo Win-Do$ NT), oltretutto e' possibile sostituire i cavi nullmodem
+con delle schede ethernet, possibilmente collegate tra loro per mezzo di un
+cavo incrociato e non con un hub (che diventa un spof).
+
+
+Idee a fondo perduto...
+
+Giunti a questo punto siamo in grado di mescolare le due cose, applicando il
+giochetto dello spof su un VirtualServer.
+Guardando il disegnetto del VirtualServer un po' indietro, la prima cosa che
+ci viene in mente e' che il Director e' un bel spof, infatti e' il primo 
+problema che ci si pone. Se implementate il VirtualServer mediante 
+ip-tunneling, e quindi avete il Director con una sola interfaccia di rete,
+bastano un paio di ethernet per ogni server e altrettanti cavi incrociati,
+altrimenti con le altre implementazioni, le interfacce di rete sono gia'
+almeno due, se gli slot abbondano potete aggiungere altre ethernet, altrimenti
+siete costretti ad andarci di seriale (che io utilizzo e funzia da dio, ma
+dovrete farvi o trovare in qualche modo i cavi).
+Ammettiamo che il nostro VirtualServer sia un mega server http e vogliamo 
+implementare il VirtualServer via NAT (ove non vi siano controindicazioni
+specifiche io tendo a preferire questa architettura, le politiche di sicurezza
+vanno mantenute solo nel Director, poiche' i RealServer non sono accessibili
+da host al di fuori di questa piccola lan), questa potrebbe essere una 
+soluzione da tenere presente:
+
+
+                                               |¯¯¯¯¯|   192.168.1.3
+                                              /| sv1 |
+                          )  xy.xy.xy.xy     / |_____|
+                 intranet  )      |¯¯¯¯¯|   /    |¯¯¯¯¯| 192.168.1.4
+                    o       )--+--| lvs1|-++-----| sv2 |
+                 internet  )   |  |_____| | \    |_____|
+                          )    |          |  \ |¯¯¯¯¯|   192.168.1.5
+                               |  |¯¯¯¯¯| |   \| sv3 |
+                               +--| lvs2|-+    |_____|
+                                  |_____|
+                             xy.xy.xy.xz
+
+Ok, l'indirizzo pubblico del nostro VirtualServer e' xy.xy.xy.xy , a cui 
+risponde il nostro lvs1 sulla porta 80, il nostro lvs2 ha un alias per 
+quell'ip sempre attivo, per quanto riguarda l'ip interno di lvs1 e' necessario
+mantenerlo anche una volta takeoverATO (ommiottio) l'ip pubblico poiche' i
+RelaServer hanno quell'ip configurato come gateway, quindi e' necessario 
+monitorare anche quella risorsa con heartbeat. Perfetto, quindi abbiamo 
+risolto in un modo accettabile il problema del Director, adesso i spof sono i
+RealServer perche' non dimentichiamoci che se uno dei server non risulta
+accessibile, una percentuale di connessioni (dipende dal numero dei server)
+vanno a finire nel void, quindi libero sfogo alla fantasia: e' possibile 
+configurare un heartbeat tra i vari Realserver (se sono dei linux), usare un 
+qualsiasi programma di monitoraggio dal Director verso i RealServer, in modo
+da identificare l'uscita dalla rete di uno di loro oppure la caduta del 
+servizio (io uso moon lo trovate su http://freshmeat.net) per monitorare le 
+varie porte ed escludere dal VirtualServer i RelaServer dichiarati fuori 
+servizio.
+Tutto cio' e' facilmente realizzabile. Dentro il pacchetto del VirtualServer
+trovate pure degli esempi di script di shell che fanno quello che ho detto.
+Il Director lvs2 che nel nostro caso rimane idle per la maggioranza del tempo
+(speriamo =) potrebbe farci comodo, visto che ha una intercaccia in quella 
+lan. 
+Una cosina simpatica che ci potrebbe facilitare la vita e' un bel fileserver 
+per fare in modo di non dover riportare le modifiche fatte nel nostro (super)
+web server in tutti i RealServer; in questo caso se i server sono linux nfs 
+puo' fare a caso nostro, senza troppe preoccupazioni per la sicurezza visto 
+che stiamo dietro ad un firewall ed imposteremo le regole accuratamente con 
+ipchains...
+A seconda delle esigenze e soprattutto dal budget e' possibile acquistare un
+server studiato appositamente (varie aziende li producono), oppure metterci
+un semplice server.
+Tenete presente che se il traffico previsto e' veramente elevato e' possibile
+con 2 schede ethernet a 100 Mbit su di una macchina creare un collegamento a
+200 Mbit tra due server linux, se non sapete come fare: 
+cd /usr/src/linux/Documentation/; ls
+Come avrete potuto notare non sono sceso nel dettaglio con la configurazione 
+del VirtualServer e di heartbeat, visto che per questo aspetto la 
+documentazione inclusa nei pacchetti e' piu' che esplicativa, ma mi sono 
+sforzato di rendere accessibili i concetti piu' importanti, che non vengono 
+spiegati chiaramente nelle varie documentazioni sparse per la rete e di 
+difficile reperibilita'.
+Scusatemi se non avete capito un cazzo perche' sono stato incomprensibile, il
+tempo per scrivere questa cosetta l'ho dovuto ritagliare da una marea di 
+lavoro e cazzatelle varie... So: 
+echo "piggy sei un mito"; cat flames > /dev/null
+E' arrivata la mia ragazza... chiudo... *click*
+      
+Ahh dimenticavo gli url:
+
+http://www.LinuxVirtualServer.org/
+http://www.linux-ha.org/
+
+bye
+
+
+==============================================================================
+--------------------------------[ EOF 22/28 ]---------------------------------
+==============================================================================

@@ -1,0 +1,44 @@
+# deteccion de la exploracion de puertos:  -= portsec =-
+
+port_schema = library_schema:new( 1, [ "time", "ip", "int" ], scope () );
+time = 0;
+          count = 0;
+maxcount = 2;  # Numero maximo permitido de ACK/RST
+maxtime = 5;   # Tiempo maximo permitido para que ocurra maxcount
+source = 0;
+port = 0;
+target = 0;
+
+filter portscan ip ()
+{
+     if (tcp.is)
+     {
+              # buscar ACK, RST´s y, si tiene el mismo origen, contar
+              # solo uno
+
+              if (byte(ip.blob, 13) == 20 ) #bandera definida como ACK, RST
+              {
+                    count = count + 1;
+                   
+                    source = ip.dest;
+                    target = ip.source;
+                    port = tcp.sport;
+                    time = system.time;
+             }
+       }
+  on tick = timeout ( sec: maxtime, repeat ) call checkcount; 
+}
+
+func checkount
+{ 
+           if (count >>= maxcount)
+           {
+                 echo ("Port scan Georgie?, Time: ", time, "\n") ;
+                      record system.time, source, target, port
+                      to the_recorder_portscan;
+                 count = 0;
+       }
+       else
+                 count = 0;
+}
+the_recorder_portscan=recorder("bin/histogram packages/sandbox/portscan.cfg", port_schema");

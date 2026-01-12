@@ -1,0 +1,634 @@
+================================================================================
+---------------------[ BFi13-dev - file 17 - 20/08/2004 ]-----------------------
+================================================================================
+
+
+-[ DiSCLAiMER ]-----------------------------------------------------------------
+        Tutto il materiale contenuto in BFi ha fini esclusivamente informativi
+        ed educativi. Gli autori di BFi non si riterranno in alcun modo
+        responsabili per danni perpetrati a cose o persone causati dall'uso
+        di codice, programmi, informazioni, tecniche contenuti all'interno
+        della rivista.
+        BFi e' libero e autonomo mezzo di espressione; come noi autori siamo
+        liberi di scrivere BFi, tu sei libero di continuare a leggere oppure
+        di fermarti qui. Pertanto, se ti ritieni offeso dai temi trattati
+        e/o dal modo in cui lo sono, * interrompi immediatamente la lettura
+        e cancella questi file dal tuo computer * . Proseguendo tu, lettore,
+        ti assumi ogni genere di responsabilita` per l'uso che farai delle
+        informazioni contenute in BFi.
+        Si vieta il posting di BFi in newsgroup e la diffusione di *parti*
+        della rivista: distribuite BFi nella sua forma integrale ed originale.
+--------------------------------------------------------------------------------
+
+
+-[ THREADS ]--------------------------------------------------------------------
+---[ NAT iS N0T A SECURiTY FEATURE ]--------------------------------------------
+-----[ mayhem <mayhem@olografix.org> http://www.spippolatori.org ]--------------
+
+
+================================
+ NAT is not a security feature.
+
+ mayhem@olografix.org
+ Key on pgp.mit.edu ID B88FE057
+ http://www.spippolatori.org
+
+ Scritto in fretta per il Moca
+ http://moca.olografix.org
+
+================================
+
+ Credits:
+
+Vorrei ringraziare tutte quelle persone che appartengono alla scena italiana,
+molte delle quali sono cari amici. Voglio ringraziarli per il loro impegno, per
+le loro notti insonni, per il sacrificare parte di quella che gli umani chiamano
+real-life a favore del "fare cultura sulla rete, in rete". Grazie al loro tempo,
+alla loro pazienza, agli articoli, le notti insonni (le loro e le mie), alle
+spiegazioni su irc, i litigi con i famigliari (ognuno con i propri, mogli o
+genitori che siano), ai loro siti ed ai loro programmi io oggi ho potuto
+scrivere questo piccolo inutile articolo, onorato di vederlo pubblicato su bfi.
+Grazie a loro chi si avvicina alla rete oggi, se desideroso di farlo, potra'
+sapere domani cosa sta facendo e perche' lo sta facendo.
+
+=================================
+
+Si parla moltissimo oggi di DPS (Documento Programmatico sulla Sicurezza) e di
+adeguamento alle misure minime di sicurezza per le reti informatiche, secondo
+quanto previsto dalla legge italiana.
+Uno dei requisiti e' il firewall, spesso invocato come una sorta di panacea
+contro ogni male della Rete, in realta' solo uno strumento che a se`, tolto dal
+contesto, slegato da tutti gli altri strumenti *necessari*, serve solo a
+soddisfare il nostro ego, a vantarsi con gli amici al bar. "Io ho il firewall".
+Pur tuttavia assisto ogni giorno alla ritrosia di stimati professionisti di
+fronte alla spesa che consentirebbe di alzare la sicurezza globale della loro
+rete, professionisti che non hanno reti enormi e complesse, una struttura IT, o
+le grandi cose che leggiamo sui giornali. Penso a quel popolo di milioni di
+utenti che ha una adsl, un routerino e tante informazioni su di me che mai
+vorrei finissero sull'hard disk di qualcun altro. Penso al mio medico di base,
+al mio avvocato, al mio commercialista, alla mia fidanzata,...
+
+Il "firewall" non risolve ogni nostro problema, ma e' comunque uno strumento
+necessario. Ho deciso di scrivere questo articolo in seguito ad alcune obiezioni
+rivolte a chi afferma che il NAT non e' una "security feature".
+Il NAT, Network Address Translation, e' molto utile per nascondere intere reti
+dietro ad un gateway, a rivelare meno informazioni circa la topologia della
+nostra rete interna, meno informazioni circa gli host che la compongono.
+Il NAT e' quindi utile, soprattutto se integrato nella topologia di rete nel
+modo corretto, ma *non e' una security feature*.
+
+Questo e' tutto.
+
+Cerchero' qui di mostrare un semplice esempio di come il NAT, se utilizzato come
+unica protezione, renda estremamente vulnerabili a semplici attacchi che
+richiedono pochi e poveri mezzi per essere portati a termine.
+
+L'esempio si basa su un attacco portato utilizzando del semplice routing statico
+da parte dell'attacker, grazie alla non corretta configurazione del gateway
+della vittima. Purtroppo questa non corretta configurazione e' diffusissima su
+Internet, anche per macchine con funzionalita' avanzate, ad esempio i router
+Cisco[1]. Non conosco, ed ho paura a scoprire, quali effetti abbiano queste
+tecniche su macchine da poche decine di euro, configurabili solo via web, senza
+la possibilita' di implementare access-list ed altre security-feature.
+Come si comporterebbe un simile apparecchio in una situazione cosi' banale, o di
+fronte a traffico generato ad-hoc, ad esempio utilizzando le option relative al
+source-routing?
+
+
+** Topologia:
+
+victim <-lanvictim-> rtrvictim <-internet-> rtrattacker <-lanattacker-> attacker
+
+La linux box, victim, ha indirizzo IP 172.16.1.1 e come default gateway
+172.16.1.11.
+Questi vengono considerati indirizzi ip privati interni alla lan attaccata;
+tutto il traffico proveniente da questa rete, in uscita verso la nostra Internet
+simulata, viene nattato sull'indirizzo della seriale, 10.12.12.1, che fingeremo
+sia un ip pubblico appartenente ad Internet. Allo stesso modo fingeremo che
+anche 10.12.12.2 e 10.24.24.0/24 siano indirizzi ip pubblici appartenenti
+all'attaccante: lo scopo e' generare traffico proveniente da 10.24.24.99, un
+qualsiasi host su internet, che sia in grado di raggiungere senza problemi
+direttamente l'ip privato 172.16.1.1 e magari farsi anche rispondere
+correttamente.
+
+
+** Configurazione rtrvictim (un 2500 con ios 12.2.3T):
+
+hostname rtrvictim
+!
+interface Serial1
+ ip address 10.12.12.1 255.255.255.0
+ ip nat outside
+ encapsulation ppp
+ clockrate 38400
+!
+interface TokenRing0
+ ip address 172.16.1.11 255.255.255.0
+ ip nat inside
+ ring-speed 16
+!
+ip nat inside source list 1 interface Serial1 overload
+ip classless
+ip route 0.0.0.0 0.0.0.0 Serial1
+!
+access-list 1 permit any
+
+
+** Configurazione rtrattacker (2610 con IOS 12.0.3):
+
+hostname rtrattacker
+!
+interface Ethernet0/0
+ ip address 10.24.24.2 255.255.255.0
+!
+interface Serial0/0
+ ip address 10.12.12.2 255.255.255.0
+ encapsulation ppp
+!
+ip route 0.0.0.0 0.0.0.0 Serial0/0
+
+
+** Verifichiamo il corretto funzionamento della rete:
+
+Testiamo la corretta configurazione della nostra "Internet" di esempio,
+osservando quale strada seguono i pacchetti da victim ad attacker:
+
+victim# traceroute 10.24.24.99
+traceroute to 10.24.24.99 (10.24.24.99), 30 hops max, 40 byte packets
+ 1  172.16.1.11 (172.16.1.11)  3.050 ms  3.035 ms  3.379 ms
+ 2  10.12.12.2 (10.12.12.2)  50.605 ms  46.163 ms  46.622 ms
+ 3  10.24.24.99 (10.24.24.99)  53.058 ms  48.940 ms  51.020 ms
+
+Osserviamo su rtrvictim il comportamento del nat, attraverso l'output di
+"deb ip nat detailed":
+
+2w5d: NAT: Allocated Port for 172.16.1.1 -> 10.12.12.1: wanted 34283 got 34283
+2w5d: NAT: i: udp (172.16.1.1, 34283) -> (10.24.24.99, 33438) [34287]
+2w5d: NAT: s=172.16.1.1->10.12.12.1, d=10.24.24.99 [34287]
+2w5d: NAT: o: icmp (10.12.12.2, 33438) -> (10.12.12.1, 34283) [10]
+2w5d: NAT: s=10.12.12.2, d=10.12.12.1->172.16.1.1 [10]
+2w5d: NAT: i: udp (172.16.1.1, 34283) -> (10.24.24.99, 33439) [34288]
+2w5d: NAT: s=172.16.1.1->10.12.12.1, d=10.24.24.99 [34288]
+2w5d: NAT: o: icmp (10.12.12.2, 33439) -> (10.12.12.1, 34283) [11]
+2w5d: NAT: s=10.12.12.2, d=10.12.12.1->172.16.1.1 [11]
+2w5d: NAT: i: udp (172.16.1.1, 34283) -> (10.24.24.99, 33440) [34289]
+2w5d: NAT: s=172.16.1.1->10.12.12.1, d=10.24.24.99 [34289]
+2w5d: NAT: o: icmp (10.12.12.2, 33440) -> (10.12.12.1, 34283) [12]
+2w5d: NAT: s=10.12.12.2, d=10.12.12.1->172.16.1.1 [12]
+2w5d: NAT: i: udp (172.16.1.1, 34283) -> (10.24.24.99, 33441) [34290]
+2w5d: NAT: s=172.16.1.1->10.12.12.1, d=10.24.24.99 [34290]
+2w5d: NAT: o: icmp (10.24.24.99, 33441) -> (10.12.12.1, 34283) [48581]
+2w5d: NAT: s=10.24.24.99, d=10.12.12.1->172.16.1.1 [48581]
+2w5d: NAT: i: udp (172.16.1.1, 34283) -> (10.24.24.99, 33442) [34291]
+2w5d: NAT: s=172.16.1.1->10.12.12.1, d=10.24.24.99 [34291]
+2w5d: NAT: o: icmp (10.24.24.99, 33442) -> (10.12.12.1, 34283) [48582]
+2w5d: NAT: s=10.24.24.99, d=10.12.12.1->172.16.1.1 [48582]
+2w5d: NAT: i: udp (172.16.1.1, 34283) -> (10.24.24.99, 33443) [34292]
+2w5d: NAT: s=172.16.1.1->10.12.12.1, d=10.24.24.99 [34292]
+2w5d: NAT: o: icmp (10.24.24.99, 33443) -> (10.12.12.1, 34283) [48583]
+2w5d: NAT: s=10.24.24.99, d=10.12.12.1->172.16.1.1 [48583]
+
+Verifichiamo contemporaneamente cosa arriva ad attacker:
+
+attacker# tcpdump -nvi eth0
+tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 96 bytes
+21:42:20.418402 IP (tos 0x0, ttl   1, id 34321, offset 0, flags [none], length:
+   40 10.12.12.1.34314 > 10.24.24.99.33441: [udp sum ok] UDP, length: 12
+21:42:20.418477 IP (tos 0xc0, ttl  64, id 48587, offset 0, flags [none], length:
+   68) 10.24.24.99 > 10.12.12.1: icmp 48: 10.24.24.99 udp port 33441 unreachable
+21:42:21.078449 IP (tos 0x0, ttl   1, id 34322, offset 0, flags [none], length:
+   40) 10.12.12.1.34314 > 10.24.24.99.33442: [udp sum ok] UDP, length: 12
+21:42:21.078492 IP (tos 0xc0, ttl  64, id 48588, offset 0, flags [none], length:
+   68) 10.24.24.99 > 10.12.12.1: icmp 48: 10.24.24.99 udp port 33442 unreachable
+21:42:21.129530 IP (tos 0x0, ttl   1, id 34323, offset 0, flags [none], length:
+   40) 10.12.12.1.34314 > 10.24.24.99.33443: [udp sum ok] UDP, length: 12
+21:42:21.129571 IP (tos 0xc0, ttl  64, id 48589, offset 0, flags [none], length:
+   68) 10.24.24.99 > 10.12.12.1: icmp 48: 10.24.24.99 udp port 33443 unreachable
+
+Fin qui tutto corretto, abbiamo simulato il solito ufficio con N computer
+collegati ad internet attraverso un router che trasla il loro indirizzo privato
+in quello pubblico assegnato dal provider.
+
+Ora, al fine del nostro esperimento, non serve configurare altro, trovandoci in
+una rete di esempio; se fossimo su Internet sarebbe necessario inserire suli
+router attaccante il seguente instradamento:
+
+ip route 172.16.1.0 255.255.255.0 10.12.12.1
+
+e ci saremmo portati in una situazione in cui l'esempio di cui sotto sarebbe
+funzionante, sempre a fronte di un router vittima configurato sommariamente e di
+un provider che non filtri i pacchetti da/per classi di indirizzi privati.
+Purtroppo non solo gli utenti (da mio padre con il modem alla multinazionale con
+Nmila sedi) spesso non filtrano il traffico che mai dovrebbe arrivare/andare su
+Internet, ma ancora molti, troppi ISP non lo fanno. Mettere access-list
+significa impegnare la CPU dei loro router, in presenza di molto traffico
+sarebbe neccessario acquistare per quel nodo un router piu' potente e quindi
+piu' costoso. Meglio lasciare passare tutto. D'altro canto non dovremmo neppure
+fare conto sulle protezioni offerte dall'ISP, spesso inaffidabile e comunque
+fuori dal nostro controllo. Se sono stati adottati degli accorgimenti meglio, ma
+preferisco essere comunque "sicuramente" protetto dagli strumenti da me
+installati e configurati.
+
+Vediamo ora del traffico generato dal router attaccante verso la vittima:
+
+rtrattacker#ping
+Protocol [ip]:
+Target IP address: 172.16.1.1
+Repeat count [5]:
+Datagram size [100]:
+Timeout in seconds [2]:
+Extended commands [n]: y
+Source address or interface:  10.24.24.2
+Type of service [0]:
+Set DF bit in IP header? [no]:
+Validate reply data? [no]:
+Data pattern [0xABCD]:
+Loose, Strict, Record, Timestamp, Verbose[none]: v
+Loose, Strict, Record, Timestamp, Verbose[V]:
+Sweep range of sizes [n]:
+Type escape sequence to abort.
+Sending 5, 100-byte ICMP Echos to 172.16.1.1, timeout is 2 seconds:
+Reply to request 0 (68 ms)
+Reply to request 1 (64 ms)
+Reply to request 2 (64 ms)
+Reply to request 3 (69 ms)
+Reply to request 4 (64 ms)
+Success rate is 100 percent (5/5), round-trip min/avg/max = 64/65/69 ms
+
+Verificando i pacchetti scambiati tra gli host con l'output del "debug ip packet
+detailed":
+
+00:38:45: IP: s=10.24.24.2 (local), d=172.16.1.1 (Serial0/0), len 100, sending
+00:38:45:     ICMP type=8, code=0
+00:38:45: IP: s=10.12.12.1 (Serial0/0), d=10.24.24.2, len 100, rcvd 4
+00:38:45:     ICMP type=0, code=0
+00:38:45: IP: s=10.24.24.2 (local), d=172.16.1.1 (Serial0/0), len 100, sending
+00:38:45:     ICMP type=8, code=0
+00:38:45: IP: s=10.12.12.1 (Serial0/0), d=10.24.24.2, len 100, rcvd 4
+00:38:45:     ICMP type=0, code=0
+00:38:45: IP: s=10.24.24.2 (local), d=172.16.1.1 (Serial0/0), len 100, sending
+00:38:45:     ICMP type=8, code=0
+00:38:45: IP: s=10.12.12.1 (Serial0/0), d=10.24.24.2, len 100, rcvd 4
+00:38:45:     ICMP type=0, code=0
+00:38:45: IP: s=10.24.24.2 (local), d=172.16.1.1 (Serial0/0), len 100, sending
+00:38:45:     ICMP type=8, code=0
+00:38:45: IP: s=10.12.12.1 (Serial0/0), d=10.24.24.2, len 100, rcvd 4
+00:38:45:     ICMP type=0, code=0
+00:38:45: IP: s=10.24.24.2 (local), d=172.16.1.1 (Serial0/0), len 100, sending
+00:38:45:     ICMP type=8, code=0
+00:38:45: IP: s=10.12.12.1 (Serial0/0), d=10.24.24.2, len 100, rcvd 4
+00:38:45:     ICMP type=0, code=0
+
+Sull'host vittima rileviamo il seguente traffico:
+
+victim# tcpdump -nvi tr0
+tcpdump: listening on tr0, link-type IEEE802 (Token ring), capture size 68 bytes
+22:05:10.729034 IP (tos 0x0, ttl 254, id 10, offset 0, flags [none], length:
+   100) 10.24.24.2 > 172.16.1.1: icmp 80: echo request seq 4754
+22:05:10.729089 IP (tos 0x0, ttl  64, id 16859, offset 0, flags [none], length:
+   100) 172.16.1.1 > 10.24.24.2: icmp 80: echo reply seq 4754
+22:05:10.729182 IP (tos 0x0, ttl  64, id 16859, offset 0, flags [none], length:
+   100) 172.16.1.1 > 10.24.24.2: icmp 80: echo reply seq 4754
+22:05:10.794643 IP (tos 0x0, ttl 254, id 11, offset 0, flags [none], length:
+   100) 10.24.24.2 > 172.16.1.1: icmp 80: echo request seq 4754
+22:05:10.794661 IP (tos 0x0, ttl  64, id 16860, offset 0, flags [none], length:
+   100) 172.16.1.1 > 10.24.24.2: icmp 80: echo reply seq 4754
+22:05:10.794748 IP (tos 0x0, ttl  64, id 16860, offset 0, flags [none], length:
+   100) 172.16.1.1 > 10.24.24.2: icmp 80: echo reply seq 4754
+22:05:10.862128 IP (tos 0x0, ttl 254, id 12, offset 0, flags [none], length:
+   100) 10.24.24.2 > 172.16.1.1: icmp 80: echo request seq 4754
+22:05:10.862142 IP (tos 0x0, ttl  64, id 16861, offset 0, flags [none], length:
+   100) 172.16.1.1 > 10.24.24.2: icmp 80: echo reply seq 4754
+22:05:10.862232 IP (tos 0x0, ttl  64, id 16861, offset 0, flags [none], length:
+   100) 172.16.1.1 > 10.24.24.2: icmp 80: echo reply seq 4754
+22:05:10.947797 IP (tos 0x0, ttl 254, id 13, offset 0, flags [none], length:
+   100) 10.24.24.2 > 172.16.1.1: icmp 80: echo request seq 4754
+22:05:10.947842 IP (tos 0x0, ttl  64, id 16862, offset 0, flags [none], length:
+   100) 172.16.1.1 > 10.24.24.2: icmp 80: echo reply seq 4754
+22:05:10.947931 IP (tos 0x0, ttl  64, id 16862, offset 0, flags [none], length:
+   100) 172.16.1.1 > 10.24.24.2: icmp 80: echo reply seq 4754
+22:05:11.013019 IP (tos 0x0, ttl 254, id 14, offset 0, flags [none], length:
+   100) 10.24.24.2 > 172.16.1.1: icmp 80: echo request seq 4754
+22:05:11.013035 IP (tos 0x0, ttl  64, id 16863, offset 0, flags [none], length:
+   100) 172.16.1.1 > 10.24.24.2: icmp 80: echo reply seq 4754
+22:05:11.013122 IP (tos 0x0, ttl  64, id 16863, offset 0, flags [none], length:
+   100) 172.16.1.1 > 10.24.24.2: icmp 80: echo reply seq 4754
+
+Da notare il comportamento del router vittima, sempre dal suo deb ip nat:
+
+2w5d: NAT: Allocated Port for 172.16.1.1 -> 10.12.12.1: wanted 7845 got 7845
+2w5d: NAT: i: icmp (172.16.1.1, 7845) -> (10.24.24.2, 7845) [16859]
+2w5d: NAT: s=172.16.1.1->10.12.12.1, d=10.24.24.2 [16859]
+2w5d: NAT: Allocated Port for 172.16.1.1 -> 10.12.12.1: wanted 7846 got 7846
+2w5d: NAT: i: icmp (172.16.1.1, 7846) -> (10.24.24.2, 7846) [16860]
+2w5d: NAT: s=172.16.1.1->10.12.12.1, d=10.24.24.2 [16860]
+2w5d: NAT: Allocated Port for 172.16.1.1 -> 10.12.12.1: wanted 7847 got 7847
+2w5d: NAT: i: icmp (172.16.1.1, 7847) -> (10.24.24.2, 7847) [16861]
+2w5d: NAT: s=172.16.1.1->10.12.12.1, d=10.24.24.2 [16861]
+2w5d: NAT: Allocated Port for 172.16.1.1 -> 10.12.12.1: wanted 7848 got 7848
+2w5d: NAT: i: icmp (172.16.1.1, 7848) -> (10.24.24.2, 7848) [16862]
+2w5d: NAT: s=172.16.1.1->10.12.12.1, d=10.24.24.2 [16862]
+2w5d: NAT: Allocated Port for 172.16.1.1 -> 10.12.12.1: wanted 7849 got 7849
+2w5d: NAT: i: icmp (172.16.1.1, 7849) -> (10.24.24.2, 7849) [16863]
+2w5d: NAT: s=172.16.1.1->10.12.12.1, d=10.24.24.2 [16863]
+
+Ci accorgiamo quindi che il router attaccante ci dice di avere ricevuto una
+risposta corretta al ping, nonostante le risposte provenissero da 10.22.22.1,
+l'indirizzo ip nattato. Questo significa che la stessa operazione dalla nostra
+macchina, attacker, potrebbe restituire un timeout...
+
+attacker# ping -c 1 172.16.1.1
+PING 172.16.1.1 (172.16.1.1) 56(84) bytes of data.
+64 bytes from 10.12.12.1: icmp_seq=1 ttl=62 time=56.0 ms
+
+--- 172.16.1.1 ping statistics ---
+1 packets transmitted, 1 received, 0% packet loss, time 0ms
+rtt min/avg/max/mdev = 56.007/56.007/56.007/0.000 ms
+
+mentre invece, di nuovo, viene considerato onorato il ping, anche se le risposte
+provengono da 10.12.12.1, e non da 172.16.1.1.
+Sicuramente una connessione tcp non andrebbe a buon fine, richiedendo la
+corretta connessione, come infatti accade; chiaramente vi e' realmente un server
+smtp in ascolto sulla porta 25 dell'host in oggetto.
+
+attacker# telnet 172.16.1.1 25
+Trying 172.16.1.1...
+
+accade esattamente cio' che ci aspettiamo, osservando l'otput del "debug ip
+packet detailed" sul router attaccante:
+
+00:52:02: IP: s=10.24.24.99 (Ethernet0/0), d=172.16.1.1 (Serial0/0),
+          g=172.16.1.1, len 60, forward
+00:52:02:     TCP src=35144, dst=25, seq=2355321999, ack=0, win=5840 SYN
+00:52:02: IP: s=10.12.12.1 (Serial0/0), d=10.24.24.99 (Ethernet0/0),
+          g=10.24.24.99, len 60, forward
+00:52:02:     TCP src=25, dst=35144, seq=2438345870, ack=2355322000,
+              win=12012 ACK SYN
+00:52:02: IP: s=10.24.24.99 (Ethernet0/0), d=10.12.12.1 (Serial0/0),
+          g=10.12.12.1, len 40, forward
+00:52:02:     TCP src=35144, dst=25, seq=2355322000, ack=0, win=0 RST
+
+Vediamo ora di metterci in grado di stabilire correttamente una connessione tcp.
+Fingiamo di non essere in grado di poter riconfigurare il router remoto, e di
+avere a disposizione solo gli strumenti che ci mette a disposizione il nostro
+router, quello con cui portiamo l'attacco.
+Abbiamo notato che le risposte, giustamente, tornano con l'indirizzo ip
+"pubblico", quello nattato, non con l'ip dell'host che stiamo "analizzando". Non
+avendo voglia di cercare o scrivere tool specifici, ma volendo utilizzare il
+normale telnet, possiamo nattare a nostra volta i pacchetti in arrivo, cosi' da
+riceverli con l'ip corretto. Purtroppo l'ordine in cui IOS gestisce le
+operazioni e il modo in cui il nat viene gestito rende l'operazione complessa.
+Un modo semplicissimo per ottenere il nostro risultato e' inserire tra il
+computer attacker e rtrattacker un pc con openbsd, con una installazione molto
+vicina al default e 3 righe di pf.conf.
+Preso il nostro pc con 2 schede di rete, fxp0 ed fxp1, assegneremo 10.24.24.99,
+l'ip di attacker a fxp0, considerata esterna, ed un altro ip "pubblico" ad fxp1
+ed all'host attacker, nell'ordine 10.16.99.99 e 10.16.99.24.
+
+obsd # ifconfig fxp0 10.24.24.99 netmask 255.255.255.0
+obsd # ifconfig fxp1 10.16.99.24 netmask 255.255.255.0
+
+Inutile dire che qui ci rendiamo disponibili intere classi C di indirizzi ip
+pubblici, ma con una normalissima classe di 8 indirizzi e poco subnetting e'
+possibile ottenere lo stesso risultato.
+
+La struttura della nostra rete varia cosi':
+
+victim <--> rtrvictim <--"internet"--> rtrattacker <--> obsd <--> attacker
+
+Di conseguenza sulla macchina openbsd dobbiamo abilitare il packet forwarding e
+dare gli instradamenti corretti:
+
+obsd # route add default 10.24.24.2 
+add net default: gateway 10.24.24.2
+obsd # route add -host 172.16.1.1 10.12.12.1
+add host 172.16.1.1: gateway 10.12.12.1
+obsd # sysctl -w net.inet.ip.forwarding=1
+net.inet.ip.forwarding: 0 -> 1
+
+A questo punto svuotiamo il file /etc/pf.conf e scriviamo solo le seguenti
+righe:
+
+nat on fxp1 from 10.12.12.1/32 -> 172.16.1.1 static-port
+pass in all
+pass out all
+
+Andiamo poi ad abilitare pf:
+
+obsd # pfctl -e
+pf enabled
+obsd # pfctl -f /etc/pf.conf
+
+Ci bastera' ora, dal nosro client, attacker, collegarci al servizio voluto:
+
+attacker# telnet 172.16.1.1 25
+Trying 172.16.1.1...
+Connected to 172.16.1.1.
+Escape character is '^]'.
+220 Blowfish me!
+helo p0rnz.it
+250 mail.lotofp0rnz.it
+etrn getmyp0rnz.it
+459 <getp0rnz.it>: service unavailable
+quit
+221 Bye
+
+Se non addirittura fare girare nmap contro la vittima:
+
+attacker # nmap -sV -n -O -v 172.16.1.1
+
+Starting nmap 3.55 ( http://www.insecure.org/nmap/ ) at 2004-07-21 00:46 CEST
+Host 172.16.1.1 appears to be up ... good.
+Initiating SYN Stealth Scan against 172.16.1.1 at 00:46
+Adding open port 3000/tcp
+Adding open port 995/tcp
+Adding open port 443/tcp
+Adding open port 25/tcp
+Adding open port 80/tcp
+Adding open port 199/tcp
+Adding open port 29/tcp
+
+The SYN Stealth Scan took 104 seconds to scan 1660 ports.
+Initiating service scan against 7 services on 1 host at 00:48
+The service scan took 86 seconds to scan 7 services on 1 host.
+For OSScan assuming that port 25 is open and port 1 is closed and neither are
+firewalled
+For OSScan assuming that port 25 is open and port 1 is closed and neither are
+firewalled
+Insufficient responses for TCP sequencing (0), OS detection may be less accurate
+Interesting ports on 172.16.1.1:
+(The 1625 ports scanned but not shown below are in state: closed)
+PORT      STATE    SERVICE          VERSION
+7/tcp     filtered echo
+9/tcp     filtered discard
+11/tcp    filtered systat
+13/tcp    filtered daytime
+19/tcp    filtered chargen
+21/tcp    filtered ftp
+23/tcp    filtered telnet
+25/tcp    open     smtp             Postfix smtpd
+29/tcp    open     msg-icp?
+79/tcp    filtered finger
+80/tcp    open     http             Apache httpd
+113/tcp   filtered auth
+179/tcp   filtered bgp
+199/tcp   open     smux             Linux SNMP multiplexer
+443/tcp   open     ssl/http         Apache httpd
+512/tcp   filtered exec
+513/tcp   filtered login
+514/tcp   filtered shell
+515/tcp   filtered printer
+544/tcp   filtered kshell
+995/tcp   open     ssl/pop3         ipopd 2003.83
+1720/tcp  filtered H.323/Q.931
+1984/tcp  filtered bigbrother
+1987/tcp  filtered tr-rsrb-p1
+1988/tcp  filtered tr-rsrb-p2
+1989/tcp  filtered tr-rsrb-p3
+1990/tcp  filtered stun-p1
+1991/tcp  filtered stun-p2
+1992/tcp  filtered stun-p3
+1994/tcp  filtered stun-port
+1996/tcp  filtered tr-rsrb-port
+2065/tcp  filtered dlsrpn
+2067/tcp  filtered dlswpn
+3000/tcp  open     ppp?
+10000/tcp filtered snet-sensor-mgmt
+Device type: general purpose
+Running: Linux 2.4.X
+OS details: Linux 2.4.6 - 2.4.21, Linux 2.4.19 - 2.4.20, Linux 2.4.21 (x86)
+
+Nmap run completed -- 1 IP address (1 host up) scanned in 223.302 seconds
+
+Naturalmente il risultato non pecca in precisione, ma per essere una macchina
+protetta direi che abbiamo ottenuto risultati inimmaginabili.
+
+Chiaramente su rtrattacker, con un "debug ip packet detailed", possiamo
+verificare che i pacchetti in transito siano esattamente quelli che ci
+aspettiamo, osservando ad esempio il traffico durante la sessione telnet verso
+il server smtp:
+
+6d03h: IP: s=10.12.12.1 (Serial0/0), d=10.16.99.24 (Ethernet0/0), g=10.24.24.99,
+       len 60, forward
+6d03h:     TCP src=25, dst=34104, seq=3409507074, ack=2102743414,
+           win=12012 ACK SYN
+6d03h: IP: s=10.12.12.1 (Serial0/0), d=10.16.99.24 (Ethernet0/0), g=10.24.24.99,
+       len 70, forward
+6d03h:     TCP src=25, dst=34104, seq=3409507075, ack=2102743414,
+           win=12012 ACK PSH
+
+Possiamo altresi' verificare che in effetti e' proprio la macchina openbsd ed il
+suo nat a permetterci la corretta connessione:
+
+obsd # pfctl -s nat -v
+nat on fxp1 inet from 10.12.12.1 to any -> 172.16.1.1 static-port
+  [ Evaluations: 4171      Packets: 2358      Bytes: 124441      States: 1     ]
+
+La nostra tecnica quindi, lunga e laboriosa se si tratta di una rete con diversi
+host, poiche' dovremo variare la configurazione del nat per ogni host, funziona.
+Fin troppo bene oserei dire.
+
+Inutile ricordare che pochi altri comandi e delle access-list ben scritte
+avrebbero potuto evitare un sacco di problemi. Senza scomodare il venerato
+stateful-firewall bastano poche righe di semplici access-list a fermare il
+bassotto di turno:
+
+ip access-list extended outside
+remark non accetto traffico da indirizzi inutilizzabili
+deny   ip host 0.0.0.0 any
+! la seguente e' commentata perche' nel nostro esempio abbiamo
+! utilizzato la classe 10.0.0.0/8 come fossero ip pubblici
+remark non accetto traffico dalla classe A privata
+remark deny   ip 10.0.0.0 0.255.255.255 any
+remark non accetto traffico dalla classe delle loopback
+deny   ip 127.0.0.0 0.255.255.255 any
+remark non accetto traffico dalla classe dell'indirizzamento automatico degli
+       host
+deny   ip 169.254.0.0 0.0.255.255 any
+remark non accetto traffico dalla classe B privata
+deny   ip 172.16.0.0 0.15.255.255 any
+remark non accetto traffico 
+deny   ip 192.0.2.0 0.0.0.255 any
+remark non accetto traffico dalla classe C privata
+deny   ip 192.168.0.0 0.0.255.255 any
+deny   ip 224.0.0.0 0.255.255.255 any
+remark non accetto traffico da indirizzi inutilizzabili
+deny   ip host 255.255.255.255 any
+remark non accetto traffico proveniente da me stesso
+deny   ip host 10.12.12.1 any
+remark accetto traffico diretto a me
+permit ip any host 10.12.12.1
+remark tutto il resto lo voglio loggare
+deny   ip any any log
+int s0
+ip access-group outside in
+
+Questo produrrebbe i seguenti risultati, rifacendo il primo ping dell'attacco
+illustrato:
+
+2w5d: %SEC-6-IPACCESSLOGDP: list outside denied icmp 10.24.24.99 ->
+      172.16.1.1 (0/0), 1 packet
+
+Ed uno show access-list ci mostrerebbe i risultati voluti:
+
+Extended IP access list outside
+    deny ip host 0.0.0.0 any
+    deny ip 127.0.0.0 0.255.255.255 any
+    deny ip 169.254.0.0 0.0.255.255 any
+    deny ip 172.16.0.0 0.15.255.255 any
+    deny ip 192.0.2.0 0.0.0.255 any
+    deny ip 192.168.0.0 0.0.255.255 any
+    deny ip 224.0.0.0 0.255.255.255 any
+    deny ip host 255.255.255.255 any
+    deny ip host 10.12.12.1 any
+    permit ip any host 10.12.12.1
+    deny ip any any log (14 matches)
+
+Il tcpdump sull'host vittima e' quantomeno silenzioso, mentre su attacker non
+vediamo alcun pacchetto di risposta. Il Deposito e' salvo.
+
+Aggiungo al mio rtrvictim anche un "no ip source-route" e sono sicuro di avere
+scongiurato anche il pericolo derivante da pacchetti creati ad-hoc per
+sovvertire il corretto routing.
+Attenzione: se qualcuno sta pensando che io abbia utilizzato la tanto famosa,
+quanto oscura, tecnica del magico spoofing, no, non lo ho fatto. Ho sempre e
+solo utilizzato gli ip che realmente gli host hanno configurato senza mai
+intercettare o redirigere traffico, senza creare pacchetti ad-hoc, con indirizzi
+non da me utilizzati.
+
+Ritengo palese che l'access-list presentata ben si addice ad un border gateway,
+il router che ci collega ad Internet ad esempio, o come inizio delle policy del
+nostro firewall. Non e' assolutamente completa, ne' esaustiva, filtra solo il
+traffico da indirizzi non accettabili ed accetta tutto quello davvero diretto ai
+nostri indirizzi pubblici. Il che significa che ancora molto spazio vi sarebbe
+per portare attacchi di altro genere, direttamente ai servizi pubblicati ad
+esempio.
+
+Credo sia inutile sottolineare, come al solito, che questa spiegazione e'
+puramente informativa, vi diffido dal testare queste tecniche su macchine di non
+vostra proprieta' ed ogni beneficio/danno che ne trarrete e' di vostra ed
+esclusivamente vostra competenza, ed in nessun caso la redazione di BFi, lo
+staff di s0ftpj, di Metro Olografix, Spippolatori od io potremmo essere ritenuti
+responsabili per cio' che avete deciso di fare con queste informazioni.
+
+Non mi resta che salutare voi tutti, sperare che abbiate gia' bevuto una birra,
+qui con me al MOCA [se non lo abbiamo ancora fatto forse siamo in tempo per
+rimediare], o che siate venuti a trovarmi nel simpatico gazebo ove campeggiano
+alcuni router, un paio di macchine ed una rete di test ove giocare con i tools
+a noi cari. Che il blowfish[2] sia sempre con voi.
+
+un mayhem che cerca un posacenere vuoto...
+
+[1] Ho utilizzato apparati cisco perche' sono quelli che conosco meglio.
+    Utilizzo quelli per lavoro proprio perche' mi permettono di proteggere cio'
+    che voglio nel modo che preferisco. La vulnerabilita' mostrata non dipende
+    dall'apparato in se', ma dalla sua non corretta configurazione.
+[2] Chi e' interessato a capire il ruolo fondamentale del blowfish nella storia
+    contemporanea si senta libero di scrivermi in privato o di cercarmi al MOCA,
+    portando con se il denaro necessario a pagare 2 birre ;PPP
+
+
+================================================================================
+------------------------------------[ EOF ]-------------------------------------
+================================================================================
+

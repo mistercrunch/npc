@@ -1,0 +1,701 @@
+==============================================================================
+------------[ BFi numero 8, anno 3 - 30/04/2000 - file 15 di 28 ]-------------
+==============================================================================
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ 0MBRE E LUCi DEL KERNEL LiNUX 2.2.X : LuCe LKM
+-----[ FuSyS <fusys@s0ftpj.org>
+
+
+	-----[ OMBRE E LUCI DEL KERNEL LINUX 2.2.X ]-----
+
+		     -----[ LuCe LKM ]-----
+
+        NO(C)1999 FuSyS <fusys@s0ftpj.org> - [S0ftpj|BFi]
+
+Ovviamente anche i sysadmin possono avvalersi del supporto LKM per Linux.
+In fondo, occuparsi di hacking vuol dire, oltre alle miriadi di varie e
+mirabolanti definizioni piu' o meno conosciute, anche 'andare un pochino
+oltre' alla norma. Con questo intendo che un modulo non debba servire solo
+come device driver che occupa meno memoria, o come supporto on-the-fly a
+diverse lingue e tabelle di encoding.
+
+Come abbiamo visto con i moduli CaRoGNa e oMBRa, i moduli possono e VENGONO
+attivamente utilizzati dai cracker per mantenersi il piu' a lungo possibile
+all'interno di un sistema bucato, anche e dopo che la loro incursione possa
+esser stata scoperta, ma non ci sia modo per root di formattare e
+reinstallare il tutto.
+
+Certo anche un amministratore di sistema puo' decidere di approntare e poi
+nascondere all'interno del kernel delle modifiche che possano essere utili
+nell'aumentare e mantenere la sicurezza di un sistema, sia prima che dopo
+una eventuale incursione riuscita. D'altra parte modificare i sorgenti del
+kernel, non sempre o su tutte le macchine disponibili, e ricompilare un
+kernel monolitico, non e' in ogni caso una soluzione accettabile o almeno
+fattibile.
+
+Ecco che un Loadable Kernel Module, o LKM, risponde ai requisiti di un
+SysOp che debba elevare la soglia di danno in un sistema non velocemente
+modificabile a livello di immagine di boot. Un semplice insmod(1) per
+poter patchare 'al volo' un sistema, per il tempo necessario.
+
+
+-----[ L I N E E  D I  D I F E S A ]-----
+
+Come abbiamo visto nella prima parte del progetto CaRoNTe, su BFi3, cio'
+che ci interessa sono fondamentalmente le chiamate di sistema, ponti di
+accesso in kernel-land, per poter operare su dati e dispositivi altrimenti
+inaccessibili.
+
+In un sistema UN!X, e quindi anche Linux [per favore tralasciamo le comuni
+guerre di religione *BSD|Linux], e' fondamentale poter contare sulla 
+integrita' di alcuni file, quali ad esempio /etc/passwd e /etc/shadow che
+gestiscono gli account di sistema. I file di log sono un altro importante
+diktat della nostra zona militarizzata, in quanto devono essere in grado
+di poter raccontarci cosa e' successo. Anche /dev/mem e /dev/kmem sono due
+ricettacoli di informazioni sensitive: molti exploit del passato hanno
+operato su questi per poter aumentare i privilegi degli attaccanti, senza
+contare che variare casualmente il loro contenuto puo' avere effetti non
+preventivabili e spesso irreparabili per l'integrita' del sistema.
+
+D'altra parte e' pratica utilizzata, seppur non comune, passare direttamente
+dai block device per operare modifiche ai dischi e quindi ai file. Ne avete
+avuto prova nell'exploit per SuSE presente in BFi#7. E' necessario poter
+bloccare anche questo tipo di accessi.
+
+
+-----[ S O L U Z I O N I ]-----
+
+Il filesystem Ext2 prevede la possibilita' di gestire alcune flag per ogni
+file presente su disco. Queste flag sono (da /usr/include/linux/ext2_fs.h):
+
+/*
+ * Inode flags
+ */
+#define EXT2_SECRM_FL           0x00000001 /* Secure deletion */
+#define EXT2_UNRM_FL            0x00000002 /* Undelete */
+#define EXT2_COMPR_FL           0x00000004 /* Compress file */
+#define EXT2_SYNC_FL            0x00000008 /* Synchronous updates */
+#define EXT2_IMMUTABLE_FL       0x00000010 /* Immutable file */
+#define EXT2_APPEND_FL          0x00000020 /* writes may only append */
+#define EXT2_NODUMP_FL          0x00000040 /* do not dump file */
+#define EXT2_NOATIME_FL         0x00000080 /* do not update atime */
+/* compression usage... */
+#define EXT2_DIRTY_FL           0x00000100
+#define EXT2_COMPRBLK_FL        0x00000200 /* 1+ compressed clusters */
+#define EXT2_NOCOMP_FL          0x00000400 /* Don't compress */
+#define EXT2_ECOMPR_FL          0x00000800 /* Compression error */
+/* End compression flags */
+#define EXT2_BTREE_FL           0x00001000 /* btree format dir */
+#define EXT2_RESERVED_FL        0x80000000 /* reserved for ext2 lib */
+
+#define EXT2_FL_USER_VISIBLE    0x00001FFF /* User visible flags */
+#define EXT2_FL_USER_MODIFIABLE 0x000000FF /* User modifiable flags */
+
+Le prime otto sono utili per poter gestire in maniera piu' granulare i file
+di sistema. Meglio conosciute sono le due flag IMMUTABLE_FL e APPEND_FL , per
+altro presenti anche in altri UN!X, che gestiscono la possibilita' di NON
+poter modificare un file, e di non poter scrivervi sopra se non partendo da
+(SEEK_END+1).
+
+Solamente root puo' settare queste flag, di solito mediante il programma
+chattr(1), mentre chiunque puo' visualizzarle, mediante lsattr(1).
+Il problema e' che root puo' ovviamente rimuovere, mediante chattr(1), tutte
+le flag che desideri da ogni file, rendendo quindi inutile la loro stessa
+precedente presenza.
+
+Ovviamente root puo' anche scrivere comodamente in /dev/kmem ed aprire ogni
+block device che gli interessi mediante semplici chiamate della libC.
+Come a dire: il sistema e' sicuro fino e non oltre una intrusione a root.
+Dopodiche' .... AMEN.
+
+Questo non e' ovviamente accettabile su alcune macchine, ed e' per questo che
+sono stati ideati dei metodi per rinforzare la sicurezza del kernel.
+
+Nelle varie progenie dello UN!X BSD, esiste il concetto di securelevel.
+Dalle pagine di definizione del kernel 4.4BSD :
+
+  -1	 Permanently insecure mode: Always run system in 0 mode (must be
+	 compiled into the kernel)
+
+   0	 Insecure mode: Immutable and append-Only flags may be turned
+	 off. All devices can be read or written, subject to their
+	 permissions
+
+   1     Secure mode: The superuser-settable immutable and append-only
+	 flags cannot be cleared; disks for mounted filesystems and
+	 kernel memory (/dev/mem and /dev/kmem) are read-only
+
+   2     Highly secure mode: This mode is the same as secure mode, except
+	 that disks are always read-only whether mounted or not. This
+	 level precludes even a superuser process from tampering with
+         filesystems by unmounting them, but also inhibits formatting
+	 of new filesystems
+
+Possiamo vedere come il livello di sicurezza 2 sia effettivamente una barriera
+insormontabile per la maggior parte dei cracker poco motivati e dotati
+tecnicamente e per la totalita' degli script-kiddies. Al di la' della chiamata
+settimeofday(2) la differenza sostanziale rientra nel gruppo di block device
+che vengono resi read-only. Quindi forse, nel securelevel 1 e' possibile
+umountare un filesystem per poi accedervi in raw. Molto meglio a questo punto
+puntare al livello 2. Caratteristica comune e' l'impossibilita' anche per
+root di variare le flag APPEND_FL e IMMUTABLE_FL di un file, di scrivere in
+/dev/mem e /dev/kmem e di accedere in raw ai device di tipo block.
+
+E sotto Linux?
+All'epoca del kernel 2.0.x esisteva anche in Linux il concetto di securelevel,
+che poteva esser portato da 1 a 0, per poter bloccare le due flag. Non c'era
+pero' controllo sui dischi in raw. Con l'avvento del 2.2.x ed il 2.4.x ormai
+alle porte, e' arrivato in Linux-World un nuovo sistema di controllo della
+sicurezza. Le POSIX Capabilities.
+
+Basandosi su un draft mai divenuto standard, il POSIX1.e, queste capabilities
+creano una astrazione dal normale uso dello UID UN!X, per decidere se un
+processo abbia o meno la possibilita' di portare a termine un determinato
+evento. Non voglio qui entrare a fondo delle Linux Capabilities. I primi
+assaggi sono presenti in /usr/include/linux/capabilities.h e nel kernel, in
+~linux/kernel/capability.c . In un prossimo articolo le vedremo piu' a
+fondo.
+
+Eppure, le prime distro basate su 2.2.x non hanno alcuna utility, libreria
+o predisposizione in zona utente per le Capabilities. Tale predisposizione
+esiste solo nel kernel. In piu', la possibilita' di gestire le capabilities
+anche per i file, oltre che per i processi, non e' ancora standard, ma
+esiste solo come patch al kernel per utilizzare l'header ELF come dimora di
+queste flag.
+
+
+-----[ L u C e  L K M ]-----
+
+Per questi ed altri motivi non ho concepito LuCe come strato aggiuntivo alle
+Linux Capabilities, per altro molto interessanti, eppur sconosciute ai piu'.
+Invece questo LKM cerca di operare una protezione base su una serie di files
+scelti dal SysOp, ed implementa anche un securelevel 2 come quello *BSD.
+
+Vediamo prima il codice.
+
+<-| LuCe.c |->
+/*
+ * LuCe.c				Modulo Kernel per Linux per tenere
+ *					d'occhio il sistema, ed aggiungere
+ *					sicurezza 'al volo' ad un 'running'
+ *					preesistente. Contiene una semplice
+ *					implementazione dei securelevel BSD
+ *					in attesa dell'arrivo ufficiale con
+ *					le Linux Capabilities [POSIX 1.e] 
+ *					nel kernel 2.4.x di solide ACL.
+ *					Per maggiori informazioni leggete
+ *					il relativo articolo sul numero 8 
+ *					di BFi, liberamente prelevabile e
+ *					consultabile dal seguente URL:
+ *
+ *					---[ http://www.s0ftpj.org/bfi/ ]---
+ *
+ *                                          __NO__(C)2000 FuSyS [S0ftPj|BFi]
+ *                                                        <fusys@s0ftpj.org>
+ *
+ *
+ * Compilate con:       		gcc -c -O2 -fomit-frame-pointer LuCe.c
+ * Installate con:      		insmod LuCe.o <secure=level>
+ *
+ * 3l33t quote:         		"wow, e funzica anche su Solaris ?"
+ * Tnx'n'credits:                     	4.4BSD, Daemon9(Hardening the ...), 
+ *					Pragmatic(LKM paper), BFi
+ *
+ */
+
+#define MODULE
+#define __KERNEL__
+#include <linux/module.h>
+#include <linux/fs.h>
+#include <linux/ext2_fs.h>
+#include <linux/dcache.h>
+#include <linux/kdev_t.h>
+#include <linux/types.h>
+#include <linux/stat.h>
+#include <linux/fcntl.h>
+#include <linux/mm.h>
+#include <sys/syscall.h>
+#include <asm/uaccess.h>
+#include <asm/unistd.h>
+#include <asm/segment.h>
+
+#define LKMNAME		"LuCe"
+#define DISK		6
+
+volatile int secure=0;
+MODULE_PARM(secure, "i");
+
+char *protetti[10]={"/etc/passwd", "/etc/shadow", "/dev/mem", "/dev/kmem", NULL,
+			NULL, NULL, NULL, NULL, NULL};
+struct inode luxes[10];
+
+extern void *sys_call_table[];
+int (*old_open)(const char*, int, mode_t);
+int (*old_unlink)(const char*);
+int (*old_ioctl) (unsigned int, unsigned int, unsigned long);
+int (*old_umount)(char*, int);
+int (*old_mount)(char*, char*, char*, unsigned long, void*);
+int (*old_execve)(struct pt_regs);
+int (*old_query_module)(const char *, int, char *, size_t, size_t *);
+unsigned long (*old_create_module)(const char*, size_t);
+
+int inocpy(struct inode * inode, struct inode *dest)
+{
+        if (!dest) return -EFAULT;
+        memcpy(dest,inode,sizeof(struct inode));
+        return 0;
+}
+
+int inocmp(struct inode *in1, struct inode *in2)
+{
+        if (kdev_t_to_nr(in1->i_dev)!=kdev_t_to_nr(in2->i_dev)) return 1;
+        if (in1->i_ino!=in2->i_ino) return 1;
+        return 0;
+}
+
+/* ~linux/fs/stat.c */
+int do_revalidate(struct dentry *dentry)
+{
+	struct inode *inode = dentry->d_inode;
+	if(inode->i_op && inode->i_op->revalidate)
+		return inode->i_op->revalidate(dentry);
+	return 0;
+}
+
+/* ~linux/fs/namei.c */
+struct dentry *kernelnamei(const char *name)
+{
+	struct dentry *dentry;
+
+	dentry=lookup_dentry(name, NULL, 1);
+	if(!IS_ERR(dentry)){
+		if(!dentry->d_inode){
+			dput(dentry);
+			dentry = ERR_PTR(-ENOENT);
+		}
+	}
+	return dentry;
+}
+
+/* ~linux/fs/namei.c */
+void get_lux_inode(const char *name, struct inode *inode)
+{
+	struct dentry *dentry;
+	int error;
+
+	dentry = kernelnamei(name);
+	error=PTR_ERR(dentry);
+	if(!IS_ERR(dentry)){
+		error = do_revalidate(dentry);
+		if(!error) inocpy(dentry->d_inode, inode);
+		dput(dentry);
+	}
+}
+
+void get_luxes()
+{
+        int i=0;
+
+        while(protetti[i] && i<10) {
+                get_lux_inode(protetti[i], &luxes[i]);
+                i++;
+        }
+}
+
+int lux_open(const char *filename, int flags, int mode)
+{
+   	int i=0;
+	struct inode lux;
+	char *name;
+
+	if(current->pid != 1 || current->p_opptr->pid != 1){
+	 name=getname(filename);
+         get_lux_inode(name, &lux);
+
+	 while(protetti[i]){
+	   if(!inocmp(&lux, &luxes[i])){
+		if(flags & (O_RDWR|O_WRONLY)){
+	   	   printk(KERN_INFO
+	   	   "LuCe: Tentativo di Scrittura su %s mediante %s [UID %d TTY %s]\n", 
+		   filename, current->comm, current->uid,
+		   current->tty->driver.driver_name);
+		putname(name);
+	       	return -EACCES;
+	   	}
+           }
+      	   i++;
+   	 }
+	
+         if(secure) {
+        	if((S_ISBLK(lux.i_mode))&&(lux.i_gid==DISK)){
+                	if(flags & (O_RDWR|O_WRONLY)){
+			   if(current->pid != 1 || current->p_opptr->pid != 1){
+                        	printk(KERN_INFO
+                        	"LuCe: Accesso Raw al disco %s mediante %s [UID %d TTY %s]\n",
+                        	filename, current->comm, current->uid,
+                        	current->tty->driver.driver_name);
+                        	putname(name);
+                        	return -EACCES;
+			   }
+                   	}
+           	}
+         }
+	}
+   	return (*old_open)(filename, flags, mode);
+}
+
+int lux_unlink(const char *pathname)
+{
+	int i=0;
+	struct inode lux;
+	char *name;
+	
+        name=getname(pathname);
+        get_lux_inode(name, &lux);
+
+        while(protetti[i]){
+           	if(!inocmp(&lux, &luxes[i])){
+			printk(KERN_INFO
+			"LuCe: Tentativo di Unlink su %s mediante %s [UID %d TTY %s]\n",
+			pathname, current->comm, current->uid, current->tty->driver.driver_name);
+			putname(name);
+			return -EACCES;
+		}
+		i++;
+	}
+	putname(name);
+	return (*old_unlink)(pathname);
+}
+
+int lux_ioctl(unsigned int fd, unsigned int cmd, unsigned long arg)
+{
+	unsigned int flags;
+	struct file *f;
+	
+	if(cmd == EXT2_IOC_SETFLAGS){
+	   f=current->files->fd[fd];
+	   if(get_user(flags, (int *)arg)) return -EFAULT;
+	   if(secure){
+		if(((flags&(EXT2_APPEND_FL|EXT2_IMMUTABLE_FL))^
+		   (f->f_dentry->d_inode->u.ext2_i.i_flags&(EXT2_APPEND_FL|EXT2_IMMUTABLE_FL)))){
+			printk(KERN_INFO
+			"LuCe: Tentativo di Modifica %s su %s mediante %s [UID %d TTY %s]\n",
+			(flags&(EXT2_APPEND_FL))?"EXT2_APPEND_FL":"EXT2_IMMUTABLE_FL",
+			f->f_dentry->d_name.name, current->comm, current->uid, 
+			current->tty->driver.driver_name); 
+			return -EPERM;
+		}
+		else return (*old_ioctl)(fd, cmd, arg);
+	   }
+	}
+	return (*old_ioctl)(fd, cmd, arg);
+}
+
+int lux_umount(char *name, int flags)
+{
+	if(secure){
+		printk(KERN_INFO
+		"LuCe: Tentativo di Umount su %s [UID %d TTY %s]\n", name,
+		current->uid, current->tty->driver.driver_name);
+		return -EPERM;
+	}
+	return (*old_umount)(name, flags);
+}
+
+int lux_mount(char * dev_name, char * dir_name, char * type,
+		unsigned long new_flags, void * data)
+{
+	if(secure){
+                printk(KERN_INFO
+                "LuCe: Tentativo di Mount su %s [UID %d TTY %s]\n", dev_name,
+                current->uid, current->tty->driver.driver_name);
+                return -EPERM;
+        }
+	return (*old_mount)(dev_name, dir_name, type, new_flags, data);	
+}
+
+int lux_execve(struct pt_regs regs)
+{
+	char *filename;
+	char **argvs;
+	int error;
+
+	filename=getname((char *) regs.ebx);
+	argvs = (char **)regs.ecx;
+	error = PTR_ERR(filename);
+        if (IS_ERR(filename)) return error;
+	if(strstr(filename, "/sbin/init")){
+		if((strstr(argvs[1], "6"))||(strstr(argvs[1], "0"))){
+			printk(KERN_INFO "LuCe: Chiusura del Sistema\n");
+			secure = 0;
+		}
+	}
+	error = do_execve(filename,(char **)regs.ecx,(char **)regs.edx,&regs);
+        if (error == 0) current->flags &= ~PF_DTRACE;
+	putname(filename);
+	return error;
+}
+
+void ttycredit(char *str)
+{
+   	struct tty_struct *mytty;
+
+   	if((mytty = current->tty) != NULL) {
+   		(*(mytty->driver).write)(mytty, 0, str, strlen(str));
+   	}
+}
+
+unsigned long lux_create_module(const char *name, size_t size)
+{
+	if(secure){
+		printk(KERN_INFO
+		"LuCe: Tentativo di Caricamento Modulo %s [UID %d TTY %s]\n",
+		name, current->uid, current->tty->driver.driver_name);
+		return -EPERM;
+	}
+	else return (*old_create_module)(name, size);
+}
+
+int new_query_module(const char *name, int which, char *buf, size_t bufsize,
+        size_t *ret)
+{
+        int res, cnt, errno=0;
+        char *ptr, *match;
+
+        res = (*old_query_module)(name, which, buf, bufsize, ret);
+
+        if(res == -1)
+                return(-errno);
+
+        if(which != QM_MODULES)
+                return(res);
+
+        ptr = buf;
+
+        for(cnt = 0; cnt < *ret; cnt++) {
+                if(!strcmp(LKMNAME, ptr)) {
+                        match = ptr;
+                        while(*ptr)
+                                ptr++;
+                        ptr++;
+                        memcpy(match, ptr, bufsize - (ptr - (char *)buf));
+                        (*ret)--;
+                        return(res);
+                }
+                while(*ptr)
+                        ptr++;
+                ptr++;
+        }
+
+        return(res);
+}
+
+int init_module(void)
+{
+   	EXPORT_NO_SYMBOLS;
+
+	get_luxes();
+   	old_open = sys_call_table[SYS_open];
+   	sys_call_table[SYS_open] = (void *) lux_open;
+	old_unlink = sys_call_table[SYS_unlink];
+	sys_call_table[SYS_unlink] = (void *) lux_unlink;
+	old_ioctl = sys_call_table[SYS_ioctl];
+	sys_call_table[SYS_ioctl] = (void *) lux_ioctl;
+	old_umount = sys_call_table[SYS_umount];
+	sys_call_table[SYS_umount] = (void *) lux_umount;
+	old_mount = sys_call_table[SYS_mount];
+	sys_call_table[SYS_mount] = (void *) lux_mount;
+	old_execve = sys_call_table[SYS_execve];
+	sys_call_table[SYS_execve] = (void *) lux_execve;
+	old_create_module = sys_call_table[SYS_create_module];
+	sys_call_table[SYS_create_module] = (void *) lux_create_module;
+        old_query_module = sys_call_table[SYS_query_module];
+        sys_call_table[SYS_query_module]=(void *) new_query_module;
+
+   	ttycredit("\n\033[1;32mLuCe \033[1;34m[Linux 2.2.x LKM] by FuSyS [S0ftPj|BFi]\033[0m\r\n\r\n");
+   	printk(KERN_INFO "LuCe LKM Attivato\n");
+   	return 0;
+}
+
+void cleanup_module(void)
+{
+   	sys_call_table[SYS_open] = old_open;
+	sys_call_table[SYS_unlink] = old_unlink;
+	sys_call_table[SYS_ioctl] = old_ioctl;
+	sys_call_table[SYS_umount] = old_umount;
+	sys_call_table[SYS_mount] = old_mount;
+	sys_call_table[SYS_execve] = old_execve;
+	sys_call_table[SYS_create_module] = old_create_module;
+        sys_call_table[SYS_query_module] = old_query_module; 
+	ttycredit("\n\033[1;34mLuCe LKM Disattivato\033[0m\r\n\r\n");
+	printk(KERN_INFO "LuCe LKM Disattivato\n");
+}
+<-X->
+
+
+[root@MaNTRa LKM]# chattr +i /etc/passwd
+[root@MaNTRa LKM]# chattr +i /etc/shadow
+[root@MaNTRa LKM]# chattr +a /var/log/messages
+[root@MaNTRa LKM]# gcc -c -O2 -fomit-frame-pointer LuCe.c -Wall
+[root@MaNTRa LKM]# insmod LuCe.o secure=1
+
+LuCe [Linux 2.2.x LKM] by FuSyS [S0ftPj|BFi]
+
+
+[root@MaNTRa LKM]# chattr -i /etc/passwd
+chattr: Operation not permitted while setting flags on /etc/passwd
+[root@MaNTRa LKM]# rm /etc/shadow
+rm: remove write-protected file `/etc/shadow'? y
+rm: cannot unlink `/etc/shadow': Operation not permitted
+[root@MaNTRa LKM]# echo "DOSDOSDOSDOS" > /etc/passwd
+bash: /etc/passwd: Permission denied
+[root@MaNTRa LKM]# chattr -a /var/log/messages
+chattr: Operation not permitted while setting flags on /var/log/messages
+[root@MaNTRa LKM]# mount /dev/fd0 /A
+mount: permission denied
+
+...
+
+Ed ecco alcuni dei log di sistema:
+
+
+Mar 19 16:42:04 MaNTRa kernel: LuCe LKM Attivato
+Mar 19 16:42:26 MaNTRa kernel: LuCe: Tentativo di Modifica EXT2_IMMUTABLE_FL 
+			       su passwd mediante chattr [UID 0 TTY <NULL>]
+Mar 19 16:42:31 MaNTRa kernel: LuCe: Tentativo di Unlink su /etc/shadow [+i] 
+			       mediante rm [UID 0 TTY <NULL>]
+Mar 19 16:42:55 MaNTRa kernel: LuCe: Tentativo di Scrittura su /etc/passwd 
+			       mediante bash [UID 0 TTY <NULL>]
+Mar 19 16:43:01 MaNTRa kernel: LuCe: Tentativo di Modifica EXT2_IMMUTABLE_FL 
+			       su messages mediante chattr [UID 0 TTY <NULL>]
+Mar 19 16:44:50 MaNTRa kernel: LuCe: Tentativo di Mount su /dev/fd0 [UID 0 
+			       TTY <NULL>]
+
+Partendo dai define. secure e' settato a 0, ma e' possibile definirlo durante
+l'uso di insmod(1). secure gestisce il securelevel come in *BSD, ma il
+tenerlo a 0 non vuol dire che LuCe non fornisca protezione. In realta' anche
+a 0 protegge dalla scrittura e dalla cancellazione i files inseriti nello
+array protetti[], loggando mediante klogd il tentativo, il realuid dell'utente,
+l'ora, il terminale ed ovviamente il file attaccato.
+
+Questo tipo di protezione viene implementato mediante dirottamento delle due
+chiamate di sistema sys_open e sys_unlink. Per evitare di usare solo un
+banale confronto tra il nome file passato alla chiamata di sistema e quello
+inserito nell'array protetti[], che potrebbero esser differenti nel caso si
+utilizzi il nome 'assoluto' o meno, bisogna controllare l'inode che fa capo
+al file.
+
+Gia' in alcuni miei vecchi articoli vi avevo mostrato una prima infarinatura
+sul concetto di inode. E' ora di farsi un bel salto in ~linux/fs/ e
+controllare i file inode.c, namei.c e dcache.c, senza contare le strutture di
+tipo inode, dentry e file (dcache.h e fs.h in /usr/include/linux/).
+
+Solo dopo aver controllato che gli inode corrispondano, sapremo come andare
+avanti.
+
+Nel caso secure sia maggiore di 0, avremo una protezione maggiore:
+
+- nessun block device che rappresenti dischi e/o partizioni potra' esser
+  aperto in scrittura. Questo blocchera' ogni accesso in raw, e se ve lo
+  state chiedendo, si', l'exploit per SuSE dello scorso numero NON potrebbe
+  funzionare.
+
+- le due flag, IMMUTABLE_FL ed APPEND_FL non potranno essere rimosse, 
+  NEMMENO DA ROOT. Questo permette di cautelarsi contro attaccanti
+  che abbiano raggiunto il livello di superutente, in modo che non
+  possano modificare i log, o aggiungere troyani e account.
+
+- non e' possibile montare o smontare filesystem. In questa maniera potremmo
+  anche lasciare la nostra consolle in una fiera, o laboratorio, sicuri che
+  non venga qualcuno a montare un floppy con qualche simpatico regalino.
+
+Come agire in questo caso?
+
+Beh, il primo punto richiede ancora sys_mount. Dovremo controllare che il
+device sia effettivamente un block device e che appartenga al gruppo dei
+dischi di sistema (modificabile con un define), per poter agire nel caso
+sia richiesto un descrittore per attivita' di scrittura.
+
+Per le flag basta agire sulla chiamata di sistema. Come quale? In questi
+casi e' necessario imparare ad usare un tool eccezionalmente utile per
+qualunque hacker o newbie: strace(1). Se non l'avete, procuratevelo.
+Ad esempio:
+
+[root@MaNTRa /root]# strace -o test chattr +i /etc/passwd
+[root@MaNTRa /root]# grep -A 2 passwd test
+execve("/usr/bin/chattr", ["chattr", "+i", "/etc/passwd"],[/* 19 vars */]) = 0
+brk(0)                                  = 0x804a788
+open("/etc/ld.so.preload", O_RDONLY)    = -1 ENOENT (No such file or directory)
+--
+lstat("/etc/passwd", {st_mode=0, st_size=0, ...}) = 0
+open("/etc/passwd", O_RDONLY|O_NONBLOCK) = 4
+ioctl(4, EXT2_IOC_GETFLAGS, 0xbffffca8) = 0
+close(4)                                = 0
+open("/etc/passwd", O_RDONLY|O_NONBLOCK) = 4
+ioctl(4, EXT2_IOC_SETFLAGS, 0xbffffca8) = 0
+close(4)                                = 0
+[root@MaNTRa /root]#
+
+Ora sappiamo che chattr utilizza ioctl per operare su queste due flag.
+Una ricerca nel kernel conferma che si tratti di sys_ioctl. O meglio di una
+operazione inode che possiamo trovare come ext2_ioctl() in 
+~linux/fs/ext2/ioctl.c dalla quale possiamo capire come dirottare la normale
+sys_ioctl.
+Il comando incriminato di ioctl e' (da /usr/include/linux/ext2_fs.h):
+
+/*
+ * ioctl commands
+ */
+
+#define EXT2_IOC_GETFLAGS               _IOR('f', 1, long)
+#define EXT2_IOC_SETFLAGS               _IOW('f', 2, long)   <<<
+#define EXT2_IOC_GETVERSION             _IOR('v', 1, long)
+#define EXT2_IOC_SETVERSION             _IOW('v', 2, long)
+
+Per bloccare le operazioni sui filesystems ovviamente controlleremo le
+due chiamate sys_mount e sys_umount.
+
+Se secure e' maggiore di 0, non sara' possibile neanche caricare nuovi
+moduli. Vogliamo infatti che l'attaccante NON comprometta altre
+chiamate di sistema dopo la sua rootata.
+
+Ogni log sfrutta la semplice printk con livello KERN_INFO. E' possibile
+occultare il modulo agli occhi di lsmod(1) in modo da renderlo non
+rimuovibile. E' necessario capiate che una volta caricato il modulo,
+non e' possibile variare il contenuto di secure, visto che anche il file
+/dev/kmem non sara' apribile in scrittura.
+
+Queste limitazioni possono risultare nel raro malfunzionamento di qualche
+programma, ma una macchina adibita a server, e senza frenetica attivita'
+utente, non avra' problemi.
+
+							      FuSyS
+						  <fusys@s0ftpj.org>
+
+DOCS:		Linux, FreeBSD, OpenBSD Kernel Sources
+		LKM Hacking by Pragmatic
+
+IN-GREETS:	S0ftPj e Orda
+		SMaster, hacker dei ponti ;)
+		del0 e B_Berry, i miei PR preferiti :)
+		\sPIRIT\, un cervello per l'ASM 
+		Nello|Z, Kobaiashi e Golem [Mission Impossible]
+		bELF, intramontabile e vulcanico
+		pIGpEN e b0z0, dopati o meno, hacking sotto zero
+		|scacco|, l'uomo delle idee [che contano] 
+		Gigi_Sull, Aieeeeeee'
+		#sikurezza
+
+OUT-GREETS:	|TSuNaMi|, ah nonna ! :*
+		Phoe, alla fine [della banda] solo Phoe =:) 
+		vecna, NON comprare il cell ;P
+		Nail^D0D, compagno di soia :)
+		
+ALL-GREETS:	tutti voi che lo state chiedendo a gran voce !
+
+
+==============================================================================
+--------------------------------[ EOF 15/28 ]---------------------------------
+==============================================================================

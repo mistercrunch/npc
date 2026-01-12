@@ -1,0 +1,273 @@
+      =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+      =- fork() - Los misterios jamas desvelados -=
+      =-=-=-=-=-=-=-=-=-=-           -=-=-=-=-=-=-=
+                          =- Zomba -=
+                            -=-=-=-
+ 
+
+  Podria decir, que este texto se concatena en cierto sentido con el txt de
+Programacion en Sockets que hice para la HEH edicion 1, pero no voy a
+explicar puntualmente como armar un servidor, sino voy a ir directamente al
+grano. Si quieren aprender algo mas sobre Servers, primero hagan:
+zomba:# man accept
+zomba:# man listen
+zomba:# man bind
+  Bueno, ante todo... 
+Conocimientos necesarios: Programacion en C y algo de Linux.
+
+=- Introduccion
+
+  Todos los procesos que se crean en linux, son hijos de algun otro proceso,
+menos el init que es el proceso padre. Como es esto? Bueno, al iniciarse
+linux se llama por default y se llama al init. El init a su vez, empieza a
+crear procesos hijos, es decir, se copia asi mismo y esa "copia" o proceso
+hijo es la que ejecuta el programa.
+  Cuando un proceso padre, crea un proceso hijo copia toda su estructura,
+por ejemplo, si el padre abrio un archivo o tiene abierta una conexion con
+algun cliente esos punteros a los archivos quedaran tambien disponibles para
+el cliente.
+  Por ejemplo, la funcion de una Shell (bash/sh/csh/zsh/etc...) cuando un
+usuario ejecuta un programa, el proceso de la shell crea un proceso hijo, y
+la imagen del binario del proceso hijo se cambia por el programa que
+ejecutamos.
+  Una forma de ver como los procesos padres y sus respectivos hijos es
+usando el comando pstree.
+
+zomba:# pstree
+init-+-atd
+     |-bash---pstree
+     |-bash---mc-+-00342baa---lynx
+     |           |-bash
+     |           `-cons.saver
+     |-bash---man---sh---less
+     |-bash
+     |-bash---ftp
+     |-gpm
+     |-httpd---6*[httpd]
+     |-inetd
+     |-kflushd
+     |-klogd
+     |-kpiod
+     |-kswapd
+     |-md_thread
+     |-mingetty
+     |-syslogd
+     `-update
+  Pueden ver, aca como el proceso padre es el init, y a partir de ahi se
+crean todos los hijos. Tambien, podemos notar como desde la shell bash,
+nacen los hijos que son los programas en ejecuccion (ftp, pstree, mc, etc)
+  
+  Hasta aca tuvimos toda la introduccion teorica, si quieren leer
+algo mas, pueden usar las man, o dirigirse a http://lucas.ctv.es busquen en
+los Linux Document Proyect, un guia sobre el Kernel.
+
+=- fork
+  El fork, crea un proceso hijo (asi de simple). Para que nos sirve? Supongamos
+que tenemos un servidor, y necesitamos que varios clientes lo utilizen a
+la vez, bueno, la mejor forma de hacer esto, es utilizar un proceso padre
+que reciba las conexiones, y varios procesos hijos que se vayan creando a
+medida que llegan conexiones. Los hijos son los unicos que se comunican con
+el cliente, el padre solo recibe conexiones.
+
+=- El ejemplo de la Hotline
+  Veamos un ejemplo para HEH! Readers. Supongamos que hay una familia que
+tiene una Hotline (jaja). A medida que llegan las conexiones telefonicas, el
+padre de familia redirige cada llamada hacia algunas de las numerosas hijas
+que tiene. Entonces, el padre solo atiende el telefono y redirige (Notese
+que es una hotline pobre, sin contestacion automatica) la llamda a sus hijas
+que se encargan del trabajo sucio. Bueno, en el caso de los procesos es lo
+mismo, solo que bueno... ante cada llamada se crea una hija :)   
+
+=- Vamos a programar, no jodas mas...
+
+#include<unistd.h>
+
+pid_t fork(void);
+
+  Asi de simple es la sintaxis de nuestro programa.
+Veamos el control de errores...
+  Como aca esta en juego, 2 procesos hay 2 tipos de control de errores. Por un
+lado, cuando se crea un proceso hijo, para que este sea correcto tiene que
+devolver 0, esto quiere decir que el proceso se creo bien. El proceso padre
+tiene que devolver el ID del hijo. Por que el hijo no devuelve el ID del
+padre? Buena pregunta... Un padre puede tener gran cantidad de hijos, pero
+no lleva un registro de los mismos, nosotros el registro lo podemos hacer
+manualmente cuando hacemos el fork(), en cambio el proceso hijo utilizando
+el getppid puede obtener al instante el ID del padre. Bueno, finalmente si
+recibe un -1 quiere decir que alguna macana paso :)
+
+Vamos al ejemplo practico...
+
+<++> hehserver.c
+#include <stdio.h> 
+#include <stdlib.h> 
+#include <errno.h> 
+#include <string.h> 
+#include <sys/types.h> 
+#include <netinet/in.h> 
+#include <sys/socket.h> 
+#include <sys/wait.h>
+#define PUERTO  8888 // Puerto
+#define BACKLOG 10     // Cuantas conexiones acepta.
+
+main()
+    {
+	int sockfd, new_fd;  //sockfd=escucha - new_fd=conexion con cliente
+        struct sockaddr_in my_addr;    // direccion server
+        struct sockaddr_in their_addr; // informacion cliente	
+	int sin_size;
+	pid_t pid;  //variable para guardar los ID 
+	
+        if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+            perror("socket");
+            exit(1);
+        }
+
+        my_addr.sin_family = AF_INET;         
+        my_addr.sin_port = htons(PUERTO);     
+	my_addr.sin_addr.s_addr = INADDR_ANY; 
+	bzero(&(my_addr.sin_zero), 8);      // Limpia la estructura
+
+//Asociamos un Port con la conexion
+if (bind(sockfd, (struct sockaddr *)&my_addr, sizeof(struct sockaddr)) == -1) 
+   {
+            perror("bind");
+            exit(1);
+    }
+// Le decimos cuantas conexiones vamos a aceptar
+if (listen(sockfd, BACKLOG) == -1) {
+            perror("listen");
+            exit(1);
+                                   }
+
+while(1) {         /* Loop Eterno */
+while(waitpid(-1, NULL, WNOHANG) > 0);
+sin_size = sizeof(struct sockaddr_in);
+
+// Aceptamos conexion, y la asignamos a new_fd
+
+if ((new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size)) == -1) 
+            {
+                perror("accept");
+                continue;
+            }
+// Imprimimos de donde viene la conexion
+
+printf("Conexion desde: %s \n", inet_ntoa(their_addr.sin_addr));
+	    
+
+/* Con este if, estamos creando un proceso, al cual nos fijamos si es igual
+a 0 para ver si el hijo se creo bien. */
+
+if ((pid = fork())==0) { 
+close(sockfd);
+
+if (send(new_fd, "-=-= HEH! Server v1.0=-=-\n", 28, 0) == -1) 
+            {
+                close(new_fd);
+                exit(0);
+            }
+	    
+close(new_fd);
+exit(0);
+    }  //fork()
+close(new_fd);
+
+}  //while(1)
+
+
+} // main()
+<-->
+
+ Tengamos en cuenta algo que sucede a la hora de crear un proceso hijo.
+ Primero hicimos lo creamos:
+    if ((pid = fork())==0) { 
+ Luego de crearlo, al instante cerramos el sockfd
+    close(sockfd);
+ Esto se debe hacer, ya que el sockfd es el que escucha las conexiones, y
+nosotros no necesitamos escuchar conexiones con el proceso hijo, asi que lo 
+cerramos. Al cerrarlo no estamos cerrandolo por completo, sino que se cierra
+nada mas que en el proceso. 
+ Existe una tabla, que a medida que se crea un proceso, le suma 1 al descriptor 
+abierto, y cuando utilizamos un close(sockfd) lo que hace es restarle 1. 
+Entonces, antes de crear el proceso hijo, el sockfd tenia 1, al crearlo tiene 
+2, pero cuando lo cerramos, sigue en 1. Cuando este numero llega a 0, se cierra
+por completo. Esto ocurre a nivel kernel, asi que no debemos preocuparnos, 
+solo entenderlo.
+
+ Luego de cerrar el sockfd, mandamos informacion al cliente, con el send. Una
+vez que terminamos de recibir o mandar con el cliente, podemos hacer 2 cosas.
+Por un lado, podemos cerrar el new_fd, es decir, el descriptor que usamos
+para comunicarnos o sencillamente utilizamos el exit(0). 
+ Cuando se llama a un exit o finaliza el programa se cierran los descriptores
+abiertos por el proceso hijo. Al cerrar los descriptores que se comunican con
+el cliente, se le manda el famoso FIN (paquete para terminar la conexion con
+un cliente o servidor) y se empieza a gestar asi, automaticamente el cierre de
+conexion.
+ Hay que tener en cuenta algo, el close no cierra definitivamente un descriptor
+la funcion que cierra por completo un sockets se llama shutdown(sockfd);.
+ Pero mucho cuidado con esta funcion, ya que si cerramos el socket que utiliza
+el Proceso padre para escuchar una conexion, no va a poder escuchar mas 
+conexiones.
+ 
+ Finalmente nos quedo explicar un solo tema.
+ Habran visto esta funcion en el server:   
+while(waitpid(-1, NULL, WNOHANG) > 0);
+ Cuando se cierra un proceso, en realidad no se cierra por completo, si no
+que queda en un estado llamado Zombie, este estado sirve para que luego, el 
+padre pueda saber la razon por la cual se termino este proceso, cuanto CPU 
+utilizo, etc. Pero nosotros no necesitamos saber esa informacion y queremos
+terminar los procesos. 
+ Para esto, tenemos que utilizar la funcion llamada:
+ 
+     int waitpid(pid_t pid, int *status, int options);
+ 
+ Esta funcion, espera a que el proceso termine y esta funcion la cierra.
+ No voy a explicar cada arguumento, sino que voy a mostrarles cual es la que nos
+sirve en este caso. 
+ En el primer argumento, al poner -1 este esperara hasta que termine un proceso. 
+ En el segundo argumento, ponemos NULL, ya que este argumento almacena 
+informacion sobre el estado, al poner NULL, le decimos que no necesitamos esa
+informacion.
+
+ En el tercer argumento ponemos una constante llamada WNOHANG que significa que 
+si ningun hijo fue terminado que termine.
+
+ Si quieren probar algo, eliminen o comento esta linea en el programa:
+ while(waitpid(-1, NULL, WNOHANG) > 0);
+ Ahora, ejecuten el servidor y hagan varios telnet al puerto 8888.
+ Una vez que hicimos esto, podemos ver a nuestros Zombies:
+ 
+zomba:# ps aux
+
+USER       PID %CPU %MEM  SIZE   RSS TTY STAT START   TIME COMMAND
+root       477  0.0  0.5   768   336   2 S    14:42   0:00 ./heh 
+root       479  0.0  0.0     0     0   2 Z    14:42   0:00 (heh <zombie>)
+root       481  0.0  0.0     0     0   2 Z    14:42   0:00 (heh <zombie>)
+root       483  0.0  0.0     0     0   2 Z    14:42   0:00 (heh <zombie>)
+root       485  0.0  0.0     0     0   2 Z    14:42   0:00 (heh <zombie>)
+root       487  0.0  0.8   948   532   4 R    14:42   0:00 ps aux 
+
+ Ahi podemos, ver por un lado, el server corriendo con el PID 477. y entre 
+parentesis nuestro procesos zombies.
+ Prueben hacer lo mismo, pero dejando la linea como estaba. Notaran que ya
+no van a estar estos procesos zombies molestando.
+
+ En algun otro texto, les voy a ensenar como manejar las signals que manda los
+procesos para mejorar nuestro servidor y cada vez que cierre un proceso, 
+podamos decirle a el server que hacer. Eso es lo que se llama un signal handler.
+
+ El servidor se puede mejorar en muchos aspectos, pero esto es una pequena 
+resena de como funciona el fork().
+
+ Bueno, si tienen dudas ya saben me mandan un mail a:
+ zombaq@ciudad.com.ar o zomb4@yahoo.com
+     
+Saludos a todos, y sigan leyendo la HEH 2.
+		 Zomba
+	   -=S.I.D.E. Team=- 
+No se por que se agradece en estos casos... Pero aprovecho a saludar a 
+a los pibes de Siempre (Dark, Shadown, Nais y Blind)
+a las nuevas amistades (Green LegenD, Krip7ick, Tit0_c, Guybrush, etc)
+bueno, y a toda la gente de digitalrebel y #rjn (Nw2o, Rad-Etnic, etc)
+ 

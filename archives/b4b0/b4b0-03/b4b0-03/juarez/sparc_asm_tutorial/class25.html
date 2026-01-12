@@ -1,0 +1,339 @@
+<HTML>
+<HEAD>
+</HEAD>
+<BODY bgcolor=#FFFFFF HEIGHT=100 WIDTH=89 TEXT=#000000 LINK=#0000FF VLINK=#FF0000>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<A NAME="section-1"><H1>CLASS 25</H1></A>
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+
+<center>
+<H2>ASCII data</H2>
+</center>
+
+To <b>store a string</b>, like "hello", in memory (remember, it needs to
+be null terminated):
+<PRE>
+        .byte 150, 145, 154, 154, 157, 0
+        .byte "h", "e", "l", "l", "o", 0
+</PRE>
+
+This is so common it has a <b>pseudo-op</b> for it:
+<PRE>
+        <b>.ascii</b> "hello"
+        <b>.byte</b>  0
+</PRE>
+
+An THIS is so common that IT has a pseudo-op:
+<PRE>
+        <b>.asciz</b> "hello"
+</PRE>
+
+<P>
+ASCII codes for characters can be used in other instructions also. e.g. 
+
+ <PRE>
+ add %o0, "a" - "A", %o0 (for uppercase lo lowercase)
+ </PRE>
+
+<P>
+<b>Pointers</b> can be implemented in this way, by making use of the
+data segment.
+
+So, now, finally ... we can call printf!
+The C program:
+<PRE>
+ int main()
+ {
+   printf("Hello, world\n");
+ }
+</PRE>
+translates to:
+<PRE>
+        .global printf
+        
+        .data
+fmt:    .asciz "hello, world\n"
+
+        .text
+        save    %sp, -64, %sp
+        sethi   %hi(fmt), %o0
+
+        call    printf
+        or      %o0, %lo(fmt), %o0
+        
+        ret 
+	restore
+</PRE>
+
+
+<hr>
+<center>
+<H2>The .bss segment</H2>
+</center>
+
+In this segment, we can <b>only define labels and sizes</b>,
+but not initial contents.  To set aside space without initializing it,
+we use the <TT>.skip</TT> pseudo-op:
+<PRE>
+        .bss
+        .align 4
+ary:    .skip 100 * 4
+i_m:    .skip 4
+</PRE>
+
+<B>Compiler Note: initializing variables.</B>  What is the difference in effect
+of the following two initializations:
+<PRE>
+        subr()
+        {
+                static int foo = 12;
+                int bar = 14;
+        ...
+        }
+</PRE>
+
+<b>Answer</b>: the first initialization can occur without any runtime cost, by 
+placing the constant in the assembly:
+<PRE>
+        foo:    .word   12
+</PRE>
+
+The second initialization requires an explicit store at the beginning of
+the subroutine, resulting in a <b>2 instruction runtime cost</b>:
+<PRE>
+        mov     14, %o0
+        st      %o0, [%fp + bar_s]
+</PRE>
+
+
+<hr>
+<center>
+<H2>Pointers</H2>
+</center>
+
+<P>
+For external data, we have to use the set command to set a
+pointer to a memory location:
+
+<PRE>
+	set     x_m, %o0
+        .align 4
+        .global _months
+_months:
+        .word  jan_m, feb_m, mar_m, apr_m, may_m, jun_m
+        .word   jul_m, aug_m, sep_m, oct_m, nov_m, dec_m
+
+jan_m:  .asciz  "jan"
+feb_m:  .asciz  "feb"
+mar_m:  .asciz  "mar"
+apr_m:  .asciz  "apr"
+may_m:  .asciz  "may"
+jun_m:  .asciz  "jun"
+jul_m:  .asciz  "jul"
+aug_m:  .asciz  "aug"
+sep_m:  .asciz  "sep"
+oct_m:  .asciz  "oct"
+nov_m:  .asciz  "nov"
+dec_m:  .asciz  "dec"
+</PRE>
+
+<P>
+Now, to access this in main, we would use :
+
+<PRE>
+ set     _months + (6 &lt;&lt; 2), %o0
+ ld      [%o0], %o0
+ ldub    [%o0 + 1], %o1
+</PRE>
+
+
+<hr>
+<center>
+<H2>The Switch Statement</H2>
+</center>
+
+<PRE>
+  switch (i + 3) 
+  {
+    case 1: i += 1;
+      break;
+    case 2: i += 2;
+      break;
+    case 10: i += 10;
+    case 6: i += 6;
+      break;
+    case 5: i += 5;
+      break;
+    default: i--;
+  }
+</PRE>
+
+<P>
+The switch statement is implemented as shown below:
+
+<p>
+<ul>
+<LI> i + 3 evaluated, also the smallest and largest labels are identified.
+
+<P>
+<LI> After that, smallest label subtracted from the switch expression.
+
+<P>
+<LI> The resulting value compared with the range, used as an index to
+a pointer array, pointers are to code of the switch statements, and
+are in order of the switch statement code.
+</ul>
+
+<PRE>
+        define(i_r, l0)
+        define(min, 1)
+        define(max, 10)
+        define(range, eval(max - min))
+        mov     12, %i_r        !`initialize i'
+
+        add     %i_r, 3, %o0    !`compute switch expression'
+        subcc   %o0, min, %o0   !`sub by min, compare to zero'
+        blu     default         !`expression too small'
+        cmp     %o0, range      !`compare to range'
+        bgu     default         !`too large'
+
+        .empty                  !`tell assembler that all is well'
+        set     table, %o1      !`jump table'
+        sll     %o0, 2, %o0     !`word offset'
+        ld      [%o1 + %o0], %o0!`pointer to executable code'
+        jmpl    %o0, %g0        !`transfer control'
+        nop
+
+table:  .word L1, L2, L3, L4, L5, L6, L7, L8, L9, L10
+
+L1:     ba      end
+        add     %i_r, 1, %i_r   !`i++'
+L2:     ba      end
+        add     %i_r, 2, %i_r   !`i += 2;'
+L10:    add     %i_r, 10, %i_r  !`i += 10; note no break;'
+L6:     ba      end
+        add     %i_r, 6, %i_r   !`i += 6;'
+L5:     ba      end
+        add     %i_r, 5, %i_r   !`i += 5;'
+L7:
+L8:
+L9:
+default:
+	sub     %i_r, 1, %i_r   !`i--;'
+end:
+</PRE>
+<P>
+
+
+<hr>
+<center>
+<H2>Heap Memory</H2>
+</center>
+
+We've discussed two kinds of <b>extent</b> supported by the SPARC architecture:
+<b>subroutine-call extent</b>, and <b>program-duration extent</b>.  These are the only
+two supported by the architecture.  However, there is one case we
+haven't addressed: <b>arbitrary extent</b>.  That is, we need to support the
+allocation of memory at an arbitrary point in the program, and allow it
+to be released at an arbitrary point.
+ <P>
+
+There is another subtle point about memory allocation.  So far, we've
+only allowed memory allocation in sizes that we could determine at
+compile time. What about variables whose size we don't even know until
+runtime?   
+ <P>
+
+For example, say you are writing a program that reads in an array from a
+file, then performs some operation on that array.  Files might be
+various sizes.  You could declare an array variable to hold the data,
+but how big should it be?  Whatever size you choose, it could be too
+small for some particular data file eventually.
+ <P>
+
+Actually, these two problems are equivalent.  The reason we need
+variables of arbitrary extent is that many programs exist whose
+maximum memory demands we can't determine at compile time.   We need
+to be able to allocate memory to handle unpredictable memory demands.
+ <P>
+
+These problems are solved using the memory that lies <b>between the
+fixed-size segments (text, data and bss) and the stack</b>.  The basic idea
+is to use two subroutines at runtime.  The allocation subroutine is
+given a size of memory that is needed; it finds an unused portion of
+memory of the proper size (or larger), reserves it, and returns a
+pointer to that memory (the location of the first byte in the reserved
+portion).  The deallocation subroutine returns the memory to the pool;
+it removes the reservation on that memory.   The memory (between the
+program and the stack) that is used in this way is called the <I>heap.</I>
+ <P>
+
+Operations performed at compile time are typically called <I>static</I>
+operations.  Operations performed at runtime are typically called
+<I>dynamic</I> operations.  So another term for the use of run-time memory
+allocators is <I>dynamic memory allocation.</I>
+ <P>
+
+The heap is a data structure that starts at the end of the text/data/bss
+segments and grows toward high memory.  Thus it grows toward the stack
+(which starts in high memory and grows downward).   Of course there is
+typically on the order of 4 GB of memory between the two, so there is
+little chance they will collide.   However, the operating system
+nonetheless ensures that if the stack and heap collide, you are
+notified. 
+ <P>
+
+<hr>
+<center>
+<H2>Using dynamically allocated memory in C</H2>
+</center>
+
+In Unix the allocator and deallocator routines are called <TT>malloc()</TT> and
+<TT>free()</TT>.  Alternative versions of <TT>malloc()</TT> are also called <TT>calloc() and</TT>
+<TT>alloca()</TT>.  These are library routines, which means that (unlike stack
+and static data) the compiler doesn't do anything special to make this
+form of memory allocation work -- they look like any other subroutine to
+the assembler.
+ <P>
+
+Some of the syntax of C makes dynamic memory allocation easy.  As we
+discussed earlier, C treats a pointer and an array address equivalently,
+reflecting the fact that array addresses are implemented as pointers at
+the assembly level.  So to use dynamically allocated memory:
+<PRE>
+int *a_ptr;
+
+a_ptr = (int *) malloc(120);
+</PRE>
+
+which allocates memory for an array of 30 integers.
+Now, we can treat a_ptr just like an array:
+<PRE>
+        b = a_ptr[7] 
+        a_ptr[29] = 56;
+</PRE>
+
+Note however, that there can be no hope of detecting at compile or run time
+("statically") whether our references to this new array are in bounds,
+since we don't even know until run time what "in bounds" means.   Also,
+since the heap is a more flexible and comlicated data structure than the
+stack, it often interleaves its own data between the chunks of memory
+that it allocates to you.   So if you overrun the bounds of a
+heap-allocated array, you may corrupt the data structure used by the
+heap and create very confusing error conditions.
+ <P>
+
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<H3>
+For class 26 notes, <A HREF="class26.html">click here</A>
+</H3>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<H3>
+For more information, contact me at <A HREF="mailto:tvohra@mtu.edu">tvohra@mtu.edu</A>
+</H3>
+
+</BODY>
+</HTML>

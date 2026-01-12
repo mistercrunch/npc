@@ -1,0 +1,319 @@
+<HTML>
+<HEAD>
+</HEAD>
+<BODY bgcolor=#FFFFFF HEIGHT=100 WIDTH=89 TEXT=#000000 LINK=#0000FF VLINK=#FF0000>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<A NAME="section-1"><H1>CLASS 24</H1></A>
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+
+<center>
+<H2>Static data and segments in SPARC assembly</H2>
+</center>
+
+<P>
+There are <b>two types of global variables</b> : <b>initialized to zero</b> 
+and <b>initialized to some other value</b>. These, and the <b>program 
+text (code)</b> are stored on separate locations in memory called <b>segments</b>. 
+<b>Program text is in read only segment</b>, whereas the <b>other areas are 
+r/w segment</b>.
+
+<P>
+The assembler has to be told about these areas using <b>psuedo-ops</b>:
+
+<PRE>
+<b>.text</b>  ! for the start of the text segment
+<b>.data</b>  ! for the start of the non-zero initialized variables
+<b>.bss</b>   ! (block starting symbol) start of the zero initialized text
+</PRE>
+
+<P>
+All these segments are in the low memory,leaving the stack to
+occupy the high memory areas.
+<P>
+The assembler maintains the location of three location counters
+to point to these three different areas in memory.
+
+<P>
+
+To the assembler, each segment is a logically separate chunk of memory.
+The programmer can direct the assembler to assemble into any particular
+segment; until further notice, all code and data then goes into the
+selected segment.  SPARC assembly uses the pseudo-ops:
+<PRE> .text </PRE>
+and
+<PRE> .data </PRE>
+to direct the assembler to <b>switch to the named segment</b>.
+ <P>
+
+To set aside memory for use as a variable, we simply specify how much we
+want:
+<PRE>
+ .word   - sets aside a single word
+ .half   - sets aside a halfword
+ .byte   - sets aside a byte
+</PRE>
+
+Naturally we want to be able to refer to these locations; for this we
+use the same <b>labeling mechanism</b> that we use for instructions:
+<PRE>
+var1:   .word
+var2:   .half
+</PRE>
+
+These declarations set aside 4 bytes for the variable <TT>var1</TT> and two
+bytes for the variable <TT>var2.</TT>
+ <P>
+
+If we want to <b>initialize</b> these locations, the assembler can do that:
+<PRE>
+var1:   .word   17
+var2:   .half   22
+</PRE>
+
+These declarations set aside 4 bytes for the variable <TT>var1,</TT>
+initialized to the value 17, and two bytes for the variable <TT>var2,</TT>
+initialized to the value 22.  These values are in <b>decimal</b>;  the
+programmer can also use octal or hexadecimal.
+ <P>
+
+Note that a declaration like 
+<pre>
+<TT>.word  15</TT> </pre>
+
+simply tells the assembler, "instead of putting an instruction here, put the 
+number 15 here."
+ <P>
+
+The assembler constructs the two segments separately, and then writes
+each one out to the object file (the machine language file).   Of course
+the assembler also has to write some information at the beginning of the
+file (a file "header") that describes how big each segment is so that
+other programs can separate out the two segments.
+
+<P>
+<B>Text Segment :</B>  Starts at location 0x2000 , and  
+all the code written is independent of the actual position at
+which it is loaded, and only depends on the offset from the
+starting location, so relocation is not a problem.
+
+<P>
+The <b>.global</b> symbol ensures that the code is function is available
+to all other functions, and all other program segments.
+
+<P>
+<B>Data Segment :</B> used for initializing data, using psuedo-ops:
+
+<Pre>
+.word 3, 4 * 3, 5  ! all to be loaded as 32 bit constants.
+</Pre>
+
+<P>
+Usually, the data are labelled, so that they can be referenced by
+the program.
+
+<PRE>
+.half ! 2 bytes
+.byte ! 1 byte 
+.skip  100  ! to provide space, in bytes, not initialized aany value.
+</PRE>
+
+<P>
+<b>.skip</b> can be used to create global arrays, which can be accessed
+by all functions, and are not deleted when the scope of one function
+ends.
+
+<Pre>
+arr:  .skip 4 * 100  ! 100 integer can be stored at this location.
+</Pre>
+
+<P>
+Data needs to be alligned in memory, this is done using the <b>.align</b>
+psuedo-op.
+
+<PRE>
+.align 2  ! store at locations which start at a multiple of 2
+.align 4  ! store at locations which start at a multiple of 4
+</PRE>
+
+ <P>
+Finally, there is a third segment that is used for all the data that is
+initialized to zero. This segment is called <TT>bss</TT> (block starting
+symbol) and its pseudo-op is <TT>.bss</TT>. The bss segment is just like the
+data segment except that bss memory locations cannot be initialized by
+the programmer -- they are assumed to be zero at the beginning of
+program execution. The reason for separating out the bss segment from
+the data segment is that the assembler need not write out the contents
+of the bss segment to the object file. Instead, the assembler only
+writes out the <EM>length</EM> of the bss segment. The operating system, when
+it creates segments at the beginning of program execution, then creates
+a bss segment of the stated size and initializes it to all zeros.
+ <P>
+
+<hr>
+<center>
+<H2>Review of static data in C</H2>
+</center>
+
+Static data is useful since subroutines may need to 1) communicate other
+than via arguments and 2) have access to persistent variables.
+ <P>
+
+As stated above, there are only two kinds of extent available in C:
+variables may exist during the execution of a single subroutine, or they
+may exist for the whole duration of the program.   However, for
+variables with whole-program extent, there are three kinds of scope
+available. 
+ <P>
+
+<B>Case 1.</B> If a variable is declared outside of any function, it is given
+whole-program extent and whole-program scope.   That is, it can be
+referenced from any point, in any file that is compiled into the
+program:
+<PRE>
+        File: main.c                    File: other.c
+        -------------------             -------------------      
+        | int foo;        |             | extern int foo; |    
+        | int bar;        |             |                 |
+        |                 |             |                 |
+        | main()          |             | subr()          |
+        | {               |             | {               |
+        |  .              |             |  .              |
+        |  .              |             |  .              |
+        |  .              |             |  foo = 12;      |
+        |  bar = 7;       |             |  .              |
+        |  .              |             |  .              |
+        |  .              |             |  .              |
+        | }               |             | }               |
+        -------------------             -------------------     
+</PRE>
+
+Note that if a variable from another file is going to be used, it needs
+to be declared as <TT>extern</TT> to tell the compiler that it's declared
+elsewhere. 
+ <P>
+
+<B>Case 2.</B>  If a variable is declared outside of any function, but given
+the keyword <TT>static</TT>, then it is given whole-program extent, but its
+scope is restricted to the current file:
+<PRE>
+        File: main.c                    File: other.c
+        -------------------             -------------------      
+        | static int foo; |             | extern int bar; |    
+        | int bar;        |             |                 |
+        |                 |             |                 |
+        | main()          |             | subr()          |
+        | {               |             | {               |
+        |  .              |             |  .              |
+        |  .              |             |  /* can't refer |
+        |  .              |             |  to foo here */ |
+        |  bar = 7;       |             |  .              |
+        |  .              |             |  bar = 12;      |
+        |  .              |             |  .              |
+        | }               |             | }               |
+        -------------------             -------------------     
+</PRE>
+
+<B>Case 3.</B>  If a variable is declared inside a function, with the keyword
+<TT>static</TT>, then again is it given whole-program extent, but its scope is
+restricted to the current subroutine:
+<PRE>
+
+        File: main.c                    File: other.c
+        -------------------             -------------------      
+        |                 |             | extern int bar; |    
+        |                 |             |                 |
+        |                 |             |                 |
+        | main()          |             | subr()          |
+        | {               |             | {               |
+        |  .              |             |  static int a;  |
+        |  .              |             |  .              |
+        |  /* can't refer |             |  .              |
+        |  to a here */   |             |  .              |
+        |  .              |             |  a = 64;        |
+        |  .              |             |  .              |
+        | }               |             | }               |
+        -------------------             |                 |
+                                        | subr2()         |
+                                        | {               |
+                                        |  /* can't refer |
+                                        |  to a here */   |
+                                        |  .              |
+                                        |  .              |
+                                        |  .              |
+                                        |  .              |
+                                        | }               |
+                                        -------------------
+</PRE>
+
+Note that the effect of adding the keyword  <TT>static</TT>is totally different
+in these two cases.   When adding  <TT>static</TT> to a stack variable, the
+effect is to lengthen the extent.  When adding  <TT>static</TT> to a variable
+defined outside a subroutine, the effect is to narrow the scope.  This
+is a confusing overloading of the word  <TT>static</TT> and is generally
+considered to be a mistake in the definition of the C language, but it's
+too late to change now.
+
+<hr>
+<center>
+<H2>Using static data in assembly</H2>
+</center>
+
+Accessing static data in assembly is a little different than accessing
+stack data.  Remember that for stack variables, we always had the frame
+pointer (<TT>%fp</TT>) to use as our "<b>anchor</b>".  All variables were
+located as offsets from the <TT>%fp</TT>.  Also remember that load and
+stores are format 3 instructions, which means that the immediate values
+are 13-bit two's complement values -- thus their range is 4095 to -4096.
+ <P>
+
+However, for static data, we have no such anchor - we have instead only
+the full 32-bit address of the data item.  Since there is no way to load
+a 32-bit constant into a register in a single instruction, we must use
+the <TT>sethi</TT> instruction to get the job done.  Remember,
+<TT>sethi</TT> loads the <EM>low</EM> 22 bits of the argument into the
+<EM>high</EM> 22 bits of the destination.  Also, the <TT>%hi()</TT>
+function is equivalent to a left shift of 10 places (ie, moves the high
+22 bits to the low 22 bit positions).  And, the <TT>%lo()</TT> function
+is equivalent to ANDing the operand with a mask of <TT>0x3ff</TT> -
+which means that only the low 10 bits are left.
+
+Here is an example of a subroutine that performs the sum "k = i + j" when
+all variables are static data.  
+<PRE>
+        .data
+i_m:    .word   3
+j_m:    .word   9
+k_m:    .word
+
+        .text
+foo:    save    %sp, -64, %sp
+        sethi   %hi(i_m), %o0
+        ld      [%o0 + %lo(i_m)], %l1
+        sethi   %hi(j_m), %o0
+        ld      [%o0 + %lo(j_m)], %l2
+        add     %l1, %l2, %l3
+        sethi   %hi(k_m), %o0
+        st      %l3, [%o0 + %lo(k_m)]
+        ret
+        restore
+</PRE>
+
+Make sure you understand the meaning of the following lines of assembly code: 
+<PRE>
+        	.data
+        	.global buf_size
+buf_size:       .word   10000 </PRE>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<H3>
+For class 25 notes, <A HREF="class25.html">click here</A>
+</H3>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<H3>
+For more information, contact me at <A HREF="mailto:tvohra@mtu.edu">tvohra@mtu.edu</A>
+</H3>
+
+</BODY>
+</HTML>

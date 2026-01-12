@@ -1,0 +1,500 @@
+==============================================================================
+------------[ BFi numero 9, anno 3 - 03/11/2000 - file 14 di 21 ]-------------
+==============================================================================
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ ANTi ANTi SNiFFER PATCH
+-----[ vecna <vecna@s0ftpj.org>
+
+
+Ovvero: ogni sentinella ha la sua grignetta...
+
+Nel corso degli ultimi tempi si sono fatti vari studi (in particolare da
+parte dei l0pth) su come individuare sniffer nelle lan, con particolari
+tecniche chiamate "remote promiscuos detection" inglese penoso permettendo.
+
+Queste tecnive vengono spiegate in loro documenti e utilizzate in software
+anti sniffer commerciale e non; le tecniche sono brevemente spiegate anche
+nell'articolo dello Smilzo e di Noxious sotto threads di BFi8. In questo
+articolo trovate le patch da applicare a sniffer e kernel per poter 
+aggirare questi anti sniffer: da qui il nome della serie di codice
+"anti anti sniffer patch".
+
+In questo articolo non voglio illustare tecniche per avere uno sniffer
+invisibile... basterebbe un cavo unidirezionale o sniffare con una scheda
+di rete applicando patch al kernel per bloccare i (pochi) probe che possono 
+essere fatti e si avrebbe uno sniffer invisibile. Questo articolo parla 
+di come poter patchare uno sniffer per essere reso invisibile ai piu` 
+conosciuti anti sniffer (tutti fatti seguendo gli studi dei l0pth).
+
+1 -)	MAC TEST
+
+La tecnica piu` vecchia e` quella di mandare dei pacchetti qualunque ad 
+un ip giusto, ma al mac sbagliato: se la scheda e` in promiscuo becca il
+pacchetto e risponde.
+
+Queste righe sono il risultato di un paio di printk in fase di test:
+
+IP dest [ff:0:0:0:0:0] src [0:80:48:8d:7:dc] true [0:a0:24:55:82:91]
+IP dest [ff:0:0:0:0:0] src [0:80:48:8d:7:dc] true [0:a0:24:55:82:91]
+
+IP dest [0:a0:24:55:82:91] src [0:80:48:8d:7:dc] true [0:a0:24:55:82:91]
+IP dest [0:a0:24:55:82:91] src [0:80:48:8d:7:dc] true [0:a0:24:55:82:91]
+
+dove si vede chiaramente come un pacchetto mandato da un anti sniffer abbia
+un mac destinazione differente da quello reale. Il problema e` nel kernel
+che risponde senza fare il check del mac destinazione; per patchare questa
+feature basta un LKM che aggiunga una funzione a quella normalmente puntata
+dalla struttura packet_type.func come visto negli LKM di pIG su BFi7 o in
+quelli di kossak / lifeline su Phrack 55.
+
+Il problema e` che dopo aver fatto il check del vero mac (che abbiamo quando
+inizializiamo il nostro device) e il mac destinazione (l'header a datalink
+layer lo troviamo nella sk_buff corrente che e` un argomento passato alla
+funzione del nosto modulo) non possiamo decidere li` la sorte del pacchetto,
+non possiamo fermarlo, ignorarlo, rejetarlo o altro (in net/code/dev.c vedete
+che la sk_buff prima di essere passata alla nostra funzione viene clonata
+con una funzione apposita)... Allora, per evitare che il nostro kernel
+risponda, ho sporcato l'iphdr o l'arphdr con valori assurdi in modo che il
+kernel riceva un pacchetto malformato e non risponda.
+
+Ho parlato di arphdr perche` il test viene fatto principalmente con 2 tipi
+di pacchetti, icmp echo request (ping) in modo che se vediamo l'host
+rispondere al ping sappiamo che e` sicuramente in promiscuo, o arp request,
+in modo che se la nostra scheda di rete risponde associando il nostro ip a un
+mac address significa che ha ricevuto il pacchetto e che e` sicuramente in
+modalita` promiscua (per vedere un programma che faccia entrambi i test c'e`
+anche ProScan di FuSyS che trovate su BFi5).
+
+Per questo motivo, le funzioni che aggiungo sono 2, una nel caso il tipo di 
+pacchetti sia ETH_P_IP (in modo che se il check sul mac risulti vero venga
+azzerato ip.check e ip.tot_len, checksum e lunghezza del pacchetto) e l'altra 
+nel caso sia ETH_P_ARP (qui viene azzerato arphdr.ar_hrd (format of hardware 
+address) e arphdr.ar_op (ARP opcode) rendendo la risposta impossibile).
+
+Ecco l'LKM aasp_lkmachk.c:
+
+<-| aasniff/asp_lkmachk.c |->
+/*
+# gcc -O6 -c aasp_lkmachk.c -I/usr/src/linux/include
+# insmod aasp_lkmachk.o device=eth0
+# rmmod aasp_lkmachk
+
+Anti Anti Sniffer Patch (by vecna@s0ftpj.org) - MAC checker module 
+
+*/
+
+#define MODULE
+#define __KERNEL__
+
+#include <linux/config.h>
+#include <linux/module.h>
+#include <linux/version.h>
+
+#include <linux/byteorder/generic.h>
+/* on kernel 2.2.16 I've find some problem and for fix I've cut inclusion
+   of generic.h 
+*/
+#include <linux/netdevice.h>
+#include <net/protocol.h>
+#include <net/pkt_sched.h>
+#include <net/tcp.h>
+#include <net/ip.h>
+#include <linux/if_ether.h>
+#include <linux/ip.h>
+#include <linux/skbuff.h>
+
+#include <linux/kernel.h>
+#include <linux/mm.h>
+#include <linux/file.h>
+#include <asm/uaccess.h>
+
+#define r_mac sk->mac.ethernet->h_dest  /* received mac */
+#define t_mac true->dev_addr	   	/* true mac */
+
+char *device;
+MODULE_PARM(device, "s"); 
+
+struct device *true;
+struct packet_type aasp_ip, aasp_arp;
+
+int chk_mac_arp(struct sk_buff *sk, struct device *dev, struct packet_type *pt) 	{
+
+	if( r_mac[0] ==r_mac[1] ==r_mac[2] ==r_mac[3] ==r_mac[4]
+	    ==r_mac[5] ==0xff)
+		/* mac broadcast */
+		goto end;
+
+	if( (r_mac[0] !=t_mac[0]) || (r_mac[1] !=t_mac[1]) ||
+	    (r_mac[2] !=t_mac[2]) || (r_mac[3] !=t_mac[3]) ||
+	    (r_mac[4] !=t_mac[4]) || (r_mac[5] !=t_mac[5]) )
+		{
+		/* ARP mac spoof detected */
+		sk->nh.arph->ar_hrd = 0;
+		sk->nh.arph->ar_pro = 0;
+		sk->nh.arph->ar_op = 0;
+		goto end;
+		}
+end:
+	kfree_skb(sk);
+	return(0);
+	}
+
+int chk_mac_ip(struct sk_buff *sk, struct device *dev, struct packet_type *pt) 
+	{
+
+	if( r_mac[0] ==r_mac[1] ==r_mac[2] ==r_mac[3] ==r_mac[4]
+	    ==r_mac[5] ==0xff)
+		/* mac broadcast*/
+		goto end;
+
+	if( (r_mac[0] !=t_mac[0]) || (r_mac[1] !=t_mac[1]) ||
+	    (r_mac[2] !=t_mac[2]) || (r_mac[3] !=t_mac[3]) ||
+	    (r_mac[4] !=t_mac[4]) || (r_mac[5] !=t_mac[5]) )
+		{
+		/* IP check - anti spoof detect! */
+		sk->nh.iph->tot_len = 0;
+		sk->nh.iph->check = 0;
+		goto end;
+		}
+end:
+	kfree_skb(sk);
+	return(0);
+	}
+
+int init_module(void) 
+	{
+
+	if (device) 
+		{
+		true =dev_get(device);
+		if (true ==NULL) 
+			{
+			printk("Did not find device %s!\n", device);
+			return -EINVAL;
+			} 
+		}
+	else 
+		{
+		printk("Usage: insmod aasp_lkmachk.o device=device name \n\n");
+		return -ENODEV;
+		}		
+
+	printk("Mac checker module run on %s - by vecna@s0ftpj.org\n",device);
+	printk("Full codes of Anti Anti Sniffer Patch can be"
+		" downloadated at www.s0ftpj.org\n");
+
+	aasp_ip.dev = true;
+	aasp_ip.type = htons(ETH_P_IP);
+	aasp_ip.func = chk_mac_ip;
+
+	aasp_arp.dev = true;
+	aasp_arp.type = htons(ETH_P_ARP);
+	aasp_arp.func = chk_mac_arp;
+
+	dev_add_pack(&aasp_ip);
+	dev_add_pack(&aasp_arp);
+
+	return(0);
+	}
+
+void cleanup_module(void)
+	{
+	dev_remove_pack(&aasp_ip);
+	dev_remove_pack(&aasp_arp);
+	printk("Anti Anti Sniffer Patch - MAC checker module unload\n");
+	}
+<-X->
+
+Il primo check sul pacchetto serve a vedere se e` diretto a ff:ff:ff:ff:ff:ff
+che si verifica quando una nuova scheda di rete si mette in rete ed e` l'unico
+caso naturale in cui si accetta un pacchetto. Ogni pacchetto pero` e` giusto
+che sia ricevuto se ha come mac destinazione ff:ff:ff:ff:ff:ff, e non solo
+da schede in promiscuo (e` l'equivalente dell'ip di broadcast), quindi questo 
+lkm non fa' niente di strano o almeno non lo fa' sembrare... nemmeno se si 
+facessero test con mac broadcast.
+
+2 -)	DNS REPLY CHECK
+
+Il terzo test e` il DNS check. Normalmente uno sniffer usa la gethostbyname()
+per risolvere un ip che ha sniffato prima di loggarlo o prima di mostrarlo;
+questa funzione controlla prima in /etc/hosts se c'e` un riferimento
+ip-hostname e se non c'e` inizia con la richiesta di resolv al dns. 
+Questo check funziona cosi`: si inviano pacchetti con ip inesistente nella
+lan, es: 123.123.123.123, si sniffa nella lan e si aspetta che qualche 
+computer mandi una richiesta di resolv di 123.123.123.123, quella macchina
+ha beccato il pacchetto dell'antisniffer e quindi sta` sniffando :)
+
+Come sistema piu` semplice c'e` quello di levare le gethostbyname() e 
+limitarsi a stampare gli ip in formato classico con inet_ntoa, MA e` sempre
+bello avere i resolv e c'e` anche una soluzione per averli :))
+
+Non l'ho codato perke` mi e` venuto un altro progetto in mente.
+ogni connessione normalmente ha un resolv; se io dalla mia macchina innocente
+telnetto un host sicuramente effettuero` una gethostbyname(), faro` una 
+richiesta di resolv al mio dns e lui mi rispondera` (che lui l'abbia in cache
+o che lo risolva non ha importanza): allora a me che sto sniffando, quando
+vedo passare un pacchetto UDP mi basta approfondire i controlli su di lui e
+verificare se si tratta di un resolv dns. Per conformazione del protocollo,
+le risposte ai resolv contengono sia l'hostname che l'ip risolto: in questo
+modo basta approfondire i check sui pacchetti dns e, nel caso si trovi un
+resolv, memorizzarselo. In questo modo anziche` usare la gethostbyname()
+bastera` leggere nel buffer dove si e` memorizzato (basta un array di stringhe
+per i resolv, ordinati come gli ip in un array di u_long per poter fare un
+semlice confronto).
+
+3 -)	NETWORK LATENCY TEST
+
+Il quarto sistema e` il piu` bastardo e praticamente anche il piu` 
+difficile da battere, ma nel modo in cui ora e` fatto non da` nemmeno una
+grande affidabilita` nel test. Sentinel, attualmente alla versione 0.8,
+non lo implementa ancora, mentre lo implementa l'anti sniff dei l0pth 
+(anti_sniff-x.x.*) in packetstorm -> antisniff.
+
+Funziona cosi`:
+la macchina dove gira l'antisniff inizia a pingare una macchina nella rete e,
+dopo aver calcolato la media delle risposte, inizia un flood nella rete in
+modo che se la macchina e` in promiscuo il suo tempo di risposta ai ping 
+diminuisca notevolmente. Quindi se la macchina e` in promiscuo si nota
+subito dalla differenza di risposta.
+
+Ci sono problemi in questo tipo di test? 
+Parecchi direi... Quando si flooda una rete non solo le macchine in promiscuo
+diminuiscono il tempo di risposta, ma tutte le macchine un po` rallentano, 
+ma questo e` un dettaglio di poco conto: il tempo di risposta aumentera`
+di poco e la differenza sara` accettabile.
+Un altro problema di questo test sta nel fatto che sia la macchina
+in promiscuo che la macchina di test hanno lo stesso traffico in quel
+momento... entrambi hanno un ping al secondo a cui badare, ed entrambi
+hanno un flood sulla scheda di rete, una che lo fa' per destinazioni
+random o meno e l'altra che lo sniffa.
+Il tempo di risposta dipende anche da:
+	- la velocita` della scheda di rete
+	- i driver della scheda di rete
+	- la CPU della macchina
+	- il sistema operativo della macchina
+	- i programmi di rete a livello raw (iplogd & co.)
+	- il traffico di rete che ha quella macchina
+	- il carico di lavoro che ha la macchina...
+	- altri? o non sono abbastanza :) ?
+
+Ho pensato di illudere questo test facendo cosi`:
+con un programma che usi le libvsk e che sta li` in background sulla
+macchina, prendo tutti i pacchetti icmp echo request, aspetto un pochino e
+forgio la risposta indipendentemente dal kernel.
+In questo modo tutte le mie risposte saranno ritardate, quando iniziera` il
+flood il confronto sara` calcolato in relazione alla risposta gia` ritardata
+e aumentera` di molto poco, basta impostare come ritardo voluto tra i 50.000
+e i 100.000 ms (un ping potrebbe far sembrare che la macchina ha un tempo di
+risposta elevato, ma d'altro canto puo` avere un grosso load average o del
+traffico di rete pesante e l'anti sniff non lo segnala).
+
+Per usare questo codice dovete avere le libvsk: trovate i file e l'articolo
+relativi in questo numero della rivista (BFi09-10).
+
+<-| aasniff/fl_aasp.c |->
+/*
+Fucker Latency test for Anti Anti Sniffer Patch
+*/
+
+#include "libvsk.h" /* www.s0ftpj.org for more info */
+#include <errno.h>
+
+extern int errno;
+
+#define fatal(M)	{	   \
+			perror(M); \
+			exit(0);   \
+			}
+
+#define IPSIZE		sizeof(struct iphdr)
+#define ICMPSIZE 	sizeof(struct icmphdr)
+#define IIPKTSIZE	sizeof(struct iipkt)
+
+int check_dup(struct iipkt *);
+void build_reply(struct iipkt *, struct sockaddr_in *, struct iipkt *);
+unsigned short ip_s(unsigned short *, int);
+
+int main(int argc, char **argv)
+	{
+	int dlsfd, offset, forward, hdrincl =1, pkt_info[4], x;
+	char ipdst[18], *rcvd =malloc(IIPKTSIZE);
+	struct ifreq ifr;
+	struct in_addr in;
+	struct iipkt *reply =malloc(IIPKTSIZE);
+
+	printf("\t Anti Anti Sniffer Patch for elude latency test\n");
+	printf("\t by vecna - vecna@s0ftpj.org - www.s0ftpj.org\n\n");
+
+	if(argc != 3)
+		{
+		printf( " usage %s interface fakedelay\n\n", argv[0]);
+		exit(0);
+		}
+
+	printf(" running on background\n");
+	if(fork())
+		exit(0);
+
+	pkt_info[0] =pkt_info[1] =ICMP_ECHO;
+	pkt_info[2] =0;
+	pkt_info[3] =0xFFFF;
+
+	x =socket(PF_INET, SOCK_DGRAM, IPPROTO_IP);
+
+	strncpy(ifr.ifr_name, argv[1], sizeof(ifr.ifr_name));
+	if(ioctl (x, SIOCGIFADDR, &ifr) < 0) 
+		fatal("unable to look local address");
+
+	memcpy((void *)&in, (void *)&ifr.ifr_addr.sa_data +2, 4);
+	strcpy(ipdst, (char *)inet_ntoa(in));
+	close(x);
+
+	dlsfd =set_vsk_param(NULL, ipdst, pkt_info, argv[1], 
+				IPPROTO_ICMP, IO_IN, IP_FW_INSERT, 0, 0);
+	if(dlsfd < 0)
+	 	fatal("set_vsk: IP_FW_INSERT");
+
+	if((offset =get_offset(dlsfd, argv[1])) <0)
+		fatal("get device offset");
+
+	if((forward = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP)) == -1)
+		fatal("forward socket - SOCK_RAW");
+
+	if((x = setsockopt(forward, IPPROTO_IP, IP_HDRINCL, 
+					&hdrincl, sizeof(hdrincl))) == -1)
+		fatal("setsockopt - IP_HDRINCL");
+
+	while(1)
+		{
+		struct iipkt *packet;
+                static int last_id;
+
+		read(dlsfd, rcvd, IIPKTSIZE);
+
+		(char *)packet = rcvd + offset; 
+
+		if(check_dup(packet))
+			continue;
+
+		if(check_packet(packet, IPPROTO_ICMP))
+			{
+			struct sockaddr_in sin;
+
+			build_reply(packet, &sin, reply);
+
+			usleep(atoi(argv[2]));
+			/* 
+			poll & select it's more intelligent...
+			mah... maybe
+			*/
+
+			x =sendto(forward, (char *)reply, 
+				ntohs(reply->ip.tot_len), 0, 
+				(struct sockaddr *)&sin, 
+				sizeof(struct sockaddr)	);
+
+			if(x < 0)
+				fatal("sendto on forwarding packet");
+
+			}
+		memset(packet, 0, IIPKTSIZE); 
+		}
+	free(rcvd);	/* never here */
+	}
+
+void build_reply(struct iipkt *packet, struct sockaddr_in *sin, 
+						struct iipkt *reply)
+	{
+
+	memcpy((void *)reply, (void *)packet, IIPKTSIZE);
+
+	reply->ip.id =getpid() & 0xffff ^ packet->ip.id;
+	reply->ip.saddr =packet->ip.daddr;
+	reply->ip.daddr =packet->ip.saddr;
+	reply->ip.check	=ip_s((u_short *)&reply->ip, IPSIZE);
+
+	reply->icmp.type =ICMP_ECHOREPLY;
+	reply->icmp.checksum =0x0000;
+	reply->icmp.checksum =ip_s((u_short *)&reply->icmp, 
+				ntohs(packet->ip.tot_len) - IPSIZE );
+
+	/* setting sockaddr_in stuctures */
+	sin->sin_port =htons(0);
+	sin->sin_family = AF_INET;
+	sin->sin_addr.s_addr = reply->ip.daddr;
+	}
+
+int check_dup(struct iipkt *packet)
+	{
+	static int last_id;
+	int id =htons(packet->ip.id);
+
+	if(id ==htons(last_id))
+		return 1;
+
+	last_id =packet->ip.id;
+
+	return 0;
+	}
+
+u_short ip_s(u_short *ptr, int nbytes)
+	{
+	register long sum = 0;
+	u_short oddbyte;
+	register u_short answer;
+
+	while (nbytes > 1)
+		{
+		sum += *ptr++;
+		nbytes -= 2;
+		}
+	if (nbytes == 1)
+		{
+		oddbyte = 0;
+		*((u_char *) &oddbyte) = *(u_char *)ptr;
+		sum += oddbyte;
+		}
+	sum  = (sum >> 16) + (sum & 0xffff);
+	sum += (sum >> 16); 
+	answer = ~sum;
+
+	return(answer);
+	}
+<-X->
+
+4 -)	LATENCY TEST INFALLIBILE
+
+La tecnica del latency test e` cmq la piu` intelligente e per farla con
+precisione sarebbe necessario che:
+1) il flood non deve partire dalla stessa macchina che fa` il test, ma
+   da un altro sistema... fare un anti sniff distribuito e` una follia, 
+   ma far partire un po` di "ping -s 2000 -f ip.dellarete.non.utilizzato &"
+   da un'altra macchina non e` difficile.
+2) per il test sulla latenza non va usato l'icmp echo reply, va bene
+   qualunque forma di statistica, ad esempio dei pacchetti tcp con solo flag
+   FIN inviati alla porta 0 di un macchina: il kernel rispondera` con un 
+   RST+ACK e con uno strumento come hping o hping2 si potra' notare
+   immediatamente una macchina che ha un ritardo di risposta troppo maggiore
+   del prevedibile a causa della rete sovraccaricata. E` evidente che
+   siccome non esistono tools dovete farlo a manovella :)) (o magari ne
+   parlero` con bind per la versione 1.0 di sentinel).
+
+E` tutto :)
+E ringrazio pIG che mi ha segnalato gli errori nell'articolo e perche` senza
+di lui avrei scritto promiscuo con la "q" fino alla fine... :)
+
+Letture attinenti al progetto o fatte in contemporanea alle elucubrazioni:
+	(1)	README di sentinel
+	(2)	codice di sentinel
+	(3)	"storia della torutura" - edizione mondadori
+	(4)	documenti dei l0pth riguardo l'antisniffing, ma dopo 
+		le 3 letture precendenti praticamente non servono piu`.
+
+vecna
+
+
+==============================================================================
+---------------------------------[ EOF 14/21 ]--------------------------------
+==============================================================================

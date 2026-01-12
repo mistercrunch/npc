@@ -1,0 +1,250 @@
+<HTML>
+<HEAD>
+</HEAD>
+<BODY  bgcolor=#FFFFFF HEIGHT=100 WIDTH=89 TEXT=#000000 LINK=#0000FF VLINK=#FF0000>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">                
+<A NAME="section-1"><H1>CLASS 13</H1></A>
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">                
+
+<center>
+<H2>Placing variables on the stack</H2>
+</center>
+
+We should always refer to variables in terms of the <b>frame pointer</b>,
+since it won't change during the execution of the subroutine.  The stack
+pointer might be modified during the execution of the subroutine.
+ <P>
+
+Say we want to place the following variables on the stack:
+<PRE>
+	int a, b;
+	char ch;
+	short c;
+	int d;
+</PRE>
+
+How would the stack look and what are the offsets?  Remember we address
+words, etc, by the lowest numbered byte contained:
+<PRE>
+	fp - 16: |   |   |   |   | (d)
+	fp - 12: |   |   | (c)
+	fp - 10: | X |
+	fp - 9:  |   | (ch)
+	fp - 8:  |   |   |   |   | (b)
+	fp - 4:  |   |   |   |   | (a)
+		   0   1   2   3
+</PRE>
+
+We need the byte location <b>fp - 10</b> to <EM>align</EM> the rest of the stack,
+halfword on mod 2 boundaries, word on mod 4, etc.
+ <P>
+
+<b>Another Example</b>: Suppose we have the following C declarations:
+<PRE>
+int a, b, c ;
+char d;
+short e;
+char f;
+int g;
+</PRE>
+
+<P>
+The notation for the variables on the stack is _s. e.g.  a_s, b_s, c_s... and so on.
+<P>
+Corresponding to the C declarations, the offsets on the stack will
+be defined as follows:
+<P>
+<PRE>
+define(a_s, -4)
+define(b_s, -8)
+define(c_s, -12)
+define(d_s, -13)
+define(e_s, -16)
+define(f_s, -17)
+define(g_s, -24)
+</PRE>
+
+<P>
+Now, the initial declaration will be:
+<Pre>
+save %sp, ((-64 - 24) &amp; -8), %sp 
+==&gt; save %sp, -88 &amp; -8 , %sp
+==&gt; save %sp, -88 , %sp
+</Pre>
+
+And the variables can be loaded into the registers as:
+<Pre>
+ld   [%fp + a_s], %o0
+ldsh [%fp + e_s], %o1
+ldsb [%fp + d_s], %o2
+and so on.......
+</Pre>
+
+<P>
+<B>Another Example:</B>
+<PRE>
+int a, b;
+char c;
+int d, e ;
+register int x, y, z;
+x = 17;
+y = -5;
+</PRE>
+
+The sparc code for these definitions is as follows:
+<PRE>
+define(a_s, -4)<BR>
+define(b_s, -8)<BR>
+define(c_s, -9)<BR>
+define(d_s, -16)<BR>
+define(e_s, -20)<BR>
+define(x_r, l0)<BR>
+define(y_r, l1)<BR>
+define(z_r, l2)<BR>
+</PRE>
+Hence, the starting instruction of main will be:
+<PRE>
+save %sp, ((-64 - 20) &amp; -8), %sp 
+==&gt; save %sp, (-84 &amp; -8), %sp
+==&gt; save %sp, -88, %sp
+
+    mov 17, x_r
+    mov -5, y_r
+</PRE>
+
+<P>
+Now, if we want to increment the value of a by 1, we have to type
+the following commands,
+<PRE>
+ld [%fp + a_s], %o0
+inc %o0
+st %o0, [%fp + a_s]
+</PRE>
+
+What the previous example shows is that it is not possible to operate on
+values directly in memory, and we first have to get them from memory into 
+a register. Only then can we operate on them. Also, at the end of the 
+operation, the values have to be stored back into memory, or else the 
+next instruction might be reading a wrong value from that memory location. 
+This is called maintaining "<b>memory consistency</b>". 
+
+<hr>
+<H2>M4 macros (or, how to read the examples in the book)</H2>
+
+It is tedious making sure that data is aligned.  So the book uses m4
+macros to calculate offsets.
+ <P>
+
+There are m4 macros that name stack variables, place them on the stack,
+and make sure they are properly aligned.  They are:
+<PRE>
+	local_var  (This goes at the beginning of the program or subr)
+	var(name, size)  (This sets aside aligned space on the stack)
+</PRE>
+The book starts a program with:
+<PRE>
+	begin_main
+</PRE>
+which translates to
+<PRE>
+	.global main
+	main:
+		save %sp, (-64 + <stack space needed>) & -8, %sp
+</PRE>
+We also have the macro
+<PRE>
+	end_main
+
+</PRE>
+which does the 
+<pre>
+<CODE>mov 1, %g1
+ta 0</CODE>
+</pre>
+needed at the end of a main program. 
+
+<p>
+<b>NOTE : WE WILL NOT BE MAKING USE OF THE MACRO NOTATIONS FOR THE PURPOSE
+OF THIS COURSE</b>
+
+
+<hr>
+<center>
+<H2>Example of Stack use</H2>
+</center>
+
+Below, there is another example of stack use. Here, we specify the 
+locations of the variables <b>sh</b> and <b>i</b> using the constant 
+assignments, instead of the macro declarations used in the text. 
+
+<PRE>
+     1	main()                           
+     2	{                                
+     3	        short int sh;            
+     4	        register int i;          
+     5	                                 
+     6	        i = 1;                   
+     7		sh = 0;
+     8	
+     9	        while (sh<100) 
+    10	        {                        
+    11	                i = i + i;       
+    12			sh++;
+    13	        }                        
+    14	}                                
+</PRE>
+
+This translates to:
+<PRE>
+	!local variables
+
+	/* line 3 */
+	sh_s = -2
+
+	/* line 4 */
+	! l0 = %l0
+
+	.global	_main
+_main:	save	%sp, -72, %sp
+
+	/* line 6 */
+	mov 	1, %l0
+
+	/* line 7 */
+	clr	%o0
+	sth	%o0, [%fp + sh_s]
+
+	/* line 9; while loop */
+	ldsh	[%fp + sh_s], %o1
+	ba 	test
+	cmp	%o1, 100
+
+loop:
+	add	%l0, %l0, %l0
+	add	%o1, 1, %o1
+	sth	%o1, [%fp + sh_s]
+	cmp	%o1, 100
+
+	/* bottom of while loop */
+test:
+	bl,a	loop	
+	nop
+
+	/* line 14 */
+	mov	1, %g1
+	ta	 0
+</PRE>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<H3>
+For class 14 notes, <A HREF="class14.html">click here</A>
+</H3>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<H3>
+For more information, contact me at <A HREF="mailto:tvohra@mtu.edu">tvohra@mtu.edu</A>
+</H3>
+
+</BODY>
+</HTML>

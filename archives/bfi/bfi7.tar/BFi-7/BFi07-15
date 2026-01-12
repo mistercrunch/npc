@@ -1,0 +1,2681 @@
+==============================================================================
+------------[ BFi numero 7, anno 2 - 25/12/1999 - file 15 di 22 ]-------------
+==============================================================================
+
+
+-[ CRYPT0GRAPHY ]-------------------------------------------------------------
+---[ CRiTT0GRAFiA SPiCCi0LA: OPENSSL & STUNNEL - Kobaiashi
+
+
+Titolo: Crittografia spicciola
+Sottotitolo: lo Zen e l'arte della crittografia.
+
+Aloha... sono Kobaiashi (no il mio nick NON viene ne' da I soliti sospetti
+ne' dai manga - leggere le KobaFAQ :). Questo e' il mio primo (e non
+ultimo, tempo permettendo) articolo per BFi... in realta' voleva essere
+una presentazione-comparazione approfondita dei firewall integrati nei
+vari sistemi operativi Open Source (ipchains, ipfw, ipfilter); per mere
+questioni temporali sono stato costretto a desistere.. ragion per cui vi
+presento un breve (beh, almeno rispetto alla Bibbia) how-to sull'utilizzo
+di openssl e stunnel nella creazione di collegamenti crittografati
+(cifrati, cioe' codificati in maniera che sia impossibile "capirne" il
+significato anche analizzandone il contenuto) e verifica dell'identita'
+tramite protocollo TCP. Non aspettatevi un articolo tecnico, ma un breve
+tutorial pratico sull'integrazione di questi strumenti nell'uso
+quotidiano.
+
+
+Premessa: inizialmente mi dilunghero' nell'introdurre, spiegare ed
+esemplificare concetti che il 90% di voi gia' conosce (o pensa di
+conoscere). Se proprio vi sentite T0 3l1T33 passate direttamente alla
+sezione "Strumenti necessari" (si' ci sono i comandi da utilizzare...),
+o al prossimo articolo...
+
+Per ogni acronimo o concetto di "difficile" comprensione ho cercato di
+aggiungere (tra parentesi) un esempio o una spiegazione nelle immediate
+vicinanze (tipo qui). Altri concetti vengono inizialmente solo nominati e
+saranno approfonditi proseguendo con la lettura. Altri ancora (imap, pop3,
+etc.) sono nominati senza spiegazione alcuna - se non vi sono familiari
+non e' un problema (siamo qui per imparare), ma vi ricordo che state
+leggendo BFi, non il manuale delle giovani marmotte.
+
+Se siete ancora qui, benvenuti e buona lettura (odio quelli T0 3l1T33)
+
+Ma veniamo al sodo...
+
+Consumo: un uovo (BWHAHAHAHAHAHAHAHAHA)
+
+
+Cui prodest?
+
+Una delle problematiche maggiori legate all'utilizzo di sistemi di
+autenticazione nel networking e' TUTTORA la trasmissione di password e
+altre informazioni sensibili in chiaro (ovvero non cifrate). Sebbene la
+crittografia sia gia' molto usata nell'e-commerce ed i browser piu'
+diffusi (Netscrape o Internet Exploder + Outluck, p. es.) abbiano il
+supporto SSL/TLS integrato per la navigazione e l'accesso a imap e/o smtp
+in maniera sicura (cifrata), un numero considerevole di informazioni
+vengono ancora scambiate in chiaro, password comprese, tra client e server
+e tra server e server (un esempio su tutti, la posta elettronica - inutile
+utilizzare ssh sulla vostra preziosa shell quando poi accedete in chiaro
+al pop3 con lo stesso username/password).
+
+Tramite gli strumenti qui descritti (o altri simili) e' possibile creare
+con pochissimo sforzo ed in maniera "trasparente" alle applicazioni
+(cioe' continuando ad utilizzare i vostri client preferiti e senza nessun
+aggiornamento) connessioni crittografate (e standard) per la maggior parte
+dei servizi che utilizzano TCP, ed, opzionalmente, verificare l'identita'
+del server e/o del client tramite certificati X.509.
+
+E' interessante notare che e' possibile anche per un singolo utente senza
+privilegi di root installare (smenando un po' nel configure e nei
+Makefile) ed utilizzare sia openssl sia stunnel (per gli ircari piu'
+3l1t33.. si', potete tunnelarvi il vostro bnc).
+
+
+Cosa tunnelare?
+
+E' possibile tunnelare (trasportare un protocollo all'interno di un altro)
+qualsiasi connessione TCP, ad esclusione dell'ftp e di altri protocolli
+"multiporta" o con implementazioni particolari.
+
+Personalmente ho provato smtp, pop3, bnc (e telnet - vedi le note in
+seguito), su sistemi operativi OpenBSD, FreeBSD, Linux e (brevemente)
+Win98.
+
+
+Quanto e' sicuro?
+
+Senza entrare in dettagli tecnici sulla solidita' degli algoritmi di
+crittografia, sulla generazione pseudocasuale di numeri e sulle
+problematiche dell'utilizzo di PKI (Public Key Infrastructure) per
+l'autenticazione [cioe': se l'NSA vi sta dietro non pensiate di risolvere
+i vostri problemi cosi'], personalmente NON mi sento di raccomandare
+questo tipo di implementazione in sistemi in cui sia necessario un grado
+di sicurezza elevato (server commerciali, p. es.), almeno non prima di
+aver effettuato un adeguato auditing sui sorgenti di openssl e stunnel.
+
+Certamente pero' puo' mettere al riparo le vostre trasmissioni dai curiosi
+occasionali e proteggere i vostri server dagli "script kiddies".
+
+Per gli amanti dei numeri: stunnel (openssl) puo' utilizzare chiavi RSA o
+DH di qualsiasi dimensione (default: 512 bit per lo scambio delle chiavi,
+1024 bit per i certificati) e algoritmi di crittografia a 128 bit e oltre
+(default: triple-des a 168 bit).
+
+
+Come funziona?
+
+Stunnel incorpora sia la modalita' "client" che la modalita' server e puo'
+essere utilizzato sia da inetd che in daemon-mode; sia come redirect verso
+un servizio gia' attivo su un'altra porta che lanciando direttamente il
+programma da tunnelare (Nota: d'ora in poi mi riferiro' per comodita' a
+stunnel in modalita' server come "stunnel_server" e in modalita' client
+come "stunnel_client", anche se il programma da utilizzare e' lo stesso,
+variano solamente i parametri).
+
+L'utilizzo piu' semplice (e quello che io preferisco) e' come redirect
+verso una porta dove sia gia' attivo un daemon o un servizio inetd
+standard - questo ci permette di utilizzare piu' facilmente stunnel_server
+con privilegi NON root e "separare" i compiti che le varie componenti
+del sistema devono svolgere, garantendo maggiore sicurezza.
+
+
+Esempio pratico.
+
+I dati sono plausibili, ma NON obbligatori. L'esempio presuppone che
+abbiate almeno un accesso root o user sulla macchina che contiene la
+vostra casella di posta POP3; oppure che vi siate "intortati" il sysadm
+convincendolo ad installare stunnel o un qualsiasi altro sistema
+compatibile con SSL o TLS.
+
+Supponiamo di voler accedere alla nostra casella di posta in maniera che
+sia impossibile per chiunque leggere il contenuto dei nostri messaggi o
+"rubare" la nostra password. (E' da notare che e' comunque possibile
+intercettare il contenuto dei messaggi "a monte", mentre vengono inviati
+dal server di posta del mittente a quello di destinazione, poiche' nella
+quasi totalita' dei casi il protocollo smtp viene utilizzato in chiaro).
+
+Attiveremo stunnel_server sulla porta 995 della macchina su cui risiede il
+POP3 che vogliamo interrogare (mail.s0ftpj.org) e lo configureremo in modo
+che tutte le connessioni SSL in arrivo sulla porta 995 vengano decrittate
+e reindirizzate verso la porta 110 della stessa macchina (nota: e'
+possibile reindirizzare la connessione anche verso un servizio attivo su
+un'altra macchina, per esempio all'interno di una rete dietro un firewall
+o dove piu' vi aggrada; ovviamente le connessioni da stunnel_server alla
+porta reindirizzata saranno IN CHIARO, quindi questo utilizzo e'
+SCONSIGLIATO).
+
+Sulla macchina da cui vogliamo poter scaricare la posta attiveremo invece
+stunnel_client configurato per reindirizzare, crittografate, tutte le
+connessioni ricevute sulla porta 110 (localhost) verso la porta 995 del
+server di posta reale.
+
+Infine, nel client che siamo soliti utilizzare per la posta, modificheremo
+l'indirizzo del server POP3, specificando localhost al posto di
+mail.s0ftpj.org.
+
+Abbiamo gia' raggiunto il nostro obbiettivo iniziale, proteggere il
+contenuto dei i dati in transito: tutte le connessioni tra stunnel_client
+e stunnel_server (porta 110 localhost <-> porta 995 mail.s0ftpj.org)
+avverranno in maniera cifrata, i dati in chiaro verranno trasmessi
+solamente attraverso l'interfaccia loopback (lo - un'interfaccia di rete
+virtuale - ip: 127.0.0.1; funziona piu' o meno come una qualsiasi
+interfaccia "reale", ma i dati non vengono "fisicamente" inviati
+all'esterno dello stack tcp/ip del sistema operativo e non e' possibile
+raggiungerla tramite gli indirizzi reali, salvo in caso di "apposite
+istruzioni" o redirect. Il succo del discorso e': per il vostro vicino di
+scrivania attaccato al vostro stesso cavo ethernet e' comunque impossibile
+analizzare quello che passa sulla vostra interfaccia loopback. Ovviamente,
+con un accesso locale e privilegi di root o simili e' possibile sniffare
+il traffico sull'interfaccia loopback. - si': lo c'e' anche sotto Windozz -
+provate ping 127.0.0.1 - anche se non viene riportata nel Pannello di
+Controllo... :)
+
+Con un altro piccolo sforzo e' pero' possibile aggiungere "quel tocco di
+sicurezza in piu' che non guasta mai" e metterci al riparo dal famoso "man
+in the middle" attack (un attaccante puo' fingere - tramite dns spoofing,
+p. es. - di essere il server a cui vogliamo collegarci - comportandosi in
+maniera analoga, p. es. con un tunnel ssl sulla porta 995 ed un server
+POP3 "fake" per "rubare" le password che il nostro client comunichera'),
+chiedendo a stunnel_client di verificare il certificato (l'identita') del
+server a cui ci stiamo collegando.
+
+E' anche possibile impostare stunnel_server in modo che verifichi il
+certificato dei client e permettere l'accesso solamente agli utenti
+autorizzati.
+
+
+Come funziona tecnicamente?
+
+SSL (Secure Socket Layer protocol) e' un protocollo sviluppato dalla
+Netscape per garantire maggiore sicurezza nelle trasmissioni su rete
+tcp/ip (Internet, p. es. :). Permette di utilizzare qualsiasi protocollo e
+fornisce funzioni di crittografazione e verifica dell'integrita' dei dati
+trasmessi e autenticazione dei server e dei client. La verifica
+dell'identita' e' ottenuta tramite "certificati" (particolari meccanismi
+possibili grazie ai digest - metodi per estrarre da un dato documento di
+lunghezza qualsiasi una "stringa" univoca di lunghezza definita; ed alla
+crittografia a chiave pubblica - crittografia che utilizza due distinte
+chiavi per proteggere i dati, una privata da mantenere segreta ed una
+pubblica da distribuire liberamente.
+
+Utilizzando la chiave pubblica di Tizio e' possibile cifrare un
+messaggio/file/etc. in modo che solamente Tizio riuscira' a decifrarlo
+utilizzando la sua chiave privata - e' anche possibile per Tizio "firmare"
+un blocco di dati con la sua chiave privata. Chiunque in possesso della
+chiave pubblica di Tizio potra' verificare l'effettiva appartenenza della
+firma e l'integrita' dei dati); le informazioni tra client e server
+vengono scambiate utilizzando la crittografia "tradizionale" (crittografia
+simmetrica - i dati vengono cifrati e decifrati con un'unica chiave che
+deve essere conosciuta sia dal mittente che dal ricevente) con una chiave
+generata casualmente e scambiata in maniera "sicura" tramite tecniche di
+crittografia a chiave pubblica (questo perche', anche con le attuali
+tecnologie, utilizzare la crittografia a chiave pubblica per grandi
+quantita' di dati comporta un enorme utilizzo di risorse di calcolo,
+mentre la crittografia simmetrica, una volta risolto il problema dello
+scambio delle chiavi tra le parti coinvolte, garantisce un grado di
+sicurezza analogo e velocita' notevolmente maggiore); l'integrita' dei
+dati e' garantita utilizzando nuovamente i digest e le funzioni di "firma"
+della crittografia a chiave pubblica.
+
+Attualmente l'ultima versione del protocollo SSL pubblicata dalla Netscape
+e' SSLv3 (http://www.netscape.com/eng/ssl3/); un apposito "working group"
+dell'IETF (Internet Engineering Task Force - http://www.itef.org -, un
+gruppo eterogeno di persone che volontariamente si occupa di studiare,
+proporre e promuovere gli standard che "regolano" ogni aspetto delle
+comunicazioni su Internet - pubblicandoli prima come "internet-drafts" e
+successivamente come RFC, una volta "definitivi" - ma non e' semplicissimo
+il concetto :) ha recentemente pubblicato le specifiche per il protocollo
+TLS (Transport Layer Security protocol) v. 1.0 (RFC 2246 -
+http://www.ietf.org/rfc/rfc2246.txt), basato su SSLv3.
+
+Anche se i due protocolli non sono compatibili, sono tuttavia molto
+simili, e generalmente i software che implementano TLS possono comunicare
+anche con software che implementano solamente SSLv3 o SSLv2
+(http://www.netscape.com/eng/security/SSL_2.html - che e' ancora
+utilizzato ma in fase di abbandono per alcuni noti problemi di sicurezza).
+
+OpenSSL (http://www.openssl.org) e' una libreria Open Source (basata su
+SSLeay - http://www.ssleay.org - non piu' sviluppata) che fornisce
+funzioni per implementare SSL v2/v3 e TLS v1; funzioni di crittografia
+generale (simmetrica: des, 3des, rc2, rc4, IDEA, Blowhfish; asimmetrica:
+RSA, DSA, Diffie-Hellman; digest: MD2, MD4, SHA, SHA-1, MDC2, RMD160),
+gestione certificati X.509v3 (creazione, certificazione, verifica, etc.) e
+funzionalita' mimime per implementare CA (Certification Authority).
+
+Stunnel utilizza le funzionalita' fornite da questa libreria per creare
+"tunnel" tcp in modalita' client/server, con verifica opzionale dei
+certificati. E' da notare che e' possibile utilizzare stunnel come client
+per servizi SSLv2/v3 e TLS v1 anche non basati su stunnel o non basati su
+openssl e viceversa.
+
+
+A grandi linee, il tutto funziona cosi': il client ssl invia una richiesta
+di connessione (se si utilizza, p. es., stunnel_client per il POP3 con
+Netscape, la richiesta di connessione verra' inviata "trasparentemente"
+quando si utilizzera' la funzione "Check Mail") verso il server remoto
+(per esempio la porta 995 di mail.s0ftpj.org) "negoziando" le opzioni
+necessarie a stabilire una comunicazione sicura tramite l'handshake SSL.
+
+Viene verificato che sia possibile comunicare utilizzando TLS o SSL in una
+delle versioni supportate (stunnel_client utilizza SSLv3 - stunnel_server
+supporta client SSLv2, SSLv3 e TLSv1); viene scelta la CipherSuite (vedi
+dopo) da utilizzare (il client comunica in ordine di preferenza quelle
+supportate ed il server "sceglie" la prima "ammissibile"); vengono
+scambiati altri dati di varia utilita', tra cui un "identificativo di
+sessione" (Session ID, generalmente viene comunicato dal server ed
+utilizzato per tutta la durata del collegamento, ma puo' essere comunicato
+anche dal client per "ripristinare" collegamenti interrotti o creare nuovi
+collegamenti tra lo stesso client e lo stesso server senza effettuare
+nuovamente lo scambio delle chiavi e la negoziazione dei parametri di
+sicurezza, qualora non sia intercorso piu' di un certo timeout dall'ultimo
+collegamento; il default in stunnel e' 300 secondi, ma e' possibile
+utilizzare questa "session-cache" solamente se utilizzato come daemon, non
+da inetd) ed alcuni dati "random" (generati casualmente) utilizzati
+successivamente.
+
+Il server trasmette il proprio certificato (se ne ha uno e/o se e' stata
+richiesta l'autenticazione da parte del client - stunnel_server invia SEMPRE
+quella presente in stunnel.pem, anche qualora il client non lo richieda
+espressamente) ed (opzionalmente) una seconda chiave pubblica generata
+casualmente, se la prima (contenuta all'interno del certificato) non fosse
+utilizzabile per cifrare dati (p. es. una chiave DSS) o se deciso in fase di
+implementazione del software (stunnel_server utilizza SEMPRE anche una
+seconda chiave; lanciato come daemon generata una chiave RSA temporanea che
+viene utilizzata per tutti i collegamenti fino a quando il daemon non viene
+"terminato"; lanciato da inetd genera ad ogni sessione una chiave temporanea
+ex-novo. Viene anche inizializzato DH se presente l'apposito parametro - un
+numero primo di una certa lunghezza, generalmente 512 cifre - nel file
+stunnel.pem - in base alla CipherSuite scelta dal client, verra' fornita la
+chiave RSA o un parametro da usarsi con DH).
+
+Il client verifica il certificato del server, qualora l'utente (o il
+software che utilizza) abbia richiesto l'autenticazione del server, ed
+invia (qualora il server lo specifichi) il proprio certificato per essere
+a sua volta autenticato.
+
+Il client genera casualmente una "premaster-key" e la invia cifrata
+tramite la chiave pubblica del server.
+
+Il client ed il server applicano lo stesso meccanismo matematico per
+ottenere dalla "premaster-key" (e da altri dati, tra cui i dati random
+scambiati precedentemente) una chiave da utilizzare tramite l'algoritmo
+"simmetrico" precedentemente scelto (negoziazione CipherSuite) e
+verificano di poter effettivamente comunicare tra loro utilizzando questo
+algoritmo e questa chiave.
+
+La comunicazione viene finalmente "trasferita" ai client reali, che
+possono a loro volta negoziare il protocollo, l'autenticazione, etc. come
+se le comunicazione fosse "diretta".
+
+E' da notare che la prima parte dell'handshake SSL avviene IN CHIARO (fino
+a quando il server non comunica la propria chiave pubblica); sia il client
+che il server non trasmettono nessun dato ai corrispettivi client/server
+"nascosti" fino a quando non abbiano stabilito congiuntamente che la
+comunicazione e' sicura (un qualsiasi errore di protocollo, di verifica,
+di autenticazione, etc. nell'handshake provoca l'interruzione del
+collegamento - anche successivamente vengono trasmessi solamente i dati
+che siano cifrati con la corretta chiave e siano verificati tramite digest
+e "firma").
+
+
+CipherSuite?
+
+La CipherSuite e' un codice standard che definisce la combinazione
+dell'algoritmo di scambio delle chiavi, dell'algoritmo di crittografazione
+dei dati e dell'algoritmo per la generazione dei digest. Come CipherSuite
+di default openssl specifica EDH-RSA-DES-CBC3-SHA.
+
+Il primo parametro e' il meccanismo di scambio delle chiavi (EDH -
+protocollo sviluppato da Diffie e Hellman nel 1976 per la negoziazione di
+chiavi private utilizzando canali in chiaro, nella versione "Ephemeral"
+permette di aggiungere controlli sull'autenticazione delle due parti).
+
+Il secondo parametro e' il tipo di certificato utilizzato (RSA - algoritmo
+di crittografia a chiave pubblica che permette sia la
+cifrazione/decifrazione che la "firma" di certificati o altri dati,
+sviluppato da Rivest, Shamir e Adleman nel '77).
+
+Il terzo parametro e' il tipo di crittografia simmetrica utilizzata nei
+successivi scambi di dati, una volta che i due lati siano reciprocamente
+autenticati (se necessario) ed abbiamo "deciso" una chiave "segreta" da
+utilizzare durante la sessione (DES-CBC3 - Data Encryption Standard anche
+noto come Data Encryption Algorithm, sviluppato dall'IBM con il
+"controllo" e su mandato di NSA e NIST - due organismi governativi USA; in
+una delle sue "ultime" rivistazioni, cioe' "triple-des", ovvero
+utilizzando 3 distinte chiavi di 56 bit per cifrare ogni blocco di dati
+ripetutamente; CBC - Cipher Block Chaining - e' una delle possibili
+modalita' di processare un "block cipher", ovvero un algoritmo di
+crittografazione a chiave simmetrica che produce per ogni dato blocco di
+dati non crittografati - generalmente 64 o 128 bit - un blocco di dati
+cifrato di lunghezza eguale).
+
+L'ultimo parametro e' il tipo di "digest" utilizzato per verificare
+l'integrita' dei dati trasmessi (SHA- Secure Hash Algorithm, sviluppato
+dal NIST e riveduto nel '94 come SHA-1 per problemi di sicurezza - openssl
+supporta entrambi, ma utilizza solamente il secondo nella scelta delle
+CipherSuite).
+
+E' da notare che la terminologia utilizzata da openssl per le CipherSuite
+e' leggermete diversa da quella usata nei documenti dell'IETF, ma
+facilmente deducibile (in particolar modo, il meccanismo di scambio delle
+chiavi - il primo parametro viene specificato solamente se EDH, altrimenti
+si assume implicitamente che sia RSA; se non e' specificato nemmeno il
+secondo parametro, la connessione viene effettuata "anonimamente" - cioe'
+non e' possibile verificare l'identita' delle parti coinvolte).
+
+Per esempio nella documentazione ufficiale di TLSv1, la CipherSuite di
+default di openssl (EDH-RSA-DES-CBC3-SHA) e' indicata come:
+TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA.
+
+
+Quello che segue e' l'elenco delle CipherSuite supportate da openssl:
+
+---> shell
+
+kppc:~/work/crittografia_spicciola$ openssl ciphers
+EDH-RSA-DES-CBC3-SHA:EDH-DSS-DES-CBC3-SHA:DES-CBC3-SHA:IDEA-CBC-SHA:RC4-SHA
+:RC4-MD5:EDH-RSA-DES-CBC-SHA:EDH-DSS-DES-CBC-SHA:DES-CBC-SHA:DES-CBC3-MD5:I
+DEA-CBC-MD5:RC2-CBC-MD5:RC4-MD5:RC4-64-MD5:DES-CBC-MD5:EXP-EDH-RSA-DES-CBC-
+SHA:EXP-EDH-DSS-DES-CBC-SHA:EXP-DES-CBC-SHA:EXP-RC2-CBC-MD5:EXP-RC4-MD5:EXP
+-RC2-CBC-MD5:EXP-RC4-MD5
+
+---<
+
+Ogni codice e' separato dal successivo tramite ":".
+
+DSS sono i certificati generati tramite l'algoritmo DSA (questo algoritmo
+prevede solamente funzioni di firma digitale e non di cifratura dei dati).
+Se non e' specificato ne' DSS ne RSA - cioe' manca il secondo parametro -
+la negoziazione e' "anonima" e non si puo' verificare l'identita' delle
+due parti, solamente comunicare in maniera cifrata).
+
+IDEA, RC2 e RC4 sono altri algoritmi di crittografia a chiave simmetrica,
+utilizzabili al posto di des (DES) o triple des (DES-xxx3) - Tranne RC4,
+che e' uno stream cipher (brevemente: i dati da crittografare non sono
+processati a blocchi di bit di lunghezza fissa, ma nella loro interezza -
+principalmente per garantire maggiore velocita'), gli altri sono tutti
+block cipher ed utilizzano la modalita' CBC.
+
+MD5 e' un algoritmo digest utilizzabile al posto di SHA (e generalmente
+considerato "meno sicuro").
+
+EXP significa che si intendono utilizzare chiavi di lunghezza "conforme"
+alle limitazioni imposte dalle leggi USA (e altri stati) per l'export di
+software contenenti funzioni di crittografia (tipicamente max. 512 bit per
+gli algoritmi a chiave privata e max. 40 bit per gli algoritmi a chiave
+simmetrica).
+
+E' da notare che se utilizzate stunnel come client per connettervi ad un
+server basato su software prodotto negli USA (tutti i software di Microsoft,
+Netscape e Sun, p. es.) e questo server non e' situato negli USA,
+probabilmente utilizza una versione che che supporta solamente CipherSuite
+"esportabili".
+
+Recentemente le leggi americane sono state modificate, aumentando il numero
+di bit utilizzabili per la crittografia "esportabile" (56 bit per la
+cifrazione con crittografia simmetrica, 1024 bit per lo scambio delle chiavi
+con crittografia a chiave pubblica, inoltre il software puo' contenere
+supporto anche per chiavi a numero di bit maggiore, se usato SOLAMENTE per
+le funzionalita' di "firma"). Ovviamente bisognera' procedere
+all'aggiornamento del software utilizzato sul server (se disponibile :).
+
+Esiste una progetto (http://www.fortify.net) che produce e distribuisce
+patch (modifiche all'eseguibile orginale) da applicare a Netscape
+Navigator/Communicator (praticamente tutte le versioni per tutti i sistemi
+operativi) che permettono di abilitare nelle funzioni di crittografia gia'
+presenti nel software l'utilizzo di chiavi con lunghezza considerata sicura
+(quindi non "EXP") anche nelle versioni distribuite all'esterno degli USA.
+
+
+PKI? Certificati? CA? ...
+
+Il meccanismo della certificazione permette a due soggetti senza nessuna
+precedente "conoscenza" diretta di verificare l'identita' reciproca,
+confidando nella "garanzia" fornita da una o piu' autorita' prestabilite,
+comunemente dette Certification Authority. Si tratta di meccanismi
+possibili grazie alla crittografia a chiave pubblica ed ai digest, legati
+da regole piuttosto nuove, mutevoli e decisamente complesse.
+
+In breve funziona all'incirca cosi': le CA "firmano" tramite le loro
+chiavi private le chiavi pubbliche dei soggetti da "certificare", dopo
+aver adeguatamente (?) appurato la loro identita'.
+
+Qualora Tizio voglia verificare l'identita' di Caio - o viceversa -
+chiedera' a questi di inviare il proprio certificato (composto dalla
+chiave pubblica e altri dati quali nome, durata, etc., "firmati" dalla CA
+con la propria chiave privata). Tramite la chiave pubblica della CA sara'
+quindi possibile per Tizio verificare l'effettiva validita' del
+certificato e di tutti i dati contenuti nel certificato e quindi
+"identificare" con certezza Caio. Fin qui e' tutto piuttosto semplice...
+
+Quando oltre a dover appurare l'identita' di Caio, Tizio dovra' decidere se
+autorizzarlo ad accedere ai propri dati o server, e con quali diritti;
+oppure verificare che il certificato dello stesso non sia stato revocato
+dalla CA; etc., il tutto diventa piuttosto intricato.
+
+Tutta questa brodaglia viene comunemente appellata come PKI (Public
+Key Infrastructure). Amen.
+
+Per quel che riguarda questo how-to, la verifica dell'identita' corrisponde
+_quasi_ automaticamente all'autorizzazione, quindi e' opportuno istituire
+un'apposita CA (o una "chiave" di questa CA) con cui autenticare SOLAMENTE i
+client che realmente possono accedere ai servizi che si intendono proteggere
+ed i server che necessitano di essere "verificati" e utilizzare l'opzione di
+stunnel che non solo verifica la certificazione del client, ma richiede che
+una copia della chiave pubblica dello stesso sia contenuta in una directory
+sul server.
+
+Spesso le situazioni reali sono piu' complicate, ed istituire una chiave
+od una CA diversa per ogni servizio, oppure mantenere una copia delle
+chiavi dei client su ogni server risulta non praticabile. In questi casi
+e' opportuno utilizzare un apposito software per la gestione della CA e
+delle regole di accesso (anche se non molti e non molto sofisticati,
+esistono anche dei software Open Source per la gestione delle CA).
+
+
+Cos'e' una CRL (Certificate Revocation List) ?
+
+Una CRL e' un elenco emesso periodicamente da una CA per specificare
+l'elenco dei certificati "firmati" che sono da ritenersi NON piu' validi.
+
+I motivi che possono portare alla revoca di un certificato vanno dalla
+compromissione della chiave privata (e' stata "rubata", oppure l'utente non
+ricorda piu' la password per accedervi, etc.) e conseguente generazione di
+un nuovo certificato, alla cessazione del rapporto tra un utente e la CA
+- per esempio quando mi butteranno fuori da s0ftpj, etc. :). 
+
+E' da notare che questa revoca non ha nulla a che fare con la normale
+"scadenza" di un certificato (ognuno di essi ha una data di inizio e fine
+validita' - solitamente di 365 giorni).
+
+Le CRL sono ancora uno dei punti critici nella sicurezza delle
+infrastrtutture di PKI, in particolar modo quel che riguarda la
+distribuzione e l'aggiornamento tempestivo di queste liste (si possono
+infatti creare dei "buchi neri".. potrebbe per esempio essere possibile
+utilizzare un certificato revocato per accedere a servizi protetti qualora
+il software o il gestore del server non abbiano ancora aggiornato la CRL
+corrente).
+
+Stunnel NON utilizza le CRL nell'autenticazione degli utenti.
+
+
+Consiglio di leggere le specifice techniche dei protocolli SSL e TLS e una
+mezza tonnellata di FAQ's, how-to, RFC sulla crittografia, sulle PKI, etc.
+per maggioni informazioni... (ci sono un tot di link in fondo al
+documento).
+
+
+Strumenti necessari:
+
+* un server unix o windows (bleah) qualsiasi.
+
+* un client unix o windows.
+
+* openssl >= 0.9.2b
+        (http://www.openssl.org)
+        
+* [oppure] ssleay >= 0.9.0b
+        (http://www.ssleay.org)
+        
+* stunnel >= 3.4a
+        (http://mike.daewoo.com.pl/computer/stunnel)
+
+        se intendete utilzzare windows potete prelevare direttamente
+        l'eseguibile win e le dll necessarie, senza bisogno di ssleay o
+        openssl).
+
+* opzionalmente MZtelnet o altri client abilitati SSL
+        (http://www.openssl.org/related/apps.html contiene un elenco di
+        applicazioni che possono utilizzare ssl, tra cui tunnel generici,
+        telnet, ftp, rsh, patch TLS per qmail, sendmail e postfix, etc.)
+
+* sprezzo del pericolo e audacia da leoni.
+
+
+Prima di cominciare:
+
+Se installate openssl e stunnel come pacchetti "precotti" di una delle varie
+distribuzioni Linux (Debian, p. es.) o dal "ports-tree" di FreeBSD, le
+directory di riferimento NON sono piu' quelle riportate (p. es: i binari
+sotto debian stanno in /usr/bin - o /usr/local/bin, non ricordo esattamente,
+comunque potete usare which openssl per scoprirlo -, mentre configurazione e
+certificati in /etc/ssl e /etc/ssl/certs; FreeBSD invece rinomina
+/usr/local/ssl in /usr/local/openssl, ma la struttura rimane equivalente..
+ln -s /usr/local/openssl /usr/local/ssl e siete a cavallo ["hey, mi passa
+il microfono.. hello, qui e' l'auto... che auto siamo? - cinque cinque -
+hello, qui e' l'auto cinquantacinque, siamo.. siamo a cavallo hihihihihi"
+(**) :). Dovreste trovare nei rispettivi siti anche i binari di openssl
+per varie piattaforme e l'rpm di stunnel.
+
+Se invece volete avventurarvi nel magico mondo del "self-made", compilate
+ed installate (per i frettolosi: cd dirsource ; echo "Le cose tra
+parentesi sono commenti, non da mettere nei comandi" (capito?) ; ./config
+(openssl) oppure ./configure (stunnel); make ; make test (solo openssl) -
+quindi, con id root - make install ; ma si sa, la fretta e' cattiva
+consigliera, LEGGETE I DOCS, in particolare gli immancabili INSTALL e
+README) sia openssl (prima) che stunnel (dopo) seguendo le apposite
+istruzioni accluse ed installateli nelle directory di default
+(/usr/local/ssl per openssl e /usr/local/sbin per stunnel, in teoria ci
+pensa gia' "make install") o dove volete, tenendo presente che gli esempi
+si riferiranno a queste directory. Ripetete queste operazioni sia sul
+server che sul client. Shakerate e servite freddo.
+
+Per compilare correttamente stunnel con openssl 0.9.4 e' NECESSARIO
+aggiungere un NULL alla chiamata PEM_read_bio_DHparams( bio, NULL, NULL )
+alla riga 205 di ssl.c, che diventa quindi PEM_read_bio_DHparams( bio,
+NULL, NULL, NULL )
+
+Openssl di default e' installato in una directory (/usr/local/ssl/bin) non
+raggiungibile nella path. E' consigliabile aggiungere questa directory
+oppure creare un link in /usr/local/bin o altra directory simile per evitare
+di inserire tutto il percorso ogni volta (ln -s /usr/local/ssl/bin/openssl
+/usr/local/bin).
+
+Lanciando openssl direttamente, senza nessuna opzione, si entra in una
+modalita' simil-interattiva a linea di comando, che sconsiglio a tutti :).
+
+I comandi openssl sono composti in questa maniera:
+
+        openssl comando -opz_3 -opz_2 ... -opz_n
+        
+Sebbene non sia presente un'opzione di help, passando un argomento non
+valido viene visualizzata una breve descrizione dei comandi e delle
+opzioni utilizzabili..
+
+---> shell
+
+kppc:~/work/crittografia_spicciola$ openssl help 
+openssl:Error: 'help' is an invalid command.
+
+Standard commands
+asn1parse      ca             ciphers        crl            crl2pkcs7      
+dgst           dh             dsa            dsaparam       enc            
+errstr         gendh          gendsa         genrsa         nseq           
+pkcs12         pkcs7          pkcs8          req            rsa            
+s_client       s_server       s_time         sess_id        speed          
+verify         version        x509           
+
+Message Digest commands (see the `dgst' command for more details)
+md2            md5            mdc2           rmd160         sha            
+sha1           
+
+Cipher commands (see the `enc' command for more details)
+base64         bf             bf-cbc         bf-cfb         bf-ecb         
+bf-ofb         cast           cast-cbc       cast5-cbc      cast5-cfb      
+cast5-ecb      cast5-ofb      des            des-cbc        des-cfb        
+des-ecb        des-ede        des-ede-cbc    des-ede-cfb    des-ede-ofb    
+des-ede3       des-ede3-cbc   des-ede3-cfb   des-ede3-ofb   des-ofb        
+des3           desx           idea           idea-cbc       idea-cfb       
+idea-ecb       idea-ofb       rc2            rc2-cbc        rc2-cfb        
+rc2-ecb        rc2-ofb        rc4            rc5            rc5-cbc        
+rc5-cfb        rc5-ecb        rc5-ofb        
+
+kppc:~/work/crittografia_spicciola$ openssl req help   
+unknown option help
+req [options] <infile >outfile
+where options  are
+ -inform arg    input format - one of DER TXT PEM
+ -outform arg   output format - one of DER TXT PEM
+ -in arg        input file
+ -out arg       output file
+ -text          text form of request
+ -noout         do not output REQ
+ -verify        verify signature on REQ
+ -modulus       RSA modulus
+ -nodes         don't encrypt the output key
+ -key file      use the private key contained in file
+ -keyform arg   key file format
+ -keyout arg    file to send the key to
+ -newkey rsa:bits generate a new RSA key of 'bits' in size
+ -newkey dsa:file generate a new DSA key, parameters taken from CA in 'file'
+ -[digest]      Digest to sign with (md5, sha1, md2, mdc2)
+ -config file   request template file.
+ -new           new request.
+ -x509          output a x509 structure instead of a cert. req.
+ -days          number of days a x509 generated by -x509 is valid for.
+ -asn1-kludge   Output the 'request' in a format that is wrong but some CA's
+                have been reported as requiring
+                [ It is now always turned on but can be turned off with -no-asn1-kludge ]
+
+---<
+
+[etc. etc, per ognuno degli "Standard commands" e' presente un'apposita
+schermata di aiuti - consiglio di perdere un po' di tempo e visualizzarle
+tutte :]
+
+
+Se utilizzate SSLeay al posto di openssl, non cambia praticamente nulla (a
+parte qualche nome di directory) - semplicemente dovrete digitare il comando
+direttamente invece che "mediarlo" tramite openssl (p.es.: openssl cipher ->
+ciphers ; openssl req -text -noout -in stunnel.pem -> req -text -noout -in
+stunnel.peml; etc.)
+
+Personalmente ho utilizzato con successo ssleay 0.9.0b, openssl 0.9.3a e
+0.9.4, stunnel 3.4a, MZtelnet 0.11.2 e SSLtelnet 0.13 su Linux (intel/ppc),
+OpenBSD (intel), FreeBSD (intel). Per completezza ho effettuato anche
+qualche test di utilizzo di stunnel-3.4a.exe in modalita' client su Win98
+senza riscontrare problemi.
+
+
+Dalla teoria alla pratica:
+
+Se avete seguito le istruzioni ed installato sia openssl che stunnel come
+da copione, dovreste avere una directory /usr/local/ssl ed un file
+/usr/local/sbin/stunnel. Dentro /usr/local/ssl/certs dovrebbe essere
+presente il certificato (stunnel.pem) che il Makefile di stunnel genera
+automaticamente quando quando si lancia il "make" oppure a richiesta con
+"make stunnel.pem".
+
+Utilizzando il comando "openssl x509 -text -noout -in stunnel.pem" e'
+possibile avere un output testuale del contenuto di questo certificato...
+
+Il certificato che stunnel utilizza di default (generalmente
+/usr/local/ssl/certs/stunnel.pem, ma e' possibile cambiarlo da linea di
+comando) contiene dati fittizi (i certificati X509 standard normalmente
+contengono i dati reali del server o dell'utente, visto che devono
+certificarne l'identita'!), una chiave privata RSA 1024 bit e parametri DH
+a 512 bit.
+
+Se non si intende utilizzare la verifica dell'identita', questo
+certificato sara' sufficente.. altrimenti e' consigliabile generarne uno
+"ad hoc" (vedi dopo).
+
+I comandi che riporto sono pensati avendo accesso root sia al server che al
+client.. se cosi' non fosse (in particolare per il server :) e' comunque
+possibile installare/utilizzare stunnel - i comandi rimangono piu' o meno
+simili, cambieranno le directory ed i permessi utente (se siete su una
+shell, ed avete un semplice accesso come utente, utilizzate i VOSTRI
+permessi per far girare stunnel e create una struttura di subdirectory nella
+vostra home).
+
+Se utilizzate Windowz, la sintassi di stunnel rimane invariata, ma dovrete
+cambiare i nomi delle directory e modificare i comandi unix che riporto con
+i corrispettivi comandi win (se esistono :).
+
+E' consigliabile utilizzare stunnel (soprattutto il server) con un id
+apposito, tipo ssl o stunnel o quel che e'.. quindi addate (adduser stunnel
+- ricordate di disabilitare il login!!) l'apposito utente e modificate
+/usr/local/ssl/certs/stunnel.pem in modo che sia scrivibile solo da root e
+leggibile anche (e solo) da stunnel (o gid che avete scelto). Per gli esempi
+utilizzero' un utente con uid e gid stunnel (se utilizzate altre
+applicazioni che necessitano di accedere ai certificati openssl -
+generalmente altro software linkato a queste librerie - potete, p. es.,
+creare un gruppo ssl e quindi creare vari utenti - stunnel, mztelnet, etc.
+membri di questo gruppo, oppure utilizzare per tutte un generico gruppo ssl
+e amen).
+
+I permessi di /usr/local/ssl/certs/stunnel.pem e di eventuali altri file che
+contengano certificati da usare con stunnel e quelli dell'eventuale
+directory mystrusted (che contiene i certificati da utilizzare con l'opzione
+-v 3 - vedi dopo) dovranno essere:
+
+---> shell
+
+kppc:/usr/local/ssl/certs# chown root:stunnel stunnel.pem
+kppc:/usr/local/ssl/certs# chmod 640 stunnel.pem
+kppc:/usr/local/ssl/certs# chown root:stunnel mytrusted
+kppc:/usr/local/ssl/certs# chmod 750 mytrusted
+kppc:/usr/local/ssl/certs# ls -l
+total 3
+drwxr-x---   2 root     stunnel         1024 Nov  2 03:49 mytrusted
+-rw-r-----   1 root     stunnel         1224 Nov  2 02:09 stunnel.pem
+
+---<
+
+Se non avete intenzione di verificare i certificati dei client, il gioco
+e' presto fatto.. (il file stunnel.pem serve COMUNQUE, almeno sul server)!
+
+
+Server:
+
+Se intendete utilizzare stunnel come daemon con privilegi non root dovrete
+lanciarlo "a mano" o tramite su o meccanismi simili (purtroppo non prevede
+funzioni per il cambio di uid in automatico) e NON potrete utilizzarlo per
+le porte TCP "priviliged" (<=1024).
+
+Per Debian/Linux esiste authbind che _dovrebbe_ risolvere questo problema
+(ma potrebbe crearne altri :); _suppongo_ sia possibile utilizzarlo anche
+con distribuzioni Linux diverse. Scaricate il binario per la vostra
+architettura, o il sorgente se intendete avventurarvi in un porting:
+
+http://www.debian.org/Packages/unstable/utils/authbind.htm
+
+
+Personalmente sconsiglio l'utilizzo come daemon anche se non root,
+nonostante i vantaggi (la chiave temporanea e l'ambiente SSL vengono
+inizializzati una volta sola con un conseguente - notevole - guadagno in
+termini "velocistici" - soprattutto con keylegth maggiori di 512 bit): se
+un attaccante riuscisse infatti a far "terminare" il vostro stunnel (per
+esempio con un Denial Of Serivice, etc.) e fosse in possesso di un account
+non root su quella macchina, potrebbe "fingere" di essere il vostro server
+utilizzando la stessa porta - in questo caso e' FONDAMENTALE verificare
+dai client il certificato del server.
+
+La sintassi per creare un tunnel verso, p. es., la vostra porta 110 (POP3)
+accettando connessioni SSL sulla porta 1995 (o sulla porta che volete >
+1024) e' quindi: stunnel -d 1995 -r 110 (se non fosse nella path, ricordo
+che stunnel sta in /usr/local/sbin).
+
+Utilizzandolo da inetd e' invece possibile utilizzare porte <= 1024 anche
+senza privilegi root. Aggiungete in /etc/inetd.conf la riga riportata in
+seguito e reinizializzate inetd (killall -HUP inetd oppure kill -HUP xxx
+dove xxx e' il pid - numero del processo - di inetd; ps aux|grep inetd per
+scoprirlo ):
+
+995    stream    tcp nowait stunnel  /usr/local/sbin/stunnel stunnel -r 110
+
+Ovviamente, poiche' stunnel (con questa sintassi) effettua un semplice
+redirect dei dati che riceve, dopo averli decrittati, il server POP3 reale
+deve essere attivo (daemon o inetd) e accettare connessioni sulla porta
+110 di (almeno) localhost.
+
+Se intendete autorizzare l'accesso al POP3 SOLAMENTE tramite la porta ssl
+1995 (o 995 - il numero non e' casuale, 995/tcp e' la porta standard per
+il pop3s e 1995 e' 995 + 1000) sara' vostra cura limitare l'accesso alla
+porta 110 ESCLUSIVAMENTE da localhost (127.0.0.1) tramite tcp_wrapper,
+opzioni specifiche del pop3d o firewall (o tutti e tre :).
+
+E' comunque possibile lanciare un programma qualsiasi di quelli
+utilizzabili da inetd direttamente (quindi senza che il servizio debba
+essere attivo da inetd o come daemon) con l'opzione -l:
+
+stunnel -d 995 -l /usr/libexec/in.pop3d -- in.pop3d -s   (daemon-mode)
+
+oppure (inetd - su un'unica riga e senza "\"):
+
+995     stream    tcp nowait stunnel    /usr/local/sbin/stunnel \
+                       stunnel -r 110 -l /usr/libexec/in.pop3d -- in.pop3d -s 
+
+(il -- e' necessario solo se si specificano parametri al programma,
+quindi, p. es. -l /usr/libexec/in.pop3d in.pop3d)
+
+o un programma che usa STDIN e STDOUT tramite l'opzione -L.
+
+Il programma lanciato avra' uid/gid del deamon stunnel, quindi per
+utilizzare in.pop3d, p. es., dovete fare girare stunnel con privilegi di
+root (normalmente il daemon POP3 necessita dei privilegi di root per
+accedere al file di password - anche se ci sono sistemi per utilizzarlo in
+ambiente chroot o con privilegi minori, quali qmail + vchkpw - ma non e'
+argomento che affronteremo qui).
+
+Come non mi stanchero' di ripetere, questo utilizzo e' sconsigliato. CHE
+NON VI VENGA POI IN MENTE DI METTERE STUNNEL SETUID ROOT, altrimenti
+qualche vostro utente sara' ben lieto di mettere come programma da
+eseguire con -l una shell :)
+
+
+Client:
+
+La sintassi per utilizzare la modalita' client e' pressoche' analoga a
+quella per la modalita' server, aggiungendo l'opzione -c.
+
+Per esempio sul computer da cui vogliamo collegarci al server POP3
+protetto, lanceremo:
+
+stunnel -c -d 127.0.0.1:1110 -r mail.s0ftpj.org 995
+
+oppure aggiungeremo nell'inetd la riga:
+
+110 stream tcp nowait stunnel /usr/local/sbin/stunnel stunnel -c   \
+                                                       -r mail.s0ftpj.org:995
+
+Nel nostro programma di posta sceglieremo come pop server localhost e
+porta 1110 (la porta di default e' 110, se il vostro programma non prevede
+esplicitamente l'opzione per cambiare questa porta, provate con la
+sintassi localhost:1110).
+
+L'utilizzo che consiglio per i client, non tanto per la velocita' (la
+chiave RSA temporanea non viene generata) quanto per la flessibilita' di
+utilizzo e la SICUREZZA e' invece la modalita' daemon.
+
+E' da notare che se utilizzato da inetd, stunnel accettera' connessioni
+anche dall'ip pubblico del computer (quello della scheda di rete oppure
+quello del ppp durante un collegamento via modem); questo permettera' a
+chiunque conosca il vostro ip (e a eventuali curiosi occasionali dotati di
+un qualsiasi portscan) di collegarsi al server remoto UTILIZZANDOVI come
+bouncer. Se avete anche scelto di attivare l'autenticazione, questi
+verranno autenticati con il vostro certificato personale!
+
+E' NECESSARIO, QUALORA SI UTILIZZI STUNNEL IN MODALITA' CLIENT DALL'INETD,
+LIMITARE L'ACCESSO ALLA PORTA CHE UTILIZZATE PER CONNETTERVI solamente a
+localhost (127.0.0.1) tramite hosts.deny e/o hosts.allow (stunnel fornisce
+autonomamente il supporto, se compilato con le necessarie libwrap) e/o
+tramite un firewall (possibilmente installato sulla stessa macchina, a
+meno che non abbiate una fiducia cieca delle altre persone che popolano la
+vostra - eventuale - rete locale).
+
+Utilizzato in modalita' demon e' invece possibile specificare direttamente
+nella linea di comando di accettare connessioni solamente da 127.0.0.1
+(p. es.: -d 127.0.0.1:1110).
+
+Se sulla vostra macchina sono presenti degli altri utenti (voluti o non
+voluti :), sara' per loro possibile utilizzare il vostro stunnel per
+collegarsi al server remoto. 
+
+In questo caso si puo' utilizzare il parametro -u e forzare il nome utente,
+per esempio:
+
+stunnel -c -d 127.0.0.1:1110 -r mail.s0ftpj.org:995 -u koba 
+
+accettera' di iniziare connessioni solo se localhost risolve l'ident
+dell'utente che inizia la connessione come "koba". Ovviamente dovete avere
+un identd funzionante e correttamente configurato - quindi non un fake
+identd che ritorna "true" a tutto, tipo quelli che si utilizzano per
+collegarsi piu' rapidamente a irc - e possibilmente protetto da firewall o
+tcp_wappers, visto che l'identd puo' fornire informazioni interessanti ad un
+eventuale curioso :) .
+
+E' anche possibile utilizzare hosts.deny e/o hosts.allow per limitare gli
+utenti che possono accedere a certe risorse.
+
+
+Anche se (generalmente) i computer personali (soprattutto se non sono
+collegati permanentemente ad internet, oppure sono dietro un firewall - o ci
+sono dei pazzi in giro?) presentano meno problematiche di sicurezza rispetto
+ad un server con accesso pubblico, e' comunque consigliabile utilizzare
+stunnel (in modalita' daemon) con i vostri privilegi utente o (meglio
+ancora) con un utente apposito e non con privilegi di root, sempre che nel
+vostro programma di posta (o nel client che intendete utilizzare con ssl)
+sia possibile scegliere una porta a cui collegarsi > 1024
+
+Generalmente e' questo e' possibile, anche se con alcuni client che non
+accettano esplicitamente l'opzione, tipo Netscape, e' necessario specificare
+la sintassi server:porta (p. es. localhost:1110).
+
+Molto utile per incominciare a testare stunnel ed avere un "feedback" di
+quello che avviene sia sul client che sul server puo' essere l'opzione -D 7
+(massimo livello di debug) in congiunzione con -f (foreground mode, stunnel
+non entra in background ma rimane attivo e visualizza a video l'output del
+log) in modalita' daemon (da inetd purtroppo -D 7 non funziona correttamente
+ed i livelli minori - da 1 a 5 - sono piuttosto inutili). 
+
+Se non si utilizza l'opzione -f l'output del debug sara' scritto sul syslog
+(quindi in /var/log/messagges o /var/log/syslog o /var/log/daemon etc.
+dipendentemente da come e' configurato il vostro syslog; tail -f
+/var/log/nomefile per visualizzaro real-time).
+
+Visualizziamo un breve esempio: 
+
+---> shell (client)
+
+kppc:~$ stunnel -D 7 -c -d 127.0.0.1:1110 -r mail.s0ftpj.org:1110 -f
+LOG7[1627:1024]: Service name to be used: mail.s0ftpj.org.1110
+LOG5[1627:1024]: stunnel 3.4a on powerpc-unknown-linux-gnu PTHREAD
+LOG3[1627:1024]: /var/run/stunnel.mail.sikurezza.org.1110.pid: Permission
+denied (13)
+LOG7[1627:1024]: mail.s0ftpj.org.1110 bound to 127.0.0.1:1110
+
+---<
+
+il fatto che non sia possibile scrivere 
+/var/run/stunnel.mail.sikurezza.org.1110.pid e' normale (non siamo root) e
+possiamo ignorare ques'errore
+
+---> shell (server)
+
+s0ftpj:~$ stunnel -D 7 -d 1110 -r 110 -f
+LOG7[32076:0]: Service name to be used: 110
+LOG7[32076:0]: Generating 1024 bit temporary RSA key...
+LOG7[32076:0]: Temporary RSA key generated
+LOG7[32076:0]: Certificate: /usr/local/ssl/certs/stunnel.pem
+LOG5[32076:0]: stunnel 3.4a on i386-unknown-openbsd2.5 FORK+LIBWRAP
+LOG3[32076:0]: /var/run/stunnel.23.pid: Permission denied (13)
+LOG7[32076:0]: 110 bound to 0.0.0.0:1110
+
+---<
+
+quando lanceremo il check mail su Netscape (con server localhost:1110),
+potremmo vedere sui rispettivi stunnel client e server:
+
+---> (client)
+
+LOG7[1632:1026]: mail.s0ftpj.org.1110 started
+LOG5[1632:1026]: mail.s0ftpj.org.1110 connected from 127.0.0.1:1598
+LOG7[1632:1026]: mail.s0ftpj.org.1110 connecting 195.32.69.44:1110
+LOG7[1632:1026]: Remote host connected
+LOG7[1632:1026]: before/connect initialization
+LOG7[1632:1026]: before/connect initialization
+LOG7[1632:1026]: SSLv3 write client hello A
+LOG7[1632:1026]: SSLv3 read server hello A
+LOG7[1632:1026]: SSLv3 read server certificate A
+LOG7[1632:1026]: SSLv3 read server done A
+LOG7[1632:1026]: SSLv3 write client key exchange A
+LOG7[1632:1026]: SSLv3 write change cipher spec A
+LOG7[1632:1026]: SSLv3 write finished A
+LOG7[1632:1026]: SSLv3 flush data
+LOG7[1632:1026]: SSLv3 read finished A
+LOG7[1632:1026]: SSL negotiation finished successfully
+LOG7[1632:1026]:    1 items in the session cache
+LOG7[1632:1026]:    1 client connects (SSL_connect())
+LOG7[1632:1026]:    1 client connects that finished
+LOG7[1632:1026]:    0 client renegotiatations requested
+LOG7[1632:1026]:    0 server connects (SSL_accept())
+LOG7[1632:1026]:    0 server connects that finished
+LOG7[1632:1026]:    0 server renegotiatiations requested
+LOG7[1632:1026]:    0 session cache hits
+LOG7[1632:1026]:    0 session cache misses
+LOG7[1632:1026]:    0 session cache timeouts
+LOG7[1632:1026]: SSL negotiation finished successfully
+LOG6[1632:1026]: mail.s0ftpj.org.1110 opened with SSLv3, cipher
+DES-CBC3-SHA (192 bits)
+LOG7[1632:1026]: Sockets set to non-blocking mode
+LOG7[1632:1026]: SSL closed on read
+LOG5[1632:1026]: Connection closed: 348 bytes sent to SSL, 229 bytes sent to
+socket
+LOG7[1632:1026]: mail.s0ftpj.org.1110 finished (0 left)
+
+---<
+---> (server)
+
+LOG7[5489:0]: 110 started
+LOG5[5489:0]: 110 connected from 151.20.225.239:1599
+LOG7[5489:0]: 110 connecting 127.0.0.1:110
+LOG7[5489:0]: Remote host connected
+LOG7[5489:0]: before/accept initialization
+LOG7[5489:0]: before/accept initialization
+LOG7[5489:0]: SSLv3 read client hello A
+LOG7[5489:0]: SSLv3 write server hello A
+LOG7[5489:0]: SSLv3 write certificate A
+LOG7[5489:0]: SSLv3 write server done A
+LOG7[5489:0]: SSLv3 flush data
+LOG7[5489:0]: SSLv3 read client key exchange A
+LOG7[5489:0]: SSLv3 read finished A
+LOG7[5489:0]: SSLv3 write change cipher spec A
+LOG7[5489:0]: SSLv3 write finished A
+LOG7[5489:0]: SSLv3 flush data
+LOG7[5489:0]: SSL negotiation finished successfully
+LOG7[5489:0]:    1 items in the session cache
+LOG7[5489:0]:    0 client connects (SSL_connect())
+LOG7[5489:0]:    0 client connects that finished
+LOG7[5489:0]:    0 client renegotiatations requested
+LOG7[5489:0]:    1 server connects (SSL_accept())
+LOG7[5489:0]:    1 server connects that finished
+LOG7[5489:0]:    0 server renegotiatiations requested
+LOG7[5489:0]:    0 session cache hits
+LOG7[5489:0]:    0 session cache misses
+LOG7[5489:0]:    0 session cache timeouts
+LOG7[5489:0]: SSL negotiation finished successfully
+LOG6[5489:0]: 23 opened with SSLv3, cipher DES-CBC3-SHA (192 bits)
+LOG7[5489:0]: Sockets set to non-blocking mode
+LOG7[5489:0]: Socket closed on read
+LOG5[5489:0]: Connection closed: 229 bytes sent to SSL, 348 bytes sent to
+socket
+LOG7[32076:0]: 23[5489] finished with code 0 (0 left)
+
+---<
+
+
+Note sul telnet:
+
+Sebbene nelle FAQ di stunnel ed di altri wrapper ssl sia chiaramente
+specificato che non e' possibile tunnelare telnet, perche' il protocollo
+dipende da alcuni fantomatici OOB data, posso garantirvi che ho usato con
+successo telnet+stunnel innumerevoli volte. sia tunnelando un client ed un
+telnet server non abilitati SSL, sia utilizzando MZtelnet o SSLtelnet per
+collegarmi ad un telnetd standard+stunnel, sia utilizzando un
+telnet+stunnel standard per collegarmi al telnetd di MZtelnet o SSLtelnet.
+
+Un breve colloquio col mio guru tcp preferito (indovinate chi e' :) ed una
+sfogliata veloce allo Stevens mi hanno confermato che questi dati OOB (Out
+of Band) sono "segnali" che il server telnet invia al client con il flag
+TCP URG settato per particolari utilizzi (lo Stevens ci fa anche notare
+che il termine OOB, sebbene utilizzato da alcune API, e' da considerarsi
+errato, poiche' questi segnali seguono comunque il normale flusso dei dati
+e sono semplicemente segnati con il flag URG - sta al client telnet
+processarli per primi ignorando altri dati arrivati prima :).
+
+Questi OOB data dovrebbero segnalare l'interruzione ed il ripristino
+dell'invio del flusso di dati da parte del server al client relativamente
+all'utilizzo di CTRL+S o CTRL+Q o a resize di finestre di terminale e cose
+simili. Devo dire che ho provato ad analizzare tcpdump alla mano il
+traffico tra il server telnet e stunnel daemon (sull'interfaccia lo0 del
+server) mentre giocavo con questi tasti, resizavo la finestra di rxvt,
+saltavo sulla sedia e mi scaccolavo. Non ho visto un solo pacchetto
+flaggato URG passare.. il comportamento del terminale mi e' sembrato del
+tutto normale e comunque ho utilizzato telnet via stunnel per parecchio
+tempo senza riscontrare il minimo problema. Puo' essere che problemi si
+verifichino solamente utilizzando altri telnetd (altri OS, magari meno
+recenti) o utilizzando collegamenti in dial-up, o nelle notti di
+plenilunio, etc. Chi ha altre informazioni me le comunichi :)
+
+Comunque personalmente preferisco utilizzare un client ed un server telnet
+che contengano direttamente il supporto SSL.
+
+
+A questo punto avrei una gran voglia di scrivere [FINE PRIMA PARTE],
+spegnere baracca burattini ed infilarmi a letto, visto che e' gia' la
+quarta notte che tiro le 3 per scrivere questo articolo... - si, io domani
+lavoro, mica come quegli scioperati universitari di fuzzo e piggo - ma
+pensare alla password del vostro bnc che viene sniffata da un'orda di
+hacker cattivissimi (ho letto qualche fanzine spassevole al riguardo) mi
+rovinerebbe il sonno quindi.... giochiamo coi certificati...
+
+
+Giochiamo coi certificati
+
+Abbiamo visto come sia possibile rendere le nostre comunicazioni non
+intercettabili... vediamo ora come essere sicuri che il server che stiamo
+contattando sia REALMENTE il server che vogliamo contattare, e, viceversa,
+come sia possibile autorizzare ad accedere al nostro servizio solamente
+un'utenza "selezionata":
+
+Per prima cosa, il server DEVE essere stato precedentemente autenticato da
+una CA che ne abbia "firmato" il certificato (se volete fare in casa,
+leggete dopo). Abbiamo quindi bisogno di una copia della chiave pubblica
+di questa CA (o di un'altra CA che certifichi a sua volta che la CA che ha
+certificato il server, ARGH, evviva le PKI :) in locale sul nostro disco,
+nella directory /usr/local/ssl/certs, opportunamente "hashata".
+
+In openssl, i certificati vengono ritrovati all'interno della directory
+cercando un file chiamato xxxxxxxx.0, dove xxxxxxxx e' l'hash (digest)
+della chiave da cercare. Generalmente questo file (p.es: 681bb4bc.0) e' un
+link che punta al nome "umano" del file che contiene realmente la chiave
+(p.es: s0ftpj_CA.pem) e che, sempre generalmente, risiede nella stessa
+directory.
+
+Insieme ad openssl e' distribuita un'apposita utility
+(/usr/local/ssl/bin/c_rehash) che si occupa di creare questi link e da
+lanciare (eventualmente cancellando a mano quelli vecchi rm -rf *.0) ogni
+volta si aggiungano o cancellino chiavi in questa directory. 
+
+E' anche possibile creare questi link a mano di volta in volta (p. es: ln -s
+s0ftpj_CA.pem `openssl x509 -noout -hash -in s0ftpj_CA.pem`.0).
+
+In stunnel, le opzioni di verifica dei certificati vengono specificate
+tramite l'opzione -v
+
+-v 1: verifica i certificati, SE POSSIBILE.
+
+      Questo significa che il vostro stunnel verifichera' il certificato
+      della controparte SOLO se questa e' disposta a fornirne uno. Se la
+      controparte fornisce un certificato, e questo non risulta valido il
+      collegamento viene interrotto.
+      
+      Se la controparte non fornisce un certificato, il collegamento
+      prosegue con negoziazione "anomima", cioe' crittografato ma senza
+      che sia stata effettivamente verificata l'identita'.
+
+      E' da notare che stunnel_server fornisce SEMPRE un certificato,
+      quindi utilizzare stunnel client con l'opzione -v 1 verso un server
+      stunnel la cui chiave non sia certificata (quella di default,
+      p.es.), provochera' sempre un errore.
+
+      Considero quest'opzione piuttosto inutile (almeno in un programma
+      dove si creano dei "tunnel", cioe' relazioni abbastanza "statiche"
+      tra le parti in causa).
+
+-v 2: verifica i certificati SEMPRE;
+
+      Per ogni certificato viene controllata la validita' e la firma,
+      tramite una copia della chiave pubblica della CA, che deve essere in
+      locale (/usr/local/ssl/certs e correttamente "hashata").
+
+      E' utile principalmente sui client (sui server e' preferible
+      l'opzione -v 3, vedi dopo), poiche' stunnel NON GESTISCE le CRL.
+
+      Sara' cura dell'utente verificare periodicamente la validita' della
+      chiave pubblica della CA (anche se GENERALMENTE la chiave pubblica
+      di una CA non dovrebbe MAI essere revocata, se non in caso di
+      compromissione della sicurezza della stessa - ma non sarebbe una CA
+      molto affidabile. In caso di scadenza "naturale" della chiave, sara'
+      openssl stesso a segnalarlo).
+
+-v 3: verifica i certificati SEMPRE, confrontandoli con una copia degli
+      stessi che deve essere presente IN LOCALE;
+
+      Per ogni certificato viene controllata la validita' e la firma sia
+      con la copia della chiave pubblica della CA, SIA con una copia dello
+      stesso certificato, che deve essere presente in locale.
+
+      E' utile principalmente sui server. Aggiunge un grado di sicurezza "in
+      piu'" (e anche di sbattimento per il sysadm :). Serve, p. es., per
+      permettere l'accesso alle risorse protette solamente ad alcuni client
+      (di cui sara' presente una copia della chiave pubblica in una directory 
+      locale sul server). Un client, anche se in possesso di un certificato
+      regolarmente firmato da una CA autorizzata, NON potra' accedere alle
+      risorse se il suo certificato non sara' presente in locale.
+
+
+Come gestire una CA? 
+
+(Anche se intendete utilizzare una CA esterna, vi consiglio di leggere
+COMUNQUE questo capitolo... spieghero' brevemente alcune opzioni di
+configurazione ed alcuni parametri di openssl utili anche se generate solo
+le richieste di certificato)
+
+Qualora NON si desiderasse utilizzare una CA esterna, per ragioni che
+variano dalla semplice comodita' di utilizzo ad intricate necessita' di
+privacy e segretezza, etc., e' comunque possibile utilizzare openssl per
+impiantare e gestire una mini-CA "casalinga".
+
+E' da notare che le funzionalita' di generazione e firma dei certificati
+di openssl sono perfettamente "standard" e compatibili con "il resto del
+mondo", ma il suo utilizzo "pratico" a livello "commerciale" e'
+sconsigliabile per diversi fattori: il software comprende funzioni di
+key-managment piuttosto limitate e tutte le operazioni (o quasi) sono da
+effettuarsi manualmente... (quando si tratta di una dozzina di
+certificati, l'operazione e' fattibile.. se cominciamo a parlare di
+centinaia o migliaia di chiavi, con gestione "avanzata" dei permessi,
+delle CRL - Certificate Revocation Lists -, etc., diventa un'impresa
+improponibile).
+
+Per prima cosa bisognera' apportare qualche modifica al file di
+configurazione di openssl (/usr/local/ssl/openssl.cnf). Ovviamente e'
+consigliabile tenere una copia della vecchia configurazione da cui
+ripartire in caso di "problemi".
+
+Per il nostro esempio, cambieremo nella sezione [ CA_default ]
+
+dir             = ./demoCA              # Where everything is kept
+
+in
+
+dir             = /usr/local/ssl/CA     # Where everything is kept
+
+
+e personalizzeremo la sezione [ req_distinguished_name ] in questa maniera
+(potete sostituire interamente la sezione originale con quella riportata,
+cambiando i nomi - per proteggere gli innocenti :)
+
+---> /usr/local/ssl/openssl.cnf (parte)
+
+[ req_distinguished_name ]
+
+countryName                     = STATO (codice 2 lettere)
+countryName_default             = IT                          
+countryName_min                 = 2 
+countryName_max                 = 2
+
+stateOrProvinceName             = Nome stato (nome intero)
+stateOrProvinceName_default     = ITALY
+
+localityName                    = S0ftpjlandia
+
+0.organizationName              = Nome organizzazione (p. es: ditta)
+0.organizationName_default      = s0ftpj
+
+organizationalUnitName          = Nome dipartimento (p. es: sezione)
+
+commonName                      = Nome (p. es: il VOSTRO nome)
+commonName_max                  = 64
+
+emailAddress                    = Indirizzo di posta
+emailAddress_max                = 40
+
+---<
+
+L'utente piu' smaliziato trovera' poi utile analizzare e "personalizzare"
+altre sezioni di questo file di configurazione (non solo quello utilizzato
+per la CA, ma anche nei server e nei client).
+
+E' possibile, per esempio, cambiare la lunghezza (in bit) delle chiavi
+generate di default, la validita' (in giorni) dei certificati, e altre
+IMPORTANTI opzioni avanzate, p. es. quelle relative alle CRL (Certificate
+Revocation List) o quelle relative alla gestione e alle "policy" (regole)
+della CA (utili per impostare limiti ai certificati che sara' possibile
+firmare).
+
+In generale consiglio a tutti di leggere le voci ed i commenti presenti in
+openssl.cnf .
+
+E' da notare che nella distribuzione di openssl (e ssleay) sono presenti 2
+script (CA.sh, CA.pl - dal funzionamento equivalente) che permettono di
+automatizzare maggiormente la gestione delle funzionalita' di CA del
+programma.
+
+Riportero' sia la sintassi per utilizzare direttamente openssl, sia quella
+degli script (personalmente uso gli script solo per generare la struttura
+delle directory e faccio a mano il resto). 
+
+Se intendete utilizzare uno dei due script, e' consigliabile copiarlo dalla
+directory di distribuzione di openssl in /usr/local/ssl/bin o una directory
+di quelle della path (cp dir_dist_openssl/apps/CA.sh /usr/local/ssl/bin/) ed
+e' necessario modificare la directory di riferimento all'interno dello
+stesso (CATOP=./demoCA -> CATOP=/usr/local/ssl/CA in CA.sh - oppure
+$CATOP="/usr/local/ssl/CA" in CA.pl)
+
+Per i miei esempi, assumero' che sia openssl che CA.sh siano in una
+directory della path (direttamente o come link).
+
+E' da notare che i nomi di file che utilizzo nelle opzioni -out e -keyout
+possono essere cambiati A PIACERE, ma sono quelli utilizzati in CA.sh e ho
+preferito mantenerli per maggior "coerenza". In questa maniera i comandi
+riporatati sono ESATTAMENTE quelli utilizzati da CA.sh (o .pl).
+
+Generiamo quindi la struttura delle directory necessarie, come specificato
+nel file di configurazione.. 
+
+---> /usr/local/ssl/openssl.cnf (parte)
+
+[ CA_default ]
+
+dir             = /usr/local/ssl/CA     # Where everything is kept
+certs           = $dir/certs            # Where the issued certs are kept
+crl_dir         = $dir/crl              # Where the issued crl are kept  
+database        = $dir/index.txt        # database index file.
+new_certs_dir   = $dir/newcerts         # default place for new certs.
+
+certificate     = $dir/cacert.pem       # The CA certificate
+serial          = $dir/serial           # The current serial number
+crl             = $dir/crl.pem          # The current CRL
+private_key     = $dir/private/cakey.pem# The private key
+RANDFILE        = $dir/private/.rand    # private random number file
+
+---<
+
+---> shell (attenzione ai [commenti]!)
+
+kppc:/usr/local/ssl# CA.sh -help
+usage: CA -newcert|-newreq|-newca|-sign|-verify
+kppc:/usr/local/ssl# CA.sh -newca
+CA certificate filename (or enter to create)
+
+[premere invio, o inserire il nome di un certificato gia' creato e valido
+per la CA]
+
+Making CA certificate ...
+Using configuration from /usr/local/ssl/openssl.cnf
+Generating a 1024 bit RSA private key
+.+++++
+.......+++++
+writing new private key to '/usr/local/ssl/CA/private/./cakey.pem'
+Enter PEM pass phrase:
+
+[inserire la parola d'ordine con cui proteggere la chiave privata della CA,
+ovviamente "parola d'ordine" non e' una buona scelta :) ]
+
+Verifying password - Enter PEM pass phrase:
+-----
+You are about to be asked to enter information that will be incorporated
+into your certificate request.
+What you are about to enter is what is called a Distinguished Name or a DN.
+There are quite a few fields but you can leave some blank
+For some fields there will be a default value,
+If you enter '.', the field will be left blank.
+-----
+STATO (codice 2 lettere) [IT]:
+
+[reinserire la parola d'ordine per conferma, quindi rispondere ai vari
+quesiti. E' consigliabile utilizzare dati reali, per una maggiore
+"coerenza", soprattutto se si dovranno certificare molti server/utenti
+Premendo invio verra' scelto il default, IT in questo caso]
+
+Nome stato (nome intero) [ITALY]:
+S0ftpjlandia []:
+Nome organizzazione (p. es: ditta) [s0ftpj]:
+Nome dipartimento (p. es: sezione) []:Certification Authority
+Nome (p. es: il VOSTRO nome) []:Admin
+Indirizzo di posta []:admin@s0ftpj.org
+
+---<
+
+Come potete notare, avendo precedentemente personalizzato il file di
+configurazione, e' stato sufficente inserire il "Nome dipartimento"
+(indicato come organizationalUnitName nella conf. originale), il nome
+dell'"intestatario" di quel certificato (commonName) e l'indirizzo email
+dello stesso (emailAddress).
+
+Avremmo anche potuto fare "a mano":
+
+---> shell
+
+kppc:/usr/local/ssl/CA# mkdir certs
+kppc:/usr/local/ssl/CA# mkdir crl
+kppc:/usr/local/ssl/CA# mkdir newcerts
+kppc:/usr/local/ssl/CA# mkdir private
+kppc:/usr/local/ssl/CA# echo "01" > serial
+kppc:/usr/local/ssl/CA# touch index.txt
+kppc:/usr/local/ssl/CA# openssl req -new -x509 -keyout private/cakey.pem
+-out cacert.pem -days 365
+Using configuration from /usr/local/ssl/openssl.cnf
+Generating a 1024 bit RSA private key
+..................+++++
+....+++++
+writing new private key to 'private/cakey.pem'
+Enter PEM pass phrase:
+Verifying password - Enter PEM pass phrase:
+-----
+You are about to be asked to enter information that will be incorporated
+into your certificate request.
+What you are about to enter is what is called a Distinguished Name or a DN.
+There are quite a few fields but you can leave some blank
+For some fields there will be a default value,
+If you enter '.', the field will be left blank.
+-----
+STATO (codice 2 lettere) [IT]:
+Nome stato (nome intero) [ITALY]:
+S0ftpjlandia []:
+Nome organizzazione (p. es: ditta) [s0ftpj]:
+Nome dipartimento (p. es: sezione) []:Certification Authority
+Nome (p. es: il VOSTRO nome) []:Admin
+Indirizzo di posta []:admin@s0ftpj.org
+
+---<
+
+In entrambi i casi avremmo una directory /usr/local/ssl/CA cosi'
+strutturata:
+
+---> shell
+
+kppc:/usr/local/ssl/CA# tree
+.
+|-- cacert.pem
+|-- certs
+|-- crl
+|-- index.txt
+|-- newcerts
+|-- private
+|   -- cakey.pem
+-- serial
+
+4 directories, 4 files
+
+---<
+
+cacert.pem  - e' la chiave pubblica della nostra nuova CA
+index.txt   - serve a openssl per tenere l'elenco dei certificati emessi 
+serial      - numero seriale dell'ultimo certificato emesso
+certs       - directory dove posizionare i certificati autenticati (in
+              realta' openssl di suo non mette nulla in questa directory, ma
+              puo' risultare comunque utile)
+newcerts    - directory dove vengono posizionati i certificati appena
+              autenticati
+private     - directory dove posizionare le chiavi private
+cakey.pem   - la chiave privata della CA (DA TENERE ASSOLUTAMENTE SEGRETA)
+
+A questo punto possiamo cambiare i permessi generali per la directory ed i
+file. E' DA NOTARE che questa operazione va COMUNQUE effettuata a mano CA.sh
+o .pl NON MODIFICANO i permessi standard delle directory)
+
+E' ALTAMENTE consigliabile che questa directory sia utilizzabile solamente
+da chi effettivamente e' l'amministratore della CA (nel mio esempio, root):
+
+---< shell
+
+kppc:/usr/local/ssl/CA# chmod 700 .
+kppc:/usr/local/ssl/CA# chmod -R og= *
+kppc:/usr/local/ssl/CA# ls -al
+total 9
+drwx------   6 root     staff        1024 Nov  1 02:10 .
+drwxr-sr-x  10 root     staff        1024 Nov  1 02:08 ..
+-rw-------   1 root     staff        1224 Nov  1 02:10 cacert.pem
+drwx------   2 root     staff        1024 Nov  1 02:08 certs
+drwx------   2 root     staff        1024 Nov  1 02:08 crl
+-rw-------   1 root     staff           0 Nov  1 02:08 index.txt
+drwx------   2 root     staff        1024 Nov  1 02:08 newcerts
+drwx------   2 root     staff        1024 Nov  1 02:10 private
+-rw-------   1 root     staff           3 Nov  1 02:08 serial
+kppc:/usr/local/ssl/CA# tree -p
+.
+|-- [-rw-------]  cacert.pem
+|-- [drwx------]  certs
+|-- [drwx------]  crl
+|-- [-rw-------]  index.txt
+|-- [drwx------]  newcerts
+|-- [drwx------]  private
+|   -- [-rw-------]  cakey.pem
+-- [-rw-------]  serial
+
+4 directories, 4 files
+
+---<
+
+Abbiamo creato un certificato RSA (con corrispettiva chiave privata) a 1024
+bit intestato all'organizzazione "s0ftpj", sottosezione "Certification
+Authority", nome "Admin" e indirizzo di posta "admin@s0ftpj.org", della
+citta' "S0ftpjlandia", stato "ITALY", codice "IT", valido 365 giorni, numero
+seriale "0" e utilizzabile per firmare altri certificati.
+
+Analizziamolo in dettaglio:
+
+---> shell
+
+kppc:/usr/local/ssl/CA# openssl x509 -text -noout -in cacert.pem 
+Certificate:
+    Data:
+        Version: 3 (0x2)
+        Serial Number: 0 (0x0)
+        Signature Algorithm: md5WithRSAEncryption
+        Issuer: C=IT, ST=ITALY, O=s0ftpj, OU=Certification Authority, CN=Admin/
+Email=admin@s0ftpj.org
+        Validity
+            Not Before: Nov  1 03:45:46 1999 GMT
+            Not After : Oct 31 03:45:46 2000 GMT
+        Subject: C=IT, ST=ITALY, O=s0ftpj, OU=Certification Authority, CN=Admin
+/Email=admin@s0ftpj.org
+        Subject Public Key Info:
+            Public Key Algorithm: rsaEncryption
+            RSA Public Key: (1024 bit)
+                Modulus (1024 bit):
+                    00:cc:49:cd:15:81:f6:d4:79:b2:dc:95:64:9b:3b:
+                    8f:a1:c6:73:84:f0:38:6c:12:eb:04:7c:a6:ec:95:
+                    69:ac:d2:b5:b0:b2:cd:b7:4c:a4:8f:a6:60:d2:8b:
+                    93:63:23:6a:a6:0d:e3:70:bc:7a:91:3e:eb:c1:82:
+                    58:de:50:11:3a:5f:09:9f:e9:d3:a0:07:49:06:b6:
+                    4b:e8:db:c9:b2:cb:2f:fb:97:68:42:f4:b7:e4:95:
+                    27:61:1d:17:4b:71:16:7f:05:09:19:83:43:9f:2e:
+                    91:9e:32:c8:77:77:d9:2d:0b:00:f3:28:65:b1:f0:
+                    1a:c6:3a:48:72:d4:c1:3f:6d
+                Exponent: 65537 (0x10001)
+        X509v3 extensions:
+            X509v3 Subject Key Identifier: 
+                54:02:32:70:F4:C4:65:67:DB:B8:B4:8E:BE:9A:74:17:D8:29:CA:8B
+            X509v3 Authority Key Identifier: 
+                keyid:54:02:32:70:F4:C4:65:67:DB:B8:B4:8E:BE:9A:74:17:D8:29:CA:
+8B
+                DirName:/C=IT/ST=ITALY/O=s0ftpj/OU=Certification Authority/CN=A
+dmin/Email=admin@s0ftpj.org
+                serial:00
+
+            X509v3 Basic Constraints: 
+                CA:TRUE
+    Signature Algorithm: md5WithRSAEncryption
+        75:e5:a1:e5:a8:b1:9c:ba:63:b3:7d:5a:8c:ee:2b:cd:65:30:
+        ad:c8:a6:0c:11:34:43:75:50:3a:1d:f1:4e:9c:8b:ac:47:bf:
+        59:a7:9c:16:23:7c:9e:f9:9a:be:37:e6:f9:12:32:4d:77:66:
+        39:7d:94:02:e1:82:69:88:5d:32:49:a3:ee:74:fb:e4:78:54:
+        eb:e6:36:dc:09:bb:dd:9c:63:be:bf:aa:7f:bf:8f:f2:c3:a2:
+        b4:e1:1a:04:a3:39:0e:9a:c5:50:11:22:14:76:81:33:00:53:
+        c3:6a:eb:0e:e3:fb:ab:94:18:55:da:de:88:f5:7c:55:63:be:
+        7b:bd
+kppc:/usr/local/ssl/CA# cat cacert.pem 
+-----BEGIN CERTIFICATE-----
+MIIDXDCCAsWgAwIBAgIBADANBgkqhkiG9w0BAQQFADCBgTELMAkGA1UEBhMCSVQx
+DjAMBgNVBAgTBUlUQUxZMQ8wDQYDVQQKEwZzMGZ0cGoxIDAeBgNVBAsTF0NlcnRp
+ZmljYXRpb24gQXV0aG9yaXR5MQ4wDAYDVQQDEwVBZG1pbjEfMB0GCSqGSIb3DQEJ
+ARYQYWRtaW5AczBmdHBqLm9yZzAeFw05OTExMDEwMzQ1NDZaFw0wMDEwMzEwMzQ1
+NDZaMIGBMQswCQYDVQQGEwJJVDEOMAwGA1UECBMFSVRBTFkxDzANBgNVBAoTBnMw
+ZnRwajEgMB4GA1UECxMXQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkxDjAMBgNVBAMT
+BUFkbWluMR8wHQYJKoZIhvcNAQkBFhBhZG1pbkBzMGZ0cGoub3JnMIGfMA0GCSqG
+SIb3DQEBAQUAA4GNADCBiQKBgQDMSc0VgfbUebLclWSbO4+hxnOE8DhsEusEfKbs
+lWms0rWwss23TKSPpmDSi5NjI2qmDeNwvHqRPuvBgljeUBE6Xwmf6dOgB0kGtkvo
+28myyy/7l2hC9LfklSdhHRdLcRZ/BQkZg0OfLpGeMsh3d9ktCwDzKGWx8BrGOkhy
+1ME/bQIDAQABo4HhMIHeMB0GA1UdDgQWBBRUAjJw9MRlZ9u4tI6+mnQX2CnKizCB
+rgYDVR0jBIGmMIGjgBRUAjJw9MRlZ9u4tI6+mnQX2CnKi6GBh6SBhDCBgTELMAkG
+A1UEBhMCSVQxDjAMBgNVBAgTBUlUQUxZMQ8wDQYDVQQKEwZzMGZ0cGoxIDAeBgNV
+BAsTF0NlcnRpZmljYXRpb24gQXV0aG9yaXR5MQ4wDAYDVQQDEwVBZG1pbjEfMB0G
+CSqGSIb3DQEJARYQYWRtaW5AczBmdHBqLm9yZ4IBADAMBgNVHRMEBTADAQH/MA0G
+CSqGSIb3DQEBBAUAA4GBAHXloeWosZy6Y7N9WozuK81lMK3IpgwRNEN1UDod8U6c
+i6xHv1mnnBYjfJ75mr435vkSMk13Zjl9lALhgmmIXTJJo+50++R4VOvmNtwJu92c
+Y76/qn+/j/LDorThGgSjOQ6axVARIhR2gTMAU8Nq6w7j+6uUGFXa3oj1fFVjvnu9
+-----END CERTIFICATE-----
+kppc:/usr/local/ssl/CA# cat private/cakey.pem 
+-----BEGIN RSA PRIVATE KEY-----
+Proc-Type: 4,ENCRYPTED
+DEK-Info: DES-EDE3-CBC,9A085D61C1681DC4
+
+KmUbmLM4ganJQP63gpzWJ8PXKmXF3LB4B/4iUx3fIbbhI4bl1kDgNGQoOCAg+ynV
+UjPM/k5lXE4lsqSIO2uanfOm06G8zyJuXcW1Y1BfTKEbfqkE4H31EPt8F6SYs+Sh
+NsiHi2EV1emf5MPx2hmf6AvhSkIvNAckLdwJOrgjNEns36tfMQUnvm15gmb26yti
+vMZkQL0olGz4gVyWjziWxFYvkvcZh9vnpJP0U4Use48DDsgMzBn2JrxWnwZHw6Qs
+yH55IKh30U1BzzPn6KXt/6ZNpCennull4nGdepJUecw1yV1cQGZUvfaSxbeD8Rpy
+gBQ2FiZB7r8j206/WqBkhgOTLE8eVwKH7GakROogmKCR173dyqfzmq1s+gZu5p6g
+ek3ulat1sTezj/g79fgtY3hahGS06csRiWLRAN/eo32GFG5svt4gPh4BJZNpaEnz
+BrKxVkvrYHz4rfqg48fAUgE9Tmata0oYdFD1XICVgAUEGqK0KFUg/kUkNVCeh3KQ
+/rC6X80sp15kp5H1o27gR8lsvUTHoOo0TXPuq41LfiBWwS5hh/xo0rr/7n4c1CP7
+yLP2xUSqI0ovwG0bB9dZokI8gdLuwsxSyBRGK83xzm7fhd9iAbfONqZrpI4RDslf
+zlIQZjJfUCfRvoRojE9adT00AoHhq4OEM0HC0LPScrvxtSzOudMLy5mumsD5UhXo
+4JyHQosHYSpUo8CaMWQnTGXLCbdxWQm4O1tTfIdU0hbM7kqsR9AKjP9Rh4QkTpXM
+QWqreomK4dIN3lDZAv5aegmoin0B1QuXGQHCbQSR6Q/oGf3UxPfFIg==
+-----END RSA PRIVATE KEY-----
+
+---<
+
+Il primo comando visualizza il certificato nella sua forma ASN.1 (una
+notazione "standard" per la diffusione di informazioni in formato testuale).
+
+Il secondo visualizza il contenuto del file cacert.pem, che contiene il
+certificato pubblico "fatto e finito" della nostra CA, cioe' il certificato
+che openssl (o altri programmi) utilizzeranno per verificare i certificati
+da voi "firmati".
+
+Il terzo visualizza il contenuto del file private/cakey.pem. Questo file
+contiene (in forma crittografata) la chiave privata della vostra CA.
+OVVIAMENTE NON E' PROPRIO IL CASO DI DISTRIBUIRE O FAR VISUALIZZARE AD ALTRI
+QUESTA CHIAVE, ANCHE NELLA SUA FORMA CIFRATA (viene qui riportata solamente
+come esempio).
+
+Prima di continuare, per generare una chiave con un numero di bit maggiori,
+potete aggiungere il parametro -newkey rsa:2048 oppure cambiare il parametro
+default_bits nella sezione [req] del file di configurazione. Per utilizzare
+invece l'algoritmo DSA/DSS e' necessario specificare il parametro -newkey
+dsa:bit (di default openssl genera chiavi RSA).
+
+Se, seguendo gli esempi riportati senza aver letto tutto l'articolo
+(SCONSIGLIATO) avete gia' generato la chiave della CA come RSA/1024 bit ed
+intendete cambiarla, dovete RIGENERARLA. E' importante decidere PRIMA il
+tipo di chiave ed il numero di bit da utilizzare, infatti cambiare la chiave
+della CA dopo aver gia' firmato dei certificati, vi obblighera' a RIFIRMARLI
+con la nuova chiave. Peggio ancora se avete gia' diffuso la chiave pubblica,
+dovrete ridistribuire il nuovo certificato (chiave pubblica) ed assicurarvi
+che TUTTI i client ed i server che la utilizzano ne siano informati e
+provvedano all'aggiornamento. Per un uso "domestico" una chiave a 1024 bit
+e' considerata "sufficente", tuttavia, almeno per le CA, e' consigliabile
+utilizzare una chiave a 2048 o 4096 bit (e queste chiavi dovrebbero venire
+generate in locale, su macchine non connesse a nessuna rete, protette con
+particolare attenzione, etc. etc. etc.).
+
+Il file cacert.pem deve essere "distribuito" come chiave pubblica "ufficiale"
+della CA, possibilmente rinominato in qualcosa di piu' comprensibile, tipo
+s0ftpj_CA.pem. E' anche consigliabile che sia possibile per un utente o
+chiunque ne abbia bisogno ritrovare "autonomamente" questa chiave pubblica,
+per esempio pubblicandola sul web server, mettendola a disposizione via ftp,
+tramite una richiesta di finger, etc.
+
+
+I certificati per gli utenti.
+
+Abbiamo preparato la nostra CA e siamo pronti per generare i vari
+certificati. Ai fini di openssl, i certificati dei server e dei client sono
+uguali (ci sarebbe il campo nsCertType - che stunnel non usa - per
+specificare per quale validita' ha il certificato - p. es: client, email,
+server, objsign, etc. - pero', ARGH!, questo e' un mini-howto su come
+tunnelarvi il bnc e il pop3, non su come impiantare una CA commerciale e
+diventare miliardari - se qualcuno comunque vuole sbattersi ad approfondire
+ulteriormente, faccia pure e mi comunichi i risultati, che saro' lieto di
+aggiungere a questo papiro - mailto: hovogliadisbattermi@sikurezza.org).
+
+E' possibile generare i certificati da autenticare direttamente (per i
+vostri utenti "lamah") oppure (maggior privacy) ricevere la richiesta di
+certificato da parte dei vari utenti (e/o sysadm), possibilmente VERIFICANDO
+che la richiesta ed i dati contenuti siano reali (quindi fatevi mandare le
+richieste cifrate e "firmate" con qualche sistema) e reinviare il
+certificato "autenticato". Ovviamente nel primo caso la CA sara' in possesso
+della chiave privata dell'utente; poiche' comunque non e' il caso di
+utilizzare i certificati generati per stunnel (sia client che server) per
+altri scopi (firmare la posta, etc.) perche' NON sono cifrati (normalmente
+le chiavi private vengono sempre protette tramite una password, ma non e'
+possibile utilizzare chiavi cifrate con stunnel), questa soluzione e' piu'
+che accettabile se firmate certificati di utenti che devono accedere ai
+vostri servizi (visto che comunque sarebbe possibile per voi accedere ai
+dati che vengono protetti tramite stunnel). Se invece utilizzate una CA di
+terze parti, e' decisamente consigliabile generare "in proprio" le chiavi
+private di cui poi chiedere la certificazione.
+
+
+Generazione di una chiave privata e conseguente richiesta di certificato
+da inviare alla CA:
+
+---> shell
+
+kppc:~$ CA.sh -newreq
+
+---< 
+        OPPURE
+---> 
+
+kppc:~$ openssl req -new -keyout newreq.pem -out newreq.pem -days 365
+Using configuration from /usr/local/ssl/openssl.cnf
+Generating a 1024 bit RSA private key
+....+++++
+............+++++
+writing new private key to 'newreq.pem'
+Enter PEM pass phrase:
+Verifying password - Enter PEM pass phrase:
+-----
+You are about to be asked to enter information that will be incorporated
+into your certificate request.
+What you are about to enter is what is called a Distinguished Name or a DN.
+There are quite a few fields but you can leave some blank
+For some fields there will be a default value,
+If you enter '.', the field will be left blank.
+-----
+STATO (codice 2 lettere) [IT]:
+Nome stato (nome intero) [ITALY]:
+S0ftpjlandia []:
+Nome organizzazione (p. es: ditta) [s0ftpj]:
+Nome dipartimento (p. es: sezione) []:Stunnel client
+Nome (p. es: il VOSTRO nome) []:Kobaiashi
+Indirizzo di posta []:koba@s0ftpj.org
+
+Please enter the following 'extra' attributes
+to be sent with your certificate request
+A challenge password []:
+An optional company name []:
+
+---<
+
+Come potete notare, ho lasciato invariati il nome dell'organizzazione ed i
+nomi delle localita' e degli stati, mentre ho cambiato il nome del
+dipartimento ed il nome/indirizzo email "personale". Ovviamente non e'
+obbligatorio cambiarli o valorizzarli con dati "reali", e' da notare pero'
+che questi campi sono gli unici che ci permettono di distinguere
+"facilmente" tra un certificato e l'altro (sempre che non vogliate
+ricordarvi il numero seriale o la chiave pubblica/privata di ogni
+certificato a memoria :).
+
+Personalmente valorizzo il parametro "nome dipartimento"
+(organizationalUnitName) per "identificare" l'utilizzo che faro' del
+certificato (p. es: Stunnel client, Stunnel server, Telnet client, Telnetd
+server, Certification Authority, etc.).
+
+Gli ultimi due parametri sono opzionali e assolutamente inutili ai fini del
+nostro esempio. Li lasceremo quindi NON valorizzati (vuoti). Ad essere
+sincero, non ho un'idea precisa del loro utilizzo reale. _Dovrebbero_ poter
+essere utili nella revoca dei certificati, ma non sono utilizzati da openssl
+e sono mantenuti solamente per compatibilita' con gli standard (in
+particolare con Netscape Client).
+
+---> ssleat.txt (linea 4694 -> 4701)
+
+-       The Navigator supports a new HTML tag "KEYGEN" which will cause
+        the browser to generate an RSA key pair when you submit a form 
+        containing the tag.  The public key, along with an optional    
+        challenge (supposedly provided for use in certificate revocation
+        but I don't use it) is signed, DER-encoded, base-64 encoded
+        and sent to the web server as the value of the variable
+        whose NAME is provided in the KEYGEN tag.  The private key is
+        stored by the browser in a local key database.
+
+---<
+
+Vengono inseriti solamente nella richiesta di certificato, ma non vengono
+poi riportati nei certificati finali o in nessun'altro file utile ai fini
+della gestione CA in openssl.
+
+---> newreq.pem (parte) - esempio di valorizzazione dei parametri
+
+        Attributes:
+            unstructuredName         :dato_inserito
+            challengePassword        :dato_inserito
+
+<---
+
+Il file creato contiene SIA la chiave privata, che la richiesta di
+certificato:
+
+---> shell
+
+kppc:~$ cat newreq.pem 
+-----BEGIN RSA PRIVATE KEY-----
+Proc-Type: 4,ENCRYPTED
+DEK-Info: DES-EDE3-CBC,C088C4ACD6EF66CA
+
+TwIdD/qQkr8c3bZEMbce+vEt6wFsu6QoEOgtHln5H7XSNO+MXyvNhrXa9bIKKMM+
+yG0x4BR2Fw1Ecs3wvGtxGHTM220bxJH4gn8iOvf16SzxxFN09+N6hPjxKgAMQdci
+7+pg4pTNN2P8CQbn+YeeeHZxzolbZHsZm4TW4TqCfOiDOEqAR36SbZ9HUQESDPaj
+AT/lC9Q5Br3h2uFYCcDFFnQmNnRpldHt3h/pakbFFHaUVj8wtVYUvuQvZ4hTQgaO
++oEXkQIg54MDQ11lf7KBu1kxIemDgxD/padp9bL7mfQLBIGemTJMsfSrp7ZO9mGi
+m7Rqwc5AnYGhdLzg5eE6E2M3RDg3pQnl7XwbBwDb3HYLqYyxaJg7BeKb8JunxH6W
+47Ad50dWZEd+jVZFI8LVOnEaMy8TzjITBNcEC0hT1oRvMD4obdROGeMkBj98/cro
+Iih4eN9+sJ42AT9zaJtW3JvJsHWjCwSFj0qa6ICGR5egYP9HA/HN/bkcsT/FQ1+u
+HO0PqoyBSLNNq2EbHzrZsm7Ajc7aInqTczP8zLVWc1wzP1p02QJpyr1FqiluARSX
+1lNFANda+kqHbWpOmR/Oa7NgocftFlOlIH23ZF+SDEjO2a64uQQ3/CKf9IJBVlI1
+epVWl3NqIqTYNCrCneyNm7adjN9NMjxM2roGIDiCgNFc/39gU1HkmEyL7kF/eGEd
+7n7ObWrWvJmRE7g1VsgkXwJSoumv+/KJRQFCq6dZSQ1yL3AWdi2wfprftse9vF3/
+cbzyu5IsgVVj8HhIm3VjDV8mzNWXiY5nNocLwoSF+T+TP39whz7u5A==
+-----END RSA PRIVATE KEY-----
+-----BEGIN CERTIFICATE REQUEST-----
+MIIBuzCCASQCAQAwezELMAkGA1UEBhMCSVQxDjAMBgNVBAgTBUlUQUxZMQ8wDQYD
+VQQKEwZzMGZ0cGoxFzAVBgNVBAsTDlN0dW5uZWwgY2xpZW50MRIwEAYDVQQDEwlL
+b2JhaWFzaGkxHjAcBgkqhkiG9w0BCQEWD2tvYmFAczBmdHBqLm9yZzCBnzANBgkq
+hkiG9w0BAQEFAAOBjQAwgYkCgYEApUF9foVcyAIkgc76ABIenr+iAZtUnPnZaplB
++veGYjH5dlJ/9y5ZuAcPP0mhVVtUxfEPX+oixDeBF+ZGTMmJS0shrm3t0Mdd93HN
+v6pIf7DxTg9q4YQlpWrb5FLTA9CZNXT99Aj5bZbtNibBxTJ7fhzLrEZdglCO1Izu
+yBimXMMCAwEAAaAAMA0GCSqGSIb3DQEBBAUAA4GBAC39jdoexKcCph0NLOFugQpU
+mKWcpn9Y2rlwcVPffsSLHazSTJNqdrAzpd3ME9pn5u8fApoZmmhOk3ObQd2GBFc1
+HPHWPgXLPvGBG3agIhHtG/onUN1NucpeJZEjK10Us3RzZS0ptLC2Xbd/VBfUmfoS
+zPaF2O9S9tbOMnhVe1++
+-----END CERTIFICATE REQUEST-----
+
+---<
+
+NOTA: e' anche possibile (se non si utilizza CA.sh, quindi, tipicamente, se
+la richiesta viene generata direttamente dall'utente e non da chi gestisce
+la CA) separare direttamente l'output della chiave privata in un file
+(-keyout koba_private.pem) e quello della richiesta di certificato in un
+altro (-out koba_req.pem), evitando questo "doppio" passaggio.
+
+Se la chiave e' da utilizzarsi per stunnel (o altri programmi che richiedano
+chiavi private in chiaro) possiamo aggiungere l'opzione -nodes per generare
+una chiave privata NON CIFRATA (normalmente, come negli esempi, ogni chiave
+privata e' protetta da una pasword. In seguito genereremo da questa chiave
+una copia non protetta, quindi non e' comunque necessario utilizzare
+quest'opzione, evita solo di dover inserire - e ricordarsi - una password).
+
+Poiche' invieremo alla CA da cui dobbiamo essere autenticati SOLAMENTE la
+richiesta di certificato, generiamo da newreq.pem un file contente la
+richiesta, che chiameremo koba_req.pem .
+
+---> shell
+
+kppc:~$ openssl req -in newreq.pem -out koba_req.pem
+Using configuration from /usr/local/ssl/openssl.cnf
+kppc:~$ cat koba_req.pem
+-----BEGIN CERTIFICATE REQUEST-----
+MIIBuzCCASQCAQAwezELMAkGA1UEBhMCSVQxDjAMBgNVBAgTBUlUQUxZMQ8wDQYD
+VQQKEwZzMGZ0cGoxFzAVBgNVBAsTDlN0dW5uZWwgY2xpZW50MRIwEAYDVQQDEwlL
+b2JhaWFzaGkxHjAcBgkqhkiG9w0BCQEWD2tvYmFAczBmdHBqLm9yZzCBnzANBgkq
+hkiG9w0BAQEFAAOBjQAwgYkCgYEApUF9foVcyAIkgc76ABIenr+iAZtUnPnZaplB
++veGYjH5dlJ/9y5ZuAcPP0mhVVtUxfEPX+oixDeBF+ZGTMmJS0shrm3t0Mdd93HN
+v6pIf7DxTg9q4YQlpWrb5FLTA9CZNXT99Aj5bZbtNibBxTJ7fhzLrEZdglCO1Izu
+yBimXMMCAwEAAaAAMA0GCSqGSIb3DQEBBAUAA4GBAC39jdoexKcCph0NLOFugQpU
+mKWcpn9Y2rlwcVPffsSLHazSTJNqdrAzpd3ME9pn5u8fApoZmmhOk3ObQd2GBFc1
+HPHWPgXLPvGBG3agIhHtG/onUN1NucpeJZEjK10Us3RzZS0ptLC2Xbd/VBfUmfoS
+zPaF2O9S9tbOMnhVe1++
+-----END CERTIFICATE REQUEST-----
+
+---<
+
+E' possibile visualizzare l'output "text" (ASN.1) della richiesta di
+certificato che stiamo per inviare:
+
+---> shell
+
+kppc:~$ openssl req -text -noout -in koba_req.pem  
+Using configuration from /usr/local/ssl/openssl.cnf
+Certificate Request:
+    Data:
+        Version: 0 (0x0)
+        Subject: C=IT, ST=ITALY, O=s0ftpj, OU=Stunnel client, CN=Kobaiashi/Emai
+l=koba@s0ftpj.org
+        Subject Public Key Info:
+            Public Key Algorithm: rsaEncryption
+            RSA Public Key: (1024 bit)
+                Modulus (1024 bit):
+                    00:a5:41:7d:7e:85:5c:c8:02:24:81:ce:fa:00:12:
+                    1e:9e:bf:a2:01:9b:54:9c:f9:d9:6a:99:41:fa:f7:
+                    86:62:31:f9:76:52:7f:f7:2e:59:b8:07:0f:3f:49:
+                    a1:55:5b:54:c5:f1:0f:5f:ea:22:c4:37:81:17:e6:
+                    46:4c:c9:89:4b:4b:21:ae:6d:ed:d0:c7:5d:f7:71:
+                    cd:bf:aa:48:7f:b0:f1:4e:0f:6a:e1:84:25:a5:6a:
+                    db:e4:52:d3:03:d0:99:35:74:fd:f4:08:f9:6d:96:
+                    ed:36:26:c1:c5:32:7b:7e:1c:cb:ac:46:5d:82:50:
+                    8e:d4:8c:ee:c8:18:a6:5c:c3
+                Exponent: 65537 (0x10001)
+        Attributes:
+            a0:00
+    Signature Algorithm: md5WithRSAEncryption
+        2d:fd:8d:da:1e:c4:a7:02:a6:1d:0d:2c:e1:6e:81:0a:54:98:
+        a5:9c:a6:7f:58:da:b9:70:71:53:df:7e:c4:8b:1d:ac:d2:4c:
+        93:6a:76:b0:33:a5:dd:cc:13:da:67:e6:ef:1f:02:9a:19:9a:
+        68:4e:93:73:9b:41:dd:86:04:57:35:1c:f1:d6:3e:05:cb:3e:
+        f1:81:1b:76:a0:22:11:ed:1b:fa:27:50:dd:4d:b9:ca:5e:25:
+        91:23:2b:5d:14:b3:74:73:65:2d:29:b4:b0:b6:5d:b7:7f:54:
+        17:d4:99:fa:12:cc:f6:85:d8:ef:52:f6:d6:ce:32:78:55:7b:
+        5f:be
+                                                    
+---<
+
+E' sufficente inviare la richiesta di certificazione (koba_req.pem -
+ATTENZIONE A NON INVIARE LA CHIAVE PRIVATA!) alla CA.
+
+
+Come "firmare" un certificato:
+
+Qualora siate voi stessi una CA, supponendo che abbiate gia' seguito le
+istruzioni riportate precedentemente per il setup "base" (struttura delle
+directory, chiavi pubbliche/privata della CA stessa, etc.), le procedure per
+la "firma" dei certificati degli utenti sono molto semplici:
+
+Copiamo (eventualmente sovrascrivendo il vecchio file) la richiesta di
+certificazione ricevuta (o generata da noi stessi per un nostro utente o
+server) nel file /usr/local/ssl/CA/newreq.pem .
+
+Ovviamente sara' opportuno, prima di firmare il certificato, CONTROLLARE la
+validita' dei dati contenuti nella richiesta (con openssl req -text -in
+newreq.pem); VERIFICARE che la richiesta sia stata generata REALMENTE
+dall'utente di cui risulta il nome; ASSICURARSI che non ci siano state
+"manipolazioni" durante l'invio del file, etc. . 
+
+E' quindi fondamentale utilizzare strumenti di crittografia quali PGP
+(http://www.pgpi.org), oppure le funzionalita' S/MIME dei client di posta,
+oppure ricorrere al buon vecchio sistema del telefono/fax, etc., per
+verificare l'identita' dell'utente e l'integrita' della richiesta di
+certificato spedita. Puo' essere utile in questo caso il comando digest di
+openssl o il comando md5sum presente su molti sistemi unix (anche con nome
+leggermente differente).
+
+---> shell (utente)
+
+kppc:~$ wc koba_req.pem
+     12      16     676 koba_req.pem
+kppc:~$ md5sum koba_req.pem
+daa5de3a1d0b159da0de4e90cb2665cb  koba_req.pem
+kppc:~$ openssl dgst -md5 < koba_req.pem 
+daa5de3a1d0b159da0de4e90cb2665cb
+kppc:~$ openssl dgst -sha1 < koba_req.pem 
+4aff5dac01408a0be0f8f85ebf1db3bd61414fd4
+kppc:~$ openssl dgst -ripemd160 < koba_req.pem 
+dc7d80016f608a2ba28c3488a4f72f51394f9b35
+
+---<
+
+---> shell (CA)
+
+kppc:/usr/local/ssl/CA# md5sum newreq.pem
+daa5de3a1d0b159da0de4e90cb2665cb  newreq.pem
+kppc:/usr/local/ssl/CA# openssl dgst -md5 < newreq.pem
+daa5de3a1d0b159da0de4e90cb2665cb
+kppc:/usr/local/ssl/CA# openssl dgst -sha1 < newreq.pem
+4aff5dac01408a0be0f8f85ebf1db3bd61414fd4
+kppc:/usr/local/ssl/CA# openssl dgst -ripemd160 < newreq.pem
+dc7d80016f608a2ba28c3488a4f72f51394f9b35
+
+---<
+
+Questi sono tre diversi digest (sha1, md5 e ripemd160) della richiesta di
+certificato che abbiamo generato. Utilizzando uno di questi comandi (md5 e'
+considerato il "meno sicuro") e' possibile ottenere una breve stringa
+UNIVOCA (in pratica: ad ogni file corrisponde una stringa digest diversa che
+non puo' venire generata con nessun altro file, a meno che non sia
+esattamente uguale), comunicabile facilmente via telefono o fax e tramite la
+quale la CA e l'utente possono confrontare la copia della richiesta di
+certificato per verificare che siano eguali (ovviamente i file devono essere
+esattamente uguali, spazi e a capo compresi - il comando wc conta linee,
+parole e caratteri di un file - se questi numeri differiscono, non avete
+speranza che il digest dia lo stesso risultato!)
+
+Possiamo finalmente procedere e "firmare" il certificato:
+
+---> shell
+
+kppc:/usr/local/ssl/CA# CA.sh -sign
+
+---<
+        OPPURE
+---> 
+
+kppc:/usr/local/ssl/CA# openssl ca -policy policy_anything -out newcert.pem
+-infiles newreq.pem
+Using configuration from /usr/local/ssl/openssl.cnf
+Enter PEM pass phrase:
+Check that the request matches the signature
+Signature ok
+The Subjects Distinguished Name is as follows
+countryName           :PRINTABLE:'IT'
+stateOrProvinceName   :PRINTABLE:'ITALY'
+organizationName      :PRINTABLE:'s0ftpj'
+organizationalUnitName:PRINTABLE:'Stunnel client'
+commonName            :PRINTABLE:'Kobaiashi'
+emailAddress          :IA5STRING:'koba@s0ftpj.org'
+Certificate is to be certified until Oct 31 21:48:14 2000 GMT (365 days)
+Sign the certificate? [y/n]:y
+
+
+1 out of 1 certificate requests certified, commit? [y/n]y
+Write out database with 1 new entries
+Data Base Updated
+
+---<
+
+Utilizzando CA.sh viene anche visualizzato a video il certificato firmato
+appena generato.
+
+"ca" e' il sottocomando di openssl destinato alla gestione delle
+funzionalita' di CA (openssl ca -help per un sommario dei comandi).
+
+L'opzione -policy specifica alcune regole aggiuntive che openssl
+controllera' prima di permettere la firma del certificato (che va comunque
+confermata "manualmente" per ben due volte).
+
+"policy_anything" di default richiede solamente che sia valorizzato
+("supplied") il campo "commonName", mentre gli altri sono opzionali
+("optional"). E' anche possibile modificare la policy in maniera che
+permetta di firmare certificati solamenta se alcuni dei campi sono
+valorizzati in maniera eguale agli omonimi campi del certificato della CA
+("match").
+
+---> /usr/local/ssl/openssl.cnf (parte)
+
+# For the CA policy
+[ policy_match ]
+countryName             = match   
+stateOrProvinceName     = match   
+organizationName        = match   
+organizationalUnitName  = optional
+commonName              = supplied
+emailAddress            = optional
+
+# For the 'anything' policy
+# At this point in time, you must list all acceptable 'object'
+# types.
+[ policy_anything ]
+countryName             = optional
+stateOrProvinceName     = optional
+localityName            = optional
+organizationName        = optional
+organizationalUnitName  = optional                        
+commonName              = supplied
+emailAddress            = optional
+
+---<
+
+E' da notare che queste opzioni agiscono PRIMA della fase di firma vera e
+propria, cioe' specificando un certificato NON valido per la policy che si
+intende utilizzare, non sara' possibile firmarlo. Queste opzioni non
+influenzano il comportamento di openssl e stunnel con i certificati gia'
+firmati!
+
+Dopo il "commit", openssl aggiorna sia il file serial che il file index.txt,
+e copia newcert.pem (il certificato firmato) nella directory newcerts/,
+chiamandolo xx.pem (dove xx e' il numero seriale del certificato, nel nostro
+esempio 01.pem):
+
+---> shell
+
+kppc:/usr/local/ssl/CA# cat serial
+02
+kppc:/usr/local/ssl/CA# cat index.txt
+V       001031214814Z           01      unknown /C=IT/ST=ITALY/O=s0ftpj/OU=Stun
+nel client/CN=Kobaiashi/Email=koba@s0ftpj.org
+kppc:/usr/local/ssl/CA# cat newcert.pem
+issuer :/C=IT/ST=ITALY/O=s0ftpj/OU=Certification Authority/CN=Admin/Email=admin
+@s0ftpj.org
+subject:/C=IT/ST=ITALY/O=s0ftpj/OU=Stunnel client/CN=Kobaiashi/Email=koba@s0ftp
+j.org
+serial :01
+
+Certificate:
+    Data:
+        Version: 3 (0x2)
+        Serial Number: 1 (0x1)
+        Signature Algorithm: md5WithRSAEncryption
+        Issuer: C=IT, ST=ITALY, O=s0ftpj, OU=Certification Authority, CN=Admin/
+Email=admin@s0ftpj.org
+        Validity
+            Not Before: Nov  1 21:48:14 1999 GMT
+            Not After : Oct 31 21:48:14 2000 GMT
+        Subject: C=IT, ST=ITALY, O=s0ftpj, OU=Stunnel client, CN=Kobaiashi/Emai
+l=koba@s0ftpj.org
+        Subject Public Key Info:
+            Public Key Algorithm: rsaEncryption
+            RSA Public Key: (1024 bit)
+                Modulus (1024 bit):
+                    00:a5:41:7d:7e:85:5c:c8:02:24:81:ce:fa:00:12:
+                    1e:9e:bf:a2:01:9b:54:9c:f9:d9:6a:99:41:fa:f7:
+                    86:62:31:f9:76:52:7f:f7:2e:59:b8:07:0f:3f:49:
+                    a1:55:5b:54:c5:f1:0f:5f:ea:22:c4:37:81:17:e6:
+                    46:4c:c9:89:4b:4b:21:ae:6d:ed:d0:c7:5d:f7:71:
+                    cd:bf:aa:48:7f:b0:f1:4e:0f:6a:e1:84:25:a5:6a:
+                    db:e4:52:d3:03:d0:99:35:74:fd:f4:08:f9:6d:96:
+                    ed:36:26:c1:c5:32:7b:7e:1c:cb:ac:46:5d:82:50:
+                    8e:d4:8c:ee:c8:18:a6:5c:c3
+                Exponent: 65537 (0x10001)
+        X509v3 extensions:
+            X509v3 Basic Constraints: 
+                CA:FALSE
+            Netscape Comment: 
+                OpenSSL Generated Certificate
+            X509v3 Subject Key Identifier: 
+                85:8D:0E:12:94:51:BD:1C:20:F7:65:52:B1:9D:89:B6:B2:67:7F:FB
+            X509v3 Authority Key Identifier: 
+                keyid:54:02:32:70:F4:C4:65:67:DB:B8:B4:8E:BE:9A:74:17:D8:29:CA:
+8B
+                 DirName:/C=IT/ST=ITALY/O=s0ftpj/OU=Certification Authority/CN=A
+dmin/Email=admin@s0ftpj.org
+                serial:00
+
+    Signature Algorithm: md5WithRSAEncryption
+        59:b0:40:03:b9:5f:84:c0:fb:1d:e6:94:03:80:31:e8:ce:78:
+        10:59:6f:6f:85:da:0b:73:cf:8e:cf:af:83:aa:72:58:2a:e2:
+        65:6b:42:9c:3e:00:63:7f:64:cc:8b:70:8b:82:74:f5:a5:8c:
+        82:9e:56:51:f6:9d:37:c1:26:54:4d:6d:35:30:fe:d6:b4:fe:
+        51:09:e6:86:87:60:73:99:3e:b8:44:af:b6:9f:01:26:07:7a:
+        a0:d9:17:95:65:9f:28:86:7b:39:e3:2f:dc:71:9e:2c:44:ce:
+        50:ca:8f:6d:5c:63:26:b6:aa:d6:d1:03:b1:9d:7f:34:b5:94:
+        03:91
+
+-----BEGIN CERTIFICATE-----
+MIIDgjCCAuugAwIBAgIBATANBgkqhkiG9w0BAQQFADCBgTELMAkGA1UEBhMCSVQx
+DjAMBgNVBAgTBUlUQUxZMQ8wDQYDVQQKEwZzMGZ0cGoxIDAeBgNVBAsTF0NlcnRp
+ZmljYXRpb24gQXV0aG9yaXR5MQ4wDAYDVQQDEwVBZG1pbjEfMB0GCSqGSIb3DQEJ
+ARYQYWRtaW5AczBmdHBqLm9yZzAeFw05OTExMDEyMTQ4MTRaFw0wMDEwMzEyMTQ4
+MTRaMHsxCzAJBgNVBAYTAklUMQ4wDAYDVQQIEwVJVEFMWTEPMA0GA1UEChMGczBm
+dHBqMRcwFQYDVQQLEw5TdHVubmVsIGNsaWVudDESMBAGA1UEAxMJS29iYWlhc2hp
+MR4wHAYJKoZIhvcNAQkBFg9rb2JhQHMwZnRwai5vcmcwgZ8wDQYJKoZIhvcNAQEB
+BQADgY0AMIGJAoGBAKVBfX6FXMgCJIHO+gASHp6/ogGbVJz52WqZQfr3hmIx+XZS
+f/cuWbgHDz9JoVVbVMXxD1/qIsQ3gRfmRkzJiUtLIa5t7dDHXfdxzb+qSH+w8U4P
+auGEJaVq2+RS0wPQmTV0/fQI+W2W7TYmwcUye34cy6xGXYJQjtSM7sgYplzDAgMB
+AAGjggENMIIBCTAJBgNVHRMEAjAAMCwGCWCGSAGG+EIBDQQfFh1PcGVuU1NMIEdl
+bmVyYXRlZCBDZXJ0aWZpY2F0ZTAdBgNVHQ4EFgQUhY0OEpRRvRwg92VSsZ2JtrJn
+f/swga4GA1UdIwSBpjCBo4AUVAIycPTEZWfbuLSOvpp0F9gpyouhgYekgYQwgYEx
+CzAJBgNVBAYTAklUMQ4wDAYDVQQIEwVJVEFMWTEPMA0GA1UEChMGczBmdHBqMSAw
+HgYDVQQLExdDZXJ0aWZpY2F0aW9uIEF1dGhvcml0eTEOMAwGA1UEAxMFQWRtaW4x
+HzAdBgkqhkiG9w0BCQEWEGFkbWluQHMwZnRwai5vcmeCAQAwDQYJKoZIhvcNAQEE
+BQADgYEAWbBAA7lfhMD7HeaUA4Ax6M54EFlvb4XaC3PPjs+vg6pyWCriZWtCnD4A
+Y39kzItwi4J09aWMgp5WUfadN8EmVE1tNTD+1rT+UQnmhodgc5k+uESvtp8BJgd6
+oNkXlWWfKIZ7OeMv3HGeLETOUMqPbVxjJraq1tEDsZ1/NLWUA5E=
+-----END CERTIFICATE-----
+
+---<
+
+Possiamo ora rispedire il certificato "firmato" all'utente.
+
+---> shell
+
+kppc:/usr/local/ssl/CA# openssl x509 -in newcert.pem -out koba_signed.pem
+
+---<
+
+Se abbiamo generato anche la chiave privata dell'utente, oppure una chiave
+da usare su un nostro server, sara' necessario inserire anche questa
+all'interno del file (in seguito e' spiegato come creare un certificato
+utilizzabile come "stunnel.pem". In questo caso, e' consigliabile spedire
+all'utente o al sysadm il certificato "fatto e finito").
+
+Ovviamente, se spedite anche la chiave privata, E' ASSOLUTAMENTE NECESSARIO
+CHE QUESTA COMUNICAZIONE AVVENGA IN MANIERA PROTETTA!
+
+Personalmente trovo utile rinominare new_cert.pem in qualcosa tipo
+kobaiashi_signed.pem e newreq.pem in qualcosa tipo kobaiashi_req.pem e
+spostarli in una directory qualsiasi (tipo /certs) come "history", visto che
+i certificati firmati da openssl sono posizionati in /newcerts e
+identificabili solamente tramite il serial (01.pem, 02.pem, etc. - l'indice
+e' contenuto in index.txt).
+
+Se avete generato direttamente il certificato per l'utente, consiglio di
+spostare la chiave privata dell'utente nella directory /private,
+rinominandola koba_private.req o qualcosa di simile.
+
+Sara' vostra cura controllare i permessi delle directory e dei file, in
+maniera che i file contenenti le chiavi private (anche quelle generate nei
+vari passaggi) NON siano leggibili da chiunque non ne abbia diritto
+(generalmente, nessuno all'infuori di voi :) o vengano cancellate
+(possibilmente sovrascritte o "wipeate").
+
+
+Let's go!
+
+Vediamo ora come, da un file contenente la chiave privata (newreq.pem) e da
+un file contenente il certificato firmato (koba_signed.pem), generare uno
+"stunnel.pem" valido per essere utilizzato con stunnel.
+
+Se abbiamo ricevuto il certificato da una CA, sara' opportuno verificare
+l'effettiva validita' della firma.
+
+---> shell
+
+kppc:~$ openssl verify koba_signed.pem 
+koba_signed.pem: /C=IT/ST=ITALY/O=s0ftpj/OU=Stunnel
+client/CN=Kobaiashi/Email=koba@s0ftpj.org
+error 20 at 0 depth lookup:unable to get local issuer certificate
+
+---<
+
+In questo esempio, la verifica e' "fallita", perche' la chiave pubblica
+della CA non e' presente nella directory usr/local/ssl/certs o questa
+directory non e' correttamente "hashata" (vedere la sezione "Come funziona
+tecnicamente").
+
+Possiamo ovviare (temporaneamente) passando direttamente la chiave pubblica
+della CA con l'opzione -CAfile:
+
+---> shell
+
+kppc:~$ openssl verify -CAfile s0ftpj_CA.pem koba_signed.pem 
+koba_signed.pem: OK
+
+---<
+
+oppure copiare la chiave pubblica nella corretta posizione e ricreare le
+hash necessarie ad openssl per ritrovare le chiavi (probabilmente sono
+necessari i permessi root per eseguire queste operazioni)
+
+---> shell
+
+kppc:~# cp s0ftpj_CA.pem /usr/local/ssl/certs/
+kppc:~# cd /usr/local/ssl/certs
+kppc:/usr/local/ssl/certs# ls -l
+total 2
+-rw-r--r--   1 root     root         1224 Nov  1 23:52 s0ftpj_CA.pem
+kppc:/usr/local/ssl/certs# /usr/local/ssl/bin/c_rehash 
+Doing /usr/local/ssl/certs
+s0ftpj_CA.pem => 901428a0.0
+kppc:/usr/local/ssl/certs# ls -l
+total 2
+lrwxrwxrwx   1 root     root           13 Nov  2 00:17 901428a0.0 ->
+s0ftpj_CA.pem
+-rw-r--r--   1 root     root          1224 Nov  1 23:52 s0ftpj_CA.pem
+
+---<
+
+Estraiamo quindi la chiave privata ed il certificato firmato e generiamo un
+unico file, che chiameremo koba_stunnel.pem (se ci servira per
+stunnel_client) o stunnel.pem (per il server).
+
+---> shell
+
+kppc:~$ openssl rsa -in newreq.pem -out koba_stunnel.pem
+read RSA private key
+Enter PEM pass phrase:
+writing RSA private key
+kppc:~$ openssl x509 -in koba_signed.pem >> koba_stunnel.pem 
+kppc:~$ cat koba_stunnel.pem 
+----BEGIN RSA PRIVATE KEY-----
+MIICXgIBAAKBgQClQX1+hVzIAiSBzvoAEh6ev6IBm1Sc+dlqmUH694ZiMfl2Un/3
+Llm4Bw8/SaFVW1TF8Q9f6iLEN4EX5kZMyYlLSyGube3Qx133cc2/qkh/sPFOD2rh
+hCWlatvkUtMD0Jk1dP30CPltlu02JsHFMnt+HMusRl2CUI7UjO7IGKZcwwIDAQAB
+AoGBAJ2Dvd1Ruqz9tdRw90QIAV2pJP9JEi6Jy51atVREiLeiELiiTEzLxkKtn+/f
++8JDSptdeR0gK8FBcm/YUtuwIYa1pnauzJ/vyBHT3F/Tl7Rv+TO8XPWwzdZTe1JK
+PtV6hbu/4qM4dgv8GBQevudt9cXWXHPk8nCmBNfXB6eWUopRAkEA1JX2sH51IU8T
+1X3sH1SSWA+TN6XL/JNjBsfaekLjzhpdlqYlmeGbOXELm2J2wvoz9p3z2ZSB9uvV
+Os8VT2PDGQJBAMcBGqsn6nGD/M98GZ8cCjMYFLWMHpEmkkRV2QOVwtpZWAtUv6wG
+AVRdyR6XLQpJqoVgtGHsdMwutmgjGwPOVjsCQQDDlQD0GjQbJAzEY2jE3mMRn6q7
+DM+indsClwZba4T4zusBufRoIddUvruGBs3qzpTWNTXvHSGBEjIIPBOICempAkBc
+oQXxzwWQSvhc943RgrK4r6fMDWmY9JQ2nKMDySzGh7m0pIEHKFBsHa9kvsdnN3zY
+0neD8RU4iTG8bULA1cVLAkEAn9UGPYgK/tPv1WD6MP3X768yVpP3JFIhaA/fD/Xe
+091VewNkm09BLOTY0xQl7rjOTcfGQqNDV3NFi0h4xYSoLQ==
+-----END RSA PRIVATE KEY-----
+-----BEGIN CERTIFICATE-----
+MIIDgjCCAuugAwIBAgIBATANBgkqhkiG9w0BAQQFADCBgTELMAkGA1UEBhMCSVQx
+DjAMBgNVBAgTBUlUQUxZMQ8wDQYDVQQKEwZzMGZ0cGoxIDAeBgNVBAsTF0NlcnRp
+ZmljYXRpb24gQXV0aG9yaXR5MQ4wDAYDVQQDEwVBZG1pbjEfMB0GCSqGSIb3DQEJ
+ARYQYWRtaW5AczBmdHBqLm9yZzAeFw05OTExMDEyMTQ4MTRaFw0wMDEwMzEyMTQ4
+MTRaMHsxCzAJBgNVBAYTAklUMQ4wDAYDVQQIEwVJVEFMWTEPMA0GA1UEChMGczBm
+dHBqMRcwFQYDVQQLEw5TdHVubmVsIGNsaWVudDESMBAGA1UEAxMJS29iYWlhc2hp
+MR4wHAYJKoZIhvcNAQkBFg9rb2JhQHMwZnRwai5vcmcwgZ8wDQYJKoZIhvcNAQEB
+BQADgY0AMIGJAoGBAKVBfX6FXMgCJIHO+gASHp6/ogGbVJz52WqZQfr3hmIx+XZS
+f/cuWbgHDz9JoVVbVMXxD1/qIsQ3gRfmRkzJiUtLIa5t7dDHXfdxzb+qSH+w8U4P
+auGEJaVq2+RS0wPQmTV0/fQI+W2W7TYmwcUye34cy6xGXYJQjtSM7sgYplzDAgMB
+AAGjggENMIIBCTAJBgNVHRMEAjAAMCwGCWCGSAGG+EIBDQQfFh1PcGVuU1NMIEdl
+bmVyYXRlZCBDZXJ0aWZpY2F0ZTAdBgNVHQ4EFgQUhY0OEpRRvRwg92VSsZ2JtrJn
+f/swga4GA1UdIwSBpjCBo4AUVAIycPTEZWfbuLSOvpp0F9gpyouhgYekgYQwgYEx
+CzAJBgNVBAYTAklUMQ4wDAYDVQQIEwVJVEFMWTEPMA0GA1UEChMGczBmdHBqMSAw
+HgYDVQQLExdDZXJ0aWZpY2F0aW9uIEF1dGhvcml0eTEOMAwGA1UEAxMFQWRtaW4x
+HzAdBgkqhkiG9w0BCQEWEGFkbWluQHMwZnRwai5vcmeCAQAwDQYJKoZIhvcNAQEE
+BQADgYEAWbBAA7lfhMD7HeaUA4Ax6M54EFlvb4XaC3PPjs+vg6pyWCriZWtCnD4A
+Y39kzItwi4J09aWMgp5WUfadN8EmVE1tNTD+1rT+UQnmhodgc5k+uESvtp8BJgd6
+oNkXlWWfKIZ7OeMv3HGeLETOUMqPbVxjJraq1tEDsZ1/NLWUA5E=
+-----END CERTIFICATE-----
+
+---<
+
+Se intendiamo poter utilizzare con stunnel la negoziazione DH, dobbiamo
+anche aggiungere a stunnel.pem (sia sul client che sul server) uno "strong
+prime" DH (altrimenti la negoziazione SSL avverra' sempre utilizzando RSA e
+verra' visualizzato un "warning" nel syslog).
+
+---> shell
+
+kppc:~$ openssl gendh -rand /dev/random >> koba_stunnel.pem 
+89 semi-random bytes loaded
+Generating DH parameters, 512 bit long strong prime, generator of 2
+This is going to take a long time
+............................+..................................................
+..................................................................+............
+.....+.+.....................+...................+.......................+.+..+
+.............................+.....+.................+.....................+...
+............................................................................+..
+...........................+..................................................+
++*++*++*++*++*
+
+---<
+
+verranno aggiunte al file le seguente righe:
+
+---> koba_stunnel.pem (parte)
+
+-----BEGIN DH PARAMETERS-----
+MEYCQQDIWCaS+HpRSmsoB6AhgM8qcdnfIgJ1vfFUkQljsiu5vEyBLfQt0/hDnim8
+9KZyv/FAcevvh4zOEvG9VNZOEwKLAgEC
+-----END DH PARAMETERS-----
+
+---<
+
+Nell'esempio abbiamo generato un file che puo' essere utilizzato sia per un
+client, che per un server. In questo secondo caso, per comodita', e'
+consigliabile rinominare il file in stunnel.pem e spostarlo in
+/usr/local/certs, PROTEGGENDOLO DA LETTURA con i permessi appropriati
+(ricordo, per l'ennesima volta, che questo file contiene anche la chiave RSA
+privata NON CIFRATA e chiunque abbia accesso a questo file potra' fingere di
+essere il vostro stunnel_server).
+
+
+Utilizzo di stunnel_client con verifica:
+
+La sintassi di stunnel_client non cambia rispetto a quanto specificato
+precedentemente.. aggiungeremo il parametro -p certificato e -v 2
+
+stunnel -c -d 127.0.0.1:1110 -r mail.s0ftpj.org 995 -p koba_stunnel.pem -v 2
+
+Se il parametro -p non viene fornito, il client utilizzera'
+/usr/local/ssl/certs/stunne.pem (se presente e leggibile).
+
+(ricordo che nella directory /usr/local/ssl/certs deve essere presente il
+certificato pubblico della CA che ha firmato il certificato del server a cui
+vogliamo collegarci, opportunamente "hashato" e leggibile dall'utente con
+cui lanciamo stunnel_client)
+
+
+Utilizzo di stunnel_server con verifica:
+
+Anche la sintassi del server non cambia molto... Assumiamo che la chiave
+privata ed il certificato siano contenuti nel file
+/usr/local/ssl/certs/stunnel.pem (e' comunque possibile specificare un file
+diverso tramite il parametro -p).
+
+995  stream  tcp nowait stunnel  /usr/local/sbin/stunnel stunnel -r 110 -v 3
+
+Il parametro -v 3 FORZA il server a verificare il certificato fornito dal
+client, oltre che per una firma valida della CA anche con una copia dello
+stesso presente IN LOCALE (nella directory /usr/local/ssl/certs/mytrusted,
+modificabile con -a).
+
+Ovviamente sara' necessario inserire in questa directory TUTTI i certificati
+pubblici degli utenti che sono autorizzati ad accedere alle risorse protette
+con stunnel, e procedere a "hashare" la directory (e' possibile utilizzare
+c_rehash /usr/local/ssl/certs/mystrusted per automatizzare questa
+operazione). 
+
+Qualora un utente precedentemente "valido" non debba piu' essere autorizzato
+ad accedere alle risorse, sara' sufficente cancellare la copia del
+certificato presente in mytrusted. Questo e', in stunnel, l'unico sistema
+per negare l'accesso ad un client in possesso di un certificato firmato da
+una CA valida (salvo che non sia scaduto), POICHE' NON E' POSSIBILE
+utilizzare CRL.
+
+Utilizzando il parametro -v 2 anche nel server, TUTTI gli utenti in possesso
+di un certificato regolarmente firmato da una CA di quelle "autorizzate"
+(cioe' tutte quelle di cui sono presenti i certificati in
+/usr/local/ss/certs) potranno accedere alle risorse.
+
+
+Revoca certificati/CRL/etc.
+
+Devo ammettere che non ho utilizzato molto le funzionalita' di crl di
+openssl se non per qualche prova necessarie alla stesura di questo articolo,
+quindi le trattero' in maniera piuttosto superficiale.
+
+E' da notare che questo capitolo e' stato incluso piu' per "completezza"
+che per una reale esigenza.
+
+Ne stunnel, ne nessun'altra applicazione che utilizzi le funzioni standard
+di openssl per la verifica dei certificati (da /usr/local/ssl/certs) tengono
+infatti conto di un eventuale CRL, anche se posizionata in questa directory.
+Sebbene siano presenti in openssl delle funzioni di lettura e gestione CRL,
+il software deve ESPLICITAMENTE richiamare queste funzioni.
+
+Per revocare un certificato la sintassi e' la seguente:
+
+---> shell
+
+kppc:/usr/local/ssl/CA# openssl ca -revoke newcerts/01.pem 
+Using configuration from /usr/local/ssl/openssl.cnf
+Enter PEM pass phrase:
+Revoking Certificate 01.
+Data Base Updated
+kppc:/usr/local/ssl/CA# cat index.txt
+R       001031214814Z   991102003217Z   01      unknown /C=IT/ST=ITALY/O=s0ftpj
+/OU=Stunnel client/CN=Kobaiashi/Email=koba@s0ftpj.org
+
+---<
+
+con -revoke viene passato il file contenente il certificato da revocare. In
+questo caso ho passato come parametro il file newcerts/01.pem, dopo aver
+verificato in index.txt quale fosse il nome del file corrispondente al
+certificato che intendevo revocare. In questo stesso file possiamo notare i
+cambiamenti apportati da openssl dopo la revoca. Il primo carattere della
+riga che descrive il certificato interessato, e' stato sostituito con "R"
+(valori possibili "V" - valido, "R" - revocato, "E" - scaduto).
+
+Dopo ogni revoca di certificato (e ad intervalli regolari, tipo una volta al
+giorno, etc.) e' opportuno emettere una CRL da rendere pubblica, in modo che
+sia possibile per i vari client e server aggiornare l'elenco dei certificati
+non piu' validi.
+
+---> shell
+
+kppc:/usr/local/ssl/CA# openssl ca -gencrl -crldays 1 -out s0ftpj-crl.pem
+Using configuration from /usr/local/ssl/openssl.cnf
+Enter PEM pass phrase:
+kppc:/usr/local/ssl/CA# cat s0ftpj_CA.crl 
+-----BEGIN X509 CRL-----
+MIIBRzCBsTANBgkqhkiG9w0BAQQFADCBgTELMAkGA1UEBhMCSVQxDjAMBgNVBAgT
+BUlUQUxZMQ8wDQYDVQQKEwZzMGZ0cGoxIDAeBgNVBAsTF0NlcnRpZmljYXRpb24g
+QXV0aG9yaXR5MQ4wDAYDVQQDEwVBZG1pbjEfMB0GCSqGSIb3DQEJARYQYWRtaW5A
+czBmdHBqLm9yZxcNOTkxMTAyMDAyNzUwWhcNOTkxMjAyMDAyNzUwWjANBgkqhkiG
+9w0BAQQFAAOBgQA5i/d0fuCAcjpZ9GNZmwuLdeXdAvkA2Ss1akhuYd7hTBPwg565
+157GMzRkaNCz1PH91Aw5ZTdnAveDHWezvgOmrVfkJdSyqjvAJkMqTX+yyAhcumbV
+0efru22k17Zw54S0Gc/kSDUlITx9wxB2ybpOMqoINuYMD6X+3ytJCbwTfA==
+-----END X509 CRL-----
+kppc:/usr/local/ssl/CA# openssl crl -text -noout -in s0ftpj-crl.pem 
+Certificate Revocation List (CRL):
+        Version 1 (0x0)
+        Signature Algorithm: md5WithRSAEncryption
+        Issuer: /C=IT/ST=ITALY/O=s0ftpj/OU=Certification Authority/CN=Admin/Ema
+il=admin@s0ftpj.org
+        Last Update: Nov  2 00:41:16 1999 GMT
+        Next Update: Nov  3 00:41:16 1999 GMT
+Revoked Certificates:
+    Serial Number: 01
+        Revocation Date: Nov  2 00:32:17 1999 GMT
+    Signature Algorithm: md5WithRSAEncryption
+        81:65:d7:66:a9:58:f6:82:33:96:98:a1:78:03:13:c7:49:3a:
+        84:1e:4c:f2:f7:14:d2:7d:59:49:c6:a9:f3:78:c0:fa:1d:01:
+        9e:fc:8b:c7:98:ac:07:c0:a5:43:c5:54:b4:23:82:d7:51:2e:
+        a6:0a:2f:49:1a:4b:f8:ca:f3:b9:50:e8:28:0b:6c:c8:7b:c9:
+        ec:d5:16:2b:9f:19:59:ca:ad:79:14:29:ce:db:2a:64:7a:de:
+        1c:d2:4c:f1:2a:45:f6:3d:d9:3f:44:18:ca:be:73:23:db:09:
+        22:b9:d0:c7:d7:7f:c4:d0:3e:4a:b8:30:b9:5b:23:e1:7c:5f:
+        85:a6
+
+---<
+
+Con il primo comando abbiamo generato una CRL. Il parametro -crldays 1
+specifica che la prossima CRL sara' emessa tra un giorno esatto (ovviamente
+dovra' essere generata "a mano" o tramite uno script, questa e' solo
+un'informazione che i vari utenti possono ricavare analizzando la CRL
+emessa, NON un comando tramite il quale rilanciare automaticamente openssl
+tra 24 ore). Il secondo comando visualizza la CRL cosi' come e' stata
+generata. Il terzo ne visualizza il contenuto in forma testuale.
+
+E' da notare che ogni CRL generata con openssl conterra' comunque l'elenco
+di tutti i certificati revocati, anche se nel frattempo fossero scaduti.
+
+Sara' cura della CA mettere a disposizione degli utenti e dei server la CRL
+in maniera che sia possibile per loro aggiornare periodicamente la copia
+locale con quella nuova (p. es. via web: www.s0ftpj.org/crl.pem).
+
+Ovviamente sara' cura dei server o dei client effettuare realmente questo
+aggiornamento!
+
+
+Note e consigli vari:
+
+- Lavorate IN LOCALE o utilizzando ssh per generare i certificati,
+  altrimenti un eventuale attaccante potrebbe "carpire" la password che
+  utilizzate per il certificato (o peggio, quella della CA) e tutto questo
+  documento risulterebbe inutile!
+
+- La chiave privata di stunnel (sia utilizzato come client che come server)
+  NON E' CRITTOGRAFATA su disco, quindi tenetela sempre con mask r--------
+  (600) o rw-r----- (640) se utilizzate il sistema del doppio id e, in caso
+  di compromissione della sicurezza del sistema, CAMBIATELA (ma in questo
+  caso avete problemi ben piu gravi :).
+
+- Non utilizzate come chiave di stunnel la stessa chiave che utilizzate
+  per altre cose, come firmare la posta o accedere a server web via ssl.
+
+- Non utilizzate SOLAMENTE la certificazione di stunnel come
+  autentificazione. Se il servizio a cui vi connettete prevede
+  un'autenticazione (password, etc.), utilizzatela!
+
+- Non utilizzate la chiave di stunnel per certificare le chiavi dei client e
+  viceversa. Utilizzate una chiave apposita (preferibilmente a 1024 o 2048
+  bit) solo per la CA, con cui certificare sia i server che i client. NON
+  tenete la chiave della CA su un sistema accessibile e comunque
+  PROTEGGETELA SEMPRE CON PASSWORD.
+
+- Ricordate che se utilizzate stunnel su una macchina di cui non siete (o
+  non siete gli unici) root, e' possibile COMUNQUE per il sysadm (o qualcuno
+  con privilegi simili) "intercettare" le vostre comunicazioni (con uno
+  sniffer sull'interfaccia lo se usate un redirect, con un po' di
+  sbattimento se usate -l) e fare _qualsiasi_ altra cosa (modificare openssl
+  per rubarvi le password, etc.).
+
+- Ricordate che i generatori di numeri "casuali" su computer non sono poi
+  COSI' causali. Configurate /usr/local/ssl/openssl.cnf per usare dati
+  realmente random (/dev/random sotto Linux recenti e /dev/srandom sotto
+  OpenBSD dovrebbero fornire sufficente sicurezza per un utilizzo
+  "casalingo"). La configurazione di default di openssl utilizza un file di
+  nome .rnd nella home dell'utente - al primo utilizzo questo file e' VUOTO;
+  quindi copiateci sopra un file qualsiasi (tipo l'mp3 del vostro gatto che
+  miagola) - ogni volta che openssl utilizza .rnd lo modifica, ma
+  sicuramente e' consigliabile sostituirlo prima dell'utilizzo con dati
+  casuali - il piu' casuali possibile; senza copiare .rnd ogni volta,
+  e' possibile usare in openssl il parametro -rand file:file:file :)
+
+- Ricordate che quello che cancellate da un disco, non viene distrutto, ma
+  e' possibile per chiunque (root) con un disk-editor e, anche se
+  sovrascritto, da specialisti con attrezzature apposite, ritrovarne il
+  contenuto. Non generate le chiavi su sitemi accessibili pubblicamente e
+  utilizzate wipe o un software analogo
+  [http://users.erols.com/thomassr/zero/download/wipe/ oppure
+  http://gsu.linux.org.tr/wipe/] per _provare_ a cancellare "seriamente"
+  i file.
+
+- Non fate girare stunnel sul server (neanche sui client sarebbe il caso
+  :) con privilegi di root. Se intendete bindare stunnel su una porta
+  privilegiata (<=1024) utilizzatelo da inetd oppure utilizzate un
+  ambiente chroot (stunnel da solo non lo fa, vi servono software tipo
+  authbind o simili)
+
+- In modalita' client, SPECIFICATE come ip da cui accettare le connessioni
+  SEMPRE E SOLO 127.0.0.1 (localhost), altrimenti sara' possibile per
+  chiunque possa raggiungere l'indirizzo ip pubblico della vostra macchina
+  utilizzarla come "bouncer" per accedere al servizio protetto. Se ci sono
+  altri utenti che utilizzano la vostra macchina, utilizzate l'identd
+  (opzione -u di stunnel) oppure hosts.deny e/o hosts.allow.
+
+- Se sul server intendete lasciare accessibile un servizio SOLAMENTE tramite
+  stunnel e lo utilizzate per accettare connessioni da remoto e "rigirarle"
+  verso una porta locale, RICORDATEVI di chiudere la porta "reale" a
+  chiunque non sia 127.0.0.1 tramite firewall o tcp_wrappers (o tutti e due
+  :) - se avete utenti con accesso locale e volete comunque impedirgli di
+  utilizzare quella risorse, "allora sono cavoli tuoi sorella"(*) - ehm,
+  provate con l'identd (sui client reali, NON su stunnel, altrimenti
+  autentichera' l'utente utilizzando l'identd remoto, che un eventuale
+  assalitore puo' tranquillamente "falsificare") oppure con i parametri in
+  hosts.deny e/o hosts.allow. Ovviamente se e' possibile spoofare
+  dall'esterno come "127.0.0.1" queste precauzioni sono inutili (e i vostri
+  problemi sono ben maggiori), ma per questo vi rimando al mio prossimo
+  articolo sui firewall :)
+
+- Se avete paura che il Mossad o l'NSA possano intercettare le vostre
+  comunicazioni, specificate nel server il parametro -C EDH-RSA-DES-CBC3-SHA
+  (triple-des) o altre CipherSuite considerate "sicure". Questo parametro
+  costringe il server a permettere la connessione solamente ai client che
+  "accettino" questo grado di sicurezza e mette al riparo contro attacchi
+  portati con client che forzino l'utilizzo di algoritmi meno solidi.
+
+  Aumentate il valore di KEYLENGTH a 1024 o 2048 alla riga 29 si ssl.c e
+  ricompilate/reinstallate stunnel - ovviamente e' anche il caso di
+  rigenerare stunnel.pem con keylength RSA e DH maggiori di quelle di
+  default (1024 e 512 bit rispettivamente). L'utlizzo di chiavi a 2048 bit
+  provoca un aumento esponenziale delle risorse CPU utilizzate durante
+  l'handshaking SSL e durante la generazione delle chiavi. Generare una
+  chiave temporanea RSA a 2048 bit puo' richiedere piu' di un minuto anche
+  su un PII 350 o macchina di eguale potenza; chiavi a 1024 bit vengono
+  invece generate anche da un P100 in tempi accettabili (qualche secondo).
+  Le chiavi a 512 bit sono generate praticamente istantaneamente. Generare
+  uno "strong-prime" DH >512 bit puo' essere un processo che impegna PER ORE
+  anche un server molto potente - "openssl speed" se volete generare qualche
+  benchmark fuffa e vantarvi con gli amici al bar)... 
+
+  Ricordate comunque che se qualcuno intendesse realmente intercettare le
+  vostre comunicazioni (anche disponendo delle risorse necessarie a
+  "rompere" algoritmi di cifratura con chiavi giudicate oramai "insicure" -
+  RSA 512 bit, p. es.) potrebbe probabilmente trovare sistemi MOLTO piu'
+  semplici per penetrare nel vostro sistema (per esempio, studiare stunnel o
+  openssl e trovare un exploit; exploitare altri servizi disponibili non
+  protetti da accesso con certificati; corrompere vostra sorella, etc.). 
+  Trovo stunnel un ottimo sistema per proteggere comunicazioni che
+  richiedano un basso livello di sicurezza, ma ritengo che non sia adatto
+  nell'utilizzo in sistemi commerciali o in transazioni finanziare, etc.
+
+- Casco ben allacciato in testa, luci accese anche di giorno, e prudenza,
+  sempre.
+
+- Non pensate comunque di farla in barba all'NSA.
+
+
+Lo chef consiglia:
+
+Personalmente utilizzo stunnel con il parametro KEYLENGTH modificato da 512
+a 1024 alla riga 29 di ssl.c, e senza i commenti a #define NO_DH alla riga
+25 dello stesso source.
+
+Come e' facile intuire, queste modifiche aumentano la lunghezza in bit
+della chiave RSA TEMPORANEA e disabilitano la possibilita' di usare il
+protocollo Diffie-Hellman per lo scambio delle chiavi.
+
+Inoltre utilizzo sempre l'autentificazone sia dai client (-v 2) che dei
+server (-v 3), con certificati a 2048 bit e forzo sempre  l'utilizzo di
+CipherSuite "sicure" (-C DES-CBC3-SHA) in stunnel_server (che gira
+non-root, su porte <=1024, da inetd e con limitazione delle risorse CPU
+disponibili a stunnel tramite "quota", per evitare che un attacco portato
+con un numero molto elevato di connessioni sulla porta SSL provochi un
+sovraccarico eccessivo della CPU).
+
+Ovviamente sono preferenze dovute a paranoie personali... consiglio di
+effettuare qualche test per trovare i parametri migliori per le proprie
+necessita'.
+
+
+Qualche idea.. se proprio non sapete cosa tunnelare...
+
+Le possibilita' sono infinite.. cosi' a braccio me ne vengono in mente
+alcune: bnc, vnc, pop3, imap, smtp, sql, telnet, etc. Attivando un tunnel
+ssl con verifica dei certificati e chiudendo queste porte dall'esterno
+(escluso l'smtp), potete annullare la possibilita' per un eventuale
+malintenzionato di attaccare uno dei servizi (magari con privilegi root,
+tipo pop3d). Ovviamente e' sempre possibile ovviamente attaccare stunnel
+(hehe, Fusys ha promesso che fara' un auditing di sicurezza del source di
+stunnel per il prossimo numero.. stiamo a vedere :). 
+
+Interessante e' anche la possibilita' di aprire una seconda porta per l'smtp
+(oltre a quella in chiaro, necessaria se il vostro server e' MX per qualche
+domain) a cui accedere solamente tramite certificati, ed utilizzarla per
+spedire posta ovunque (per esempio, se gradite utilizzare il vostro mail
+server anche da connessioni in dial-up, etc.) abilitando nell'stmpd il relay
+verso qualsiasi indirizzo dalle connessioni provenienti da 127.0.0.1 (mentre
+OVVIAMENTE dalle connessioni provenienti da indirizzi esterni accettera'
+posta SOLAMENTE verso i domain per cui e' MX).
+
+
+Contest:
+
+(*)  - Chi indovina la citazione vince una bambolina.. 
+(**) - Ja, e' proprio una citazione dallo stesso film... un aiutino..
+       John Candy (RIP, Sic!)
+
+       mailto: vogliolabambolina@sikurezza.org
+
+
+Risorse:
+
+Altri tunnel ssl (sincerely - non ne ho provato nessuno):
+
+http://www.rickk.com/sslwrap/ - supporta ssleay e openssl (0.9.4 compresa)
+
+http://www.hitachi-ms.co.jp/bjorb/en/ - supporta ssleay
+
+http://www.multimania.com/jonama/ - supporta ssleay e openssl; funzioni
+                                    di chroot per il daemon mode
+                                   
+http://www.skygate.co.uk/safegossip/ - openssl - supporta PAM, ftp,
+                                       telnet, smtp, etc.
+
+
+Altra documentazione interessante sull'argomento:
+
+http://www.openssl.org/related/ - partite da qui, e' una lista utilissima
+                                  di risorse (sia link che software)
+
+http://www.psy.uq.oz.au/~ftp/Crypto/ - FAQ di ssleay.. purtroppo openssl
+                                       non ha praticamente nessuna
+                                       documentazione.. pero' e' basata
+                                       su ssleay e qui potete trovare
+                                       MOLTE cose interessanti, link
+                                       compresi
+
+http://www.ietf.org: - Internet Engineering Task Force, cercate SSL o TLS
+                       come keyword per i titoli degli RFC e/o degli
+                       internet drafts..
+
+   Alcuni (ma sono tantissimi):
+
+   RFC1421 - Privacy Enhancement for Internet Electronic Mail / Part I
+   RFC1422 - Privacy Enhancement for Internet Electronic Mail / Part II
+   RFC1423 - Privacy Enhancement for Internet Electronic Mail / Part III
+   RFC2246 - The TLS Protocol Version 1.0
+   RFC2459 - Internet X.509 Public Key Infrastructure / Certificate and
+             CRL Profile
+
+http://www.consensus.com/ietf-tls/ - IETF Transport Layer Security Working
+                                     Group
+
+http://www.imc.org/ietf-pkix/ - IETF PKIX Working Group
+
+http://www.netscape.com/eng/ssl3/ - documentazione Netscape SSLv3
+
+http://www.netscape.com/eng/security/SSL_2.html - documentazione Netscape
+                                                  SSLv2:
+
+http://www.consensus.com/security/ssl-talk-faq.html - SSL Talk FAQ
+
+http://www.ssh.fi/tech/crypto/ - Cryptography A-2-Z, dagli autori di ssh
+
+http://www.ssh.fi/tech/crypto/algorithms.html - breve introduzione alle
+                                                tecniche di crittografia
+                                                piu' utilizzate con
+                                                descrizione dei vari
+                                                algoritmi
+                                                (per i frettolosi)
+
+http://www.rsasecurity.com/ - la compagnia fontada da Rivest, Shamir e
+                              Adleman, inventori dell'omonimo algoritmo (e
+                              numerosi altri)
+
+http://www.rsasecurity.com/rsalabs/faq/index.html
+                             RSA Laboratories Frequently Asked
+                             Questions About Today's Cryptography
+                             (ottima introduzione sulla crittografia e
+                             sui suoi utilizzi pratici)
+
+http://www.counterpane.com - homepage della Counterpane Systems, compania
+                             presieduta da Bruce Schneier, guru della
+                             crittografia e inventore dell'algorito
+                             Blowfish; contiene numerosissimi link
+                             "crypto-related"
+
+http://www.counterpane.com/applied.html - libro "Applied Cryptography"
+                                          dello stesso Schneier, per
+                                          quelli che vogliono sapere
+                                          TUTTO sull'argomento :)
+
+http://www.openca.org - progetto per implementare (utilizzando openssl)
+                        un software avanzato di gestione CA. Attualmente
+                        ancora agli albori..
+                        Nota. Il progetto e' sviluppato da italiani e
+                        ospitato presso il server del Comune di Modena
+
+http://www.progressive-comp.com/Lists/?l=stunnel-users&r=1&w=2#stunnel-users
+			mirror della mailing list stunnel-users
+
+
+Disclaimer:
+
+Questo documento e' composto di pure allucinazioni e fantasia.. blah blah
+qualsiasi dato riportato e' assolutamente casuale e frutto di perversione
+intellettuale blah blah. NON MI RITENGO ASSOLUTAMENTE RESPONSABILE ne' di
+quanto scritto ne' dell'utilizzo che ne farete blah blah blah... (se vi
+bucano perche' avete usato stunnel, non venite a rinfacciarmelo - se vi
+bucano perche' NON avete usato stunnel, ibidem).
+
+Se avete trovato il tono utilizzato troppo "gigionesco" e/o "ciarliero" ed
+avete trovato i termini utilizzati offensivi per qualcuno o qualcosa... beh,
+mi dispiace, sono tuttavia convinto che si possano scrivere documenti,
+how-to et altro anche utilizzando una terminologia et una sintassi
+leggermente meno pallosa di quella contenuta tradizionalmente in questo tipo
+di documenti, senza comunque sminuirne il contenuto.
+
+La riproduzione di questo documento o sua parte blah blah e' ASSOLUTAMENTE
+PERMESSA su qualsiasi mezzo o intero blah blah - SEMPRE CHE SIANO SEMPRE
+CITATI SEMPRE L'AUTORE (Kobaiashi) e SEMPRE LA FONTE (BFi,
+http://www.s0ftpj.org) blah blah blah... SEMPRE
+
+Tutti i registri marchiati [ehm] tutti i citi registrati si insomma tutti
+i mostri nominati sono proprieta' dei legittimi registrati [ehm] si
+insomma blah blah.
+
+Siete liberi (ed invitati) comunque ad indicarmi eventuali inesattezze e
+schifezze ivi contenute e le vostre particolari paranoie e problematiche
+di utilizzo di stunnel ad uno dei miei molteplici indirizzi di posta:
+
+koba@s0ftpj.org
+koba@sikurezza.org
+koba@microsoft.com
+
+(uno di questi 3 indirizzi e' palesemente falso - indovinate quale ;)
+
+Baci e abbraci.
+Koba
+
+
+==============================================================================
+--------------------------------[ EOF 15/22 ]---------------------------------
+==============================================================================

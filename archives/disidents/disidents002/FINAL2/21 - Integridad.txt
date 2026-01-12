@@ -1,0 +1,1734 @@
+
+
+                           - D I S I D E N T S - H A C K  J O U R N A L -
+
+                                          Numero 2
+                                            XXI
+
+
+
+
+
+
+
+
+
+                                                        TITLE: Comprobando la integridad de los archivos
+                                                        Author:DDiego
+                                                        DISIDENTS SPAIN 2001 -  LOS FUERA DE LA LEY 
+
+
+
+
+
+
+-----------------------------------------------------------------------------------------------------------
+-----------[0.0 - INTRODUCCION GENERAL]--------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+
+
+        Hoy en dia, mucha gente piensa que esta segura y que nada les afecta por que toman ciertas medidas,
+se  suelen guiar por  lo que ven, su (ls, su netstat, su antivirus perfectamente actualizado, su estupendo
+firewall), pero la realidad es otra, nadie esta seguro (existe muchas manos diseñando codigo para evitar
+tus medidas de seguridad), entre ellos virus y troyanos que pueden ya sea modificar o  troyanizar tus
+archivos, y evitar que puedas ver la realidad de lo que esta pasando.
+Hoy en dia con esas maravillosas rootkits que pueden estar incluidas entre miles de lineas de codigo debemos
+tener cuidado y tomar muchas precauciones y una de ellas puede ser el  tema que vamos a tratar, en el cual
+verificaremos la integridad de los archivos y asi estaremos algo mas seguros, para ello analizare la
+herramienta "tripwire" en linux, y como no tambien trataremos este tema en windows con la herramienta
+"floke integrity", estas herramientas no sustituyen a ningun firewall ya sea a nivel fisico o de
+aplicacion, su trabajo es ser  "guard the guards".
+
+
+
+
+
+-----------------------------------------------------------------------------------------------------------
+----------[ INDICE INTEGRIDAD DE ARCHIVOS EN LINUX "TRIPWIRE"]---------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+----[1.0    - TRIPWIRE, HISTORIA, QUE ES? Y DONDE CONSEGUIRLO                                             -
+----[1.1    - PRE-INSTALACION                                                                             -
+----[1.2    - INSTALACION                                                                                 -
+----[1.2a   - INSTALACION RPM                                                                             -
+----[1.2b   - INSTALACION BINARIO                                                                         -
+----[1.3    - ANTES DE USAR, CONFIGURACION y POLITICAS                                                    -
+----[1.3a   - ARCHIVO DE CONFIGURACION                                                                    -
+----[1.3b   - ARCHIVO DE POLITICAS                                                                        -
+----[1.4    - QUE SON Y COMO FUNCIONAN ESTOS ALGORITMOS CRIPTOGRAFICOS (huellas digitales)                -
+----[1.4a   - SUMAS DE COMPROBACION "checksum"                                                            -
+----[1.4b   - ACLARANDO CONCEPTOS                                                                         -
+----[1.4c   - ALGORITMOS DE SINTESIS "HASHING"                                                            -
+----[1.4d   - COMPROBANDO LA VERACIDAD DE LOS ARCHIVOS (Importante antes de  la instalacion)              -
+----[1.5    - SIGGEN, COMPROBANDO HUELLAS DIGITALES                                                       -
+----[1.6    - GUARDANDO CONFIGURACION Y POLITICAS A LA HORA DE REALIZAR EL ANALISIS                       -
+----[1.7    - CRIPTOFRAFIA ASIMETRICA - "EL GAMAL"                                                        -
+----[1.7a   - CONCEPTOS "CRIPTOGRAFIA, CRIPTOGRAFIA ASIMETRICA"                                           -
+----[1.7b   - ALGORITMO EL GAMAL                                                                          -
+----[1.8    - INICIANDO TRIPWIRE - SACANDONOS UNAS FOTOS                                                  -
+----[1.9    - COMPROBANDO INTEGRIDAD DE ARCHIVOS                                                          -
+----[1.9a   - Chequeo normal                                                                              -
+----[1.9b   - Eligiendo donde va a ir el informe                                                          -
+----[1.9c   - Mandando un mail del informe                                                                -
+----[1.9d   - Chequeando solo algunos archivos o directorios especificos                                  -
+----[1.9e   - Chequeo a partir de un nivel de severidad                                                   -
+----[2.0    - ACTUALIZAR LA BASE DE DATOS                                                                 -
+----[2.1    - COMO HACER PARA QUE TE AVISEN POR MAIL                                                      -
+----[2.2    - VOLVIENDO A  CAMBIAR CONFIGURACION                                                          -
+----[2.3    - ACTUALIZANDO LA  POLITICA DE ANALISIS                                                       -
+----[2.4    - REVISANDO ANTIGUOS CHEQUEOS                                                                 -
+----[2.4a   - REVISANDO LA BASE DE DATOS                                                                  -
+----[2.4b   - REVISANDO INFORMES                                                                          -
+----[2.4c   - REVISANDO INFO DE  UN FICHERO                                                               -
+----[2.5    - CAMBIANDO LLAVES DE PASO "PASSPHRASES"                                                      -
+----[2.5.1  - CAMBIANDO LAS OPCIONES DE ENCRIPTADO DE UNO O VARIOS ARCHIVOS                               -
+----[2.5.1a - EXAMINANDO TIPO DE ENCRIPTADO DE UN ARCHIVO                                                 -
+----[2.5.1b - ENCRIPTANDO LOS INFORMES CON "EL GAMAL"                                                     -
+----[2.5.1c - QUITANDO EL ENCRIPTADO                                                                      -
+----[2.6    - REGENERANDO LLAVES DE PASO                                                                  -
+----[2.6a   - GENERANDO LOCAL-KEYFILE                                                                     -
+----[2.7b   - GENERANDO SITE-KEYFILE                                                                      -
+----[2.8    - NOTAS DE SEGURIDAD CON TRIPWIRE                                                             -                                -
+-----------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+-----------------------------------------------------------------------------------------------------------
+-----------[1.0  TRIPWIRE]---------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+
+
+
+
+
+        Hace tiempo Tripwire era una herramienta comercial para todas las plataformas, y todavia lo es
+para algunas plataformas Windows NT, HP-UX, AIX y Solaris, pero para linux se han decidido a ponerlo
+de forma gratuita como estos articulos y a codigo abierto, puedes descargarte el programa en
+http://tripwire.org/downloads/index.php y en http://sourceforge.net/project/showfiles.php?group_id=3130
+algun documento.
+Estamos ante una herramienta de seguridad, que actua sacando una instantanea o foto "snapshot" del sistema
+con la finalidad de verificar la integridad de los archivos, con esa instantanea crea una base de datos que
+contienen no solo el (tamaño, propietario, permisos, ultima modificacion de los archivos), si no que esa
+base de datos tambien genera una instantanea de las huellas digitales de los archivos. Esta fotografia
+del sistema se recomienda hacerla justo despues de la instalacion del os, para saber a ciencia cierta
+que cambios pudo haber en archivos tipo ls, netstat que pueden estar troyanizados por algun "ente maligno" :D,
+bueno tras la 1ª instantanea se puede generar otras y a estas compararlas con la 1ª y asi ver si el
+sistema o sistemas ha sido corrompido de alguna manera, ( tripwire puede generar instantaneas de varios
+equipos de una red).
+
+
+
+
+-----------[1.1 PRE-INSTALACION]---------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+
+        Antes de la instalacion hay que tener en cuenta lo que nos va a pedir durante la instalacion, esto que
+nos va a pedir son las claves, que actuan de medida de defensa, ya que sin ellas no se puede modificar el
+archivo.
+La primera clave que nos pedira sera "Enter the site keyfile passphrase:"  la clave de sitio, esta es para
+los ficheros de configuracion y de  politica que ya veremos
+La segunda clave que pedira es "Enter the local keyfile passphrase:" la clave loca, que proteje la base
+de datos y posteriores checkeos.
+
+- Estas claves o frases de paso tienen un limite minimo de  8 caracteres, y de maximo 1023, estas pueden
+contener espacios.
+
+
+
+
+
+
+
+-----------[1.2 INSTALACION]-------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+
+
+
+
+-----------[1.2a INSTALACION RPM
+
+
+[root@localhost programa]# ls
+tripwire-2.3-47.i386.rpm  tripwire-2.3-47.i386.tar.gz
+[root@localhost programa]# rpm -U tripwire-2.3-47.i386.rpm
+
+
+
+
+-----------[1.2a INSTALACION BIN
+
+
+[root@localhost tripwire-2.3]# ./install.sh
+
+Installer program for:
+Tripwire(R) 2.3 Open Source for LINUX
+
+Copyright (C) 1998-2000 Tripwire (R) Security Systems, Inc.  Tripwire (R)
+is a registered trademark of the Purdue Research Foundation and is
+licensed exclusively to Tripwire (R) Security Systems, Inc.
+
+
+LICENSE AGREEMENT for Tripwire(R) 2.3 Open Source for LINUX
+
+Please read the following license agreement.  You must accept the
+agreement to continue installing Tripwire.
+
+Press ENTER to view the License Agreement.
+
+calcamos espace hasta llegar a accept
+
+                   GNU GENERAL PUBLIC LICENSE
+                       Version 2, June 1991
+
+ Copyright (C) 1989, 1991 Free Software Foundation, Inc.
+                       59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ Everyone is permitted to copy and distribute verbatim copies
+ of this license document, but changing it is not allowed.
+
+                            Preamble
+
+
+
+
+  Yoyodyne, Inc., hereby disclaims all copyright interest in the program
+  `Gnomovision' (which makes passes at compilers) written by James Hacker.
+
+  <signature of Ty Coon>, 1 April 1989
+  Ty Coon, President of Vice
+
+This General Public License does not permit incorporating your program into
+proprietary programs.  If your program is a subroutine library, you may
+consider it more useful to permit linking proprietary applications with the
+library.  If this is what you want to do, use the GNU Library General
+Public License instead of this License.
+
+
+Please type "accept" to indicate your acceptance of this
+license agreement. [do not accept]
+escribes accept
+
+luego
+license agreement. [do not accept] accept
+Using configuration file install.cfg
+
+Checking for programs specified in install configuration file....
+
+/usr/lib/sendmail exists.  Continuing installation.
+
+/bin/vi exists.  Continuing installation.
+
+
+]----------------------------------------------[
+Verifying existence of binaries...
+
+./bin/i686-pc-linux_r/siggen found
+./bin/i686-pc-linux_r/tripwire found
+./bin/i686-pc-linux_r/twprint found
+./bin/i686-pc-linux_r/twadmin found
+
+This program will copy Tripwire files to the following directories:
+
+        TWBIN: /usr/sbin
+        TWMAN: /usr/man
+     TWPOLICY: /etc/tripwire
+     TWREPORT: /var/lib/tripwire/report
+         TWDB: /var/lib/tripwire
+ TWSITEKEYDIR: /etc/tripwire
+TWLOCALKEYDIR: /etc/tripwire
+
+CLOBBER is false.
+
+Continue with installation? [y/n]
+pones y
+
+
+Continue with installation? [y/n] y
+
+]----------------------------------------------[
+
+Creating directories...
+
+/usr/sbin: already exists
+/etc/tripwire: already exists
+/var/lib/tripwire/report: already exists
+/var/lib/tripwire: already exists
+/etc/tripwire: already exists
+/etc/tripwire: already exists
+/usr/man: already exists
+/usr/doc/tripwire: already exists
+
+]----------------------------------------------[
+
+Copying files...
+
+/usr/doc/tripwire/README: file already exists
+/usr/doc/tripwire/Release_Notes: file already exists
+/usr/doc/tripwire/COPYING: file already exists
+/usr/sbin/tripwire: file already exists
+/usr/sbin/twadmin: file already exists
+/usr/sbin/twprint: file already exists
+/usr/sbin/siggen: file already exists
+/usr/doc/tripwire/TRADEMARK: file already exists
+/usr/doc/tripwire/policyguide.txt: file already exists
+/etc/tripwire/twpol.txt: file already exists
+/usr/man/man4/twpolicy.4: file already exists
+/usr/man/man4/twconfig.4: file already exists
+/usr/man/man5/twfiles.5: file already exists
+/usr/man/man8/siggen.8: file already exists
+/usr/man/man8/tripwire.8: file already exists
+/usr/man/man8/twadmin.8: file already exists
+/usr/man/man8/twintro.8: file already exists
+/usr/man/man8/twprint.8: file already exists
+
+]----------------------------------------------[
+
+The Tripwire site and local passphrases are used to
+sign a variety of files, such as the configuration,
+policy, and database files.
+
+Passphrases should be at least 8 characters in length
+and contain both letters and numbers.
+
+See the Tripwire manual for more information.
+
+]----------------------------------------------[
+
+Creating key files...
+
+(When selecting a passphrase, keep in mind that good passphrases typically
+have upper and lower case letters, digits and punctuation marks, and are
+at least 8 characters in length.)
+
+Enter the site keyfile passphrase:
+
+Ahora hay que meter una contraseña o frase de paso, con un minimo de 8
+caracteres, pueden incluir espacios, no hay limite maximo de caracteres
+
+Comienza pidiendo la clave de  sitio
+
+Enter the site keyfile passphrase:
+Verify the site keyfile passphrase:
+Generating key (this may take several minutes)...Key generation complete.
+
+(When selecting a passphrase, keep in mind that good passphrases typically
+have upper and lower case letters, digits and punctuation marks, and are
+at least 8 characters in length.)
+
+Recomiendan pass que tengan mayusculas, minusculas, digitos y caractacteres
+especiales
+
+- Ahora piden la clave o contraseña locales
+
+
+See the Tripwire manual for more information.
+
+[----------------------------------------------[
+
+Creating key files...
+
+(When selecting a passphrase, keep in mind that good passphrases typically
+have upper and lower case letters, digits and punctuation marks, and are
+at least 8 characters in length.)
+
+Enter the site keyfile passphrase:
+Verify the site keyfile passphrase:
+Generating key (this may take several minutes)...Key generation complete.
+
+(When selecting a passphrase, keep in mind that good passphrases typically
+have upper and lower case letters, digits and punctuation marks, and are
+at least 8 characters in length.)
+
+Enter the local keyfile passphrase:
+Verify the local keyfile passphrase:
+Generating key (this may take several minutes)...Key generation complete.
+
+ya estan generadas
+
+Please enter your site passphrase:
+Wrote configuration file: /etc/tripwire/tw.cfg
+
+A clear-text version of the Tripwire configuration file
+/etc/tripwire/twcfg.txt
+has been preserved for your inspection.  It is recommended
+that you delete this file manually after you have examined it.
+
+
+----------------------------------------------
+Customizing default policy file...
+
+----------------------------------------------
+Creating signed policy file...
+Backing up /etc/tripwire/tw.pol
+        to /etc/tripwire/tw.pol.2413.bak
+Please enter your site passphrase:
+Wrote policy file: /etc/tripwire/tw.pol
+
+A clear-text version of the Tripwire policy file
+/etc/tripwire/twpol.txt
+has been preserved for your inspection.  This implements
+a minimal policy, intended only to test essential
+Tripwire functionality.  You should edit the policy file
+to describe your system, and then use twadmin to generate
+a new signed copy of the Tripwire policy.
+
+
+----------------------------------------------
+The installation succeeded.
+
+Please refer to /usr/doc/tripwire/Release_Notes
+for release information and to the printed user documentation
+for further instructions on using Tripwire 2.3 Open Source for LINUX.
+
+ya esta instalado
+
+
+
+-----------[1.3 ANTES DE USAR, CONFIGURACION y POLITICAS ]-------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+
+
+
+-----------[1.3a ARCHIVO DE CONFIGURACION
+
+
+Podemos ver donde estan instaladas las  utilidades de tripwire en
+/etc/tripwire/twcgf.txt
+
+ROOT          =/usr/sbin
+POLFILE       =/etc/tripwire/tw.pol   /* Es donde se seleccionan los archivos o directorios que quieres que compruebe*/
+DBFILE        =/var/lib/tripwire/$(HOSTNAME).twd  /*Aqui es donde almacena la instantanea*/
+REPORTFILE    =/var/lib/tripwire/report/$(HOSTNAME)-$(DATE).twr /*Trae el lugar donde se va a almacenar la instantanea*/                                                    el informe*/
+SITEKEYFILE   =/etc/tripwire/site.key  /* Aqui es donde  esta la clave del sitio*/
+LOCALKEYFILE  =/etc/tripwire/localhost.localdomain-local.key /*señala donde esta la clave local*/
+EDITOR        =/bin/vi   /*Aqui señala donde esta el editor*/
+LATEPROMPTING =false     /*Aqui especificas si se debe esperar al ultimo momento la llave de paso*/
+LOOSEDIRECTORYCHECKING =false /* Si esta activa informa solo si han sido modificados los archivos, no los
+                                directorios*/
+MAILNOVIOLATIONS =true
+EMAILREPORTLEVEL =3 /*Especifica el nivel de detalle de los informes que  se enviaran via mail*/
+REPORTLEVEL   =3     /*Especifica el nivel de detalle del informe*/
+MAILMETHOD    =SENDMAIL
+SYSLOGREPORTING =false
+MAILPROGRAM   =/usr/lib/sendmail -oi -t    /*Especifica el programa que se va a usar para enviar el correo*/
+
+
+- MODIFICANDO EL ARCHIVO DE CONFIGURACION
+
+SMTPHOST            - Sirve para elegir el host para enviar el informe, para ello hay que cambiar en
+                      MAILMETHOD, en lugar de  SENDMAIL, poner SMTP.
+
+SMTPPORT            - Sirve para especificar el puerto a donde se conectara para enviar el mail, tambien hay
+                      que cambiar cambiar el MAILMETHOD y poner SMTP en lugar de SENDMAIL.
+
+
+EMAILREPORTLEVEL    - Sirve para  especificar con que nivel de detalle enviara los informes, de forma
+                      predeterminada esta en 3, pero variaa de  0 a 4
+
+
+
+
+
+-----------[1.3b ARCHIVO DE POLITICAS
+
+
+AHORA   ESPECIFIQUEMOS LOS ARCHIVOS  QUE VA A SACAR LA INSTANTANEA EN /etc/tripwire/tw.pol
+de forma predeterminada biene para la distribucion red hat 7.0, por ello hay que revisar los
+ficheros o directorios, y quitar o incluir alguno
+
+umm que vemos aqui los logs en el tripwire
+#  # Uncomment if you have agent logging enabled.
+#  #/var/log/tripwire/agent.log      -> $(SEC_LOG) ;
+
+Podeis ver como en el archivo  /usr/doc/tripwire, explica excluir un directorio a la hora de comparar las
+instantaneas y es asi poniendo un ! delante
+!/etc/init.d ; #Por aqui no sera revisado
+Lo mejor es incluir daemons, scripts de arranque, suid root, comandos (ls, netstat, login, su, ps etc..),
+modulos del kernel etc, en fin estos archivos es esencial que se comprueben.
+
+
+Tambien puedes especificar el metodo de escaneo de un archivo
+
+/etc/passwd -> +a;                      # Access timestamp
+/etc/passwd -> +b;                      # Number of blocks
+/etc/passwd -> +c;                      # Inode timestamp (create/modify)
+/etc/passwd -> +d;                      # Inode storage disk device number
+/etc/passwd -> +g;                      # File owner's group ID
+/etc/passwd -> +i;                      # Inode number
+/etc/passwd -> +m;                      # Modification timestamp
+/etc/passwd -> +n;                      # inode reference count
+/etc/passwd -> +p;                      # Permissions and file mode bits
+/etc/passwd -> +r;                      # Device Number
+/etc/passwd -> +s;                      # File size
+/etc/passwd -> +t;                      # File Type
+/etc/passwd -> +u;                      # File owner's user ID
+/etc/passwd -> +l;                      # File is increasing in size
+/etc/passwd -> +C;                      # CRC-32 hash value
+/etc/passwd -> +M;                      # MD5 hash value
+/etc/passwd -> +S;                      # SHA hash value
+/etc/passwd -> +H;                      # Haval signature value
+
+desde variables como el tiempo, tamaño etc hasta metodo de evaluacion de huellas digitales
+mediante algoritmos hash "CRC-32, MD5, SHA, Haval" , estos tambien se pueden combinar
+
+
+
+
+
+
+
+-----------[1.4 QUE SON Y COMO FUNCIONAN ESTOS ALGORITMOS CRIPTOGRAFICOS ]---------------------------------
+-----------------------------------------------------------------------------------------------------------
+
+
+
+
+-----------[1.4a SUMAS DE COMPROBACION "checksum"
+
+- sum o cksum: Esta imprime los bloques del archivo  asi como una  suma de comprobacion de 16 bits, esta
+suma de comprobacion es menos fiable que el MD5
+ej:
+[root@localhost tripwire-2.3]# sum *.*
+02938     4 install.cfg
+21019    28 install.sh
+06143    11 policyguide.txt
+22886     3 README.compile
+
+
+
+
+
+
+-----------[1.4b ACLARANDO CONCEPTOS:
+
+Resumenes  "message digest": Es una funcion matematica que produce una secuencia de caracteres fija, a partir de
+un archivo inicial de cualquier tamaño,esta secuencia de caracteres es aleatoria y es casi imposible que se
+repita
+
+
+Firmas de comprobacion aleatoria (HASH): Consiste en tomar un bloque de datos y someterlo a una funcion de desordenacion
+"scraming" para  alterar sus elementos (aplicando esta operacion un cierto numero de veces)
+
+
+
+
+
+
+-----------[1.4c ALGORITMOS DE SINTESIS "HASHING"
+
+ALGORITMOS DE HASHING: se  utilizan para comprobar la veracidad o integridad de un archivo, se conocen como funciones sin
+inversa ya que es facil generar una huella (fingerprint), pero empieza a ser mas complejo volver a generar la misma con
+otro archivo, ahora vamos a hablar de algunos de ellos.
+
+
+CRC-32: Cyclic Redundancy Check, es una version de 32 bits de CRC, es rapido y robusto pero tambien
+hablan de es inseguro en los documentos que nos proporciona tripwire
+
+
+MD5 : Message Digest Algorithm, estamos ante una version mejorada del MD4, mas segura y eficad, es  el mas utilizado
+para generar firmas digitales junto a RSA,  este genera un message digest de 128 bits, funciona como los demas
+algoritmos de sintesis a partir de un mensaje o archivo de una longitud arbitraria, genera una huella digital
+"fingerprint" tambien llamada una sintesis o resumen del mensaje "message digest"
+
+SHA: Secure Hash Algorithm, es  mas seguro que el MD5 pero a la vez mas lento,  este genera un digest de 160 bits
+nada menos,   SHA se usa tambien es usado por un protoclo Secure Data Network System Message Security Protocol, es
+un protocolo que es untilizado para enviar mensajes con la seguridad que nos ofrece SHA , podemos ver
+el "FIPS PUB 180-1, Secure Hash Standard" en http://www.itl.nist.gov/div897/pubs/fip180-1.htm  que dice asi
+"Cuando un mensaje de cualquier longitud < 2^64 bits de entrada, el SHA-1 produce una salida de 160 bit
+llamaron un resumen de mensaje "message digest", SHA-1 en realidad es una revision tecnica de SHA, SHA esta
+basado en principios similares al Profesor Ronald L. Rivest cuando diseño MD4, SHA se  ha usado por entornos
+de defensa, gobierno etc, "Este estándar es aplicable a todos los departamentos Federales y agencias para la
+protección de información no clasificada que no esta sujeta a la sección 2315 de Título 10 del Código de los
+Estados Unidos, o la sección 3502 (2) de Título 44, del Código de los Estados Unidos. Este estándar es requerido
+para el empleo con el Algoritmo de Firma Digital "Digital Signature Algorithm" (DSA), especificado en el Estándar
+de Firma Digital "Digital Signature Standard" (DSS) y siempre que un algoritmo de hash  es requerido para
+uso del gobierno. Animan a organizaciones privadas y comerciales a adoptar y usar este estándar.", SHA esta validado
+por NIST "National Institute of Standards and Technology" ==> http://www.nist.gov/
+
+
+
+
+
+
+
+
+-----------[1.4d COMPROBANDO LA VERACIDAD DE LOS ARCHIVOS
+
+
+
+
+En la pagina de tripwire, http://tripwire.org/downloads/index.php aparecen las huellas digitales para
+verificar que son los archivos reales, es importante intentar bajar el software desde las paginas
+de sus creadores, las huellas digitales son una medida de  seguridad bastante interesante
+
+
+
+
+
+--------------------------------------------
+Signatures for file: tripwire-2.3-47.bin.tar.gz
+
+CRC32     13a6b11
+MD5       d3d1d35ee10b59a0176ca6f754825ca1
+SHA       9bb48c187c13bb0d8120672ed27b5de7e6a6431b
+HAVAL     b0afc1353774ad6892de684403160d6c
+----------------------------------------------
+Signatures for file: tripwire-2.3-47.i386.tar.gz (RPM 3)
+
+CRC32     f9739223
+MD5       35c30574f980c99e20a0ad3a2068d93f
+SHA       6aed5dfdf9c6e6cec43af7a9a70d499499237c62
+HAVAL     d93840a89600b03b6b152544c7eee14d
+----------------------------------------------
+Signatures for file: tripwire-2.3-47.i386.tar.gz (RPM 4)
+
+CRC32     4bf0f4eb
+MD5       661a54a6429d4ecb0d756de5046da48f
+SHA       0e917508bfa6fc3a6bb05316bcac6cacd4f36a73
+HAVAL     7b97051c0ff8a9a678c54a30e6504137
+----------------------------------------------
+
+
+
+
+Existe un programa para verificar la identidad vamos a usar Message Digest 5 "md5sum", podeis bajaroslo
+de http://ftp.rtpro.yamaha.co.jp/util/md5sum/md5sum.tar.gz , es  una aplicacion facil de
+usar SINTAXIS: md5sum archivo
+[root@localhost programa]# md5sum *.*
+md5sum: tripwire-2.3: Es un directorio
+d3d1d35ee10b59a0176ca6f754825ca1  tripwire-2.3-47.bin.tar.gz
+661a54a6429d4ecb0d756de5046da48f  tripwire-2.3-47.i386.tar.gz
+
+- Pero tripwire nos provee un programa que se llama siggen que tiene para esos 4 que necesitamos
+"CRC32, MD5, SHA y HAVAL"
+
+
+
+
+
+
+
+
+-----------[1.5 SIGGEN, COMPROBANDO HUELLAS DIGITALES ]----------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+
+Siggen es facil de usar, lo podeis encontrar en el directorio ../tripwire-2.3/bin/i686-pc-linux_r
+veamos como funciona:
+
+Bueno voy a pedir que me saquen todas las huellas digitales disponiles, de un par de  archivos de tripwire
+
+-h    : para que lo exprese en hexadecimal
+--all : para que  imprima CRC32, MD5,SHA Y HAVAL
+-a  = --all
+
+[root@localhost programa]# siggen -h --all *.tar.gz
+--------------------------------------------------------------------------------
+Signatures for file: tripwire-2.3-47.bin.tar.gz
+
+CRC32               13a6b11
+MD5                 d3d1d35ee10b59a0176ca6f754825ca1
+SHA                 9bb48c187c13bb0d8120672ed27b5de7e6a6431b
+HAVAL               b0afc1353774ad6892de684403160d6c
+--------------------------------------------------------------------------------
+Signatures for file: tripwire-2.3-47.i386.tar.gz
+
+CRC32               4bf0f4eb
+MD5                 661a54a6429d4ecb0d756de5046da48f
+SHA                 0e917508bfa6fc3a6bb05316bcac6cacd4f36a73
+HAVAL               7b97051c0ff8a9a678c54a30e6504137
+--------------------------------------------------------------------------------
+
+
+Para que imprima por tipos de algoritmo
+
+CRC32: siggen -h  -C      archivo
+       siggen -h  --CRC32 archivo
+
+MD5  : siggen -h  -M      archivo
+       siggen -h  --MD5   archivo
+
+SHA  : siggen -h  -S      archivo
+       siggen -h  --SHA   archivo
+
+HAVAL: siggen -h  -H      archivo
+       siggen -h  --HAVAL archivo
+
+Para que imprima varios archivos:
+
+SINTAXIS: siggen -h -a archivo1 archivo2
+
+Para  imprimir todos loss *.tar.gz y *.rpm seria asi
+
+siggen -h -a *.tar.gz *.rpm
+
+
+
+
+
+
+-----------[1.6 GUARDANDO CONFIGURACION Y POLITICAS A LA HORA DE REALIZAR EL ANALISIS ]--------------------
+-----------------------------------------------------------------------------------------------------------
+
+
+Bueno ahora para guardar los cambios que hayas hecho en los dos ficheros, bueno y si no los has cambiado
+tambien, para ello vamos al archivo /usr/sbin/twadmin
+
+Vamos a ver la ayuda:
+[root@localhost sbin]# twadmin --help
+twadmin: Tripwire administrative tool.
+
+Tripwire(R) 2.3.0.47 for Linux
+
+Tripwire 2.3 Portions copyright 2000 Tripwire, Inc. Tripwire is a registered
+trademark of Tripwire, Inc. This software comes with ABSOLUTELY NO WARRANTY;
+for details use --version. This is free software which may be redistributed
+or modified only under certain conditions; see COPYING for details.
+All rights reserved.
+Usage:
+
+Create Configuration File: twadmin [-m F|--create-cfgfile][options] cfgfile.txt
+Print Configuration File: twadmin [-m f|--print-cfgfile] [options]
+Create Policy File: twadmin [-m P|--create-polfile] [options] polfile.txt
+Print Policy File: twadmin [-m p|--print-polfile] [options]
+Remove Encryption: twadmin [-m R|--remove-encryption] [options] [file1...]
+Encryption: twadmin [-m E|--encrypt] [options] [file1...]
+Examine Encryption: twadmin [-m e|--examine] [options] [file1...]
+Generate Keys: twadmin [-m G|--generate-keys] [options]
+
+Type 'twadmin [mode] --help' OR
+'twadmin --help mode [mode...]' OR
+'twadmin --help all' for extended help
+
+Ahora actualizamos el archivo de configuracion "twcfg.txt"
+
+[root@localhost sbin]# twadmin --create-cfgfile --site-keyfile /etc/tripwire/site.key /etc/tripwire/twcfg.txt
+Please enter your site passphrase:
+Wrote configuration file: /etc/tripwire/tw.cfg   <===== Aqui vemos como se cifra en tw.cfg
+
+Ahora a por el archivo de politicas "twpol.txt"
+
+[root@localhost sbin]# twadmin --create-polfile  /etc/tripwire/twpol.txt
+Please enter your site passphrase:
+Wrote policy file: /etc/tripwire/tw.pol          <===== Aqui vemos como se cifra en tw.pol
+
+
+
+
+
+
+
+
+-----------[1.7 CRIPTOFRAFIA ASIMETRICA - "EL GAMAL" ]-----------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+
+
+
+
+-----------[1.7a CONCEPTOS "CRIPTOGRAFIA, CRIPTOGRAFIA ASIMETRICA"  ]--------------------------------------
+
+
+- Hablaremos de ciertos conceptos de forma basica, para  aclarar alguna cosa
+
+CRIPTOGRAFIA: Cuando hablamos de criptografia, hablamos de una ciencia que  estudia como ocultar algun
+tipo de informacion, mensajes, datos etc
+
+CRIPTOGRAFIA ASIMETRICA: Este metodo de cifrado se caracteriza por usar una clave publica para cifrar
+cualquier tipo de informacion (mensajes, texto, archivos, mails etc) y una  privada para descifrar,
+cuando oimos esto de clave publica y privada se nos viene a la cabeza  PGP, que usa el algoritmo RSA
+"Rivest-Shamir-Adelman"  http://www.rsa.com,  pero RSA no es  el unico ya que tambien esta el algoritmo
+El Gamal, Rabin, Diffie-Hellman, pero RSA como ya he dicho es el mas popular
+
+
+
+
+
+-----------[1.7b ALGORITMO EL GAMAL ]----------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+
+A la hora de  firmar o cifrar los archivos de politica y configuracion, tripwire usa este tipo de
+cifrado que se caracteriza por su cifrado de 1024 bits, esto no  quita de que te puedan borrar los
+archivos, pero si te da algo de seguridad respecto de que te te puedan eludir a tripwire
+Tripwire usa este tipo de cifrado a la hora de cifrar la base de datos, veremos como se cifran los
+informes de tripwire en el apartado 2.5.1b.
+
+
+
+
+
+
+
+
+-----------[1.8 INICIANDO TRIPWIRE - SACANDONOS UNAS FOTOS ]-----------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+
+Ahora vamos a tomar una instantanea /usr/sbin/tripwire
+
+Veamos habiendo cambiado el archivo de politicas, y quitando los nombres y rutas de archivos o directorios
+a checkear no deberia dar ningun error, pero puede darlos de hecho es mejor porque asi ves de forma rapida
+que rutas tienes que cambiar, quitar o corregir, veamos:
+SINTAXIS: tripwire  --init
+     o    tripwire  -m i
+
+[root@localhost sbin]# tripwire  --init
+Please enter your local passphrase:            /*Metes la pass local*/
+Parsing policy file: /etc/tripwire/tw.pol
+Generating the database...
+*** Processing Unix File System ***
+### Warning: File system error.
+### Filename: /usr/sbin/fixrmtab       /*No a encontrado este archivo*/
+### \x08]"\x08\xc0\x16\xda9
+bla bla bla ............(mas archivos no encontrados)
+
+### Continuing...
+Wrote database file: /var/lib/tripwire/localhost.localdomain.twd
+The database was successfully generated.
+
+Vemos que crear la base de datos en /var/lib/tripwire/localhost.localdomain.twd
+
+
+
+
+
+
+
+
+-----------[1.9 COMPROBANDO INTEGRIDAD DE ARCHIVOS ]-------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+
+
+
+
+-----------[1.9a Chequeo normal
+
+
+[root@localhost sbin]# tripwire --check
+Parsing policy file: /etc/tripwire/tw.pol
+*** Processing Unix File System ***
+Performing integrity check...
+### Warning: File system error.
+### Filename: /usr/sbin/fixrmtab
+### Continuing...
+### Warning: File system error.
+bla bla bla .. recuerda cambiarlo
+
+Wrote report file: /var/lib/tripwire/report/localhost.localdomain-20010618-165952.twr
+/*Vemos que lo guarda dentro de /var/lib/tripwire/report de los cambios que ha habido*/
+
+Ahora vemos el informe
+Tripwire(R) 2.3.0 Integrity Check Report
+
+Report generated by:          root
+Report created on:            Mon Jun 18 16:59:52 2001
+Database last updated on:     Never
+
+===============================================================================
+Report Summary:
+===============================================================================
+
+Host name:                    localhost.localdomain
+Host IP address:              127.0.0.1
+Host ID:                      None
+Policy file used:             /etc/tripwire/tw.pol
+Configuration file used:      /etc/tripwire/tw.cfg
+Database file used:           /var/lib/tripwire/localhost.localdomain.twd
+Command line used:            tripwire --check
+
+===============================================================================
+Rule Summary:
+===============================================================================
+
+-------------------------------------------------------------------------------
+  Section: Unix File System
+-------------------------------------------------------------------------------
+
+  Rule Name                       Severity Level    Added    Removed  Modified
+  ---------                       --------------    -----    -------  --------
+  Invariant Directories           66                0        0        0
+  Temporary directories           33                0        0        0
+* Tripwire Data Files             100               1        0        0
+  Critical devices                100               0        0        0
+  User binaries                   66                0        0        0
+  Tripwire Binaries               100               0        0        0
+  Critical configuration files    100               0        0        0
+  Libraries                       66                0        0        0
+  Shell Binaries                  100               0        0        0
+  File System and Disk Administraton Programs
+                                  100               0        0        0
+  Kernel Administration Programs  100               0        0        0
+  Networking Programs             100               0        0        0
+  System Administration Programs  100               0        0        0
+  Hardware and Device Control Programs
+                                  100               0        0        0
+  System Information Programs     100               0        0        0
+  Application Information Programs
+                                  100               0        0        0
+  Shell Releated Programs         100               0        0        0
+  Critical Utility Sym-Links      100               0        0        0
+  Critical system boot files      100               0        0        0
+  System boot changes             100               0        0        0
+  OS executables and libraries    100               0        0        0
+  Security Control                100               0        0        0
+  Login Scripts                   100               0        0        0
+  Operating System Utilities      100               0        0        0
+* Root config files               100               0        0        4
+
+Total objects scanned:  9692
+Total violations found:  5
+
+===============================================================================
+Object Summary:
+===============================================================================
+
+-------------------------------------------------------------------------------
+# Section: Unix File System
+-------------------------------------------------------------------------------
+
+-------------------------------------------------------------------------------
+Rule Name: Tripwire Data Files (/var/lib/tripwire)
+Severity Level: 100
+-------------------------------------------------------------------------------
+
+Added:
+"/var/lib/tripwire/localhost.localdomain.twd"
+
+-------------------------------------------------------------------------------
+Rule Name: Root config files (/root)
+Severity Level: 100
+-------------------------------------------------------------------------------
+
+Modified:
+"/root/.kde/share/config"
+"/root/.kde/share/config/konquerorrc"
+"/root/.kde/share/config/konsolerc"
+"/root/.kde/share/config/kwriterc"
+
+===============================================================================
+Error Report:
+===============================================================================
+
+-------------------------------------------------------------------------------
+  Section: Unix File System
+-------------------------------------------------------------------------------
+
+1.   File system error.
+     Filename: /usr/sbin/fixrmtab
+
+blabla bla hasta
+
+117. File system error.
+     Filename: /root/.ICEauthority
+
+-------------------------------------------------------------------------------
+*** End of report ***
+
+Tripwire 2.3 Portions copyright 2000 Tripwire, Inc. Tripwire is a registered
+trademark of Tripwire, Inc. This software comes with ABSOLUTELY NO WARRANTY;
+for details use --version. This is free software which may be redistributed
+or modified only under certain conditions; see COPYING for details.
+All rights reserved.
+Integrity check complete.
+
+Esto es lo que pasa si no has quitado o cambiado las rutas en el archivo de politicascomo unos 117 errores
+de que no ha encontrado la ruta, buen record (RECUERDA CAMBIARLAS)
+
+
+
+
+
+
+-----------[1.9b Eligiendo donde va a ir el informe
+
+Si quieres decidir el archivo donde y como se va a llamar el reporte solo hay que hacer:
+
+tripwire --check --twrfile /var/lib/report/nombredelinformequequieras.twr
+
+
+
+
+
+-----------[1.9c Mandando un mail del informe
+
+tripwire --check --email-report
+
+
+
+
+
+
+-----------[1.9d Chequeando solo algunos archivos o directorios especificos
+
+tripwire --check archivoodirectorio1 archivoodirectorio2
+
+
+
+
+
+-----------[1.9e Chequeo a partir de un nivel de severidad
+
+Se puede especificar severity con los niveles high "100", medium "66" o low "33"
+
+tripwire --check --severity 100
+
+o lo que es lo mismo
+
+tripwire --check --severity  high
+
+
+
+
+
+
+
+
+-----------[2.0  - ACTUALIZAR LA BASE DE DATOS ]-----------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+
+Para actualizar la base de  datos y no salte antes diversas modificaciones de un report o informe, echamos
+mano de update, de esta manera
+
+
+[root@localhost report]# tripwire --update --twrfile /var/lib/tripwire/report/
+localhost.localdomain-20010618-165952.twr
+
+
+En este caso "localhost.localdomain-20010618-165952.twr" es el nombre del informe. Despues de escribir esto
+se te abrira el editor que tengas señalado en el archivo de politica en la linea "EDITOR = /bin/vi y ahi es
+donde tienes que cambiarlo.
+
+
+
+
+Modified:
+[x] "/root/.kde/share/config"
+[x] "/root/.kde/share/config/konquerorrc"
+
+Para actualizarlo, de forma que la proxima vez que hagas un chequeo no te avise de nuevo con lo mismo lo
+unico que hay que hacer es quitar la x, guarda al salir  si usas vi usa "wq" si  quieres guardar, y si no
+"q"
+
+
+
+
+
+
+
+
+
+-----------[2.1 COMO HACER PARA QUE TE AVISEN POR MAIL: ]--------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+
+ Para señalar que te envien un mail se ha de ir al archivo de politicas  /etc/tripwire/twpol.txt
+ Por ejemplo si  alguien a cambiado, modificado o añadido  el user o grupo id en algun archivo
+ de el directorio /etc
+ /etc -> +ug (emailto=tumail@loquesea.com); /* Esto lo puedes ver en el archivo policyguide.txt)
+ Si quieres mandar mas mails a tus amigos para que esten al tanto
+ /etc -> +ug (emailto="tumail@loquesea.com;elmaildelcolega@loquesea.com");
+
+ - Como hacer para que no te avisen por mail a no ser que haya habido una violacion de tu sistema,
+ de frma predeterminada tripwire manda un mail cada vez que comprueba el sistema, aunque no haya
+ sido corrompido podemos verlo en el archivo de configuracion de tripwire /etc/tripwire/twcgf.txt
+ mas arriba
+
+ MAILNOVIOLATIONS =true #Tenemos que cambiarlo a false para  que solo nos avise cuando pase algo
+
+ asi
+
+ MAILNOVIOLATIONS =false
+
+
+ Para enviar un correo electronico de prueba:
+
+[root@localhost tripwire]# tripwire --test --email disidents@yahoo.es
+Sending a test message to: disidents@yahoo.es
+
+o lo que es lo mismo
+
+tripwire -m t -e disidents@pueblodigital.com <<== no useis este mail para probar jejeje
+
+
+Cambiando el archivo de politicas y estableciendo nivel de alarma:
+
+ Veamos el ejemplo que trae la documentacion de tripwire;
+
+ (emailto =admin1@foo.com, severity = 90)
+ {
+ /etc/dog-> +pingus (severity = 75);
+ /etc/cat-> $(Dynamic) (emailto = admin2@foo.com);
+ }
+
+ Si /etc/dog es modificado enviara un mail a admin1@foo.com con un nivel de alarma o severidad de 75, y si
+ /etc/cat es modificado de alguna forma enviara un mail a admin1@foo.com y admin2@foo.com con un nivel de
+ severidad de 90
+ El valor de nivel de severidad "severity" puede oscilar entre 0 y 1000000, de forma predeterminada viene 0
+
+ Si en lucar de enviar a un mail queires enviar a 2 en una linea se hace asi:
+
+ (emailto ="admin1@foo.com;admin3@foo.com", severity = 90)
+
+
+
+Para  que te  envie un informe por mail, habiendo señalado de forma  correcta en el archivo de politicas
+a quien debe dirigirse el mail, es como he dicho antes:
+
+tripwire --check --email-report
+
+
+
+
+
+
+
+-----------[2.2 VOLVIENDO A  CAMBIAR CONFIGURACION  "/etc/tripwire/twcgf.txt" ]----------------------------
+-----------------------------------------------------------------------------------------------------------
+
+
+
+Ya estando cifrado el archivo de configuracion hay que pasarlo a texto plano, para modificarlo
+y ya habiendolo modificado hay que volverlo a cifrar
+twadmin --c tw.cfg > twcfg.txt           /*Con esto se pasa a texto plano*/
+
+- Ahora cambias en twcfg.txt las propiedades
+
+twadmin --S /ruta/site.key twcfg.txt    /*Ahora hemos vuelto a cifrar*/
+
+
+
+
+
+
+
+
+-----------[2.3  - ACTUALIZANDO LA  POLITICA DE ANALISIS ]-------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+
+
+Ahora vamos a actualizar el fichero de politica de analisis volveremos a usar el /etc/tripwire/twpol.txt
+luego tendra que cifrarse en tw.pol
+
+twadmin --create-polfile  site.key /etc/tripwire/twpol.txt
+te pedira la clave de sitio y se creara tw.pol
+
+Luego tienes que borrar la base de datos vieja /var/lib/tripwire/localhost.localdomain.twd
+y crear la nueva con
+
+tripwire --init
+
+
+
+
+
+
+-----------[2.4  - REVISANDO ANTIGUOS CHEQUEOS ]-----------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+
+
+Ahora veremos como revisar la base de datos y los posteriores checkeos que hicimos
+
+
+
+
+
+-----------[2.4a REVISANDO LA BASE DE DATOS
+
+
+Para ver la primera  instantanea de sistema que nos hicimos solo tenemos que usar twprint situado en
+/usr/sbin/twprint ,  la base de datos esta en /var/lib/tripwire/ como *.twd de formaa predeterminada
+veamos como se mira:
+
+- Para  ver la base de datos donde suele estar "/var/lib/tripwire/":
+
+
+[root@localhost tripwire]# twprint -m d --print-dbfile
+Tripwire(R) 2.3.0 Database
+
+Database generated by:        root
+Database generated on:        Mon Jun 18 17:47:27 2001
+Database last updated on:     Never
+
+===============================================================================
+Database Summary:
+===============================================================================
+
+Host name:                    localhost.localdomain
+Host IP address:              127.0.0.1
+Host ID:                      None
+Policy file used:             /etc/tripwire/tw.pol
+Configuration file used:      /etc/tripwire/tw.cfg
+Database file used:           /var/lib/tripwire/localhost.localdomain.twd
+Command line used:            tripwire --init
+
+===============================================================================
+Object Summary:
+===============================================================================
+
+-------------------------------------------------------------------------------
+# Section: Unix File System
+-------------------------------------------------------------------------------
+
+
+etc .........
+
+
+
+- Para ver la base de datos donde  te la has colocado tu:
+
+ twprint -m d --print-dbfile /rutaarcchivotwd
+
+
+
+- Para pasar el informe a un archivo
+
+twprint -m d --print-dbfile > archivo.txt
+
+
+
+
+
+
+
+-----------[2.4b - REVISANDO INFORMES
+
+Para ello solo hay que usar twprint de nuevo , y los informes estan situados en
+" /var/lib/tripewire/report/ "
+
+Para ver un infome se hace asi:
+
+ [root@localhost report]# twprint -m r --twrfile localhost.localdomain-20010618-165952.twr
+Note: Report is not encrypted.
+Tripwire(R) 2.3.0 Integrity Check Report
+
+Report generated by:          root
+Report created on:            Mon Jun 18 16:59:52 2001
+Database last updated on:     Never
+
+===============================================================================
+Report Summary:
+===============================================================================
+
+Host name:                    localhost.localdomain
+Host IP address:              127.0.0.1
+Host ID:                      None
+Policy file used:             /etc/tripwire/tw.pol
+Configuration file used:      /etc/tripwire/tw.cfg
+Database file used:           /var/lib/tripwire/localhost.localdomain.twd
+Command line used:            tripwire --check
+
+etc ...
+
+Vemos que los archivos suelen tener esta forma:
+
+
+localhost.localdomain-20010618-165952.twr
+--------------------- -------- ------
+  nombre del host    18-06-2001 16:59:52
+
+
+Si vemos el archivo de configuracion /etc/tripwire/twcfg.txt
+
+
+DBFILE        =/var/lib/tripwire/$(HOSTNAME).twd
+REPORTFILE    =/var/lib/tripwire/report/$(HOSTNAME)-$(DATE).twr
+
+Podemos observar como viene de forma predeterminada, esto se puede cambiar y poner donde  quieras
+y como quieras los archivos
+
+
+
+
+
+
+-----------[2.4c - REVISANDO INFO DE  UN FICHERO
+
+
+Cuando solo queremos volver a ver la informacion de un fichero en la base de datos
+
+[root@localhost tripwire]# twprint -m d --print-dbfile /bin/cat
+Object name:  /bin/cat
+
+Property:               Value:
+-------------           -----------
+Object Type             Regular File
+Device Number           773
+File Device Number      0
+Inode Number            411
+Mode                    -rwxr-xr-x
+Num Links               1
+UID                     root (0)
+GID                     root (0)
+Size                    9872
+Modify Time             Tue Oct  3 10:26:47 2000
+Change Time             Thu May 24 22:10:44 2001
+Blocks                  24
+CRC32                   DwPX4i
+MD5                     Cl/rU0EusRvl6jfkEc5+eh
+
+
+
+
+
+-----------[2.5  - CAMBIANDO LLAVES DE PASO "PASSPHRASES" ]------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+
+
+
+
+-----------[2.5.1  - CAMBIANDO LAS OPCIONES DE ENCRIPTADO DE UNO O VARIOS ARCHIVOS
+-----------[2.5.1a - EXAMINANDO TIPO DE ENCRIPTADO DE UN ARCHIVO
+
+Para ver si un archivo esta encriptado solo tenemos que usar twadmin de esta manera
+
+Por ej vamos a ver que tipo de encriptado tiene la base de  datos, la forma de hacerlo es esta
+SINTAXIS:  twadmin --examine archivo1 archivo2
+
+ejemplo:
+
+[root@localhost tripwire]# twadmin --examine *.twd
+File: "/var/lib/tripwire/localhost.localdomain.twd"
+File Type: Tripwire Database (Ver 2.2.0.0)
+Encoding: Asymmetric Encryption
+The following keys decrypt this file:
+        Local Keyfile: /etc/tripwire/localhost.localdomain-local.key
+
+Esa era la base de datos en /var/lib/tripwire , como era de esperar nos dice que usa un cifrado
+asimetrico "El gamal"
+
+Ahora me macho a  ver los informes a /var/lib/tripwire/report/, veremos que estos no estan
+encriptados todavia :)
+
+[root@localhost report]# twadmin --examine *.twr
+File: "/var/lib/tripwire/report/localhost.localdomain-20010618-165952.twr"
+File Type: Tripwire Report (Ver 2.2.0.0)
+Encoding: Compressed
+
+File: "/var/lib/tripwire/report/localhost.localdomain-20010618-171012.twr"
+File Type: Tripwire Report (Ver 2.2.0.0)
+Encoding: Compressed
+
+File: "/var/lib/tripwire/report/localhost.localdomain-20010618-171927.twr"
+File Type: Tripwire Report (Ver 2.2.0.0)
+Encoding: Compressed
+
+File: "/var/lib/tripwire/report/localhost.localdomain-20010618-172307.twr"
+File Type: Tripwire Report (Ver 2.2.0.0)
+Encoding: Compressed
+
+File: "/var/lib/tripwire/report/localhost.localdomain-20010618-174928.twr"
+File Type: Tripwire Report (Ver 2.2.0.0)
+Encoding: Compressed
+
+File: "/var/lib/tripwire/report/localhost.localdomain-20010701-220008.twr"
+File Type: Tripwire Report (Ver 2.2.0.0)
+Encoding: Compressed
+
+File: "/var/lib/tripwire/report/localhost.localdomain-20010702-172123.twr"
+File Type: Tripwire Report (Ver 2.2.0.0)
+Encoding: Compressed
+
+
+
+
+
+-----------[2.5.1b - ENCRIPTANDO LOS INFORMES CON "EL GAMAL"
+
+Es interesante cifrar los informes /var/lib/tripwire/report/ para mas seguridad para ello volveremos a
+utilizar twadmin.
+
+SINTAXIS:   twadmin --encrypt --local-keyfile archivo1 archivo2
+
+
+[root@localhost report]# twadmin --encrypt --local-keyfile /etc/tripwire/site.key *.twr
+
+Examining file:  /var/lib/tripwire/report/localhost.localdomain-20010618-165952.twr
+Please enter your local passphrase:
+Wrote report file: /var/lib/tripwire/report/localhost.localdomain-20010618-165952.twr
+
+
+Examining file:  /var/lib/tripwire/report/localhost.localdomain-20010618-171012.twr
+Wrote report file: /var/lib/tripwire/report/localhost.localdomain-20010618-171012.twr
+
+
+Examining file:  /var/lib/tripwire/report/localhost.localdomain-20010618-171927.twr
+Wrote report file: /var/lib/tripwire/report/localhost.localdomain-20010618-171927.twr
+
+
+Examining file:  /var/lib/tripwire/report/localhost.localdomain-20010618-172307.twr
+Wrote report file: /var/lib/tripwire/report/localhost.localdomain-20010618-172307.twr
+
+
+Examining file:  /var/lib/tripwire/report/localhost.localdomain-20010618-174928.twr
+Wrote report file: /var/lib/tripwire/report/localhost.localdomain-20010618-174928.twr
+
+
+Examining file:  /var/lib/tripwire/report/localhost.localdomain-20010701-220008.twr
+Wrote report file: /var/lib/tripwire/report/localhost.localdomain-20010701-220008.twr
+
+
+Examining file:  /var/lib/tripwire/report/localhost.localdomain-20010702-172123.twr
+Wrote report file: /var/lib/tripwire/report/localhost.localdomain-20010702-172123.twr
+
+Ahora si esaminamos como estan encriptados, veremos como han cambiado
+
+
+[root@localhost report]# twadmin --examine localhost.localdomain-20010618-165952.twr
+File: "/var/lib/tripwire/report/localhost.localdomain-20010618-165952.twr"
+File Type: Tripwire Report (Ver 2.2.0.0)
+Encoding: Asymmetric Encryption
+The following keys decrypt this file:
+        Site Keyfile: /etc/tripwire/site.key
+
+
+
+
+
+
+-----------[2.5.1c QUITANDO EL ENCRIPTADO
+
+
+Para remover el encriptado seguiermos usando twadmin de esta manera,
+SINTAXIS: twadmin --remove-encryption archivo1 archiv2
+
+Ahora voy a quitar el encriptado de la base de datos, solo te pedira la clave local
+
+[root@localhost tripwire]# twadmin --remove-encryption *.twd
+Examining file:  /var/lib/tripwire/localhost.localdomain.twd
+NOTE: Removing encryption on a file leaves it open to tampering!
+
+Please enter your local passphrase:
+Wrote database file: /var/lib/tripwire/localhost.localdomain.twd
+
+Veamos como esta ahora:
+
+[root@localhost tripwire]# twadmin --examine *.twd
+File: "/var/lib/tripwire/localhost.localdomain.twd"
+File Type: Tripwire Database (Ver 2.2.0.0)
+Encoding: Compressed
+
+Bien ya no esta cifrada, bueno mejor que la vuelvas a cifrar - ver paso 2.5.1b
+
+
+
+
+
+
+-----------[2.6 REGENERANDO LLAVES DE PASO ]---------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+
+
+Bueno estas claves tambien se pueden generar despues de la instalacion, puedes generar la clave local y la
+de sitio de esta manera:
+
+
+
+
+
+-----------[2.7a GENERANDO LOCAL-KEYFILE
+
+Bueno vamos a generar una clave local:
+SINTAXIS:  twadmin --generate-keys --local-keyfile  LOCAL-KEYFILE
+           twadmin -m  G  -L LOCAL-KEYFILE
+
+[root@localhost tripwire]# twadmin -m  G --local-keyfile /etc/tripwire/prueba.key
+
+(When selecting a passphrase, keep in mind that good passphrases typically
+have upper and lower case letters, digits and punctuation marks, and are
+at least 8 characters in length.)
+
+Enter the local keyfile passphrase:
+Verify the local keyfile passphrase:
+Generating key (this may take several minutes)...Key generation complete.
+You have new mail in /var/spool/mail/root
+
+Puedes generar la clave con el mismo nombre que la anterior pero en ese caso la sobreescribe
+
+
+Se puede especificar la clave local antes de que te lo pida:
+
+SINTAXIS: twadmin -m G --local-keyfile  /etc/tripwire/archivo -P passphrase
+
+[root@localhost tripwire]# twadmin -m G --local-keyfile /etc/tripwire/pruebaslocal -P Lapassquequieras
+Generating key (this may take several minutes)...Key generation complete.
+
+
+
+
+-----------[2.6b GENERANDO SITE-KEYFILE
+
+
+Ahora generaremos  la de sitio
+
+SINTAXIS: twadmin --generate-keys  --site-keyfile SITE-KEYFILE
+          twadmin -m G  -S SITE-KEYFILE
+
+
+
+[root@localhost tripwire]# twadmin -m G  -S /etc/tripwire/pruebasite.key
+
+(When selecting a passphrase, keep in mind that good passphrases typically
+have upper and lower case letters, digits and punctuation marks, and are
+at least 8 characters in length.)
+
+Enter the site keyfile passphrase:
+Verify the site keyfile passphrase:
+Generating key (this may take several minutes)...Key generation complete.
+
+
+Tambien se puede  especificar la llave de sitio antes de que te la pida:
+
+En este caso se especifica la clave con --site-passphrase PASSPHRASE
+                                        - G PASSPHRASE
+
+
+
+
+
+
+-----------[2.  NOTAS DE SEGURIDAD CON TRIPWIRE ]----------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+
+Una buena idea es instalar tripwire en alguna unidad removible y asi proteger los datos de
+posibles cambios, veamos un script que es interesante para ello:
+
+Para isntalarlo en un disquete necesitaras mas capacidad para   ello usaremos superformat que se puede
+sacar de http://fdutils.linux.lu/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+-----------------------------------------------------------------------------------------------------------
+----------[ INDICE INTEGRIDAD DE ARCHIVOS EN WINDOWS "floke integrity"]------------------------------------
+-----------------------------------------------------------------------------------------------------------
+----[3.0 INTRODUCCION                                                                                     -
+----[3.1 CONFIGURANDO EL PROGRAMA                                                                         -
+----[3.2 ESPECIFICANDO LA BASE DE DATOS                                                                   -
+----[3.3 VERIFICANDO LA INTEGRIDAD DE LOS ARCHIVOS                                                        -
+----[3.4 GUIARTE POR WIZARD                                                                               -
+----[3.5 TIPOS DE ALGORITMOS QUE UTLILIZA                                                                 -
+----[3.6 OTRAS HERRAMIENTAS                                                                               -
+-----------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+-----------------------------------------------------------------------------------------------------------
+-----------[3.0 INTRODUCCION ]-----------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+
+
+En windows tambien es posible verificar la integridad de los archivos de sistema  (exe, dll, sys, vxd),
+existe la posibilidad de verificar los archivos de windows por si estan dañados  esta en el Comprobador de archivos de sistema que se  encuentra
+en "herramientas del sistema" > "informacion del sistema" ahi vas a herramientas y seleccionas el "comprobador
+de archivos de sistema" este programa chequea los archivos de sistema y los compara con una base de datos
+almacenada en c:\windows\default.sfc mediante CRC "Cyclic Redundacy Check", pero nos guiaremos mejor con otras herramientas como es floke integrity, la web de
+este programa es http://www.angelfire.com/wi/wickmann/floke.html, podeis encontrar documentacion en
+http://www.angelfire.com/wi/wickmann/flokedoc002.html
+
+
+
+
+
+
+-----------[3.1 CONFIGURANDO EL PROGRAMA ]----------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------
+
+
+Se va a Options >  Preferences, ahi hay que seleccionar el editor que biene el notepad  de forma
+predeterminada y tambien el navegador que seleccionaras las  ruta de donde se encuentra el programa por
+ejemplo C:\Archivos de programa\Internet Explorer\Iexplore.exe , ya esta
+
+
+
+
+
+
+-----------[3.2 ESPECIFICANDO LA BASE DE DATOS ]-----------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+
+
+
+Se recomienda hacer esto nada  mas  instalar el sistema para que no haya  ninguna duda respecto a la
+veracidad de los archivos, la seleccionas en File > Task Options en Database  File:  Selecionas el nombre
+que quieras en el directorio que mas te guste, luego tienes que poner el algoritmo que vas a usar para
+hacer la instantanea SHA1  por ejemplo, tambien tienes que elegir los archivos a escanear eso a tu gusto,
+por defecto vienen *.com y *.exe, despues has de elegir donde va a  estar el informe ne "Report File:"
+debajo de donde  pusiste la base de datos, cuando ya este todo correcto le das a Okay  y luego te sale
+"Task File C:\Rutadelabasededatos" y el boton Start a la derecha, le das y   dejas que trabaje y veras
+luego que el archivo se ha  creado donde tu dijiste, ahora vamos a hacer un informe.
+
+
+
+
+
+
+-----------[3.3 VERIFICANDO LA INTEGRIDAD DE LOS ARCHIVOS ]------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+
+
+
+Despues de haber hecho una 1ª instantanea, quieres estar seguro de que tus archivos no has sufrido ninguna
+modificacion, para ello vamos a File > Open seleccionas las base de datos que has obtenido posteriormente,
+despues le das al boton Start, y puedes ver el informe calcando el boton Display  Report, y en Summary
+veras algo asi
+
+Summary:
+
+Scanned files: 616
+New files: 1
+Not checkd files 0
+Changed files: 0
+Cleard files: 615
+
+
+
+
+
+
+-----------[3.4 GUIARTE POR WIZARD ]-----------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+
+
+
+Esto ya es para la gente comoda de verdad, es lo mismo señalas la base de datos  en Database File y donde
+vas a meter el informe en "Report File", luego te pide el tipo de algoritmo a usar luego los archivos que
+va a  escanear viene depor  defecto *.eze y *.com como en  el otro lado y seleccionar  la   unidad, despues
+tienes la opciones de como sera el informe y que tipos de archivos comprobara modificados, borrados, creados
+etc, y luego a start como siempre, bueno es lo mismo que la otra forma.
+
+
+
+
+
+
+
+-----------[3.5 TIPOS DE ALGORITMOS QUE UTILIZA ]----------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+
+
+
+Este programa usa los algoritmos SHA-1, md5 y  RIPEMD-160, para tomar la instantanea y luego compararla con
+posteriores informes.
+SHA-1 y md5 los he esplicado en la parte de linux - tripwire, "1.4  QUE SON Y COMO FUNCIONAN ESTOS ALGORITMOS
+CRIPTOGRAFICOS", seria interesante leerlo,  para aclarar conceptos
+
+RIPEMD-160: Produce una huella digital de 160 bits creada por  Hans Dobbertin, Antoon Bosselaers, y Bart
+Preneel. RIPEMD-128 es una version mejorada de RIPEMD de 128 bits, SHA-1  tambien produce una salida de
+160 bits por lo tanto es tan seguro como RIPEMD-160, en http://www.esat.kuleuven.ac.be/~bosselae/ripemd160.html
+podeis encontrar mas informacion
+
+
+
+
+
+
+-----------[3.6 OTRAS HERRAMIENTAS ]-----------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+
+
+Existen mas herramientas en windows que te pueden ayudar a comprobar la integridad de tus archivos desde
+CriptoRes http://www.lpsi.eui.upm.es que verifica la integridad mediante los algoritmos md5 y SHA-1, tambien
+esta winhex quee ademas de ser un editor hexadecimal de Archivos, discos y  ram, puede  verificar la intefridad
+ de tus archivos se puede bajar de http://www.sf-soft.de/winhex/index-e.html, tiene una documentacion interesante
+en formato pdf, luegio  hay checksums mas especificos como el "CRC32 for Windows 9x/NT" que lo puedes encontrar en
+http://www.kagi.com/cyberdyne/, o el md5sum que esta en http://www.etree.org/cgi-bin/counter.cgi/software/md5sum.exe
+es muy  facil de  usar, este  fundiona desde msdos, asi porejemplo:
+
+Para un archivo:
+
+C:\Mis documentos\ezine2\integridad>md5sum md5sum.txt
+e73b0f4ba3a65a330895f568c82dfcb7 *md5sum.txt
+
+Para copiarlo a un archivo:
+
+C:\Mis documentos\ezine2\integridad>md5sum *.* > verificacion.txt
+
+
+Existen mas programas para verificar los archivos por ejemplo MD5sumer que  hace una suma de comprobacion
+usando el algoritmo md5 y lo guardas en un fichero puedes encontrarlo en
+http://homepages.ihug.co.nz/~floydian/md5/md5v11.exe
+
+
+
+
+
+
+
+
+
+
+
+
+-----------------------------------------------------------------------------------------------------------
+-------------------------------------------[SITIOS DE INTERES]---------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+
+
+http://www.criptored.upm.es/software/sw_m001h.htm
+http://ftp.rtpro.yamaha.co.jp/util/md5sum/md5sum.tar.gz
+http://www.fodder.org/cksfv/
+http://www.dmares.com/maresware/forensic1.htm win
+http://www.gpick.net/lists/Checksum_Tools.htm (checksum tools)
+http://www.itl.nist.gov/fipspubs/fip180-1.htm SHA
+FIPS PUB 180-1, Secure Hash Standard, NIST, April 1995. Disponible en: http://www.itl.nist.gov/div897/pubs/fip180-1.htm
+ http://www.disca.upv.es/penalver/Documentos/Seguridad/t2_criptografia01BN.PDF pdf acojonante sobre firmas
+ digitales
+http://the.wiretapped.net/security/cryptography/hashes/haval/haval-hash.c
+http://www.ldc.usb.ve/~poc/Seguridad/applied-crypto/sha.tar.gz programa para sha
+http://www.ldc.usb.ve/~poc/Seguridad/applied-crypto/haval.tar.gz programa checksum haval
+http://www.ldc.usb.ve/~poc/Seguridad/applied-crypto/md5.zip md5 checksum incluye el  rfc  1321
+
+
+
+
+
+--------------------------------------------------
+-        CONTACTA CONMIGO O EL TEAM              -
+--------------------------------------------------
+- CARGO:       Subcoordinador (uno mas del team) -
+- MAIL:        DDiegodisid@yahoo.es              -
+- MAIL TEAM:   Disidents@yahoo.es                -
+- WEB:         http://www.disidents.int-ltd.com  -
+--------------------------------------------------
+
+
+
+
+                      
+
+
+
+                                         ---------------------------
+                                         -   L4 N0bL3Z4 D31 H4cK   -
+-----------------------------------------------------------------------------------------------------------
+
+                     @@-------               @@---------------  
+		    @@----                  @@---------       @@@@@@@@@  
+		   @@--     @@@@@--        @@-- @@@@@       @     @@  @@@@@@@@@@@@@@@@@@@@@@@@@@@@-------
+              @@@@@@    @@ @@      @@ @@@@@@-  @@      @@@ @    @@  @@-----------------------------
+             @@        @@ @@@@@   @@ @@---    @@@@@@   @@ @@   @@  @@@@@--------------
+            @@        @@     @@  @@ @@ -     @@       @@ @@   @@      @@----------
+             @@@@@@@ @@  @@@@@@ @@   @@@@@@@ @@@@@@@ @@  @@ @@	     @@--------
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@------
+
+
+
+
+

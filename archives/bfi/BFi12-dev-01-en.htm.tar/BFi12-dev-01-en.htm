@@ -1,0 +1,1089 @@
+-[ BFi - English version ]----------------------------------------------------
+        BFi is an e-zine written by the Italian hacker community.
+        Full source code and original Italian version are available at:
+                http://bfi.freaknet.org/dev/BFi12-dev-01.tar.gz
+                http://www.s0ftpj.org/bfi/dev/BFi12-dev-01.tar.gz
+        English version translated by twiz <twiz@email.it>
+------------------------------------------------------------------------------
+
+
+
+==============================================================================
+---------------------[ BFi12-dev - file 01 - 13/01/2003 ]---------------------
+==============================================================================
+
+
+-[ DiSCLAiMER ]---------------------------------------------------------------
+        The whole stuff contained in BFi has informative and educational
+	purposes only. In no event the authors could be considered liable
+	for damages caused to people or things due to the use of code,
+	programs, pieces of information, techniques published on the e-zine.
+	BFi is a free and autonomous way of expression; we, the authors,
+	are as free to write BFi as you are free to go on reading or to stop
+	doing it right now. Therefore, if you think you could be harmed by
+	the topics covered and/or by the way they are in, * stop reading
+	immediately and remove these files from your computer * .
+	You, the reader, will keep to youself all the responsabilities about
+	the use you will do of the information published on BFi by going on.
+	You are not allowed to post BFi to the newsgroups and to spread
+	*parts* of the magazine: please distribute BFi in its original and
+	complete form.
+------------------------------------------------------------------------------
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ FiND HiDDEN RESiDENT PR0CESSES
+-----[ twiz <twiz@email.it>
+       sgrakkyu <sgrakkyu@libero.it>
+
+
+---[ Preface
+
+This article is basically divided into two sections: a first one that will 
+analyze the theorycal underground behind FHRP, analyzing concepts, linux 
+kernel implementation case studies and so on and a second one, "practical"
+that will present the pourposes and the effective code implementation.
+First part isn't strictly necessary to use FHRP, but it gives the fondaments 
+to deeply understand fhrp and, maybe, extend or adapt it to fit your needs.
+
+In a nutshell FHRP is a linux 2.4.* loadable kernel module, implemented only 
+for uniprocessor systems, designed to find hidden processes on a box using 
+the cr3 value as a signature.
+A sensible part (even if not implemented) of the ideas and the code should be 
+valid also on other operating systems, SMP systems and, eventually, other 
+arch.
+
+---[ Processes and the scheduler
+
+Find hidden processes, we said. I assume you all know what a process is and 
+that you've clear the "astraction" that is done inside linux kernel, where
+would be more correct talk of tasks, since basically linux sees and manages 
+kernel threads and userland processes in the same manner, that is with a 
+struct task_struct.
+
+[Note: That doesn't mean that there's no difference between kthreads and 
+userland processes, indeed, for example, the struct mm_struct of a kthread 
+will always be NULL, since the virtual memory that a kthread references 
+is the one directly mapped in kernel space. Moreover actually in the "base"
+2.4 kernel thread the full preemption patch isn't applied, so kernel threads
+and whatever running in kernel space isn't pre-emptable]
+
+Likewise we won't dwell on what is and how a scheduler works, there are
+plenty of books and texts on the net that deal with such a topic (for a bare
+list check the reference at the end of this paper)... in a nutshell we can
+define the scheduler as that part of an operating system that takes care of 
+choosing, among processes that compete for the CPU, which one let effectively
+run, using a particular algorithm (there are many possible algorithms and
+different pourposes, just think, for example, of the differences between a 
+batch system and a real-time system).
+Different can be, also, the situations when the the scheduler gets called,
+for example when a process ends or blocks waiting for a specific resource
+(f.e. i/o on a port), or when that resource gets available, or, yet, it forks
+or has exausted its time quantum. 
+
+A last definiton that could be useful to give is the difference between
+*non-preemptive* and *preemptive* scheduling, with, in the first case, the 
+scheduler picking up a process and letting it execute until it ends, blocks
+or volountary yelds the cpu, while, in the second case, the process has
+assigned a time-quantum, that, when expired, force the process to stop and the
+scheduler to pick up another one. Whenever the "priority" among processes
+(Priority Scheduling Algorithm) is implemented, a process with higher priority
+that gets available (f.e. because the resource it was blocking on is now 
+available) gets scheduled and the process that was running, suspended.
+Preemptive scheduling conditio sine qua non is obviously the presence of a
+timer interrupt.
+
+Since, as we said before, we gonna work with linux kernel and over a 32bit x86
+uniprocessor system, let's go deeper and look closer at how all that is
+implemented.
+There are at least 3 texts online (Reference [2] [3] and [4]) that analyze,
+even quite deeply, the linux kernel scheduler (both UP and SMP), so, we will
+focus over the points that are most interesting for us, trying to go as
+deeper as possible into, leaving to the interested reader the possibility to
+examine closer the other subjects reading those texts.
+The best way to understand the linux kernel remains, thou, a read of
+kernel/sched.c and some part of kernel/timer.c (sys_alarm and sys_nanosleep
+are implemented there) as well as include/linux/sched.h and time[r].h .
+
+At a given time a task can be in one of these 5 states (task->state inside
+struct task_struct) :
+
+<include/linux/sched.h>
+[snip]
+
+#define TASK_RUNNING            0
+#define TASK_INTERRUPTIBLE      1
+#define TASK_UNINTERRUPTIBLE    2
+#define TASK_ZOMBIE             4
+#define TASK_STOPPED            8
+
+[snip]
+
+TASK_RUNNING -> task is on the runqueue and so competes for the CPU. Every
+process on the runqueue is in TASK_RUNNING state, while could not be true the
+opposite, since the action of setting a process in TASK_RUNNING and putting it
+on the runqueue isn't atomic.
+
+TASK_INTERRUPTIBLE -> task is sleeping, but can be woken up by a signal or if
+the time to sleep set with schedule_timeout() expires. When a process goes
+sleeping in TASK_INTERRUPTIBLE state its task_struct is inserted into the
+waitqueue linked to the resource it is blocking on.
+
+TASK_UNINTERRUPTIBLE -> task is sleeping, but it's garanted that it gonna keep
+that state untill the expiry of the timer set with schedule_timeout().
+That option is seldom used inside linux kernel, but is useful for example for a
+device driver that has to wait for a particular operation to end and that, 
+if interrupted, could return a wrong value or leave the device in an
+umpredicible and/or corrupted state.
+
+TASK_STOPPED -> task has been stopped by a signal or because there is an
+attempt to trace it with ptrace (to a PTRACE_ATTACH corresponds a SIGSTOP
+sent to the child).
+A task in TASK_STOPPED state isn't, obviously, in the runqueue or in a
+waitqueue.
+
+TASK_ZOMBIE state isn't of any particular interest, just the task has finished
+its execution, but the father hasn't executed a wait() on his status.
+Those processes become childs "adopted" by init, that, periodically, issues
+wait() calls, erasing them de facto.
+
+What it's interesting to notice is that *only* TASK_RUNNING processes compete
+for the CPU, while all the others don't get any CPU time (unless, obviously,
+they get woken up by an expiry, for the processes in timeout, or, out of 
+TASK_UNINTERRUPTIBLE's ones, by a signal).
+The importance of that and of the fact that TASK_STOPPED processes are not in
+any waitqueue would be more clear when the foundaments of fhrp will be
+analyzed, expecially the signature-system.
+
+-----] Case study n.1 -> schedule_timeout()
+
+Once we have introduced the concept of timeout and schedule_timeout(), let's
+see how linux kernel handles it. The function we will start from is right
+schedule_timeout(), from kernel/sched.c .
+
+signed long schedule_timeout(signed long timeout)
+
+This function receives as parameter the "time" in jiffies the process will
+have to spend sleeping. Jiffies are just the number of clock ticks since the
+boot-up of the box, that is why the value of the jiffies variable is
+incremented at every timer interrupt.
+FHRP heavily relays on timer interrupt and that will be analyzed later.
+
+At this time, after declaring a struct timer_list (used to set the timeout)
+and a "long expire", a switch on the timeout value is executed (to fit  
+readability and space the comments inside sched.c have been removed):
+
+        switch (timeout)
+        {
+        case MAX_SCHEDULE_TIMEOUT:
+                schedule();
+                goto out;
+        default:
+                {
+                        printk(KERN_ERR "schedule_timeout: wrong timeout "
+                               "value %lx from %p\n", timeout,
+                               __builtin_return_address(0));
+                        current->state = TASK_RUNNING;
+                        goto out;
+                }
+        }
+
+We are mostly interested in the MAX_SCHEDULE_TIMEOUT case : in that situation,
+indeed, no timer will be set, but simply the scheduler will be invoked. That
+way the process, that has been previously set to TASK_INTERRUPTIBLE
+(generally) or TASK_UNINTERRUPTIBLE (seldom) is removed from the runqueue and
+another one is scheduled. The sleeping process so *WON'T* wake up after a
+whatever fixed period.
+The case of MAX_SCHEDULE_TIMEOUT is of direct interest in FHRP because
+sys_accept (precisely inside wait_for_connect() ) passes right that parameter
+to schedule_timeout() , creating some trouble in finding hidden processes that
+are listening on a specific port. The solution to that problem will be clear
+after the practical analysis of FHRP (second part of this article).
+
+For all the other cases (default), there's a check (*paranoid*, as we can read
+from comments inside the source) for a negative value passed to
+schedule_timeout() (something that should *never* happen). In that case, thou,
+schedule_timeout would return 0.
+
+Whenever (and it's far the most common situation) nothing of that will happen
+the function goes on that way :
+
+        expire = timeout + jiffies;
+
+        init_timer(&timer);
+        timer.expires = expire;
+        timer.data = (unsigned long) current;
+        timer.function = process_timeout;
+
+        add_timer(&timer);
+        schedule();
+        del_timer_sync(&timer);
+
+        timeout = expire - jiffies;
+
+Nothing strange, just the value of expire gets counted (adding the actual
+jiffies var value to the delay value contained in timeout) and the members of
+the struct timer_list are filled. What is interesting to notice is that the
+function that will be called before all to wake up the process is
+process_timeout() .
+add_timer(&timer) adds the process to the global list of active timers, while
+del_timer_sync(&timer) is used to avoid race condition if the function returns
+before the expected time (f.e. we have been woken up by a signal). In that
+situation 'timeout' is returned, that is the time elapsed after the set of the
+timer.
+For any other doubt about schedule_timeout() the comments inside sched.c
+should be enough :)
+
+Before going further just two words about how a process can be set to sleep,
+with or without timeout. The possibilities are basically two : an invocation
+that i would define "manual" of schedule_timeout() or the use of
+interruptible_sleep_on_timeout / interruptible_sleep_on / sleep_on_timeout /
+sleep_on .
+
+An example of "manual" invocation is inside sys_nanosleep, the syscall
+invoked when we wrote something like sleep(10) inside a C code.
+Leaving lines concerning realtime processes ( task->policy set to SCHED_RR or
+SCHED_FIFO ), the interesting lines are :
+
+        current->state = TASK_INTERRUPTIBLE;
+        expire = schedule_timeout(expire);
+
+In that case there is no need to set a waitqueue, because the process is not
+waiting (that is, blocking for) a particular resource, but simply it has to be
+kept sleeping for a given amount of time.
+If the process really blocks waiting for a resource/event and if
+schedule_timeout() is invoked "manually", a wait_queue is set and previously
+added to a waitqueue_head.
+We will see an example when wait_for_connect() will be analysed briefly.
+
+The *sleep_on* family (where '*' is used as a regexp ;)) does exactly the
+same, just a waitqueue is always set and added to the wait_queue_head_t struct
+passed as parameter. The set of the state of the process and, eventually, the
+call to schedule_timeout() are managed inside those functions.
+The difference between timeout or not is achieved, with schedule_timeout() ,
+depending on the value of timeout (if it's equal or not to
+MAX_SCHEDULE_TIMEOUT ).
+
+------] Case study n.2 -> The path to a process wake up
+
+As we saw few lines ago, at the expire of the timer set by
+schedule_timeout(), the function that gets called is process_timeout() , that
+receives as parameter an unsigned long, that is nothing more than a pointer
+to the task_strct put to sleep.
+
+From this moment on we will start jumping around among various functions,
+everyone acting as a wrapper to the following one, till we arrive to 
+try_to_wake_up() , which is the function that will, effectively, wake up our
+process. 
+What we're going to do in the second case study is follow the stages trying to
+spot out the most interesting ones (from the FHRP point of view) and the
+reasons behind the hooking in particular points of the code.
+
+The first function that gets called is the process_timeout() and is also the
+function that FHRP hooks to check this type of processes. The function itself,
+as every wrapper, is quite simple :
+
+static void process_timeout(unsigned long __data)
+{
+        struct task_struct * p = (struct task_struct *) __data;
+
+        wake_up_process(p);
+}
+
+A pointer is declared and with a casting it is made point to the process that
+had been put to sleep and, after that, the wake_up_process() function is
+called.
+process_timeout() is also the function hooked inside FHRP, and that is
+because :
+- It is the first function to be called when there is the need to wake up a 
+  process, and that means that it does not depend from other functions that
+  could have been hooked by the attacker and so give us wrong/compromised
+  results.
+- It is really short and so it is possible to write it back completly inside
+  the hook, having the security that nothing will "interfere".
+- If we put a process in timeout, via schedule_timeout() and, because of
+  whatever reason this process isn't passed to wake_up_process , and, so, it
+  doesn't arrive at try_to_wake_up(), that process won't wake up any more...
+  this in FHRP is used in a way, a bit "rude" (but efficient), to make
+  harmless a possible hidden process.
+
+wake_up_process() is itself a wrapper function, that calls the
+try_to_wake_up() .
+It is used, for example, when a SIGCONT is sent to a process
+( kernel/signal.c ).
+
+inline int wake_up_process(struct task_struct * p)
+{
+        return try_to_wake_up(p, 0);
+}
+
+As we said few lines ago, that function does nothing more than call
+try_to_wake_up, passing as second parameter (int synchronous, as we will see
+in a minute) "0", that is the request to call reschedule_idle(), beside
+inserting the process in the runqueue.
+The result is that, inside reschedule_idle() , the goodness of the woken up
+process will be computed (thanks to the dynamic priority) and, if that one
+has a major priority than the current running process, a context switch will
+occur and the process just woken up will get immediately the CPU.
+Let's see try_to_wake_up() aswell : 
+
+static inline int try_to_wake_up(struct task_struct * p, int synchronous)
+{
+        unsigned long flags;
+        int success = 0;
+
+        spin_lock_irqsave(&runqueue_lock, flags);
+        p->state = TASK_RUNNING;
+        if (task_on_runqueue(p))
+                goto out;
+        add_to_runqueue(p);
+        if (!synchronous || !(p->cpus_allowed & (1 << smp_processor_id())))
+                reschedule_idle(p);
+        success = 1;
+out:
+        spin_unlock_irqrestore(&runqueue_lock, flags);
+        return success;
+}
+
+This function is quite simple too :
+
+- a lock on the runqueue is acquired with spin_lock_irqsave and, beside the
+lock, interrupts get disabled on the current CPU, if in SMP context, (in UP
+that is just the classic sequence save_flags(), cli(), restore_flags()) and
+in flags the interrupt state of the processor is saved;
+
+- the state of the process is set to TASK_RUNNING and there's a check to see
+if the process is on the runqueue (if it is, the lock is released, the
+interrupt state restaured through flags and '0' returned);
+
+[Note: the state of the process is set to TASK_RUNNING without any check on
+the previous state and on the fact that it would have been "possibly" 
+modified. That is the reason why moving to TASK_STOPPED manually the
+processes, those who had set a not-yet-expired timer are woken up... not that
+this is of any worry, indeed we can (and we do) just wake up *only* those
+processes with a valid cr3/signature ]
+
+- the task is added to the runqueue and, if syncronous == 0 or if it isn't 
+possible to make the process run on the current CPU (condition that on UP
+is *always* false) (cpus_allowed is just a bitmask that lists valid CPUs for
+the switch) reschedule_idle() is called. In any evenience success is set to 1
+to indicate that the task has been successfully inserted in the runqueue.
+
+reschedule_idle() is the function, as we said some paragraphs ago, that deals
+with checking if the goodness of the woken-up process is better than the one
+of the current running process and, if that is the case, carry on a context
+switch in advantage of the former.
+The code is quite complex in SMP (it has the pourpose to "find" an idle cpu to
+let the process run on), while it's just few lines in UP:
+
+        int this_cpu = smp_processor_id();
+        struct task_struct *tsk;
+
+        tsk = cpu_curr(this_cpu);
+        if (preemption_goodness(tsk, p, this_cpu) > 1)
+                tsk->need_resched = 1;
+
+In tsk is set the process current on the CPU, while the preemption_goodness
+does nothing more than subtract the goodness of the woken-up process with
+the one of the current process. If the value returned is major than one that
+means that the priority of the former is higher and need_resched is set to 1,
+forcing a scheduler invocation at next ret_from_intr or ret_from_sys_call .
+need_reschedule() , as said in a comment in kernel/sched.c too, is absolutely
+timing critical, since if you remember from the try_to_wake_up() , it is
+called with the lock set on the runqueue and it is impossible to claim for the
+tasklist_lock .
+
+Because there are many focusing texts online (Reference [2] [3] and [4]...
+besides sched.c) we won't go any further on other sections of the scheduler,
+as, for example, the goodness (that is the core of the scheduling algorithm)
+or schedule() itself, since they are widely analyzed both in Linux Kernel
+Internals 2.4 [2] and in the freely downloadable chapter of Understanding the
+Linux Kernel [3].
+
+------] Case study n.3 -> About the PIT, raising the clock frequency
+
+As we already said the timer interrupt is the conditio sine qua non of a
+preemptive scheduling. It is thanks to the timer interrupt that we can
+periodically decrease the time quantum of a process ( task->counter ) and
+set, if equal to 0 (expired), task->need_resced to 1, thus invoking the 
+scheduler at the following ret_from_intr or ret_from_sys_call and obtain a
+context switch.
+
+Taking in exam the linux kernel, the frequency (modifiable at compile time
+simply modifing HZ value in asm/param.h ... default is 100) is set to 1
+tick every 10ms.
+It's under the sun that if we raise up the value of HZ we get a better
+response time, that is the time between the send of the command and the
+execution of the command itself, but a major overhead too, due to the fact
+that the number of context switch increases sensibly and every process
+has globally at every epoch "few time" to run, since its counter expires in
+a shorter lack of time.
+It's more or less under the sun too that if we bring down HZ value we
+get longer and longer response times.
+Both the operations (to raise and to low the timer interrupt frequency)
+advantage particular kind of processes and drawback others. A shell or
+whatever interactive application gets benefit from a raising, while bringing
+it down gives benefit to an operation like a find on the whole hard disk
+or a backup.
+
+FHRP, when loaded, raise up the timer interrupt frequency, arriving at 1 tick
+every millisec (value that obviously is modifiable, as we'll see while
+analyzing that portion of the code), calling back, thou, the original
+timer interrupt handling routine with the classic frequency of 10ms. That 
+gives us the possibility to check more than once between an "effective" timer
+interrupt and the other what effectively is running on the CPU.
+
+Let's see now how all that is possible and, moreover, what raising the
+interrupt permits and how the linux kernel manages all the stuff.
+At the end of the case study I'll provide a simple module that let us easily
+raise up and down the frequency.
+
+[Note: this part isn't strictly necessary to understand the working of FHRP
+and probably will be more suitable for those interested in low level arch
+and devices. If not interested you can just jump over it or read it just
+for couriosity, without paying too much attention to the details.
+Moreover, even if a part of the description is correct/appliable to SMP
+systems too, the case study and the code given is only for UP. ]
+
+Let's start from the architecture. We will analyze the 8253/8254 (even if, de
+facto, we will focus only on the 8253, since we won't discuss 8254 extensions)
+Programmable Interrupt Timer chip.
+Of the 3 channels available on the PIT we're only interested on the
+channel/timer 0, that is the device that the linux kernel uses to keep count
+of the time (timer interrupt).
+
+[Note: if you're interested in reading more about what it's not going to be
+analyzed there, that is the other two channels, channel/timer 1 linked to the
+DRAM refresh and channel/timer 2 linked to the speaker, you can check 
+Reference [5] and [6]]
+
+The 3 timers of the chip 8253 are controlled by the same clock signal, that
+derives from the quartz oscillation on the motherboard. The frequency of this
+clock signal is more or less of 1.1931 MHz.
+Every timer has a counter, programmable, which, in a nutshell, counts how many
+time or how many time later (depending on the Operation Mode, described later)
+to send its "signal".
+Timer 0 channel of chip 8253 is in fact linked to the PIC (Programmable
+Interrupt Controller) 8259, which standardly listens on 8 interrupt sources
+and passes those interrupts, one at a time, to the CPU, according to a
+priority mechanism that allows a more important one to interrupt a less
+important one and so get the cpu.
+The 8259 PIC let us mask particular interrupts with the 8 bits (one for
+interrupt) of the IRM (Interrupt Mask Register), in fact a bit set to 1 into
+the IRM will prevent that interrupt from "reaching" the CPU to be handled.
+
+[Note: IRQs are actually more than 8: they are exactly the double, 16, divided
+into 8 Master, directly linked to the CPU, and 8 Slave, which pass through
+IRQ2. However it's not the place to go deeper, if you are interested read
+Reference [5]]
+
+8253 chip timer 0 is linked to the IRQ0 of the 8259, the Interrupt Request
+(this is how is defined an interrupt source that passes through the 8259) with
+higher priority.
+As we said more than once, the default frequency inside linux kernel is
+100 Hz, a tick every 10ms.
+That is achieved setting the timer counter to 11932 (from the simple division
+we get almost 100Hz or 10ms), let's see how it is counted inside the kernel.
+The value is returned by the LATCH macro:
+
+<include/linux/timex.h>
+
+#define LATCH ((CLOCK_TICK_RATE + HZ/2) / HZ) /* For divider */
+
+CLOCK_TICK_RATE is defined in include/asm/timex.h and is equal to 1193180.
+The reason behind this division is quite straightforward. LATCH is a generic
+macro, that is suitable to all the controller of whatever architecture
+supported, while CLOCK_TICK_RATE depends on the frequency of the quartz
+oscillation, and so is architecture dependant.
+So the result is : 11932.
+
+Before looking at how that values is set in the counter relative to timer 0
+it's necessary to spend a few words about the ports PIT is linked to.
+PIT is linked to 4 ports:
+ - 0x40         -       Channel 0 counter
+ - 0x41         -       Channel 1 counter
+ - 0x42         -       Channel 2 counter
+ - 0x43         -       Mode Control Register
+
+The port 0x43 is the one of more interest for use, since, before setting
+the counter we've to "tell him" how to behave. That is achieved through
+an out on the 0x43 port. 
+Mode Control Register is made of 8 bit:
+
+ | 7 | 6 | 5 | 4 | 3 | 2 | 1 | 0 |
+   |___|   |___|   |_______|   _
+
+- bit 0 acts as switch to indicate how the counter value will be passed, if
+in 16 bit binary or in BCD for 4 decades.
+- bits 123 set one of possible 6 modes (for a description of each mode check
+Reference [5]). The mode that we need to set is n. 2, which generate an
+impulse every time that tot (counter) cycles elapsed.
+- bits 4 and 5 are the Read/Write/Latch format bits, we will set both of them
+to 1, signaling that we will pass to the port given with bits 6 and 7, with
+two following out, LSB and after MSB of the value to set in the counter.
+- bits 6 and 7 identify which counter we will modify and so at which port
+wait for the outs. We will set them to 0, selecting the counter linked to
+channel 0.
+
+In the end, so, the bitmask to pass will be 00110100, that is 0x34 in hex, 
+and it's exactly what kernel does in arch/i386/kernel/i8259.c :  
+
+        outb_p(0x34,0x43);              /* binary, mode 2, LSB/MSB, ch 0 */
+        outb_p(LATCH & 0xff , 0x40);    /* LSB */
+        outb(LATCH >> 8 , 0x40);        /* MSB */
+
+Everything should be quite clear and there should be no need for further
+explanation.
+The last thing to do is to show a practical application. The module I present
+there is written in at&t syntax (gas) and let you pass as a parameter the
+value of the counter you want to set.
+Default value will raise the clock frequency to 1000Hz... try to insmod it
+and launch some interactive programs, like top, or execute shell commands.
+If you've the framebuffer, your cursor will behave madly :)
+
+<-| fhrp/citf.s |->
+/*
+ * citf.s                                                                                 *
+ * Change the interrupt timer frequency via lkm                                           *
+ *                                                                                        *
+ * This module gets the value to set in the counter of channel 0 via parameter 'freq' and *
+ * sets it. Default value is 0x4a9, the value you'll get setting HZ to 1000 inside kernel *
+ * I list there some value you could find useful to know :                                *
+ *    for HZ == 100  (default in linux kernel)  -> 0x2e9c                                 *
+ *    for HZ == 1000 (default in this lkm)      -> 0x4a9                                  *
+ *    for HZ == 50                              -> 0x5d38                                 *
+ *
+ * Example : insmod citf.o freq=0x5d38
+ */
+
+.globl init_module
+.globl cleanup_module
+
+.globl freq
+.data
+.align 4
+.size freq, 4
+freq:
+ .long 0x4a9
+
+.text
+.align 4
+
+start:
+
+init_module:
+        pushl   %ebp
+        movl    %esp,%ebp
+        xorl    %eax, %eax
+        pushfl
+        cli
+        movb    $0x34, %al
+        outb    %al, $0x43
+        movw    freq, %ax
+        outb    %al, $0x40
+        movb    %ah, %al
+        outb    %al, $0x40
+        popfl
+        xorl    %eax, %eax
+        leave
+        ret
+
+cleanup_module:
+        pushl   %ebp
+        movl    %esp,%ebp
+        xorl    %eax, %eax
+        pushfl
+        cli
+        movb    $0x34, %al
+        outb    %al, $0x43
+        movw    $0x2e9c, %ax
+        outb    %al, $0x40
+        movb    %ah, %al
+        outb    %al, $0x40
+        popfl
+        leave
+        ret
+
+
+.globl __module_parm_freq
+.section .modinfo
+__module_kernel_version:
+.ascii "kernel_version=2.4.9\0"
+__module_parm_freq:
+.ascii "parm_freq=i\0"
+<-X->
+
+The following is a simple C code to count values to pass as a parameter,
+intended just to be handy, since i hope you've got clear how it's counted.
+
+<-| fhrp/freq.c |->
+#define MY_LATCH(x)  ((1193180  + x/2) / x)  /* For divider */
+
+main(int argc, char **argv)
+{
+ int i = atoi(argv[1]);
+ printf("%x\n", MY_LATCH(i) );
+}
+<-X->
+
+---[ FHRP: pourposes, ideas and implementation
+
+After this "theorical" part it's time to present the tool and analyze its
+pourposes and the ideas that brought up to its writing.
+At the end of the presentation will be presented possible ideas to improve it
+or extend some function.
+
+------] Pourposes 
+
+The pourpose of FHRP is, in the very end, just one, find processes that have
+been hidden by the attacker. FHRP makes an assumption, processes have been
+hidden by removing them *at least* from the task_struct double chained list
+(reason will be clear in a minute) and its aim is to find a process  that,
+removed from whatever kernel list (runqueue, pidhash list, task_list..),
+receives a "quantum of CPU" by even a low-level manual switching or a heavy
+and invasive modification of the scheduler (I'm not ignoring all the
+difficulties in implementing a manual switching or such an invasive
+modification to the scheduler, it's just the _extreme_ case and we want to be
+consistent in that situation too).
+
+The very first thing we need to achieve our aim is to find a way to recognize
+processes, a sort of valid signature that will discriminate "good" processes
+from "evil" ones.
+The choose is fallen on the cr3 (control register) value, because :
+
+- It's essential to the execution of the process
+
+cr3 register (aka PDBR - Page Directory Base Register) keeps the physical
+address of the base of the page directory and two flags (PCD and PWT).
+Only 20 most-significative bits are specified, while for the other 12 a 0
+value is assumed.
+Just because it's essential for the execution of the process it can't be "faked".
+
+- It's fast/easy to retrieve
+
+The cr3 register is contained in every task_struct in task->mm->pgd (to compare
+it we've to remember to "translate" it into a physical addr, with __pa() ) and
+so it's fast to retrieve it to setup the cr3-valid database.
+Moreover it's fast too to retrieve it while the process is running on the CPU
+(movl %cr3, %eax) and that one is just a good news, since we're in interrupt
+time and the clock is raised to 1000Hz.
+
+The cr3 is loaded by the kernel at context-switch time by switch_mm() , with a
+simple inline assembly instruction:
+
+                asm volatile("movl %0,%%cr3": :"r" (__pa(next->pgd)));
+
+Now that we've our signature we need a point where we can sit and check
+constantly the CPU and cr3-register value.
+
+[Note: FHRP code is divided into 4 file: 3 .c sources and a .h include, that
+we are going to analyze in their more important characteristics; read up the
+rest, if you're interested, directly inside files themselves]
+
+------] cr3-timer.c
+
+Inside that file there are raise_timer() and restore_timer() functions
+that let fhrp raise up at insmod time and bring back down at rmmod time
+timer interrupt frequency. If you've read case study n.3 you should have
+no problem in understanding them (it's nothing more than the C tansposition
+of citf.s); if you jumped over it, the only thing you're interested in
+knowing is that during the period the module will be linked to the kernel a
+timer interrupt every ms will arise.
+The decision to raise up to 1000Hz has been taken to have more possibilities
+to find a CPU hidden process, and it showed no particulary balancing problem
+with the little overhead that our checking functions create during 
+interrupt time.
+
+handler_new() is the new handler that we set for the timer interrupt. 
+That handler computes from HZ and MY_HZ the frequency to call the scheduler
+at to avoid a change in the succession of context switches.
+Still inside handler_new() is executed the check between the cr3 active
+and the valid-cr3 list.
+ 
+As we understand following timer.c and following the various functions
+called, there are many points where we could hook to get more or less the
+same effect. We've decided to place ourself on the top of the chain, with the
+substitution of the address contained inside the struct irqhandler irq0 
+(the address of the timer interrupt handler) with the address of our new
+function. That way we gonna overwrite even other possible hooks aiming to
+"manage" somehow hidden processes.
+How an interrupt is handled is out of the pourposes of this article and so
+i don't spend time on how the IDT is handled and on the mechanism linked to
+the switching in kernel land, but rather is interesting, in the process to
+understand how FHRP works, to show how ISRs (Interrupt Service Routine) are
+invoked.
+
+The foundamental struct that keeps the ISR is the struct irqaction
+</include/linux/interrupt.h>
+
+struct irqaction {
+        void (*handler)(int. void *, struct pt_regs *);
+        unsigned long flags;
+        unsigned long mask;
+        const char *name;
+        void *dev_id;
+        struct irqaction *next;
+};
+
+- first field identifies the ISR itself, that is the function that will handle
+the interrupt;
+- flags set the modality this routine has to be executed in.. among the more
+important settings we list the possibility of executing the routine with
+the interrupts disabled (SA_INTERRUPT) and the possibility of sharing the
+IRQ line with other devices (SA_SHIRQ);
+- name field is just an identifier that gives the name to the I/O device;
+- dev_id identifies the Major/Minor device number;
+- next, in the end, is a pointer to another struct irqaction, that achieves the
+possibility, if the IRQ line is shared (SA_SHIRQ), to have a list of structs,
+every one linked to its device and its routine.
+
+Since we're working with irq0 struct, let's see how it's declared :
+
+static struct irqaction irq0  = { timer_interrupt, SA_INTERRUPT, 0, "timer", NULL, NULL};
+
+The address of the struct irq0, got from nm or System.map, it's at the basis of
+the set_irq() and restore_irq() functions, that manage to set our new struct 
+irquaction (and so, our new handler) and brings things back to original state.
+
+------] cr3-func.c
+
+Inside that file there are some of the essential function for the working of
+FHRP and that arise sensibly the probability, already quite high, to find an
+hidden process.
+First two function we analyze are stop_all_process_safe() and
+resume_all_process() , that deals, respectively, to the "STOP"ping of the
+runnig processes and their waking-up back when work is done.
+The advantage that blocking all the good ones give us is to increase the 
+possibility of scheduling of an hidden process, leaving to the scheduler the
+possibility, de facto, of giving the CPU only to kthreads, "safe" processes
+(we will talk of them in a couple of lines), and, obviously, the hidden ones.
+
+stop_all_process_safe() lists all the legal active processes on the box at
+insmod time (running the task_struct double chained list with list_for_each)
+and stop them one at time, sending a force_sig(SIGSTOP, p).
+However not *all* processes are stopped, as we see from checks :
+
+        ....
+        if(p->mm)
+        ....
+        if((t !=  pid_bash_safe) && (t != SAFE_P_KLOGD) && (t != SAFE_P_SYSLOGD) && (t != SAFE_P_INIT))
+        ....
+        if((p->state != TASK_UNINTERRUPTIBLE) && (p!=current))
+        ....
+
+These are, in fact, left running:
+- kernel threads -> kernel threads, as we said, haven't a mm_struct (since
+they reference directly the memory mapped in kernel space) and, so, every
+attempt to reach the pgd, apart that absolutly pointless, will translate
+in a segfault;
+- the bash parent of insmod -> its pid is retrieved from p->p_opptr->pid
+and let us to have a shell from which launch the rmmod (avoiding so a
+complete freeze of the box) and, if you want, other programs (but remember
+that their cr3s will be interpreted as "evil" and, if using
+schedule_timeout() , they won't be woken up back);
+- klogd and syslogd -> that let our module send messages to the console;
+- init;
+- TASK_UNINTERRUPTIBLE state processes -> first of all, send a signal to
+those processes will be of no immediate use, indeed, they will keep on
+sleeping untill the end of the timeout and/or of the operation (generally
+I/O). Moreover processes in TASK_UNINTERRUPTIBLE are seldom present and, even
+if they would need to wake up, they would be correctly handled by the
+process_timeout() hook;
+- current -> stopping the current process gives some trouble in many situations.
+In our case current *is* insmod and so stopping it won't let our module to 
+properly load and will, probably, led to a machine-freeze. Moreover we aren't
+particulary interested in insmod, since its destiny is to expire right after
+the loading of our module.
+
+resume_all_process() is nothing more than the opposite of the 
+stop_all_process_safe() and uses again force_sig() to send a SIGCONT
+(if you experience a problem with some processes in reacquiring the tty 
+a bounce of "fg" should be enough).
+
+Last, but crucial, function we find there (and that was already "introduced")
+is take_global_page_dir() , that manages to retrieve the cr3 of the current
+running process.
+
+unsigned long int take_global_page_dir()
+{
+        __asm__ __volatile__ ("movl %cr3, %eax");
+}
+
+------] cr3-main.c
+
+This is the heart of the module, and, besides init_module and cleanup_module
+(that setup/clean module environment) there are some other interesting
+function.
+First of all is setupped the table of "allowed" processes, with the 
+routine_set_table() , after that is set the process_timeout() hook.
+This hook is quite simple (like every hook to a wrapper) and give us the way
+to check all the processes that "wake-up" (and that probably will suddently
+come back to sleep, not being the resource available, without receiving cpu
+in userspace).
+Only authorized processes are allowed to wake-up, while the other are lost in
+the kernel and at the 99% (if the attacker hasn't set a parallel check) they
+won't get CPU anymore, becaming harmless.
+
+The second function that we analyze is the check_listening_socket() .
+That function gives us the possibility to retrieve hidden processes that are
+listening, after an accept(), on a given port.
+First of all let's clearify its necessity.
+Let's take as an example a "socket tcp" listening on a port (a common
+backdoor f.e.).
+Last step of the accept, on which it will sleep, is in net/ivp4/tcp.c and is
+wait_for_connect() .
+
+static int wait_for_connect(struct sock * sk, long timeo)
+{
+        DECLARE_WAITQUEUE(wait, current);
+        int err;
+
+    add_wait_queue_exclusive(sk->sleep, &wait);
+        for (;;) {
+                current->state = TASK_INTERRUPTIBLE;
+                release_sock(sk);
+                if (sk->tp_pinfo.af_tcp.accept_queue == NULL)
+                        timeo = schedule_timeout(timeo);
+[...]
+
+This is the part we're interested in. The waitqueue is declared, there's a
+check if there's someone in 'accept_queue' for the socket and, if not,
+schedule_timeout() is invoqued.
+However the hook on the process_timeout in that situation is not helpful, in
+fact, in the classic case that we're taking in consideration, timeo is set
+to MAX_SCHEDULE_TIMEOUT .
+As we saw in the case study relative to the schedule_timeout() , a value
+of MAX_SCHEDULE_TIMEOUT doens't set any timer, but, just, invokes the
+scheduler and set the socket to sleep, untill a signal (generally
+SIGIO) will manage to wake it up.
+
+At this time we need :
+- a way to list all listening sockets;
+- a way to retrieve from the struct sock of the socket in listening the
+task_struct of the controlling process.
+
+The solution should be quite straightforward looking at the code, we take
+various hash tables of listening sockets (tcp, udp and raw), than, tracked
+down the sock struct, we get the wait_queue_head struct from sk->sleep .
+Listing again that one we get a list of "possible" struct wait_queue , from
+which we can track down the struct task_struct and do the check there.
+That check is done by check_wait_process() . When reporting the result, at
+rmmod time, the port and the kind of socket is reported.
+Another possible idea (and maybe the more natural one) was to track down the 
+struct file from the struct sock and do a sort of pattern matching with the
+struct file reached from the task_strct, but that would have altered the
+nature of FHRP, that is the cr3 check.
+
+[Note: if you give a fast look at net/netsyms.c you'll see that two symbols
+that are of direct interest for us (udp_hash and tcp_hashinfo) are exported
+only if at least one among CONFIG_IPV6_MODULE , CONFIG_KHTTPD and 
+CONFIG_KHTTPD_MODULE is set. The problem is fast to resolve hooking two other
+functions, but, since fhrp is a tool for admins, that hasn't been added to the
+code (if you want to a bounch of #ifdef should be enough). The fastest
+solution remains, obviously, recompile with, f.e., CONFIG_IPV6_MODULE set]
+
+-----] config.h
+
+FHRP header contains the #define to hook some function (f.e.
+process_timeout() ) or to handle some struct at kernel level (f.e. irq0 or
+the listening raw socket hash table), that have to be correctly set using nm
+or an up to date System.map .
+The name of the "string" to look for appears among the comments near to every
+#define .
+
+In that same file you should set pids of syslogd and klogd, being those
+two demons run at the startup of the system they should keep always the
+same pid after a reboot too.
+
+Last two things you could be interested in setting are MY_HZ, that sets the
+frequency to raise the clock to and MAX_RESULTS that sets the maximum number
+of results to report at rmmod time.
+Both are set to two values that, generally, should behave just fine...
+If exactly 10 results are reported, perhaps it would be worth, to be sure, to
+insmod the module again, with MAX_RESULTS increased.
+If you want, you could, with a simple add, change MAX_RESULTS and let the
+maximum of results to be set at insmod time with a MODULE_PARM .
+
+Last part we spend some words on inside config.h is about compare_cr3() .
+The function is declared static inline to avoid a CALL (we're in interrupt
+time and even few cycles less are fine... without forgetting that a call
+flushes the pipeline).
+This function has been structured to as optimized as possible, for
+example with the implementation of a sort of cache that keeps in memory 
+latest cr3 found (indeed, having the clock ten times raised it's quite
+probably that the same evil cr3, whenever the program runs on the cpu for
+a quantum or more, is found over and over again many times. The cache
+let us avoid running the list of found-cr3 every time... don't forget 
+we're in interrupt time).
+ 
+-----] To the end and yet again
+
+Let's start with how it works... it should be already quite clear that this
+is not a module thought to be resident, just the opposite, few seconds should
+be enough (at least if you don't want to be sure against sleep(100) or such
+long sleep, but repeated cross-checks should find them too), the time
+necessary for a couple of epochs to end, and you should have an image of
+what is running on your box.
+Moreover this module returns always a FALSE POSITIVE. It's the value of the
+cr3 of rmmod... we opted to let fhrp report it, printing the value before,
+for more safety. It's quite obvious that a simple hidden_task - 1 erases
+that false positive... but why don't be paranoid?
+Let's see an example of the module at work :
+
+root@twiz:/home/twiz/cr3/cr3-dev# insmod fhrp.o
+[snip]
+Pid: 79 Context: 2577000
+Pid: 83 Context: 25da000
+Pid: 85 Context: 2523000
+Pid: 93 Context: 3c9c000
+Pid: 94 Context: 3e1a000
+Pid: 95 Context: 3cd1000
+Pid: 96 Context: 3bd4000
+Pid: 97 Context: 3b75000
+Pid: 98 Context: 3ccd000
+Pid: 99 Context: 24af000
+Pid: 100 Context: 233d000
+Pid: 101 Context: 23cc000
+Pid: 194 Context: 3a36000
+[snip]
+Setting up process_timeout hook..
+root@twiz:/home/twiz/cr3/cr3-dev# rmmod fhrp
+Restoring process_timeout..
+ Ripristining all process...
+Leaving Module
+Hidden Processes Foud : 1
+Current-> it should _likely_ be rmmod: 2139000
+ cr3 malign : 2139000  pid : 672  got from Interrupt handler
+root@twiz:/home/twiz/cr3/cr3-dev#
+
+The cr3 malign reported is nothing different than the false positive we were 
+just talking about.
+If you want to test the consistency of the module against a listening
+backdoor or a process that you run, you can simply make if "forget" to
+collect the cr3 during the talbe-setup (a simple if (p->pid == pidtoforget) )
+or try some lkm that will hide a process removing it from the task list.
+We got good results :)
+
+Let's go on with a thing we already said, but that is quite important: this
+lkm isn't a panacea, if a trojaned ps or a code that modifies proc or a 
+bounch of syscalls (getdents?) is hiding the process, this module can't do
+anything but listing all the running processes at insmod time.
+There are other ways to check, first of all list the task_struct list (just
+like the module does at insmod time), use a ps safe or check the md5sum
+(if the redirect isn't at kernel level) or use KSTAT to check syscalls.
+ 
+That means that there's not *the* tool, but a combined work of various tools
+when it's necessary to check the integrity of a box. That LKM comes in aid
+finding out the more complex hides, those that removes the process from known
+lists, playing low-level and relying very little on kernel functions.
+
+Nothing is 100% safe when both the attacker and the admin can play in
+kernel-land.
+The attacker could have changed the create_module() to do pattern matching
+on some "signature-opcodes", looking for, f.e., movl %eax, %cr3 or somewhere
+else.
+At this time we could obfuscate a little the code with random nops (not
+necessary a nop is \x90 ;)) or just, in case of movl %eax, %cr3, change it
+into pushl %eax;popl %cr3... and so on.
+Attacker could do a statistical check of force_sig, checking for many SIGSTOP
+in a short time (and incremental pids too) and thus stop his process untill a
+reasonably number of SIGCONT would have passed through force_sig...  and we
+could just not use force_sig at all and manually stop (changing their state)
+the processes.
+More, such a change, by the attacker, to force_sig should be quite visible,
+checking vmlinux opcodes, looking for, f.e., suspicious movl %eax/jmp *%eax, 
+pushl/ret and so on.
+
+The fact itself that the module has been written a lot at low-level and is not
+resident gives us a good level of protection, but, obviously, not the 100% of
+safety :)
+
+The module as it is leave opened some nice extensions that aren't included
+in the release version. Among those :
+- Check of kernel threads - There's no implemented check at kspace (mostly
+because the cr3 approach isn't appliable), however the cr3 isn't the only
+consistent signature. Positives tests have been brought on using as
+signature %esp value (p->thread.esp). A fast look to the implementation
+of get_current/GET_CURRENT should give you the idea.
+- Manual check on other waitqueues - This is possible too through the
+wait_queue_t internal to the task_struct . The function used for sockets
+is volountary quite generic, to be applied to other scenarios.
+- Destroying found processes - That is possible too. We've p->thread.esp ,
+so (if you gave a look to get_current should be clear how) we know how to
+reach the task_struct linked to the process.
+At that time we can simply behave like sys_exit would and erase mm locks,
+opened file descriptor (ecc.), possible links and free the memory.
+We can find out whatever information about the hidden process... but (there is
+a but) few of those fields are *absolutely necessary* (think to a manual
+switching) and the attacker could have modified them on purpose to make our
+module crash.
+- The irq0 isn't the only point where you can hook to have a check time-based,
+it's possible to use the RTC too... moreove in SMP contest some things could
+have to be modified... Reference [6] gives some more detail.
+
+Said that we think (and hope) you'll find that tool interesting, similary we
+hope you've found information inside that paper useful/interesting.
+For whatever doubt, critic, suggestion, patch & co contact us.
+
+Before leaving you the references, some thanks to vecna, Dark-Angel, albe and
+rene @ irc.kernelnewbies.org.
+An hello is for racl guys (racl.oltrelinux.org) and _oink (thanks for the 
+postcard ;) ndtwiz).
+
+---[ References
+
+[1] - Modern Operating Systems - Second Edition - Andrew S. Tanenbaum
+
+[2] - Linux Kernel Internals 2.4 - Tigran Aivazian
+      http://www.moses.uklinux.net/patches/lki.html
+
+[3] - Understanding the Linux Kernel - Bovet, Cesati - Ch10 "Scheduling"
+      http://www.oreilly.com/catalog/linuxkernel/chapter/ch10.html
+
+[4] - For Kernel_Newbies By a Kernel_Newbie - A.R.Karthick
+      http://www.freeos.com/articles/4536/
+
+[5] - http://www.nondot.org/sabre/os/articles/MiscellaneousDevices/
+
+[6] - Timer-related functionality in Linux kernels 2.x.x - Andre Derric Balsa
+      http://www.cse.msu.edu/~zhengpei/tech/Linux/timerin2.2.htm
+
+[7] - Linux Kernel Sources 2.4.*
+
+
+
+-[ WEB ]----------------------------------------------------------------------
+
+        http://www.bfi.cx
+        http://bfi.freaknet.org
+        http://www.s0ftpj.org/bfi/
+
+
+-[ E-MAiL ]-------------------------------------------------------------------
+
+        bfi@s0ftpj.org
+
+
+-[ PGP ]----------------------------------------------------------------------
+
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+Version: 2.6.3i
+mQENAzZsSu8AAAEIAM5FrActPz32W1AbxJ/LDG7bB371rhB1aG7/AzDEkXH67nni
+DrMRyP+0u4tCTGizOGof0s/YDm2hH4jh+aGO9djJBzIEU8p1dvY677uw6oVCM374
+nkjbyDjvBeuJVooKo+J6yGZuUq7jVgBKsR0uklfe5/0TUXsVva9b1pBfxqynK5OO
+lQGJuq7g79jTSTqsa0mbFFxAlFq5GZmL+fnZdjWGI0c2pZrz+Tdj2+Ic3dl9dWax
+iuy9Bp4Bq+H0mpCmnvwTMVdS2c+99s9unfnbzGvO6KqiwZzIWU9pQeK+v7W6vPa3
+TbGHwwH4iaAWQH0mm7v+KdpMzqUPucgvfugfx+kABRO0FUJmSTk4IDxiZmk5OEB1
+c2EubmV0PokBFQMFEDZsSu+5yC9+6B/H6QEBb6EIAMRP40T7m4Y1arNkj5enWC/b
+a6M4oog42xr9UHOd8X2cOBBNB8qTe+dhBIhPX0fDJnnCr0WuEQ+eiw0YHJKyk5ql
+GB/UkRH/hR4IpA0alUUjEYjTqL5HZmW9phMA9xiTAqoNhmXaIh7MVaYmcxhXwoOo
+WYOaYoklxxA5qZxOwIXRxlmaN48SKsQuPrSrHwTdKxd+qB7QDU83h8nQ7dB4MAse
+gDvMUdspekxAX8XBikXLvVuT0ai4xd8o8owWNR5fQAsNkbrdjOUWrOs0dbFx2K9J
+l3XqeKl3XEgLvVG8JyhloKl65h9rUyw6Ek5hvb5ROuyS/lAGGWvxv2YJrN8ABLo=
+=o7CG
+-----END PGP PUBLIC KEY BLOCK-----
+
+
+==============================================================================
+-----------------------------------[ EOF ]------------------------------------
+==============================================================================

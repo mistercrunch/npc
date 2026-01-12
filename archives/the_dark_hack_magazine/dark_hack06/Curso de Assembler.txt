@@ -1,0 +1,426 @@
+Curso de AssemblerCurso de Assembler Hola Gente! Por fin me mande a escribir algo 
+sobre esto, quiero agradecerles especialmente a Ariel NardelliFederico Joselevich 
+Mauricio TaslikDiego Paz Gastón SanchezNicolai Kuzminski Eduardo AriasFernando 
+Bardelli Luis MamudJuan Esteva Pablo RotzyldFabián Benavidez Por haberse prendido 
+de entrada en esta idea, y por haber hecho sugerencias, y por haberme hecho decidirme. 
+!!! Bueno, Mmmm... Vamos a empezar por algo que quizás muchos ya sepan, pero como 
+es indispensable, igual se lo tengo que contar: La Memoria de Las PC: Como ya 
+sabrán, de haber escuchado por ahí, hay varios tipos de memoria, la Memoria Base, 
+la Memoria Expandida (EMS), Memoria Extendida (XMS), Upper Memory Blocks (UMB), 
+High Memory Area (HMA) y un montón mas de referencias a distintos tipos de memoria, 
+lo que les voy a contar es que dirección de memoria le corresponde a un Byte dentro 
+del primer MegaByte, es decir, dentro de la memoria base (0-640K) y en la zona 
+donde están las plaquetas de expansión, Monitor, BIOS ROM, área de la controladora 
+de Disco, etc... Tratemos de acostumbrarnos a ver los números en Hexadecimal (base 
+16). Los dígitos que pueden formar un numero en esta base, son: 0, 1, 2, 3, 4, 
+5, 6, 7, 8, 9, A, B, C, D, E y F, tomando valores en ese mismo orden, el 0 vale 
+0 y la F vale 15. De esta forma un numero, por ejemplo 0FA3h (la 'h' final indica 
+que esta en 'Hexa'), expresado en decimal valdría (3)+(Ah*16)+(Fh*16*16)+(0*16*16*16), 
+o lo que es lo mismo 3+160+3840+0=4003, pongámonos de acuerdo que cuando un número 
+lo escribimos en Haxa le ponemos la 'h' al final, y si comienza con una letra, 
+le agregamos un '0' adelante para no confundirnos con un nombre de variable. Esto 
+fue una breve pero necesaria introducción al sistema Hexadecimal de numeración. 
+Ahora si, veamos como se direcciona la memoria de una PC. Tengamos en cuenta que 
+si queremos direccionar 1 Mb nos hacen falta 5 dígitos hexadecimales, es decir, 
+poder escribir, de alguna forma 0FFFFFh o 100000h-1 que es 1*16^5=1 Mb (1 que 
+se resta, corresponde al byte #0). Como los 80x86 tienen registros de 16 bits 
+(8 bits = 1 Byte, 16 bits=1 Word) o 4 dígitos hexa, solo podríamos llegar a direccionar 
+0FFFFh bytes, lo que significan 64 Kb solamente (de aquí la limitación de los 
+.COMs). Lo que se hace es utilizar dos registros a la vez para apuntar a un solo 
+byte, lo que nos amplia el campo a poder diferenciar 0FFFFh:0FFFFh bytes o 1 Mg 
+de Mb muchísimo! Entonces, ¿Que pasa que no se puede tener tanta memoria sin hacer 
+cosas extrañas? Claro, lo que pasa es que para direccionar se usan dos registros, 
+pero no ubicados uno al lado del otro, sino desplazados un dígito. ¿Que? Si, ya 
+se que esta confuso, ahora te cuento: En un Registro, digamos que se llama DS, 
+esta 0040h, y en otro, digamos BS, hay 006Ch. La dirección a la que apunta DS:BS 
+(así se escribe) es 0040:006C, pero esta dirección, en números de 5 cifras se 
+escribe 0046C, la conversión es simplísima, lo que hay que hacer es sumar los 
+registros de la siguiente forma: BS -> 006C DS -> + 0040 --------------- DS:BS 
+-> 0046Ch De esta suma, uno se puede dar cuenta que para referirse a una misma 
+posición de memoria puede haber muchas formas distintas. Por ejemplo, para referirse 
+a 0046C, se puede hacer: 000C 046C +0046 +0000 ------- -------- 0046C = 0046:000C 
+0046C=0000:046C 023C 005C +0023 +003F -------- -------- 0046C = 0023:023C 0046C 
+= 003F:005C Es decir, puede haber muchas formas de nombrar el mismo byte, y tenemos 
+que tratar de acostumbrarnos a darnos cuenta que, por ejemplo, 0F000:1234 y 0F123:0004 
+son equivalentes. Tenemos que una dirección de memoria se separa en dos partes, 
+la de la izquierda del ':' es el famoso SEGMENT o segmento y lo de la derecha 
+es el OFFSET o desplazamiento, de una dirección. Conclusión: Para referirnos a 
+cualquier Posición de Memoria es necesario conocer su Segment y su Offset, ya 
+que sabiendo uno solo, nos podemos estar refiriendo a muchos bytes distintos. 
+Algunas Posiciones de Memoria útiles: de 0000:0000 a 0040:0000 la tabla de punteros 
+de interrupciones. Cada puntero toma dos Words (un DWord) el primero para el Offset 
+y el segundo para el Segment. en 0040:0000 Word El numero de Port correspondiente 
+al COM1 en 0040:0002 Word El numero de Port correspondiente al COM2 en 0040:0004 
+Word El numero de Port correspondiente al COM3 en 0040:0006 Word El numero de 
+Port correspondiente al COM4 en 0040:0027 Byte Status de las teclas especiales. 
+en 0040:0049 Byte El modo actual de video. en 0040:006C DWord La hora actual, 
+primero el word menos significativo y luego, en 40:(6C+2) el mas significativo. 
+El numero es 18.2 veces la hora. a partir de B000:0000 La memoria de video de 
+la Hércules (Texto & Gráficos) a partir de B800:0000 La memoria de video de las 
+otras (Texto & Algunos Gráficos) Muchas mas posiciones de memoria se pueden sacar 
+de varios lugares, donde yo siempre busco es en ASM.NG (Norton Guide de Assembler) 
+y en 2MchNfo2, (- Too Much Info Two -) como no podía ser de otra manera. :) Nota: 
+Si un DWord es YYYYXXXX, el Word menos significativo es XXXX, y el mas significativo 
+es YYYY. Si un Word es YYXX, el Byte mas significativo es YY y el menos significativo 
+es XX. Para probar las posiciones de memoria, desde pascal pueden hacer: If Mem[$0040:$0049]=7 
+Then { Modo Texto } para leer un byte (el '$' significa Hexa) Mem[$B800:(Columna+File*80)*2]:='A' 
+Para la letra Mem[$B800:(Columna+File*80)*2+1]:=White; Para el atributo MemW[$0040:0000] 
+(o MemW[$40:0]) para un Word MemL[$40:$6C] para un LongInt (o DWord Signado) Desde 
+C: if (peekb(0x0040,0x0017)==7) { /*Modo Texto*/ } para un byte (o char) pokeb(0xB800,(Columna+File*80)*2,'A') 
+Para la letra pokeb[0xB800,(Columna+File*80)*2+1,WHITE) Para el atributo peek(0x40,2) 
+y poke(0x40,2) para un int (Word Signado) y para un DWord hay que hacer un #define 
+porque el C no trae: #define peekpokel(seg,ofs) (*(unsigned long far *)(MK_FP(seg,ofs))) 
+ahora si: if (peekpokel(0x40,0x6C)==0x0F0342034) {} y peekpokel(0x40,0x6C)=0 para 
+un DWord Muy bien, ahora ya sabemos que la máquina tiene memoria y también sabemos 
+como apuntar a una posición en esta memoria, pero bueno, este curso es de Assembler, 
+no de memorias, por lo tanto, lo interesante y apropiado sería que les comentara, 
+así como si de pasada fuera, como se hace en Assembler para cargar o grabar algo 
+desde o hacia la memoria. Pero, primero hay que saber otras cositas... No es tan 
+fácil la cosa... Al "hablar" en Assembler, estamos diciéndole a la máquina en 
+lo mas cercano a su idioma posible (ya que su verdadero idioma es de "1" y "0" 
+totalmente) lo que tiene que hacer. Estamos hablando directamente, nosotros mismos, 
+sin la ayuda de un traductor (compilador), con el cerebro propiamente dicho de 
+la máquina. Estamos hablando con el vendito 80x86. Entonces para decirle algo 
+tenemos que conocerlo un poco mas. Como es muy probable que muchos tengan 8086/88 
+o 80286 vamos a ver especialmente, la estructura interna de estos "micros" (microprocesadores), 
+por arriba, solo lo necesario para programar en assembler, obviamente también 
+sirve para los iluminados que tengan 386 o 486, o quizás 586 o P-5. Internamente 
+todos los micros (entiendo que todos), tiene unas pocas variables, llamadas REGISTROS 
+que son en donde se procesan los datos, se hacen operaciones; son por las cuales 
+se puede acceder a memoria, etc. Sirven para todo. Pero no todas sirven para lo 
+mismo, y aunque muchas si sean intercambiables, todas están destinadas para algo 
+en especial, y tienen una que otra función propia. Los registros de la familia 
+80x86 son: AXAcumulator RegisterAcumulador BXBase Index RegisterIndice Base CXCounter 
+RegisterContador DXData RegisterDato SISource IndexIndice de Origen DIDestination 
+IndexIndice de Destino BPBase PointerPuntero Base SPStack PointerPuntero de Pila 
+IPInstruction PointerPuntero de Instrucciones CSCurrent SegmentSegmento Actual 
+del Programa DSData SegmentSegmento de Datos ESExtra SegmentSegmento Extra SSStack 
+SegmentSegmento de Pila Flags Señalizadores de Estado: Todos estos registros son 
+de 16 bits, es decir de un Word. Pero los registros que terminan en X (AX, BX, 
+CX, DX) pueden ser manejados, también, como si fueran dos Bytes (Que lo son), 
+por separado, sus nombres son, AH para el Byte mas significativo de AX y AL para 
+el menos significativo, BH y BL para BX, CH y CL para CX y DH y DL para DX (la 
+H y la L hacen referencia a "Hi" y "Lo", es decir Alto y Bajo, alto es sinónimo 
+de mas significativo y bajo de menos. Si por ejemplo: AX = 437Ah Entonces AH = 
+43h y AL = 7Ah BX = 0145h BH = 01h y BL = 45h CX = 0AABBh CH = 0AAh y CL = 0BBh 
+DX = 1h DH = 00h y DL = 01h De igual manera, si: AL = 10h y AH = 32h AX = 3210h 
+BL = 08h y BH = 0CAh BX = 0CA08h CL = 1h y CH=1h CX = 0101h DL = 00 y DX=00 DX 
+= 0000h Estos cuatro son los únicos segmentos que se pueden separar en byte alto 
+y byte bajo. Funciones especificas: AX, Acumulator: Sirve para hacer todas las 
+operaciones aritméticas, y algunas, como Multiplicar y Dividir, le son exclusivas. 
+AX (y AL por su versión de un solo byte) son los únicos registros que pueden ser 
+multiplicados y divididos por otro registro. La resta de AX y AL, por ejemplo, 
+ocupan un byte menos que la de cualquier otro registro, pero esto no es para preocuparse, 
+un byte, realmente no es nada, por mas que se acumule. BX, Base Index: Sirve para 
+ser usado como registro de base para un índice o array, es decir, una posición 
+de memoria puede ser apuntada por BX (su offset), igualmente también se lo puede 
+usar para hacer sumas restas y todo tipo de operaciones lógicas. AX, CX y DX no 
+sirven para apuntar a memoria. CX, Counter: Es el registro reservado para contar, 
+como su nombre lo indica. Para este propósito hay órdenes especiales que lo decrementan 
+o incrementan y hacen algo según el resultado. También hay ciertas órdenes repetitivas 
+que necesitan saber cuanto repetirse, por medio de CX (o CL en su versión Byte) 
+se les indica. DX, Data: Este registro no tiene definido un uso, en general es 
+utilizado para pasar ciertos parámetros, pero si cumple una función, por ejemplo 
+en la multiplicación, si se multiplica AX=1000h (un Word) por, simplemente 10h 
+(un Byte) el resultado es 00010000h (Un DWord), entonces, el Word Alto del resultado 
+de la multiplicación se deposita en DX, y el Bajo en AX. SI, Source Index: Puede 
+ser utilizado como índice a posiciones de memoria, es decir se puede poner un 
+número en SI (Offset) y leer el dato de esta posición. Pero a la vez tiene una 
+función específica, la de Registro Fuente para las órdenes de tratamiento de cadenas. 
+Hay ciertas órdenes en Assembler que son para, por ejemplo mover toda una cadena 
+de bytes, de un lugar a otro, la dirección de la cual se leen los bytes se pone 
+en SI antes de decir que lea. DI, Destination Index: Como SI, puede ser usado 
+como índice. Pero su función específica es la de Registro de Destino para las 
+operaciones de cadena, lo que se lee de el contenido de SI (no de SI mismo, sino 
+de la posición de memoria a la que apunta SI) es depositado en la posición de 
+memoria a la que apunta DI, expresada por [DI]. Al la vez, igual que con SI, se 
+pueden hacer operaciones aritméticas simples (suma y resta), y también todo tipo 
+de operaciones lógicas (AND, OR, XOR). BP, Base Pointer: Puntero a una posición 
+de memoria, muy parecido a BX, pero generalmente usado para facilitar el pasaje 
+de parámetros en funciones hechas con lenguajes de alto nivel, por una característica 
+propia que ya voy a explicar. SP, Stack Pointer: Puntero que indica en que Offset 
+termina el Stack, o pila. El Stack, es un área de la memoria principal de la máquina, 
+(no esta dentro del Micro, ni tampoco es fija) que sirve para preservar cosas, 
+la estructura del Stack, que ya explicare mas a fondo, es simple, esta estructura 
+es llamada LIFO (Last In First Out) o lo que es lo mismo, lo último que entra, 
+es lo primero que sale, es como si tuviéramos una pila de cosas, lo último que 
+apoyamos arriba va a ser lo primero que podamos sacar después. Si no esta claro, 
+no se preocupen, ya voy a explicarlo bien, y voy a decir para que se usa, y cuando. 
+IP, Instruction Pointer: El puntero de instrucción es el que le indica al Micro 
+cual va a ser la próxima instrucción que debe ejecutar (Solo el Offset). El programa 
+en Assembler tiene una estructura lógica, la cual se puede seguir. IP comienza 
+al principio del programa (la próxima orden que se debe ejecutar es la primera 
+del programa), se ejecuta esa orden e IP es incrementado tanto como Bytes ocupe 
+la orden recién ejecutada (no todas las órdenes ocupan un byte) luego sigue con 
+la próxima y así sucesivamente. Si pudiéramos de alguna forma cambiar el contenido 
+de IP lo que estaríamos haciendo seria una desviación, o un Jump (salto) a otro 
+lado del programa, y efectivamente se puede hacer esto, pero no diciendo IP = 
+1234h, sino haciendo un salto, que es equivalente a esto último: JMP 1234h. Ya 
+lo voy a explicar, esto también. Se habrán dado cuenta, que siempre que dije que 
+apuntaba a una posición de memoria, hice notar que solo era el Offset lo que estaba 
+comprendido, por ejemplo en DI o SI, BX o SP. Pero entonces, como es posible que 
+con solamente el offset alcance para identificar una posición de memoria? si yo 
+mismo dije: "Para referirnos a cualquier posición de memoria es necesario conocer 
+su Segment y su Offset, ya que sabiendo uno solo, nos podemos estar refiriendo 
+a muchos bytes distintos." Bueno, acá esta la cuestión: CS, Current Segment: Es 
+el Segmento actual de ejecución, juntos CS:IP apuntan a la próxima orden que el 
+Micro debe leer para ejecutar. Veamos algo: CS:IP = 1000:FFFA hay una orden entonces 
+IP se incrementa: CS:IP = 1000:FFFE Que pasa si ahora hay otra orden, e IP se 
+incrementa de nuevo? Fácil: FFFE+1 = FFFF pero FFFF+1 = 10000 !!! Que pasa en 
+este caso? CS no se incrementa, e IP no puede contener un numero de 5 cifras! 
+Lo que pasa es que IP vuelve a 0000 y el programa sigue en CS:IP o sea 1000:0000, 
+lo que es una posición 64k mas baja de memoria, o sea cualquier lado... Este es 
+el problema por lo que los .COMs no pueden tener mas de 64k de largo sin hacer 
+nada raro (cambiar CS cuando sea necesario). DS, Data Segment: Es el segmento 
+destinado a ser usado junto con BX, SI y DI para apuntar a una dirección de memoria. 
+También puede ser usado con BP y SP, pero hace falta expresarlo concretamente. 
+(Mas adelante aclaro esto) ES, Extra Segment: Es un segmento Extra para ser utilizado 
+cuando haga falta. También tiene una función propia: Junto con DI indican el destino 
+en las "órdenes de cadena" (el dato leído de DS:SI es puesto en ES:DI, en las 
+ordenes de movimiento). SS, Stack Segment: El segmento de Stack; junto con SP 
+apuntan a la última posición que fue utilizada para "depositar" datos en el Stack. 
+Por ultimo: Flags: Es un registro especial en el cual se guardan los resultados 
+de la última operación matemática o de comparación. No se guardan los resultados 
+numéricos, solo los de estado, es decir: CFCarry FlagBandera de por Acarreo PFParity 
+FlagBandera de por Paridad AFAuxiliary FlagBandera Auxiliar ZFZero FlagBandera 
+por Cero SFSign FlagBandera de Signo TFTrap FlagBandera de Paso Simple IFInterrupt 
+FlagBandera de Interrupción DFDirection FlagBandera de Dirección OFOverflow FlagBandera 
+por Sobre flujo IOPLI/O Privilege LevelSolo en 286 o superior NTNested Task FlagSolo 
+en 286 o superior RFResume FlagSolo en 386 o superior VMVirtual Mode FlagSolo 
+en 386 o superior Hasta aquí la explicación de los registros internos del Micro. 
+Para apuntar a una posición, hace falta indicar su Offset y su Segment, esto se 
+hace mediante un registro de segmento (DS, CS, SS, ES) y un Offset, que puede 
+ser un número o un registro como BS, SI, DI, BP, SP: DS:[3304h] Apunta al Segment 
+DS y al offset 3304h. Los corchetes indican que lo que se quiere es el contenido 
+de esa posición, no la posición en si. ES:[BX] Indica a la posición que esta en 
+el Segmento DS y el Offset BX. SS:[SP] Indica la posición de arriba de todo del 
+Stack, apuntada por el Segmento SS y el Offset SP. No siempre hace falta indicar 
+el Segment al que se apunta. Como el segment DS es el destinado para poner los 
+datos, la gente de Intel decidió que si no se especifica segmento para un offset 
+absoluto (un número como el primer caso), o para los registros BS, SI y DI, se 
+asume DS. Para los registros SP y BP, se asume SS como Segmento por defecto. Entonces: 
+[1304h] Indica el contenido de DS:[1304h] [BX] Apunta a DS:[BX], pero ES:[BX] 
+Apunta a ES:[BX], porque se especifica ES ES:[0017h] -> a ES:[0017h] [SP] -> a 
+SS:[SP] CS:[SP] -> a CS:[SP] CS:[DI] -> a CS:[DI] SS:[SI] -> a SS:[SI] [SI] -> 
+a DS:[SI] [DI] -> a DS:[DI] [BP] -> a SS:[BP] ES:[BP] -> a ES:[BP] Es decir, cualquier 
+combinación de Segmento y Registro Índice o Base o Offset Absoluto puede ser formada, 
+pero no siempre hace falta aclarar el Segmento. Hasta ahora vimos que en los microprocesadores 
+hay variables llamadas REGISTROS, que cada uno esta destinado a una función especial, 
+pero que en general se dividen en dos grandes grupos, los registros de uso general, 
+por decirles de alguna forma, y los exclusivamente para ser usados como segmentos. 
+Vamos a ver como es un programa en Assembler, pero antes, quiero aclarar que es 
+un Assembler. Assembler, propiamente dicho, es el programa (TASM, MASM, A86, etc.) 
+que se ocupa de transformar lo que nosotros escribimos, en palabras, se podría 
+decir, a número, que es lo que realmente entiende la máquina. En realidad, lo 
+convierte, actualmente, en un código objeto, .OBJ, que es una herramienta que 
+se creo para poder unir o Linkear varias rutinas hechas en distintos momentos 
+y/o lenguajes. Lo que completa el proceso es el Linker, TLINK, LINK, OPTLINK, 
+BLINKER, etc. Lo que yo uso, particularmente, son el Assembler y Linker de Borland, 
+el TASM y el TLINK, pero bueno, si alguien quiere usar alguno mas, es cosa de 
+darse maña, o preguntar que hay que cambiar. Primero, para comenzar por algo fácil, 
+y para que por fin, de una vez por todas, puedan comenzar a hacer algo, vamos 
+a hacer un .COM, es lo mas simple, mas rápido, y mas fácil de recordar. En TASM, 
+hacer un .COM se simplifica mucho, se limita a poner al principio del programa: 
+EJEMPLO.ASM: .MODEL SMALL ; Tipo .COM, este modelo de memoria ; significa que 
+SS, DS, ES y CS son iguales al ; comenzar el programa. Y que los datos y el stack 
+; están sobre el mismo segmento pero claro, en ; distinto offset. .CODE ; Para 
+decirle al Assembler que aquí ; comienza el código. En otros modelos, como .HUGE 
+; hay que definir la parte de datos, con .DATA y ; la parte de Stack, con .STACK. 
+ORG 100h ; Esta orden, para el compilador también ; le dice que comience el programa 
+en el offset ; 100h. Todos los .COMs deben comenzar en el ; offset 100h. Mas adelante 
+voy a explicar bien el ; funcionamiento de esta orden. ; Y luego completar el 
+programa con lo que sea. EJEMPLO: ; Esta es una etiqueta, es un nombre que ; se 
+le da a una posición para, luego, poder ; referirnos a ella por su nombre. Esta 
+es una ; ayuda que nos da el Assembler para no tener que ; referirnos a números 
+todo el tiempo. Acá hace ; falta para que el compilador sepa que todo ; comienza 
+allí. No es necesario que sea el nombre ; del programa, puede ser cualquier otra 
+cosa pero ; yo acostumbro esto. ; La orden MOV (MOVE), lleva dos parámetros. Lo 
+; que hace es copiar el contenido del segundo ; parámetro al primero mov di,offset 
+mensaje ; Esta orden, significa poner en DI el offset de ; la posición que representa 
+mensaje. (mirar mas ; abajo para ver mensaje). ; DI = Offset Mensaje Repetir: 
+; Pongo un 'label' o etiqueta, para ; usarlo luego. mov al,byte ptr [di] ; Pongo 
+en AL el contenido de la posición que ; indica [DI]. ; Recordemos que [DI] solo, 
+significa DS:[DI], ; porque el segmento por omisión para DI es DS. ; Con 'byte 
+ptr' indico que DS:[DI] es un ; puntero a un BYTE. AL = DS:[DI] add al,40h ; le 
+sumo a AL 40h. ; AL+=40h (AL=AL+40h) mov byte ptr [di],al ; Pongo en DS:[DI] (lo 
+que apunta DS:DI) el ; contenido de AL. DS:[DI]=AL inc di ; Incrementa DI en 1. 
+; DI++ (DI=DI+1) cmp al,'$' ; !!! Compara AL con '$', es decir ; con el valor 
+ASCII de '$'. El resultado de la ; comparación es guardado en los flags del micro. 
+; AL??'$' jne Repetir ; Salta si el resultado de la última ; comparación fue que 
+son iguales. ; Jump if Not Equal. Si no eran iguales salta a ; Repetir, el label 
+que habíamos puesto al ; principio. AL=='$' ? Go Repetir mov ah,09h ; Pongo en 
+AH un 09h ; AH=09h mov dx,offset mensaje ; DX = Offset Mensaje int 21h ; !!! Ejecuto 
+la Interrupción 21h mov ax,4c00h ; AX=4C00h int 21h ; INT 21h Mensaje db 08h, 
+2Fh, 2Ch, 21h, 0E1h, 0E1h, 0E1h ; Aca estoy definiendo una lista de números, ; 
+cada uno es un byte. (DB = Define Byte). El ; primer byte de la lista esta bajo 
+el nombre ; mensaje. También podría haber puesto: ; Mensaje db 'El día esta lindo!' 
+; Se toma cada caracter como un byte. db 0CDh, 0CAh, 0E4h ; Esta línea es la continuación 
+de la anterior. ; Es necesario volver a poner DB. END EJEMPLO ; Con esta orden, 
+le digo al ; assembler que mi programa termina acá. ; El nombre después de END 
+tiene que ser el ; mismo del principio. Dentro de este código hay, fundamentalmente, 
+dos tipos de órdenes: Las ordenes propiamente de Assembler. (MOV, CMP, JNE, INT, 
+ADD, INC) Y las órdenes al compilador, que le dicen como tratar el archivo. (.MODEL, 
+.CODE, END) Por otro lado, están las variables y labels, que son ayudas que nos 
+da el compilador. Si esto no existiera tendríamos que recordar, en vez del nombre 
+de una variable, su posición, y además tendríamos que calcularla a mano. De todo 
+esto se ocupa el compilador (ensamblador). Este programa, funciona y hace algo, 
+pero, claro, no todo es tan simple. Traten de analizarlo antes de ejecutarlo, 
+para eso van a necesitar una lista de interrupciones. Si no la tienen, vayan consiguiéndola, 
+casi todo programa en assembler se aprovecha de las interrupciones. Tengan en 
+cuenta que en un .COM, al comienzo, DS, ES, CS y SS tienen el mismo valor, y claro 
+que lo conservan a nos ser que se lo cambiemos nosotros. Con estos básicos conocimientos 
+ya se pueden ir dando maña para hacer otras cosas, traten de ver si les sale algo. 
+Piensen que quieren hacer y como, si hay algo que no se les ocurre, traten otra 
+vez, que esa es la mejor forma de aprender, tratar hasta que salga, si no les 
+sale, pregunten, que por esta vez puede pasar... :) Acá esta lo que van a necesitar, 
+sobre las interrupciones que usa el programa. INT 21 - DOS 1+ - WRITE STRING TO 
+STANDARD OUTPUT AH = 09h DS:DX -> '$'-terminated string _______________________________________________________ 
+INT 21 - DOS 2+ - "EXIT" - TERMINATE WITH RETURN CODE AH = 4Ch AL = return code 
+_______________________________________________________ Interprétenlo como les 
+parezca, para que se vayan acostumbrando, vio? Anteriormente hicimos un COM. En 
+Assembler, entre hacer un COM o un EXE, casi no hay diferencia, ya que todo lo 
+tenemos que hacer nosotros explícitamente, el compilador se ocupa solamente de 
+lo básico. Les dije que para hacer un .COM (siempre en TASM), lo mas fácil es 
+poner: .MODEL TINY .CODE ORG 100h NomProg: END NomProg Entre el Label "NomProg:" 
+y el fin del archivo "END NomProg", hay que poner todo el código del programa 
+en si. Mas adelante vamos a ver que significa cada una de estas cosas, y como 
+cambiarlas para crear EXEs de distintos tipos, por ahora, recuérdenlas para poder 
+probar sus cositas. Como en todo lenguaje, además de saber como programar hay 
+que saber las órdenes, para poder decirle que hacer a la máquina. Yo voy a ir 
+explicando de a poco todas las órdenes que se me ocurran, pero como buena guía 
+de consulta sugiero la Norton Guide de Assembler, (Salió una versión nueva que 
+esta en Kansas City). Esta NG es una buena guía y explica bastante bien que hace 
+cada orden, igualmente, me ofrezco para que si alguien quiere hacer algo en Assembler, 
+y le surge alguna duda, me lo pregunte; ahora tenemos el área Assembler. Formato 
+general de una orden: mnemónico [Param1 [,Param2]] Donde: Mnemónico es la orden 
+en si misma, es llamada mnemónico porque se utilizan estas letras, para no tener 
+que recordar el número de la orden. Son letras que parecen no tener significado, 
+pero si lo tienen, y una vez que se lo conoce, no solo se recuerdan, también se 
+aciertan algunos que no se conocían antes... Param1, no siempre se utiliza, hay 
+Mnemónicos que no requieren parámetros. Este parámetro, cuando una orden lleva 
+dos [parámetros], es llamado Destination, es donde se guardan los resultados de 
+las operaciones, claro que puede no hacer falta, pero, digamos, que como siempre, 
+estas son las excepciones a las reglas... Param2, muchas veces, este parámetro 
+no existe, pero normalmente, cuando es necesario, es llamado Source, y es el origen 
+de las operaciones en las que interviene. Otra vez, tenemos que decir, que hay 
+excepciones a esta regla... Ahora si, algunas órdenes concretas: MOV Param1,Param2 
+Esta orden, MOVe, mueve, o mejor dicho, copia el contenido de Param2 a Param1. 
+Por ejemplo, MOV AX,BX es el equivalente a decir AX=BX, el valor de BX no cambia, 
+y el de AX se transforma en el de BX. Param1, puede ser tanto, un registro como 
+una posición de memoria. Param2 puede ser una constante, un registro o una posición 
+de memoria. Pero hay ciertas restricciones, a una posición de memoria no se le 
+puede asignar el contenido de otra posición de memoria, es decir MOV DS:[1200],ES:[3020] 
+NO es una orden valida. Si se desea hacer esto, hay que desdoblarlo en dos ordenes: 
+MOV AX,ES:[3020] MOV DS:[1200],AX Si lo que se quería mover era un word. O cambiando 
+por AL (en vez de AX) si se quería mover un byte. (AX y AL son ejemplos, podría 
+haber sido cualquier registro). Hay otras formas de hacerlo sin destruir el contenido 
+de AX, ya lo vamos a ver. Hay otra limitación mas, a un registro de segmento, 
+no se le puede asignar directamente un valor, sólo esta permitido asignarle el 
+contenido de otro registro, pero que tampoco sea de segmento, es decir, para hacer: 
+DS=CS hay que hacer, otra vez: MOV AX,CS MOV DS,AX Y otra vez hay mas formas, 
+y también, ya las vamos a ver. Otra orden muy utilizada, es la orden: INT IntNum 
+Esta orden llama a una interrupción, es decir, busca en el área de memoria donde 
+están los punteros a las subrutinas de interrupciones (ISR), y llama a donde apunta 
+el número de interrupción especificado. (Un puntero, es una dirección de memoria, 
+que apunta a algo, en este caso a la posición donde comienza cada ISR. Las interrupciones 
+son rutinas que están a disposición nuestra, para que las utilicemos cuando nos 
+sean necesarias. Son rutinas que nos facilitan mucho la tarea de programar. Hay 
+varios tipos de interrupciones: Interrupciones de BIOS: estas interrupciones son 
+las que instalan las Plaquetas que ponemos en el motherboard, también esta el 
+BIOS propio de la máquina. Los BIOS, son ejecutados al encenderse la computadora, 
+primero se ejecuta el BIOS propio del mother (son, normalmente dos chips con etiquetas, 
+que se pueden ver al abrir la máquina), este BIOS "principal" se ocupa de instalar 
+sus interrupciones y de verificar si hay otros BIOS agregados en plaquetas, si 
+los hay, los ejecuta y ellos se encargan de instalar sus propias interrupciones. 
+Las interrupciones de BIOS, son las que nos facilitan el acceso a los distintos 
+periféricos, ya que se encargan de "hablar" directamente con el HardWare, cosa 
+bastante pesada de hacer, y que por otro lado, puede cambiar de Hard en Hard. 
+Gracias al BIOS, podemos acceder al monitor sin que nos importe la marca ni el 
+modelo, solamente llamamos a las interrupciones necesarias. Las Interrupciones 
+de DOS, son el sistema operativo en si, una máquina es completamente funcional 
+sin BIOS, pero claro, tendríamos que estar haciéndonos nosotros las rutinas necesarias 
+para que nuestros programas funcionen en todas las máquinas (serian todos enormes!!!), 
+bueno, el sistema operativo, es la interfase entre el usuario y el BIOS, el sistema 
+operativo es el que nos da la facilidad de manejar archivos, de reservar memoria, 
+en fin, de administrar los recursos de la máquina, de una forma que no cree conflictos 
+entre los programas de distintos programadores. Es el que pone las reglas de como 
+utilizar la máquina. No es complicado, si pesado, manejar archivos sin DOS, de 
+hecho varios programas, como el DiskExplorer de Norton, lo hacen, pero, otra vez, 
+que sentido tiene tener que poner un sistema operativo en cada programa que hacemos...* 
+Entonces, las interrupciones de DOS, son las que nos permiten manejar los distintos 
+recursos de la máquina, es decir, los archivos, los directorios. La memoria y 
+el flujo de programas en si. Es el que nos facilita la entrada de teclado o disco 
+(haciéndola indistinguible), etc. Luego están las IRQ (Interrupt Request), estas 
+interrupciones son interrupciones propiamente dichas, no son normalmente llamadas 
+por un programa. Estas IRQs son llamadas directamente por el HardWare, para indicar 
+alguna situación especial. Por ejemplo, el Mouse llama a una IRQ para avisar que 
+surgió algún cambio de estado en el propio Mouse. El Teclado, llama a una IRQ 
+para decir que hay algún mensaje proveniente de el hacia la CPU, etc. Normalmente, 
+lo que se hace con las IRQs es reemplazar la rutina a la que apunta la tabla de 
+punteros y entonces cuando sucede una IRQ, nuestra rutina es llamada directamente 
+por el microprocesador, desde allí se lee el Mouse o el Teclado, o lo que corresponda. 
+Muy extrañamente, por estas razones, nuestro programa llama a una IRQ. Bueno, 
+entonces tenemos que las Interrupciones son rutinas que nos facilitan la programación, 
+son rutinas ya instaladas en la máquina, que hacen tareas complejas por nosotros. 
+Y como tales rutinas, llevan parámetros, pero ¿donde? si la orden es: INT IntNum 
+Las Interrupciones toman los parámetros de los registros, y su resultado también 
+vuelve en registros... Las Interrupciones BIOS, por ejemplo son las 13h, 10h, 
+11h, 12h, 16h, 17h, 19h, etc... Las DOS, son las 20h, 22h, 23h, 24h, 25h, 26h, 
+27h, 28h, 29h. Pero la fundamental es la INT 21h, por medio de ella es posible 
+hacer casi todo lo necesario para llevar un programa a la marcha... Pero ¿como 
+puede ser que con una sola INT sea posible hacer tantas cosas? Muy simple, muchas 
+INTs tienen funciones y sub-funciones, las cuales se identifican según el valor 
+de los registros, normalmente AX o AH son utilizados para decir a que número de 
+función/sub-función queremos acceder. Así, por ejemplo, la INT 21h si AH = 09h, 
+sirve para mostrar un String en pantalla, pero si AH = 39h sirve para hacer un 
+directorio. Como ven, la utilidad de una INT no solo esta limitada a una función, 
+si no que puede tener múltiples usos. Algo fundamental en la utilización de un 
+Assembler, es la posibilidad que nos da de ponerle nombres a las posiciones de 
+memoria, es decir, podemos poner una cadena en memoria, y asignarle un nombre, 
+tal como si fuera una variable, y de hecho, lo es. La forma de reservar lugar 
+para una variable, dentro de un programa, no es complicada: Nombre XX Valor Nombre 
+es el nombre con el que nos vamos a referir, mas tarde a esa posición de memoria, 
+es el nombre de la variable. XX, es la definición del tipo de la variable: DBPara 
+definir un byte, dice que la variable es un byte, o un array de Bytes, es decir, 
+un byte atras de otro. DWPara definir un Word o un array de Word. DDPara definir 
+un DWord, o un array de DWord. DQPara definir un QWord (QuadWord, u ocho bytes). 
+DTPara definir Ten Bytes (diez). Valor es el valor inicial, no puede faltar nunca, 
+claro que si no se le quiere dar ningún valor inicial, es factible poner, en el 
+lugar del valor, u '?', que significa que reserve espacio sin importar que valor 
+le de. Definiciones validas, podrían ser: Letra_A DB 'A' ; Un caracter ** Number_1 
+DW 1 ; Un Numero 1, pero Word. Pointer DD 0B000h:8000h; Puntero a la pantalla 
+de video. String DB 'Hola, Como estas!' ; Cadena definida como array ; de bytes. 
+Array DB 1,2,4,8,16,32,64,128 ; Array de Bytes... etc... La vez pasada me pase 
+con el programa, quizás era un poco complicado, pero era para que tengan una idea 
+de como es un programa en Assembler, quizás muchos le encontraron la vuelta y 
+animaron a largarse a programar. Sugiero, que traten de entender programitas en 
+Assembler, no es ninguna ciencia este lenguaje, es uno de los mas simples, pero 
+lleva su tiempo encontrarle la vuelta... Acá va otro programita, también rebuscado, 
+pero, yo se que si no entienden van a preguntar... O no? (: .model tiny .code 
+org 100h Ejemplo_2: jmp Comienzo ; Salteo el área de datos, si se ; ejecutara 
+(no hay diferencia entre datos y ; programas) seria una colgada mas... Matching 
+DB '*.*',0 ; Array: Una cadena mas un número. Comienzo: mov ah,4eh mov cx,0 mov 
+dx,offset Matching ; DX = Offset de Matching ; DS, al entrar a un .COM es igual 
+a CS. int 21h ; Que hace? jc Error ; Si esta prendido el Carry Flag, salto mov 
+ah,2fh int 21h ; Y esta? mov byte ptr es:[bx+1eh+13],'$' ; Byte ptr para decirle 
+que a lo que apunta ; [bx+13] es un byte, podría ser un word ptr, o ; un dword 
+ptr. El '$' es el fin de una cadena ; a imprimir por el DOS. mov dx,es mov ds,dx 
+lea dx,[bx+1eh] ; Pone en DX el Offset al que apunta ; BX+13, es decir DX = BX+13 
+mov ah,9 int 21h ; Imprime una cadena. Error: mov ax,4c00h int 21h END Ejemplo_2 
+* Fuera de tema, pero interesante quizás, es el hecho de ampliar cada vez mas 
+este concepto de reutilización de código hasta llegar al Windows, donde ningún 
+programa trae las rutinas para hacer menús, botones o ventanas, pero todos las 
+utilizan. También crearon las DLL (Dinamic Link Libraries) que pueden ser reutilizadas 
+por varios programas, pero claro, hay que saber aprovecharlo... ** Desde el ';' 
+hasta el final de la línea, es considerado comentario por el compilador. Bueno, 
+espero que entiendan algo, porque la verdad, que aunque lo leí varias veces, tengo 
+mis dudas, todavía... A continuación la última entrega de interrupciones útiles... 
+-------------------------------------------------------------------------- INT 
+21 / AH=4Eh Find First Matching File Entrada: AH = 4Eh CX = Attributo a buscar. 
+DS:DX -> puntero a un ASCIIZ (Cadena terminada en 0) con el nombre a buscar, wildcards 
+permitidos. Devuelve: AX = Codigo de Error, si El Carry Flag (CF) esta en uno. 
+DTA = Contiene la informacion de retorno. -------------------------------------------------------------------------- 
+DTA = Offset Tamaño Significado 00 Byte Atributo de la búsqueda [...] 1E 13 bytes 
+ASCIIZ del nombre del archivo encontrado. -------------------------------------------------------------------------- 
+INT 21 / AH=2Fh Get Disk Transfer Address (DTA) Entrada: AH=2Fh Devuelve: ES:BX 
+-> Puntero con la dirección de la DTA actual. -------------------------------------------------------------------------- 

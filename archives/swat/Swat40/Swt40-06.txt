@@ -1,0 +1,185 @@
+Adding New Functions To Exe Files - solidox
+     :'######::'##:::::'##::::'###::::'########:
+     '##... ##: ##:'##: ##:::'## ##:::... ##..::
+      ##:::..:: ##: ##: ##::'##:. ##::::: ##::::
+     . ######:: ##: ##: ##:'##:::. ##:::: ##::::
+     :..... ##: ##: ##: ##: #########:::: ##::::
+     '##::: ##: ##: ##: ##: ##.... ##:::: ##::::
+     . ######::. ###. ###:: ##:::: ##:::: ##::::
+     :......::::...::...:::..:::::..:::::..:::::
+___  ___  ___  _____   ___   ___________ _   _  _____ 
+|  \/  | / _ \|  __ \ / _ \ |___  /_   _| \ | ||  ___|
+| .  . |/ /_\ \ |  \// /_\ \   / /  | | |  \| || |__  
+| |\/| ||  _  | | __ |  _  |  / /   | | | . ` ||  __| 
+| |  | || | | | |_\ \| | | |./ /____| |_| |\  || |___ 
+\_|  |_/\_| |_/\____/\_| |_/\_____/\___/\_| \_/\____/ 
+                                                      
+ 
+  .'`-_-`',.`'-_ Issue 40 Article 6 _-'`,.'`-_-`',
+(____________________________________________________)
+|          Adding New Functions To Exe Files         |
+(____________________________________________________)
+                      solidox
+[x--------------------------------------------------x]
+Intro
+-----
+ok... for a 1st tutorial i thought i'd start with something not too
+simple but extremly useful. There are several uses for this. for example
+say u've got a shareware text editor but the author has disabled the save
+command and the app cannot be registered it would be possible to add a
+function to the compiled exe file to save what is in the textbox. Another
+use would be to add some credit to cracked apps by adding a messagebox or
+similar when the program is run.
+In this tutorial we are going to implement the second idea.
+Tools Needed
+------------
+Disassembler (win32dasm)
+Hex editor (hex workshop)Hiew (can be used as hex editor too)
+Target
+------
+Good ol' Notepad 
+(the one in 98 (version 4.10.1998) (57,344 bytes) (0x003619b3 crc32))
+(make 2 copies notepad.w32 (for disassembly) and notepad.exe (for editing))
+Summary
+-------
+* find free space in file
+* add messagebox code & data to free space
+* add jump at entry point to location of new code
+* restore code overwritten by jump at end of new code
+* jump back to the ep
+Implementing
+============
+Finding Free Space
+------------------
+This one is pretty easy... just load notepad.exe into a hex editor
+and look somewhere around the middleish of the file for a load of
+00s. There are a few places in notepad but we'll go for around the
+5000s. now we need 2 addresses, which are far enough apart not to
+run into each other, one for the code and the other for and data.
+We shall use 5500 for our code and 5600 for out data.
+Add New Code
+------------
+This bit is prolly the most tricky part of the tutorial. (a pen & paper
+(or text ed) would be handy here). We need to take note of some things
+before we begin editing... the address of the function MessageBoxA, to
+get this open notepad.w32 in win32dasm or other disassembler. In win32dasm
+goto the imported function list, find MessageBoxA, dbl-click and u'll
+see something like:
+	* Reference To: USER32.MessageBoxA, Ord:01ACh
+	:00401ECB FF15A8644000            Call dword ptr [004064A8] 
+now i can't seem to find a way in Hiew to enter pointers in a call 
+instruction so we have to take note of the machine code. FF15A8644000
+once u've got that we're ready to enter Hiew.
+		
+When Hiew is ready and loaded with notepad.exe use F4 (or enter) to
+select hex editor mode. (this step can be done with hex editor if perfered)
+and hit F5 to goto and address, enter 5600 once there enter edit mode by
+pressing F3 and then TAB to get to the text edit bit. we need to enter two
+things here, the messagebox title and the messagebox text, we'll start
+first with the messagebox title. for this tutorial i'm just going to use
+'solidPad' so enter solidPad into Hiew. now for the text you could either
+move right after the title text and enter it there but i'm going to add it
+at 5610 just so it looks nice (if u do add it right after the title make
+sure it's seperated with a (0x00) and not a space otherwise it'll just be
+one long title). so when ur at 5610 enter 'Cracked By solidox :)' (without
+the 's of course) and update the file (F9). Now we have the data in it's
+time for the code.
+			
+Still in Hiew... select assembly mode and goto 5500. We're adding a
+MessageBox which is defined in the win32 sdk help files as:
+	int MessageBox(
+	  HWND hWnd,          // handle of owner window
+	  LPCTSTR lpText,     // address of text in message box
+	  LPCTSTR lpCaption,  // address of title of message box
+	  UINT uType          // style of message box
+	);
+	to make function calls in win32 assembly u push all the parameters then 
+call the function. but in win32 assembly u push the parameters backwards.
+so we start with style then caption, text etc.
+So... at 5500 enter edit mode (F3) then hit F2 for asm mode where u can
+enter assembly commands which get converted to machine code. first off
+we need to push the style that we want, in this case we just want a
+standard OK style messagebox the value for MB_OK is 0 (u can find them
+out by looking in the windows header files) and for the caption we need
+a pointer to 5600 and the text a pointer to 5610. the window handle...
+is a tricky one as normally it would be EBP-8 but because the window
+hasn't been created yet we can just leave it as NULL (0). So the code
+for this would be:
+	push 0
+	push 405610
+	push 405600
+	push 0
+this is to be entered into Hiews asm edit box. Now for the calling of the
+messagebox we have to enter raw bytes as i don't know how to call pointers
+in hiew. so exit from the asm box and make sure ur still in edit mode and
+enter the machine code for the messagebox that we got earlier (FF15A8644000)
+update the file with F9 if u've not already done so.
+Add Jump At EP
+--------------
+This bit is fairly easy. go back to win32dasm and use the Goto Entry Point
+button to find the EP. first thing to do is take a note of the opcodes that
+we're going to be overwriting so we can restore them later.
+	//******************** Program Entry Point ********
+	:004010CC 55                      push ebp
+	:004010CD 8BEC                    mov ebp, esp
+	:004010CF 83EC44                  sub esp, 00000044
+	:004010D2 56                      push esi
+so... we write down 55 8BEC 83EC44 as the bytes to replace and 10CC as the
+EP. now back to hiew, goto the EP address (10CC) and add the following
+asm commands:
+	jmp 5500
+	nop
+the reason for the NOP is that there is an extra byte that needs filled for
+the program to run properly. the next address after the nop is 10D2. we
+will need this to jump back from our new code.
+Restore Replaced Code and Jump Back
+-----------------------------------
+	
+Still in hiew goto 5500 again and move down to the end of our new code
+(5514) and add the bytes we replaced. 55 8BEC 83EC44. once entered
+we need to jump back to the EP. but just after the jump to our new code.
+10D2. so add
+	jmp 10d2
+save the file. and that's it all there is to do.
+Finshing Up
+-----------
+If all has been done correctly then when u run the custom notepad it should
+display a messagebox saying "Cracked by solidox :)" and after clicking OK
+load notepad.
+	
+It may seem pointless to add a messagebox when a program runs and u mightbe wondering what good it's gonna do u, but i'm am teaching the technique
+which can be applied to more useful situations.
+	
+There are other ways this could of been done. we could of changed the address
+of the EP to 5500 and jumped back to the original one. but the reason i did it
+this way is so that the method could implemented in places other than the very
+start of the program.	
+Useful Numbers
+--------------
+	5500 - address of new code
+	5600 - address of message box title
+	5610 - address of message box text
+	FF15A8644000 - messagebox function
+	55 8BEC 83EC44 - replaced bytes
+	10CC - program entry point
+	10D2 - location to jump to after new code
+	0x00362FB1 - crc-32 of new notepad
+Greets
+------
+	Spangle, The_Fly, jeeked, Aggie	Phreakazoid, F_S, SNaFu, BigBarr, rehack
+	and anyone else who i've forgotten
+Contact
+-------
+	hub.cocytusuk.org / #cocytusuk    <--- almost always here
+Disclaimer
+----------
+I do not condone software piracy in any shape or form. This tutorial is for
+educational purposes only! (heh ain't they all)
+[x--------------------------------------------------x]
+    SWAT Magazine : Spreading information since 1997
+                    www.swateam.org
+ Copyright (c) SWAT Magazine 1997 - 2001
+ Permission to reproduce, spread, print, transmit, and
+ anything or everything else that you wanna do with it
+ is granted - just give us credit!
+[x--------------------------------------------------x]

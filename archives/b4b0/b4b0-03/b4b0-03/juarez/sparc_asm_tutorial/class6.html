@@ -1,0 +1,446 @@
+<HTML>
+<HEAD>
+</HEAD>
+<BODY  bgcolor=#FFFFFF HEIGHT=100 WIDTH=89 TEXT=#000000 LINK=#0000FF VLINK=#FF0000>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<A NAME="section-1"><H1>CLASS 6</H1></A>
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+
+<center>
+<h2> Some Basic Instructions in Sparc Assembly </h2>
+</center>
+
+<P>
+<H3>Single Operand Instructions</H3>
+<PRE>
+clr r1 (clear register r1)
+</PRE>
+
+<P>
+<H3>Two Operand Instructions</H3>
+<PRE>
+mov r1(or c), r2 
+</PRE>
+
+<P>
+<H3>Three Operand Instructions</H3>
+<PRE>
+add r1, r2(or c), r3
+sub r1, r2(or c), r3
+</PRE>
+
+<P>
+Problem - No instruction in Sparc for multiplication.
+
+<P>
+For multiplying two numbers, i.e. for a = b * c ,
+<PRE>
+mov b, %o0
+mov c, %o1
+call  .mul  ! (result stored in register %o0)
+nop	    ! delay slot, discussed later
+</PRE>
+
+<P>
+Similarly for dividing two numbers, i.e. for a = b / c ,
+<PRE>
+mov b, %o0
+mov c, %o1
+call  .div  ! (result stored in register %o0)
+nop         ! delay slot, discussed later
+</PRE>
+
+<P>
+<H3>Pipelining in Sparc Architecture</H3>
+
+In the SPARC chip, designers used special logic to make the pipeline appear
+to be only two-deep. There are two program counters, %pc and %npc. 
+%npc is always copied to
+%pc; %npc is sometimes incremented by four, other times (in case of a branch, 
+call, return, etc.) it is modified. This occurs on each cycle.
+One can understand how delay slots work by tracking
+the contents of pc and npc. Because there are TWO program counters, the
+effective depth of the SPARC pipeline is 2. 
+<P>
+
+The net effect is that instructions after branches and calls are always
+executed. They are called "delay slot" instructions. 
+<P>
+
+Clearly, one can always put <b>NOPS</b> in there. But that would just waste one cycle,
+as nothing would be executed in that cycle. How can we make better use of the delay 
+slot? Well, it turns out that there is almost always an instruction that can be put 
+in the delay slot without changing the logic of the program. The instruction cannot 
+be allowed to modify data that affects the branch, or else there will be an error. 
+<P>
+
+To fill a delay slot, find an instruction that can be placed immediately before
+the branch, but doesn't affect the condition tested by the branch. 
+
+
+<P>
+As the instruction in the pipeline always executed, problem
+in case of a BRANCH instruction (the the value of program 
+counter (%pc) changes, so the value of next program counter 
+(%npc) should also change. 
+
+<P>
+As a result, we use a nop instruction after the branch instruction 
+to avoid any errors. 
+
+<P>
+nop - instruction that is executed but does nothing
+
+
+<P>
+<h3>Our first assembly program in further detail... </h3>
+
+Recall the program <b> first.s </b> discussed in the previous class. 
+Its given here for your convenience. 
+
+
+<pre><hr>
+<B> /* first.s */ </B>
+
+  /* This programs computes the expression:
+     y = (x - 1) * (x - 7) / (x -13) for x = 9 */
+
+        .global _main
+_main:  save    %sp, -64, %sp
+        mov     9, %l0          !initialize x
+        sub     %l0, 1, %o0     !(x - 1) into %o0
+        sub     %l0, 7, %o1     !(x - 7) into %o1
+        call    .mul
+        nop                     !result in %o0
+        sub     %l0, 11, %o1    !(x - 11) into %o1, the divisor
+        call    .div
+        nop                     !result in %o0
+        mov     %o0, %l1        !store it in y
+
+        mov     1, %g1          !trap dispatch
+        ta      0               !trap to system
+<hr></pre>
+
+When we ran the program last time, we did not get any input/output, so 
+how do we find out if the program ran successfully or not? Well, like 
+I said last time, we make use of a debugger. I'll use the <b>gdb</b> 
+debugger for this course, so you need to familiarize yourself with it. 
+
+<hr>
+<H2>The gdb DEBUGGER</H2>
+
+<P>
+Some commonly used commands...
+
+<P>
+<H4>gdb filename  (to open up the file in gdb) </H4> 
+
+<P>
+e.g. gdb expr    (to open up file expr which is executable)
+
+<H4>
+r   (to run the file, no argument required)
+</H4>
+
+<H4>
+b  (to set a break point)
+</H4>
+
+e.g. b main (set breakpoint to main)<br>
+      b *&amp; main + 20 (set breakpoint to address of main + 20)
+
+<P>
+<H4>
+x  (examine memory at the address)
+</H4>
+e.g. x $pc (to examine contents of program counter)
+
+<P>
+<H4>
+ni (execute the instruction, go to next instruction, no arguments)
+</H4>
+
+<P>
+<H4>
+x/i $pc (to print value in register %pc, if multiple times, then press 
+enter again and again, and it displays the succeeding values.)
+</H4>
+<b>Note:</b>  In gdb, registers are preceded by $ (and not %)
+
+<P>
+<H4>
+p  (print the contents of a register)
+</H4>
+
+e.g. p $l0 <br>
+      p $o1
+
+<P>
+<H4>
+display/i %pc (print value of program counter every time a
+                        command is executed)
+</H4>
+
+<P>
+<H4>
+q (quit the gdb debugger)
+</H4>
+
+<P>
+<H4>
+disassemble (to print all the instructions of the current function)
+</H4>
+
+<P>
+<H4>
+c  (to continue execution after halting at a breakpoint)
+</H4>
+
+<P>
+<H4>
+commands n (to do commands whenevr breakpoint n is reached)
+</H4>
+
+e.g. If we want to do a execute a certain set of commands every time 
+we reach breakpoint 2 in our code, we write:
+<Pre>
+ commands 2
+ p $l1
+ c 
+ end 
+</Pre>
+
+<P>
+<H3>
+Setup file called .gdbinit <br>
+Place this file in Home Directory.
+</H4>
+
+<P>
+<H4>
+Typical Contents of .gdbinit:
+</H4>
+<PRE>
+        break main
+        display/i $pc 
+        r </PRE>
+
+<hr>
+
+<H2>
+An example of a run session with <b>gdb</b> on file <b>expr</b>
+</H2>
+
+<P>
+<H4>
+colossus> gdb expr
+</H4>
+
+<P>
+GDB is free software and you are welcome to distribute copies of 
+it  under certain conditions; type "show copying" to see the conditions. 
+There is absolutely no warranty for GDB; type "show 
+warranty" for details.
+
+<P>
+GDB 4.13 (sparc-sun-sunos4.1.3_U1), 
+
+<P>
+Copyright 1994 Free Software Foundation, Inc...
+
+<P>
+<H4>
+(gdb)  r  // prompt for gdb
+</H4>
+
+<P>
+Starting program: /export/grad/tvohra/winter/240/temp/expr 
+
+<P>
+(no debugging symbols found)...
+
+<P>
+Program exited with code 0370.
+
+
+<P>
+<H4>
+(gdb)  b main
+</H4>
+
+<P>
+Breakpoint 1 at 0x2294
+
+<P>
+<H4>
+(gdb)  r
+</H4>
+
+<P>
+Starting program: /export/grad/tvohra/winter/240/temp/expr 
+
+<P>
+Breakpoint 1, 0x2294 in main ()
+
+
+<P>
+<H4>
+(gdb)  x/i $pc        //to examine memory, and execute instruction
+</H4>
+
+<P>
+0x2294 &lt;main+4&gt;:        mov  9, %l0
+
+
+<P>
+<H4>
+(gdb)             //return just repeats the previous command again
+</H4>
+
+<P>
+0x2298 &lt;main+8&gt;:        sub  %l0, 1, %o0
+
+
+<P>
+<H4>
+(gdb) x $pc   // just view the contents of the address
+</H4>
+
+<P>
+0x2294 &lt;main+4&gt;:        mov  9, %l0
+
+
+<P>
+<H4>
+(gdb) b *&amp; main + 8
+</H4>
+
+<P>
+Breakpoint 2 at 0x2298
+
+
+<P>
+<H4>
+(gdb) c
+</H4>
+
+<P>
+Continuing
+
+<P>
+Breakpoint 2,  0x2298 in main()
+
+
+<P>
+<H4>
+(gdb)  x $pc
+</H4>
+
+<P>
+0x2298 &lt;main+8&gt;:        sub  %l0, 1, %o0
+
+
+<P>
+<H4>
+(gdb) disassemble
+</H4>
+
+<PRE>
+Dump of assembler code for function main:
+0x2290 &lt;main&gt;:  save  %sp, -64, %sp
+0x2294 &lt;main+4&gt;:        mov  9, %l0
+0x2298 &lt;main+8&gt;:        sub  %l0, 1, %o0
+0x229c &lt;main+12&gt;:       sub  %l0, 7, %o1
+0x22a0 &lt;main+16&gt;:       call  0x4090 &lt;.mul&gt;
+0x22a4 &lt;main+20&gt;:       nop 
+0x22a8 &lt;main+24&gt;:       sub  %l0, 0xb, %o1
+0x22ac &lt;main+28&gt;:       call  0x409c &lt;.div&gt;
+0x22b0 &lt;main+32&gt;:       nop 
+0x22b4 &lt;main+36&gt;:       mov  %o0, %l1
+0x22b8 &lt;main+40&gt;:       mov  1, %g1
+0x22bc &lt;main+44&gt;:       ta  0
+End of assembler dump.
+</PRE>
+
+
+<P>
+<H4>
+(gdb) b *&amp; main + 40
+</H4>
+
+<P>
+Breakpoint 3 at 0x22b8
+
+
+<P>
+<H4>
+(gdb) c
+</H4>
+
+<P>
+Continuing.
+
+<P>
+Breakpoint 3, 0x22b8 in main ()
+
+
+<P>
+<H4>
+(gdb)  display/i $pc
+</H4>
+
+<pre>
+  x/i $pc  0x22b8 &lt;main+40&gt;:   mov  1, %g1
+</pre>
+
+<H4>
+(gdb)  ni
+</H4>
+
+<P>
+0x22bc in main ()
+<pre>
+  x/i $pc  0x22bc &lt;main+44&gt;:   ta  0
+</pre>
+
+<P>
+<H4>
+(gdb) ni
+</H4>
+
+<P>
+Program exited with code 0370.
+
+
+<P>
+<H4>
+(gdb) q
+</H4>
+
+<P>
+<H4>
+colossus> // back to unix prompt
+</H4>
+
+For more details on using the GDB debugger, you can view the file 
+<b>gdb.ps</b> in directory <b>/classes/cs240/common</b> (<b>Warning</b> : Please
+do not print a copy of the entire manual, as it is about 200 pages long, and 
+most of the information is not useful for most of you.) To download/view the 
+<b>quick reference card for GDB</b>, <A HREF="gdb-refcard.ps">click here</A>.
+You can find the postscript version of this file also under 
+<b>/classes/cs240/common/gdb-refcard.ps</b>. 
+
+<P>
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">  
+<H3>
+For class 7 notes, <A HREF="class7.html">click here</A>
+</H3>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">  
+<H3>
+For more information, contact me at <A HREF="mailto:tvohra@mtu.edu">tvohra@mtu.edu</A><BR>
+</H3>
+
+</BODY>
+</HTML>

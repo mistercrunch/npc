@@ -1,0 +1,365 @@
+
+==============================================================================
+-----------[ BFi numero 10, anno 4 - 30/09/2001 - file 17 di 18 ]-------------
+==============================================================================
+
+
+-[ ViRii ]--------------------------------------------------------------------
+---[ ANALiSi ViRUS PER LiNUX
+-----[ vecna <vecna@s0ftpj.org>
+
+
+- NOTA BENE - io non sono Vecna dei 29a, lui e` un virii coder con le palle e
+penso che questa chiarificazione tolga nebbia dagli occhi dei virii coder seri 
+che sperano di trovar un lavoro del mito invece che 4 parole del suo omonimo 
+provincialotto :P
+
+requisiti:
+http://www.manuali.net cercare TrickyC
+http://www.big.net.au/~silvio
+
+per qualche info di vario genere sui virus... non sono la persona + indicata a
+dar consigli, ma tempo fa trovai parecchie informazioni su www.avpve.com
+(avpve = anti viral protection VIRUS ENCICLOPEDIA) con una buona descrizione
+su una caterva di virus, almeno puo` servire x dare idee o per far capire di
+cosa si parla... (ammetto che l'ultima volta che l'ho visitato e` stato nel
+'98)
+
+--] SISTEMI DI INFEZIONE PER BAMBINI MONGOPLETTICI BASATI SU system() [--
+
+questo e` proprio alla base di ogni possibile virus che viene costruito,
+non e` altro che un codice che fa qualcosa e poi esegue il file cui
+ha wrapperato l'esecuzione.
+
+un esempio molto terra terra e` dato da un virus di silvio cesare all'inizio
+dei suoi studi; come universalmente deducibile questi virus fan solo:
+
+* sono eseguito? bene, cerco una vittima dove insediarmi.
+  (serie di readdir()/getdents() per trovar una vittima)
+* e` gia` infetto?
+  (verifica, a seconda del tipo di infezione che si vuole portare, se
+   mettere l'eseguibile originario in append al nostro virus per poi
+   estrapolarlo dal binario ed eseguirlo o se metterlo con un nome
+   tipo /tmp/.hash_md5_del_nome_del_file_infetto in tmp.
+   nel caso sia gia` infetto si cerca un'altra vittima considerando un
+   numero massimo di tentativi; se non e` infetto si infetta e si salta
+   al prossimo punto)
+* dopo essermi eseguito e aver proliferato, estrapolo dal binario con 
+  dentro me il file che ho infettato o grazie all'hash ritrovo dove
+  l'ho messo o continuo ed essere eseguito xke` l'ho inglobato o faccio
+  un jmp al posto giusto o [altre possibilita`, dipende dal tipo di
+  infezione che avete implementato] e avvio il file realmente chiamato
+  dall'utente.
+
+la cosa triste e` che se si usa system, come succedeva in alcuni virus, la
+system include una fork quindi se uno avvia il proprio binario e dopo un po'
+lancia un ps notera` che ci sono 2 processi al posto di uno e normalmente
+ci si insospettisce :) 
+
+un'ottima variante di questo e` quella che utilizza la exec* senza fork()are
+prima (la system e` una fork() seguita da una exec* praticamente) per 
+caratteristica delle funzioni della famiglia exec* il file eseguito
+sovrascrivera` il vecchio processo: questo impedisce quindi l'esecuzione di
+comandi da parte del virus una volta terminata l'esecuzione del file infetto,
+ma se state progettando qualcosa che si puo` accontentare dell'esecuzione
+prima dell'avvio allora e` una soluzione valida.
+
+attenzione che exec una volta avviata da` al processo il nome che vien passato
+come argomento, un errore abbastaza fixabile e notoriamente vistoso nei
+virus di silvio cesare (maestro su ogni fronte cmq e sempre :) era il fatto
+che la exec* veniva fatta su un file temporaneo che conteneva il file
+infettato che poi xo` doveva essere rimosso, x questo motivo spesso viene
+utilizzata la exec* e x questo motivo ho suggerito di usare un file nascosto
+in tmp: occultandolo tra i file temporanei sara` possibile avviarlo con un
+nome diverso senza dover eliminarlo una volta finita l'esecuzione e senza
+quindi dover usare una system x poterlo rimuovere.
+
+--] SISTEMI DI INFEZIONE PER GIOVANI DONNE CRESCONO CON GLI ELF [--
+
+studiando il formato ELF e` possibile dare un significato alle varie zone di
+dati che stan dentro un comune binario, queste zone in seguito all'avvio del
+compilato verrano interpretate e lette dal kernel, ma questo non vieta a
+nessuno di inserire una parte di codice automodificante in una apposita
+sezione nel binario reale in modo da eseguire questa parte di codice in modo +
+trasparente e veloce, senza preoccuparsi di exec* e fork di sorta...
+
+per maggiori info vi rimando al sito di silvio cesare (o cercare su google
+l'archivio della mailing list unix-virus).
+
+c'e` da dire che anche questo genere di infezione altera il binario ed un
+eventuale md5sum o qualunque altro integrity check sui binari rivelera`
+l'infezione.
+
+come ottenere informazioni su *cosa viene eseguito* se l'engine di
+duplicazione e` cosi` trasparente?
+
+con strace!
+
+e` proprio strace(1) il semplicissimo comando che speravo di usare durante
+l'analisi di un virus che mi fu passato, l'analisi del suddetto e` stata
+pubblicata da un altro tizio prima di me ed e` reperibile su BUGTRAQ, la
+mail ha come subject "Remote Shell Trojan: Threat, Origin and the Solution"
+xke` questo virus a differenza di un semplice polimorfico se e` la prima
+volta che viene avviato si mette in background in listen su una porta udp
+attendendo che qualcuno comunichi con lui per favorire della shell
+gentilmente regalata :)
+
+--] L'ARRIVO DELLE TRUPPE DI PTRACE(2) E LE SUE TECNICHE DI BATTAGLIA [--
+
+strace e` uno strumento che si appoggia alla ptrace(2) apposta x poter
+tracciare le system call chiamate da un programma, questo bene o male non
+dara` informazioni dettagliatissime sul programma che sta girando, ma
+perlomeno consentira` di apprendere le cose principali che fa.
+
+e` evidente che un binario infetto dovra` far qualche chiamata di sistema per
+poter proliferare, sicuramente la getdents o la reddir per poter scannare
+alla ricerca di nuovi file vittima, probabilmente leggera` se stesso x
+potersi copiare e aprira` la vittima... senza contare l'apertura di
+eventuali porte udp :) o altri attacchi sicuramente individuabili da questo
+mezzo.
+
+strace e ogni programma che si appoggia a ptrace xo`, puo` essere fregato
+proprio grazie ad una chiamata ptrace da parte del codice che vogliamo
+rendere *invisibile* e purtroppo x me... questo virus lo faceva...
+
+informazioni di vario genere x rendere il proprio codice invisibile agli
+occhi di un debugger si trovano sempre sul sito si silvio cesare, con il
+nome di linux-anti-debugging.txt, in cui spiega essenzialmente 5 tecniche
+tra cui una in cui la ptrace viene chiamata per sviare il debug...
+
+per monitorare le syscall stavo facendo un modulo che wrapperasse le 
+principali syscall e riportasse gli argomenti, in questo caso ptrace o no
+io avrei visto cmq quello che ogni programma (o tramite una selezione per
+pid o per nome di file, solo il programma che sapevo fosse infetto) avrebbe
+fatto.
+
+dopo un po' di ore mi sono accorto di quanto fossi stupido a non accorgemi
+prima che potevo far tutto semplicemente bloccando la ptrace via lkm e
+usando strace normalmente... bah...
+
+ecco qui il modulo:
+
+<-| kantiptrace.c |->
+/*
+ * module for debug linux virus and other program that over ptrace(2) drop
+ * debug system.
+ * on this stupid release the code of fork() is bad and you needed for make
+ * to kernel segnalation of evil code, rename this file with "evil" name,
+ * that is detected via execve redirection.
+ *
+ * after loading of this module you can simple use strace with
+ * strace ./evil
+ * command and ptrace appears uncalled
+ *
+ * by vecna@s0ftpj.org - ??/09/2001 more or less
+ */
+
+#define MODULE
+#define __KERNEL__
+
+#include <linux/config.h>
+#include <linux/version.h>
+#include <linux/types.h>
+#include <linux/kernel.h>
+#include <linux/mm.h>
+#include <linux/module.h>
+#include <sys/syscall.h>
+#include <asm/uaccess.h>
+
+int (*linux_execve)(struct pt_regs);
+/* 
+int (*linux_fork)(); 
+ */
+int (*linux_exit)(int);
+int (*linux_ptrace)(long request, long pid, long addr, long data);
+
+extern void *sys_call_table[];
+
+static int virii, child;
+
+static int ktrace_execve(struct pt_regs exc)
+	{
+	int ret;
+	char *filename =getname((char *)exc.ebx);
+
+	ret =do_execve(filename, (char **)exc.ecx, (char **)exc.edx, &exc);
+
+	if(strstr(filename, "evil"))
+		{
+		virii =current->pid;
+		printk(KERN_INFO "monitoring of pid %d\n", virii);
+		}
+
+	return ret;
+	}
+
+static int ktrace_exit(int err)
+	{
+	if(current->pid ==virii)
+		{
+		printk(KERN_INFO "pid %d program exit\n", virii);
+		virii =0;
+
+		if(child !=0)
+			{
+			printk(KERN_INFO "tracing child %d\n", child);
+			virii =child;
+			child =0;
+			}
+
+		}
+
+	return linux_exit(err);
+	}
+
+/*
+static int ktrace_fork()
+	{
+	int ret;
+
+	ret =linux_fork();
+
+	if(current->pid > 1 && virii && current->pid ==virii)
+		{
+		printk(KERN_INFO "forking from %d child %d\n", virii, ret);
+		child =ret;
+		}
+
+	return ret;
+	}
+*/
+
+static int ktrace_ptrace(long request, long pid, long addr, long data)
+	{
+	printk(KERN_INFO "ptrace da %d con pid %d\n", current->pid, pid);
+
+	if(current->pid && virii && 
+	  (current->pid == virii || current->pid == virii +1))
+		return 0;
+
+	return linux_ptrace(request, pid, addr, data);
+	}
+
+int init_module(void)
+	{
+	printk(KERN_INFO "loading anti ptrace module by vecna@s0ftpj.org\n");
+
+	linux_execve =sys_call_table[SYS_execve];
+	sys_call_table[SYS_execve] =(void *)ktrace_execve;
+	linux_exit =sys_call_table[SYS_exit];
+	sys_call_table[SYS_exit] =(void *)ktrace_exit;
+
+/*	
+	linux_fork =sys_call_table[SYS_fork];
+	sys_call_table[SYS_fork] =(void *)ktrace_fork;
+*/
+
+	linux_ptrace =sys_call_table[SYS_ptrace];
+	sys_call_table[SYS_ptrace] =(void *)ktrace_ptrace;
+
+	return(0);
+	}
+
+void cleanup_module(void)
+	{
+	printk(KERN_INFO " unloading ktrace module\n");
+
+	sys_call_table[SYS_execve] =(void *)linux_execve;
+	sys_call_table[SYS_exit] =(void *)linux_exit;
+/*	sys_call_table[SYS_fork] =(void *)linux_fork; */
+	sys_call_table[SYS_ptrace] =(void *)linux_ptrace;
+	}
+<-X->
+
+la parte del codice che segue eventuali figli e` errata, cmq consente di
+usare sia strace che gdb che ogni altro debugger che altrimenti verrebbe
+fermato.
+
+a questo punto si potrebbe parlare di come si fa l'analisi di un virus, ma
+praticamente e` tutto deducibile dalla man page di strace e dal significato
+delle singole syscall x capire cosa fa il virus stesso.
+
+--] CONSIGLI DELLA CASA PER INFEZIONI + STEALTH [--
+
+putroppo non ho tempo x far sta roba, ma sono convinto che semplicemente
+toccando il path di /bin x l'utente infetto in ~/.hidebid, facendo a
+poco a poco una copia di tutti i binari normalmente utilizzati tipo ls,
+ps, pstree, find, normalmente utilizzati x riscontare le *anomalie* che
+invitano a un debug + approfondito, si puo wrapperare l'output in modo da
+poter senza troppi problemi eseguire processi in bg, far proliferazioni o
+attacchi + pesanti ecc... considerando che l'output di quei programmi
+sarebbe alterato dal virus stesso che non consentirebbe quindi all'utente
+di ottenere spunti di alcun genere per sospettare dell'infezione (a meno che
+l'utilizzo di un ps axf da parte di un altro utente... dipende sempre cosa
+si sta cercando di attaccare cmq...).
+una volta infettati i binari o eventuali file di configurazione personali
+(il .fetchmailrc ? il .procmailrc sono tutti file di conf che possono
+consentire l'esecuzione di comandi da remoto in certi casi se adeguatamente
+modificati, anche questo potrebbe essere un sistema di infezione ed un
+sistema x assicurarsi l'accesso remoto ad una macchina virata. ed e`
+possibile occultare la vista di questi file facendo un wrapper a
+pico/vi/cat/less/more e ai comuni sistemi di visualizzazione di file, in modo
+che se si richieda l'apertura del file infetto si possa ripristinare
+l'originale e rimettere la versione infetta dopo l'uscita del programma
+chiamato.
+
+questo e` possibile xke` automatizzabile (quindi implementabile in un virus
+senza l'ausilio di AI :) e abbastanza stealth xke`, tranne nel caso di una
+workstation di casa, i mezzi per individuare la modifica di un file binario
+nella propria homedir possono essere rediretti verso propri binari infetti
+che non diano informazioni riguardo l'alterazione degli stessi.
+
+questo inserirebbe il problema di virus troppo grossi, ma non significa che
+un file wrapperato debba aver tutto il virus presso di se`, se deve essere 
+infettato un file particolare (ls, ps, ecc...) puo` esser fatto con la parte
+di codice relativa a se`, senza necessitare il resto. poi la parte
+polimorfica che sta in questi codici potrebbe prendere il corpo principale
+del virus, x altre eventuali infezioni da un altro file (non necessariamente
+se stesso)...
+
+un altro punto abbastanza interessante dei virus e` che nulla nega a un file
+eseguibile di un utente di essere eseguito da un altro utente... gia` in
+certe distribuzioni di default le home degli utenti sono leggibili a tutti
+quello dello stesso gruppo, questo non puo` far altro che aumentare la
+proliferazione del virus, che, cosa da non dimenticare, ha come scopo quello
+di essere infettato prima o poi dal root e installarsi in un bel /bin/ls
+o binari avviati con la stessa frequenza :) o far come spiegato sul sito
+dei THC nel tut sui moduli x il kernel di linux in cui si trova un cenno
+ai virus sotto forma di LKM, cosa potenzialmente molto + dannosa *se* ben
+programmata (altrimenti e` dannosa si`, ma in termini di kernel panic...).
+
+--] DIFESE SPICCIOLE CONTRO L'ARRIVO DI QUESTE PICCOLE SPORE ? [--
+
+ogni virus tocca l'md5sum, si potrebbe mettere un semplice check dei propri
+file di conf e dei propri binari (esclusi dal check dei file di sistema)
+se si e` utenti paranoici e se si e` capaci di fare uno script... in questo
+caso la modifica dei nostri binari saltera` subito fuori.
+
+un altro caso che non ho trattato prima e` quello che un virus infetti anche
+i sorgenti oltre che i binari... non i sorgenti con l'intero codice del
+virus xke` e` possibile, ma e` abbastanza stupido mettere in giro un virus
+con il suo codice completo dentro il binario... ma potrebbe semplicemente 
+aggiungere una parte di codice dopo il main giusto x richiamare il file
+del virus padre, almeno anche in seguito a una ricompilazione i file
+rimarranno infetti e senza che il checksum sia alterato :)
+
+per difendersi da questo ci sarebbe da fare l'md5sum di TUTTI i file della
+home, cosa abbastanza pesante xke` anche ogni nostra modifica risulterebbe
+come "accesso", ma non c'e` altra via...
+
+programmi che per loro natura usano la ptrace x bloccare un debug non ne ho
+visti, puo essere che qualche sw commerciale lo faccia, ma visto come stan
+le cose si potrebbe predisporre un sistema di logging delle chiamate ptrace(2)
+e init_module(2) giusto x aver sotto mano l'utilizzo di queste chiamate :)
+
+il metodo migliore x individuare un virus che non va a ficcarsi nel kernel e`
+quello di usare sistemi di individuazione non comuni, tipo... du -abh anziche`
+ls -l... top o pstree anziche` ps, un virus non potra` mai wrapperare tutti
+i binari, visto che e` un software stupido che agisce sui sistemi comunemente
+utilizzati x individuare un virus... basta essere un po' + originali e 
+fotterlo :) 
+
+
+==============================================================================
+--------------------------------[ EOF 17/18 ]---------------------------------
+==============================================================================

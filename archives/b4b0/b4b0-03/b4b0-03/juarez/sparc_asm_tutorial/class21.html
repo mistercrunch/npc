@@ -1,0 +1,183 @@
+<HTML>
+<HEAD>
+</HEAD>
+<BODY bgcolor=#FFFFFF HEIGHT=100 WIDTH=89 TEXT=#000000 LINK=#0000FF VLINK=#FF0000>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<A NAME="section-1"><H1>CLASS 21</H1></A>
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<P>
+
+<center>
+<h1>Machine Instructions (continued) </h1>
+<H2>Format 2 Instructions</H2>
+</center>
+
+Format two instructions are the <b>branch</b> instructions, and the "<b>sethi</b>"
+instruction. 
+
+<H3>Branch Instructions</H3>
+
+The fields in a branch instruction look like this:
+<PRE>
+Width:   2  1   4   3            22
+        --------------------------------------
+        |00| |    |   |                      |
+        --------------------------------------
+Name:    op a cond op2       displacement
+
+        op:  always 00
+        a:   if 1, the branch is annulled
+        op2: specifies the type of test used (integer/floating point/
+	     coprocessor) for integer tests -- the only kinds we'll use 
+	     -- this field is always 010
+        displacement:  the number of instructions between the current
+             instruction and the target of the branch.  This is a two's 
+	     complement number.
+</PRE>
+
+Note that the address of the branch is given as a <b>distance (number of
+instructions) from the current instruction</b>.  This is called <b>PC-relative
+addressing</b>, since the PC is pointing at the current instruction which it
+is evaluated.  So to calculate the new address to branch to, the
+processor sets:
+<pre>
+        PC = PC + displacement * 4
+</pre>
+
+The reason we multiply by 4 is that each instruction is 4 bytes long,
+and memory addresses are given in terms of bytes.  The effect of this is
+that if the displacement field of a branch contains the number 3, the
+branch target is <b>3 instructions away, NOT stored at location 3</b> in
+memory.
+ <P>
+
+Note that the range of a branch is limited -- we can only branch to
+locations that are <b>+/- about 8 MB</b> from the current location at any point
+in time.  However, this really isn't a problem, since branches are used
+almost exclusively to branch to locations inside the current subroutine.
+It is very rare that a subroutine is more than 16 MB long.  This would
+mean that the subroutine had <b>4 million</b> separate instructions, so it
+would have at least 4 million lines when written in assembly.  That's a
+long subroutine.
+ <P>
+
+<H3>The sethi Instruction</H3>
+
+We noted above that one can only include relatively small immediate
+values in instructions -- values in the range <b>-4096 to +4095</b>. How does
+one get a larger immediate value into a register?  The answer is the
+"<b>sethi</b>" instruction.
+ <P>
+
+The fields in a sethi instruction look like this:
+<PRE>
+
+Width:   2    5    3            22
+        -------------------------------------
+        |00|     |100|                      |
+        -------------------------------------
+Name:    op   rd  op2          imm22
+
+        op:  always 00
+        rd:  the destination register
+        op2: always 100
+        displacement: the high 22 bits of the immediate value.
+
+</PRE>
+The sethi instruction is used to load 22 bits into the HIGH 22 bits of a
+register.  The instruction looks like this:
+<PRE>
+        sethi   22-bit-immediate, rd
+</PRE>
+
+Say you coded the following instruction:
+<PRE>
+        sethi   0x12345, %l0
+</PRE>
+
+The instruction would be encoded as follows:    
+<PRE>
+         00 10000 100 0000010010001101000101
+Name:    op   rd  op2          imm22
+</PRE>
+
+The result of executing this instruction would be that register %l0
+would contain:
+<PRE>
+         0000010010001101000101 0000000000
+</PRE>
+
+Note how the 22 bits have been moved to the high end of the register,
+and the low 10 bits have been filled with zeros.
+ <P>
+
+How do you use this to load a <b>32 bit constant</b> into a register?  You need
+two instructions.  First, load the high 22 bits using the sethi
+instruction.  Then, use an "<b>add</b>" or an "<b>or</b>" instruction to get 
+the low 10 bits in.  
+ <P>
+
+Say you want to load the <b>32 bit constant 0x30cf0034 into register %o0</b>.
+First, you need to get the high 22 bits out of that number.  One way is
+simply to ask the assembler to do it for you:
+<PRE>
+        sethi %hi(0x30cf0034), %o0
+</PRE>
+
+For doing the <b>bit shifting</b>, and for obtaining the <b>MSbits</b> or the
+<b>LSbits</b>, there are two operators provided, which are defined as:
+
+<PRE>
+%hi(x),  x &gt;&gt; 10
+%lo(x),  x  &amp; 0x3ff
+</PRE>
+
+The <b>%hi()</b> operator means right-shift the bit pattern by 10 places.  This
+throws away the low 10 bits and puts the high 22 bits into position.
+Note that the assembler is doing the right-shift <b>BEFORE</b> it assembles the
+instruction -- you are just using it like a calculator here to do your
+work for you. 
+ <P>
+
+Next, you would load in the low 10 bits of the number into the register.
+You can do this with an "add" or an "or".  The assembler recognizes the
+<b>%lo()</b> operator, which returns the low 10 bits of its argument.  So you
+could next write:
+<PRE>
+        add     %o0, %lo(0x30cf0034), %o0
+</PRE>
+
+and that would complete the process.
+ <P>
+
+Finally, for the <b>convenience</b> of us humans, the assembler recognizes this
+command: 
+<PRE>
+        set     0x30cf0034, %o0
+</PRE>
+
+as a <b>synonym</b> for:
+
+<PRE>
+        sethi %hi(0x30cf0034), %o0
+        add     %o0, %lo(0x30cf0034), %o0
+</PRE>
+
+This is admittedly a painful way to load immediate data into a program,
+but it is a direct consequence of our decision to limit instruction
+sizes to 32 bits.
+
+ <P>
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<H3>
+For class 22 notes, <A HREF="class22.html">click here</A>
+</H3>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<H3>
+For more information, contact me at <A HREF="mailto:tvohra@mtu.edu">tvohra@mtu.edu</A>
+</H3>
+
+</BODY>
+</HTML>

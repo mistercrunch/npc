@@ -1,0 +1,308 @@
+   _________   SWAT MAGAZINE ISSUE TWENTY: AUGUST 1999   __________
+  /         \___________________________________________/          \
+ /                   A beginners guide to Cracking                  \
+/                             By qwaszx                              \
+-----------------------------------------------------------------------
+
+In this article I am going to show you how to crack Terrapin FTP (V2.1.1
+Build 3). This will demonstrate some simple cracking techiques that can
+be used in many other windows shareware.
+
+Programs Needed (Search the net for them)
+-----------------------------------------
+Terrapin FTP V2.1.1.003 (http://www.terra-net.com)
+
+Windows Dissasembler V8.9
+Hackers View V5.81
+A C compiler (eg. DJGPP) - for making the patch
+
+If your versions are different from the ones shown above, you shouldn't
+have any trouble using them, but what I say in this tutorial may not
+fully apply to you.
+
+Analysing the program
+---------------------
+
+The first thing to do when cracking the program is finding out what you
+are dealing with. So load up Terrapin FTP and see what happens.
+I am assuming that you installed the program and left the initial
+registration request blank (The one in the setup routine)
+The first thing that pops up is the nag screen moaning at you to
+register. If we click on 'Unprotect'
+
+A window pops up asking you to enter in your Registration key. If you
+leave it blank then whte window just disappears, but when you type in
+something (Any random text will do), you get a message box saying that
+you have got the code wrong.
+
+Thats pretty much it for the information gathering. We now know that you
+need a registration code and that the nag message only pops up if you
+actually type in a code (Otherwise it leaves the program in trial mode).
+
+Doing the crack
+---------------
+
+Now to actually crack the program. Fire up Windows Dissasembler and open
+the ftp95.exe file. Wait for a bit while the program actually
+dissasembles the file.
+Once that has (finally!) finished, click on Refs->String_Data_References
+(or the toolbar icon that does the same).
+Look through the list that pops up. Some way down, the following pops
+up:
+
+"Invalid Registration Code."
+
+This is the SAME as the title of the message box that pops up when you
+enter the wrong code.
+Double-click on this line to take you to the piece of code that
+shows the message box. The following piece of code will appear in the
+main window:
+
+:00447975 83C404                  add esp, 00000004
+:00447978 85C0                    test eax, eax
+:0044797A 753C                    jne 004479B8  <--- Note this down
+:0044797C 6A00                    push 00000000
+:0044797E 6A00                    push 00000000
+
+* Possible StringData Ref from Data Obj ->"Invalid Registration Code."
+                                  |
+:00447980 68051C4A00              push 004A1C05
+
+A few lines above the message is a line saying jne 004479B78. This is
+what is called a Conditional Jump. Basically it means that had you got
+the Registration Code right, then the program would have jumped to
+somewhere else (Where the program gets registered).
+
+Now I think it is about time we looked at jump instructions. These
+instructions basically tell the program to jump to another point - like
+the GOTO command in basic. Here is a list of some common jump commands.
+
+jmp  - Jump no matter what
+
+je   - Jump if equal
+jne  - Jump if not equal
+jz   - Same as jump if equal
+jnz  - Same as jump if not equal
+
+ja   - Jump if above
+jae  - Jump if above or equal
+jb   - jump if below
+jbe  - jump if below or equal
+
+jna  - jump if not above
+jnae - jump if not above or equal
+jnb  - jump if not below
+jnbe - jump if not below or equal
+
+jc   - jump if carry flag set
+
+There are others, but these are the most common ones, and the ones you
+will be dealing with most in cracking is je, jne, and jmp. For more
+information on these, take a look at an assembly reference guide or
+tutorial.
+
+There is also a NOP instruction that means do nothing - this is good for
+removing instructions from programs without altering the code too much.
+This isn't necessary in our case though. Just remember it, you may need
+to use the NOP instruction in your own cracks.
+
+Look again at the listing:
+
+:00447975 83C404                  add esp, 00000004
+:00447978 85C0                    test eax, eax
+:0044797A 753C                    jne 004479B8  <-- jump if code correct
+:0044797C 6A00                    push 00000000
+:0044797E 6A00                    push 00000000
+
+* Possible StringData Ref from Data Obj ->"Invalid Registration Code."
+                                  |
+:00447980 68051C4A00              push 004A1C05
+
+
+That jne instruction says to jump to the 'good registration' message box
+if some condition is not equal. (Obviously that condition is that we enter
+the right code).
+What we need to do is make sure that the program always jumps to the
+'good registration' message box. So we need to change that jne
+instruction to a jmp (Jump always) instruction.
+
+Move the blue bar to the line with the jne instruction on, and note down
+the OFFSET at that point (look at the status bar - it says
+@Offset 00046D7Ah in file:ftp95.exe
+             ^
+             This is the offset
+The offset is simply a different way of writing down the address of a
+point in the program. (For those interested - it is how many bytes from
+the start of the file that location is)
+
+So make a backup copy of ftp95.exe (called ftp95bak.exe) and load the
+backup copy into Hackers View (HIEW.EXE). I have Hackers View on my Send
+To menu in windows so I can load up any file easily.
+
+When you have the file loaded up in hackers view, press F4, then F3 to
+change to ASM view.
+Then Press F5 (Goto) and type in the offset that you noted down earlier
+(00046D7A). This will take you to the code that we were working on
+earlier.
+
+Then press F3 (Edit) and then F2 (Enter assembly code).
+A window with the following pops up:
+
++- Pentium(R) Pro Assembler -------------------------------------+
+ jne       000046DB8___________________________________________
++----------------------------------------------------------------+
+
+We need to change that jne to a jmp, so use your arrow keys to delete
+the jne and type in jmp in its place. Press enter to make the chages to
+the file. Then press Escape to exit from the window.
+Unfortunately, the jmp instruction takes up more bytes than the jne
+instruction. Take a look at the hex dumps before and after:
+
+Before:
+
+00046D7A: 753C                         jne       000046DB8
+00046D7C: 6A00                         push      000
+00046D7E: 6A00                         push      000
+00046D80: 68051C4A00                   push      0004A1C05
+
+
+After:
+
+00046D7A: E939000000                   jmp       000046DB8
+00046D7F: 006805                       add       [eax][00005],ch
+
+Where on earth has that add instruction come from?!?!?!?!!?
+If we look carefully, the jmp instruction has overwritten half of the
+second 'push 000' instruction and appears to have messed up the rest of
+the program. (In reality this isn't the case, but I like to tidy up
+after myself).
+What we need to do is clean this up, so type in 90 and look again at the
+listing.
+
+00046D7A: E939000000                   jmp       000046DB8
+00046D7F: 90                           nop
+00046D80: 68051C4A00                   push      0004A1C05
+
+90 is the hex value of the NOP instruction (A nop does have its uses you
+know). Whats important here is the push instruction underneath is now
+the same as it was before we applied the crack.
+Now I'm not too sure if this is neccesary, but I like neat and tidy
+edges, and it looks a bit better, so I put it in.
+
+Now press F9 to update the file and press F10 to quit.
+
+Run ftp95bak.exe and click on 'Unprotect'. Type in anything into the
+boxes and now you should find that a box comes up saying 'Thank you for
+registering!' - See you shelled out all that money to help the authors
+develop better software. Yeah right! You used your super cracking skills
+to register the program wihtout the cash!
+
+Well done!
+Now you need to practice on other programs. Don't be too adventurous at
+first! You're not going to write a Universal Microsoft Key Generator on
+your first try (Unless you already know the algorithm :) ).
+This technique does work on a great many windows programs however and
+it's surprising how quickly you can crack a program. (It took me longer
+to install the software than to crack it!)
+
+Making a Patch
+--------------
+
+After spending all that time (2 minutes is a long time!) cracking your
+program, just imagine if you had to do that for all your mates who
+wanted the program cracking (You would have to hex edit the file,
+register it, use the dissasembler blah blah blah....). And what about
+the rest of the world. What we need is a program that will crack the
+application for us.
+Enter the patch.....
+A patch is a program that edits your application (usually) to crack it.
+I have included a patch program at the end of this file written in C.
+It's only a simple program and it doesn't check to make sure it has the
+right file. Maybe I'll include a better patcher in a later article.
+
+What the patch does is change the bytes in the file to those that you
+specify (Which in turn are the same as those that you used to crack the
+file with Hackers View). Confusing? Sorry, I don't explain these things
+very well.
+
+Lets take a look at the hex dumps again.
+
+Before:
+
+00046D7A: 753C                         jne       000046DB8
+00046D7C: 6A00                         push      000
+00046D7E: 6A00                         push      000
+00046D80: 68051C4A00                   push      0004A1C05
+
+After:
+
+00046D7A: E939000000                   jmp       000046DB8
+00046D7F: 90                           nop
+00046D80: 68051C4A00                   push      0004A1C05
+
+The start of the differences is at offset 00046D7a, so when you edit the
+patch program, the starting point is at that address.
+
+Then we need the new values to change the code to. For this we look at
+the 'After:' hex listing. From this we can see that the bytes are:
+
+E9,39,00,00,00,90
+
+(The others - 6805 etc... - are the same both before and after)
+
+All we need to do now is feed those numbers into the patch program and
+compile it with a C compiler (You did get one of those didn't you). If
+you have one of those newer windows compilers (Visual C++ etc...) then
+make sure you set the compiler to compile a DOS program.
+
+Anyway here's the patch file:
+
+----BEGIN patch.c----
+     #include <stdio.h>
+
+     FILE *in;
+
+     int main()
+     {
+        puts ("<><><><><><><><><><><><><><><><><><><><><>");
+        puts ("<>                                      <>");
+        puts ("<> Terrapin FTP 2.1.1.003 Registration  <>");
+        puts ("<>               Patch                  <>");
+        puts ("<>       by qwaszx for readers of       <>");
+        puts ("<>            SWAT Magazine             <>");
+        puts ("<>                                      <>");
+        puts ("<><><><><><><><><><><><><><><><><><><><><>\n");
+
+        in = fopen("ftp95.exe","r+b"); /* Put the Filename to patch on
+this line */
+
+        if (in == NULL)
+        {
+             puts("Unable to open File. Make sure that it exists and is");
+             puts("In the current directory and try again.");
+             return(0);
+        }
+
+        /* This is where you put the offset that we noted before*/
+             fseek(in, 0x46d7a, SEEK_SET);
+
+/* Each one of these lines patches one byte */
+        /* This is where the values that we noted down before go */
+/* E9,39,00,00,00,90 */
+
+     fputc(0xE9,in);
+             fputc(0x39,in);
+             fputc(0x00,in);
+             fputc(0x00,in);
+             fputc(0x00,in);
+             fputc(0x90,in);
+
+        /* Close the file*/
+        fclose(in);
+
+        puts ("File patched.\nEnjoy!\n=qwaszx=");
+
+        return (0);
+     }
+----END patch.c----
+

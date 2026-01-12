@@ -1,0 +1,152 @@
+     :'######::'##:::::'##::::'###::::'########:
+     '##... ##: ##:'##: ##:::'## ##:::... ##..::
+      ##:::..:: ##: ##: ##::'##:. ##::::: ##::::
+     . ######:: ##: ##: ##:'##:::. ##:::: ##::::
+     :..... ##: ##: ##: ##: #########:::: ##::::
+     '##::: ##: ##: ##: ##: ##.... ##:::: ##::::
+     . ######::. ###. ###:: ##:::: ##:::: ##::::
+     :......::::...::...:::..:::::..:::::..:::::
+___  ___  ___  _____   ___   ___________ _   _  _____ 
+|  \/  | / _ \|  __ \ / _ \ |___  /_   _| \ | ||  ___|
+| .  . |/ /_\ \ |  \// /_\ \   / /  | | |  \| || |__  
+| |\/| ||  _  | | __ |  _  |  / /   | | | . ` ||  __| 
+| |  | || | | | |_\ \| | | |./ /____| |_| |\  || |___ 
+\_|  |_/\_| |_/\____/\_| |_/\_____/\___/\_| \_/\____/ 
+                                                      
+ 
+  .'`-_-`',.`'-_ Issue 41 Article 6 _-'`,.'`-_-`',
+(____________________________________________________)
+|               Cracking Techfacts98                 |
+(____________________________________________________)
+                      solidox
+[x--------------------------------------------------x]
+
+Intro
+-----
+
+well for this reverse engineering/cracking tutorial we're gunna do it on
+TechFacts98. i've chosen TechFacts cos 1) it's useful and 2) more than 1
+method can be demonstated. TechFacts is general handy tool for win9x, u
+can view/kill processes, enumerate atoms and window handles, it has cpu
+usage moniters, memory statistics etc. it a damn useful thing to have.
+
+Tools Needed
+------------
+
+TechFacts98 - the target, get from http://www.winutils.com
+w32dasm or IDA - disassembler - get from www.exetools.com or protools.cjb.net
+hex editor - HIEW or hex workshop. http://www.bpsoft.com for hexworkshop.
+
+Setup
+-----
+
+ok, download and install techfacts, i'm assuming u have ur hexed and disassembler
+setup already. make a backup of the techfacts .exe and disassemble tekfct98.exe.
+
+run techfacts wait for the nag screen to disappear and goto help/about, click
+use regkey and enter name: solidox company: TVP serial: 123456 click ok. it throws
+a messagebox at us saying "Registration Key Failed!" so remember this.
+
+there will be 3 methods to do in this tutorial, method 1 will be making it so that 
+it'll accept any serial, method 2 will make it be always regged, method 3 will be 
+getting a real serial.
+
+Method 1
+--------
+
+ok, in w32dasm with ur disassemblies open the SDR (string data refrences) window
+and look for that text we got when we tried to reg with a dodgy serial
+"Registration Key Failed!" once u've found that dbl-click on it. u'll get landed
+at the address 47999e and it'll look like this.
+
+* Possible StringData Ref from Code Obj ->"Registration Key accepted!"
+                                  |
+:00479983 B8E49A4700              mov eax, 00479AE4    <-- good boy
+:00479988 E8378EFCFF              call 004427C4
+:0047998D A194074E00              mov eax, dword ptr [004E0794]  \ intresting...
+:00479992 C60000                  mov byte ptr [eax], 00         / remember this
+:00479995 EB11                    jmp 004799A8
+
+* Referenced by a (U)nconditional or (C)onditional Jump at Address:
+|:00479886(C)                                          <-- hmm... what's this?
+|
+:00479997 6A30                    push 00000030
+
+* Reference To: user32.MessageBeep, Ord:0000h
+                                  |
+:00479999 E8E6D6F8FF              Call 00407084        <-- make the box beep
+
+* Possible StringData Ref from Code Obj ->"Registration Key Failed!"
+                                  |
+:0047999E B8089B4700              mov eax, 00479B08    <-- we land here at badboy
+:004799A3 E81C8EFCFF              call 004427C4        <-- call some messagebox thingie
+
+ok, so... looking at this we see that the badboy routine is called from 479866 by
+
+* Referenced by a (U)nconditional or (C)onditional Jump at Address:
+|:00479886(C)
+
+that line there. a conditional jump from 479886. so, lets have a look at that addy.
+in the disassembler goto address 479886. u u'll find this.
+
+:00479881 E832A8F8FF              call 004040B8 <-- some checking routine
+:00479886 0F850B010000            jne 00479997 <-- if the result of the last cmp is
+                                                  \ is false then jump to badboy
+if the serial entered is wrong, it jumps to bad boy. so lets make it never jump
+to the bad boy. to do that we change the jne instruction into a few NOPs, the
+op codes for the jne instruction are 0F850B010000 so we change it to 6 nops:
+909090909090 for this we need our trusty hex editor. hi-lite the jne line
+in w32dasm and look at the status line at the bottom. it'll say @Offset 00078C86h
+this is the location of that code in the file, so open tekfct98.exe in ur hex ed
+goto 78c86 and u should have the 6 jne bytes, change em all to 90.
+this will basically make it so it never jumps to that location it just continues
+and executes the goodboy code.
+
+Now, once patched, run techfacts goto help/about choose enter reg key, enter
+Name: solidox   Company: TVP  Serial: 123456 and choose ok.
+bingo! it says reg key accepted. techfacts is now regged.
+
+Method 2
+--------
+
+this method involves making techfacts always regged, so no name/serial entering is
+required. remember the thing i told u to remember? if not here it is:
+
+* Possible StringData Ref from Code Obj ->"Registration Key accepted!"
+                                  |
+:00479983 B8E49A4700              mov eax, 00479AE4    <-- good boy
+:00479988 E8378EFCFF              call 004427C4
+:0047998D A194074E00              mov eax, dword ptr [004E0794]  \ intresting...
+:00479992 C60000                  mov byte ptr [eax], 00         / remember this
+:00479995 EB11                    jmp 004799A8
+
+what this does is move an offset into eax and then changes the value at that offset.
+so when it gets regged it changes a variable to 00. this means crackability.
+what we need to do is find out where the value is written on startup so we can change it.
+ok, now to find where it sets this byte to 01 (unregged) i'm using IDA cos... w32dasm
+is gimp, now, in IDA u stick the cursor on 004E0794 and hit X it gives u a list of places
+where the byte is accessed from, so u go thru em and look at the opcode after it until u
+find mov byte ptr [eax], 01 which appears at 004BBD57, so we need to make it mov 00 to [eax]
+the opcodes for it are: C60001 at location BB157. we take our hex editor and goto location
+BB157 and change the opcodes to C60000 which will move 0 to that byte where the reg status
+is stored. there, cracked no reggin' required.
+
+Method 3
+--------
+
+me being a fool decided to write about method 3 up above before trying it out, and
+basically it's beyond the scope of this article (i ain't figured it out anyhoo). sorry ppl.
+
+Wrap Up
+-------
+
+ok, so if u managed all that, well done. however, if u can put these methods to use on
+other programs then u have truly learned.
+
+Disclaimer
+----------
+
+i accept no responsibility for this, anything that happens as a result of anything to
+do with this article is your own fault, not mine. this article was provided to educate
+people and thus is provided for educational purposes only, NOT to get free software.
+if u like it, pay for it, support the authors.

@@ -1,0 +1,354 @@
+   ___________________________________________________________________
+  |                                                                   |
+  |  Configurando o FTP                                               |
+  |                                                                   |
+  |                       traduzido e adaptado do original de AESOFT  |
+  |                                                    por Dr Herman  |
+  |___________________________________________________________________|
+
+  ------------------
+  Configurando o FTP  
+  ------------------
+
+  Tanto faz se você decidiu disponibilizar um FTP site anonymous ou com 
+  usuário/senha, você precisa fazer algumas configurações antes de ter 
+  o daemon FTP funcionando e o permissionamento do sistema de 
+  diretórios e arquivos corretamente configurado para impedir que os 
+  usuários destruam ou acessem arquivos que não deveriam. O processo 
+  pode começar com a escolha do nome do site FTP. Na verdade você não 
+  precisa de um nome, entranto isso facilita a vida dos usuários. O 
+  nome deve estar no formato ftp.nome_do_domínio.tipo_do_domínio , onde
+  nome_do_domínio é o próprio nome do domínio (dãããã) ou ou alias e 
+  tipo_do_domínio é a extensão usual do DNS. Por exemplo, você poderia 
+  ter um site FTP como ftp.virtualis.com.br, mostrando que este é o 
+  acesso anônimo para o domínio virtualis.com.br. Geralmente é uma má 
+  idéia nomear seu site FTP com o nome da máquina como 
+  ftp.hellbata.virtualis.com.br.
+
+  Por isso, é difícil mover seu servidor FTP de uma máquina para outra 
+  no futuro. Ao invés disso, use um alias que aponte para a verdadeira 
+  máquina na qual o servidor FTP esteja. Isso não é problema se você 
+  tem uma única máquina conectada a Internet através de um provedor, 
+  por exemplo, mas é geralmente é necessário numa rede maior. O alias é
+  fácil de setar se você usa DNS. Sete o alias nos banco DNS com uma 
+  linha como esta:
+
+    ftp   IN   CNAME   hellbata.virtualis.com.br
+
+  Esta linha direciona todos que querem acessar a máquina 
+  ftp.virtualis.com.br para a máquina verdadeira -- 
+  hellbata.virtualis.com.br. Se o servidor FTP tiver que ser retirado 
+  da máquina hellbata por algum motivo, basta alterar esta linha para 
+  apontar para a nova máquina (uma mudança no alias feita via DNS pode 
+  demorar um pouco para se tornar ativa pois esta mudança deve ser 
+  propagada através de todas as bases DNS).
+
+  -----------------
+  Configurando ftpd
+  -----------------
+
+  O daemon FTP, ftpd, deve ser iniciado pelo servidor FTP. O daemon 
+  geralmente é manipulado pelo inetd ao invés dos arquivos rc, sendo
+  assim, o ftpd estará ativo apenas quando precisarem dele. Esta é a 
+  melhor alternativa para a maioria dos casos menos para sites 
+  carregados. Quando é iniciado via inetd, o daemon inetd monitora a 
+  porta de comandos TCP (21), por pacotes requisitando uma conexão, e 
+  então lança o ftpd. Certifique-se que o daemon ftpd pode ser iniciado
+  pelo inetd checando o arquivo de configuração inetd (geralmente 
+  /etc/inetd.config ou /etc/inetd.conf) por uma linha como esta:
+
+    ftp   stream   tcp   nowait   root   /usr/etc/ftpd   ftpd -l
+
+  Se a linha não existe, adicione-a. Na maioria dos sistemas Linux, a 
+  linha já está no arquivo, mas pode estar comentada. Descomente-a se 
+  for necessário. Esta linha basicamente diz ao inetd que o FTP usa o 
+  protocolo TCP, e que ela deve lançar o ftpd sempre que uma nova 
+  conexão for feita na porta FTP. No exemplo anterior, o daemon ftpd é
+  lançado com a opção -l, que habilita o log. Você pode ignorar esta 
+  opção se quiser. Você deve mudar o pathname /usr/etc/ftpd com a 
+  localização de seu daemon FTP.
+
+  Existem várias opções para o ftpd que você pode adicionar a linha 
+  /etc/inetd.config para controlar o comportamento do ftpd. A seguinte
+  lista contém as opções mais usadas:
+
+    -d   adiciona informação de debug no syslog.
+
+    -l   ativa o log (apenas logins que falharam e que foram bem-
+         sucedidos, e não informações de debug). Se a opção -l é 
+         especificada duas vezes, todos os comandos também serão 
+         logados. Se especificada três vezes, o tamanho de todas as 
+         transferências de arquivos via PUT e GET também serão logadas.
+
+    -t   especifica o timeout antes do ftpd terminar após uma seção ser
+         concluída (o default é 15 minutos). O valor após -t deve estar
+         em segundos. 
+
+    -T   especifica o timeout (em segundos) para um cliente. O default
+         é duas horas. Isso permite um cliente alterar o timeout por 
+         alguma razão.
+   
+    -u   especifica o valor umask para arquivos 'subidos'. A máscara 
+         default é 022. Clientes pode solicitar um valor de máscara 
+         diferente.
+
+
+  ------
+  Logins
+  ------
+
+  Se você está montando uma serviço FTP orientado a usuário, onde cada
+  um deles possui um login e senha, então você deve criar uma conta 
+  para cada usuário no arquivo /etc/passwd. Se você não permitir login 
+  anônimo, não crie um usuário genérico que todos possam usar.
+
+  Para criar um servidor FTP anônimo, você deve criar um login para o 
+  usuário anônimo (se ele já não existir; muitas distribuições do Linux
+  já fazem isso durante a instalação). Isso é feito pelo processo 
+  normal de adicionar um usuário no arquivo /etc/passwd. O login é 
+  qualquer coisa que você queira que as pessoas usem quando forem 
+  acessar seu sistema, como anonymous ou ftp. Você deve selecionar um 
+  diretório de login para os usuários anônimos que pode ser protegido 
+  do resto do sistema de arquivo. Uma linha do /etc/passwd parece com
+  isso:
+
+    ftp:*:400:51:Usuário de FTP anônimo:/usr/ftp:/bin/false
+
+  Isso especifica o usuário anônimo com o login ftp. A senha asterisco
+  previne que alguém ganhe acesso a esta conta. O usuário com número 
+  400 é, obviamente, único neste sistema. Para maior segurança, é uma 
+  boa idéia criar um grupo separado apenas para o acesso FTP anônimo 
+  (edit o arquivo /etc/group e adicione um novo grupo), e então coloque
+  o usuário ftp neste grupo. Apenas o usuário anônimo deve pertencer a
+  este grupo pois ele pode ser usado para especificar permissões em 
+  arquivos e diretórios e restringir o acesso tornando seu sistema mais
+  seguro. O diretório de login no exemplo anterior é /usr/ftp, mas você
+  pode escolher qualquer diretório desde que ele pertença ao root (por
+  razões de segurança novamente). O programa inicial para este usuário
+  é /bin/false, que ajuda a proteger seu sistema de acessos a 
+  utilitários que não possuam um esquema de proteção.
+
+  ---------------------
+  Criando os diretórios
+  ---------------------
+
+  Como você verá na próxima seção, "Especificando Permissões", você 
+  pode criar toda a estrutura de diretórios para o usuário anônimo de 
+  modo que ele não precise acessar nenhum outro diretório que /usr/ftp
+  (ou qualquer diretório que você quiser). Por esta razão, você precisa
+  criar um pequeno sistema de arquivos apenas para o usuário anônimo 
+  acessar e que guarde diretórios usuais e arquivos básicos que todos 
+  precisem.
+
+  O processo de especificar diretórios que o usuário anônimo irá 
+  precisar é simples, requerindo que você apenas crie um número de 
+  diretórios e copie arquivos para ele. Eis o procedimento básico:
+
+  1. Crie o diretório bin (/usr/ftp/bin, por exemplo) e copie o comando
+     ls que permitirá aos usuários verem diretórios e arquivos.
+
+  2. Crie o diretório etc (/usr/ftp/etc, por exemplo) e copie seu 
+     arquivo passwd (etc/passwd) e o arquivo de grupo (/etc/group) para
+     ele. Vamos editar estes arquivos daqui a pouco.
+
+  3. Crie o diretório lib (/usr/ftp/lib, por exemplo) e copie os 
+     arquivos /lib/ld.so e /lib/libc.so.X (onde X é o número de versão
+     do arquivo libc) para ele. Estes arquivos são usados pelo ls. Este
+     passo só é necessário se seu comando ls precisa destes arquivos; a
+     maioria das versões do Linux não tem esta dependência.
+  
+  4. Crie o diretório pub (/usr/ftp/pub, por exemplo) para armazenar os
+     arquivos que serão acessíveis. Veremos este diretório em detalhes
+     num instante.
+
+  5. Crie o diretório dev (/usr/ftp/dev, por exemplo) e use o comando 
+     mknod para copiar o arquivo /dev/zero. Você precisa manter os 
+     mesmos números maior e menor como o arquivo /dev/zero em /dev. 
+     Este arquivo é usado por ld.so (e portanto por ls). Este passo só
+     deve ser feito se seu ls precisa dos arquivos do diretório /lib 
+     mencionado anteriormente.
+
+  As cópias dos arquivos /etc/passwd e /etc/group são copiados no 
+  diretório ~ftp/etc. Você deve editar estes arquivos para remover 
+  todas as senhas e trocá-las por um asterisco. Remova todas as 
+  entradas tanto em /etc/passwd e /etc/group, exceto aquelas usadas 
+  pelo usuário anônimo (geralmente anonymous e bin)
+
+  A estrutura do diretório ~ftp/pub pode ser usuada para armazenar os 
+  arquivos que você deseja que o usuário anônimo tenha acesso. Copie-os
+  neste diretório. Você pode criar subdiretórios de acordo com suas 
+  necessidades. Pode ser útil criar um diretório upload em algum lugar 
+  em ~ftp/pub que possua permissão para escrita, assim os usuários pode
+  'subir' aruqivos para você apenas nesta área.
+
+
+  ------------------------
+  Especificando Permissões
+  ------------------------
+
+  Você pode usar o comando chroot para proteger seu sistema. O comando 
+  chroot transforma em diretório raiz qualquer diretório diferente do 
+  raiz (/). Por exemplo, uma vez que chroot está sempre especificado 
+  para o usuário anônimo, sempre que o usuário anonymous digitar o 
+  comando cd, ele sempre será relativo ao diretório home. Em outras 
+  palavras, quando ele digitar "cd /bin" estará efetivamente mudando 
+  para o diretório /usr/ftp/bin se o diretório raiz estiver 
+  especificado como /usr/ftp. Isso previne o acesso a outras áreas
+  senão a da estrutura de diretórios FTP.
+
+  Se você criou uma área de upload, pode querer especificar as 
+  permissões que permitam executar e escrever, mas não ler (para 
+  previnir que um outro usuário faça o download dos arquivos que 
+  alguém fez upload).
+
+  Especifique todas as permissões para diretórios abaixo de ~ftp/ para 
+  previnir escrita por usuário, grupo ou outro. Certifique-se que os 
+  diretórios e arquivos abaixo de ~ftp estão com permissões que 
+  permitam ao usuário anonymous lê-los (especifique a propriedade e
+  permissão de grupo para ...), e especifique permissão apenas para 
+  leitura. Os diretórios precisarão de permissão para execução e 
+  leitura para permitir ao usuário anonymous entrar e obter a listagem
+  do diretório. Isso nos dá uma boa segurança. Todos os diretórios em 
+  ~ftp devem ter suas permissões especificadas com o comando:
+
+    chmod 555 nome_diretório
+  
+  Isso especifica permissão apenas para leitura e execução. A exceção é
+  o diretório upload que deve ter permissão para escrita como citado 
+  anteriormente.
+
+
+  ---------------
+  Teste o sistema
+  ---------------
+
+  Antes de você deixar todos entrarem no seu sistema Linux, logue-se e
+  tente acessar arquivos que você não deveria, mova-os para diretórios 
+  fora da estrutura ~ftp, e grave arquivos onde você não deveria ser 
+  capaz. Isso é um teste poderoso das permissões de arquivos e 
+  diretórios. Gaste alguns minutos tentando ler e gravar arquivos. 
+  Tenha certeza que seu sistema está bem fechado -- se não, alguém 
+  encontrará os furos e os explorará. É uma boa idéia criar uma 
+  mailbox para você como administrador FTP para que os usuários que 
+  precisem de ajuda ou informações possam enviar emails para você. Crie
+  um alias como ftp-admin no arquivo /etc/aliases (e execute newaliases
+  para torná-los ativos).
+  
+  Não entraremos em muitos detalhes sobre como organizar sua estrutura 
+  de diretórios, mas algumas dicas podem ajudá-lo. Para iniciar, decida
+  o que você deseja armazenar em seus diretórios e organize a estrutura
+  de maneira lógica. Por exemplo, se você está disponibilizando 
+  programas que escreveu, crie diretórios separados para cada um. Um 
+  arquivo LEIAME (ou README) em cada diretório auxiliará mostrando o 
+  que o diretório contém. Um arquivo mestre README ou INSTRUCOES no 
+  diretório ~ftp pode ajudar a explicar como seu site está organizado 
+  e o que ele contém.
+
+
+  ------------------
+  Um FTP mais seguro
+  ------------------
+
+  O sistema FTP discutido nas seções anteriores, que é o básico 
+  distribuído com praticamente todas as distribuições Linux, requer um 
+  pouco de trabalho para tornar-se seguro. Entretanto, ainda é 
+  vulnerável a crackers experientes. Existe uma alternativa melhor caso
+  você seja paranóico no tocante a segurança do seu sistema: WU FTP. 
+  Desenvolvido na Universidade de Washingnton, WU FTP inclui algumas 
+  características sobre o sistema FTP padrão:
+  
+    - melhor controle de usuários e grupos;
+    - melhor controle sobre uploads e downloads;
+    - shutdown automático;
+    - compressão e descompressão automática de arquivos;
+  
+  Se algumas destas características parecem úteis, você pode obter uma 
+  cópia do código fonte de WU FTP em vários sites, entretanto o site 
+  primário é wuarchive.wustl.edu. Procure pelo arquivo 
+  /packages/wuarchive-ftpd/wu-ftpd-2.4.tar.Z. Você encontrará o código
+  fonte que precisa ser compilado em seu sistema Linux.
+
+  WU FTP usa várias variáveis ambientais para controlar o serviço, e a
+  documentação que o acompanha ajuda a configurá-lo de maneira correta.
+  Configurar WU FTP é muito mais complexo do que o FTP padrão, e a 
+  segurança extra, mesmo útil, pode ser desnecessária para muitos sites
+  FTP que você possa usar em casa ou no trabalho (a menos que você 
+  possua informações preciosas).
+
+
+  --------------------------------------------
+  Checklist: protegendo um sistema FTP anônimo
+  --------------------------------------------
+
+  FTP anônimo é rápido, relativamente fácil de usar, mas é também um 
+  grande problema de segurança se você não o configurar corretamente.
+  A lista a seguir reune alguns passos simples para se configurar um
+  site FTP melhor:
+
+  1. Crie um usuário chamado ftp. Edite o arquivo /etc/passwd 
+     manualmente e troque a senha por um asterisco no segundo campo. 
+     Isso previne que qualquer um obtenha acesso através da conta ftp.
+     
+  2. Se o diretório home não foi criado para o usuário ftp quando você
+     criou a conta, especifique um diretório home exclusivo para ele
+     (como /home/ftp).
+
+  3. Especifique o diretório home de modo que o usuário root seja seu 
+     owner:
+    
+     chown root /usr/ftp 
+
+  4. Proíba a escrita no diretório home do ftp com o seguinte comando:
+
+     chmod ugo-w /usr/ftp 
+
+  5. Crie um diretório bin abaixo do diretório home do usuário ftp:
+
+     mkdir ~ftp/bin 
+
+  6. Faço o usuário root ser o dono do diretório ~ftp/bin e torne-o
+     protegido de escrita:
+
+     chown root ~ftp/bin
+     chmod ugo-w ~ftp/bin 
+
+  7. Coloque uma cópia do comando de listagem de arquivos (e quaisquer 
+     outros que você queira que o usuário anonymous use) no diretório 
+     bin:
+
+     cp /bin/ls ~ftp/bin
+
+  8. Crie um diretório etc sob o diretório home do usuário ftp e faça 
+     root seu dono e protega-o contra escrita:
+
+     mkdir ~ftp/etc
+     chown root ~ftp/etc
+     chmod ugo-w ~ftp/etc
+
+  9. Copie os arquivos /etc/passwd e /etc/groups para o diretório 
+     ~ftp/etc. Edite ambos para remover todas as contas exceto ftp (e 
+     o grupo ftp). Por último, remova todas as senhas para outras 
+     contas colocando asteriscos no campos de senha.
+
+  10. Crie o diretório ~ftp/pub/incoming, e faça do root seu dono. 
+      Depois, libere a escrita:
+
+      mkdir ~ftp/pub/incoming
+      chown root ~ftp/pub/incoming
+      chmod ugo+w ~ftp/pub/incoming
+
+  11. Coloque os arquivos que você quer disponibilizar no diretório 
+      ~ftp/pub. Usuários que se loguem com o usuário FTP serão capaz 
+      de baixar estes arquivos. Permitir que os usuários escrevam neste
+      diretório pode ser indesejável, então mude as permissões ou 
+      verifique os arquivos freqüentemente.
+
+
+  Seguindo estes passos (modificando-os de acordo com suas 
+  necessidades), você pode criar um site seguro e que deixe 
+  você dormir mais tranqüilo.
+
+
+  --------------------------------------------------------------------
+  Virtualis nº9 -- Configurando o FTP
+

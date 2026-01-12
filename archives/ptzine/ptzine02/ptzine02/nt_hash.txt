@@ -1,0 +1,398 @@
+
+
+In implementing NT domain control for Samba, the requirement to
+authenticate users connecting to a share that isn't on a DC
+just came up.
+
+The protocol works something like this:-
+
+Client accesses SMB file server requesting access to a particular
+share. The file server responds with an 8 byte challenge and
+the client replies with a 24 byte challenge response. Obviously
+these are transmitted in the clear.
+
+The file server not being a domain controller, forwards the
+challenge and response and the user name to the DC. The DC
+possesses the users password hash and therefore can determine
+whether the response is an authentic computation of
+the challenge.
+
+Now comes the interesting bit. If the DC authenticates the
+challenge response, it replies with an NT session key and
+an LM session key. You can read all about these session
+keys in:-
+
+ftp://ftp.microsoft.com/developr/drg/CIFS/CIFS-Auth-Spec.doc
+These session keys are encrypted with the RC4 session key
+between the file server and the DC.
+
+Some of you will now be thinking "hang on a minute,
+the server has just authenticated someone based on a
+chosen challenge and response...". Obviously if you
+sniff the net you can gather as many challenge/response
+pairs as you wish and replay them. We'll come back to this.
+
+The interesting thing is that the DC sends the two
+session keys based purely on the knowledge of a
+challenge/response pair. What are these two session
+keys?
+
+One is MD4(MD4(Unicode(password)), i.e. MD4(nthash),
+the other is the first half of your lmhash. i.e.
+if your password is 7 characters or less, this is
+your password equivalent. Let me just emphasise
+this. If I sniff the network and learn a challenge
+response pair I can ask the domain controller to
+send me the two session keys. If the password is
+7 characters or less I can impersonate them at will.
+I posted a patch to Samba that does this on the
+ntbugtraq list a few months ago.
+
+Where does SMB signing come in? SMB message
+authentication is based on producing a MAC with
+MD5(K,text), where K is formed from the appropriate
+session key and the response to the challenge. All
+of this information is either visible on the wire
+or you can ask the DC to send it to you.
+
+The only thing you need for these attacks is to
+be able to communicate over a secure channel with
+the DC. You will be able to do this if you have
+administrative access to your own machine and
+grab the workstation trust account password. You
+can get admin access to your own machine by using
+the proxy method I mentioned previously, or any
+method of your choosing.
+
+I'm sure people will be able to come up with all
+sorts of other horrible implications of this.
+
+Note: I don't have any code to exploit any of this,
+but it would be quite easy to put into Samba, so
+if anyone from Microsoft would like to refute any
+of this, please go ahead.
+
+Paul
+
+----------------------------------------------------------------------------
+
+In light of Paul Ashton's recent posts (nicely done Paul!) - someone
+brought to my attention that the rant and descirption that I posted to
+some of the lists wasn't on bugtraq.
+
+(I'd like to take this opportunity and pull a Theo Deraadt and state -
+this was brought up in the readme to l0phtcrack 1.5 and posted publicly on
+July 23 1997) -- oh yeah, OpenBSD does not appear vulnerable etc. etc. :-)
+
+Appologies if this did make it to bugtraq and I just missed that fact -
+the memory goes ya know.
+
+The important thing to note is that, paying attention to the network
+section of the below rant, it is easy enough to obtain the original hash
+which is used for the SMB signing that SP3+hotfixes offers - thus
+defeating the SMB signing mechanism (not that I see much of that in the
+wild anywho)
+
+.mudge
+
+--- begin old rant ---
+I didn't ask to be cc'd into the rantings of the MS Borg Marketing
+Juggernaut but since I'm here...
+
+I find this hillarious. The people at MS should know better.
+
+I haven't been following this thread tremendously but from the
+bit's I've seen and from an attrocious article in WindowsNT magazine,
+where they stated it would take 5000 or so years to break the passwords
+so put policy in place to have users change their passwords every 2500
+years, I'm believing people just aren't getting it.
+
+Let's shed some light on things shall we?
+
+1. Thank you very little MS for dropping any reference to the l0pht,
+hobbit, or myself in reference to your recent LM-Hash fix. If this
+is how you "correspond" with people who point out problems to you it's
+no wonder that people prefer to release things to the public instead
+of your "proper" channels.
+
+2. MS agrees that the LM hash is a horrible implementation from a
+security standpoint. They respond with: "well we didn't write the
+protocol that was IBM".
+
+3. When MS had the chance to do things a different way (ie Network
+challenge/response obfuscation on NT boxes) they implemented it based
+upon LM techniques to break up components (see #2).
+
+4. The LM-hash fix works great if you don't have anything but NT machines
+on your network. If you want to continue being "productive" with your
+win95 machines it is my understanding that you "do it insecurely" or
+you are S.O.L.
+
+5. Few places are running "nothing but NT" (ie just about everyone
+has 95 or WfW boxes if MS has already gotten their foot in the door).
+(see #4)
+
+6. MS can't swallow their pride enough to say "oops", even in
+technical circles where they don't have to worry about the general public
+mis-interpreting things.
+
+7. Even though the NT hash spec says you can have up to 128 char
+passwords,
+I'd really like someone to show me how they can type more than 14
+characters
+into UserManager before it starts Beep-Beep'ing at them.
+
+8. We demonstrate up front with proof of concept code in L0phtcrack v1.0,
+and L0phtcrack v1.5 that the following is indeed the case.
+
+For those that don't know, L0phtcrack v1.5 will attack the challenge
+response done over the network. The reason we came out with this was that
+the SYSKEY "fix" that MS came out with only managed to emasculate the
+ADMINISTRATOR and not address the actuall problem. Can we say "save
+face"? I knew we could.
+
+L0phtcrack v1.5 is available for FREE from http://www.L0pht.com (that's
+a ZERO after the 'L', not an 'o') . It comes with source so you can build
+it on just about any platform.  It is proof-of concept code and thus
+could be sped up tremendously.
+
+Now, let's rip apart why it is so trivial to go through the LM hash on the
+network. And then talk about why the NT hash doesn't matter.
+
+ --------------------------    -----------------------------
+|     16byte LM hash       |  |   16byte NT hash (md4)      |
+ --------------------------    -----------------------------
+
+We already know that you only have to go through 7 characters to retrieve
+passwords (up to 14 chars in length) in the LM hash, and that since there
+is
+no salting being done, constants show up all over the place giving away
+too much information and speeding up attacks tremendously.
+
+  -------------------------------------------------
+ | 1st 8bytes of LMhash  | second 8bytes of LMhash |
+  -------------------------------------------------
+
+1st 8 bytes are derived from the first seven characters of the password
+and
+the second 8 bytes are derived from the 8th through 14th characters of
+the password. If the password is less than 7 characters then the second
+half will always be: 0xAAD3B435B51404EE.
+
+Let's assume for this example that the users password has a LM hash of
+0xC23413A8A1E7665fAAD3B435B51404EE (which I'll save everyone the
+nanosecond
+it would have taken for them to plug this into L0phtcrack and have it
+tell them the password is "WELCOME").
+
+Here's what happens to this hash on the network:
+
+  --------                  --------
+ |   A    | <______________|  B     |
+ |        |                |        |
+  --------                  --------
+
+B sends an 8 byte challenge to A. (assume 0x0001020304050607)
+
+Machine A takes the hash of 0xC23413A8A1E7665fAAD3B435B51404EE
+and adds 5 nulls to it, thus becoming
+0xC23413A8A1E7665fAAD3B435B51404EE0000000000.
+
+The string 0xC23413A8A1E7665fAAD3B435B51404EE0000000000 is broken into
+three groups of 7:
+
+C23413A8A1E766   5fAAD3B435B514   04EE0000000000
+
+The 7 byte strings are str_to_key'd (if you will) into 8 byte odd parity
+des keys.
+
+Now we have :
+
+| 8byteDeskey1 |      | 8byteDeskey2 |    | 8 byteDeskey3 |
+
+8byteDeskey1 is used to encrypt the challenge 0x0001020304050607. Let's
+assume the result is 0xAAAAAAAAAAAAAAAA.
+
+8byteDeskey2 is used to encrypt the challenge 0x0001020304050607. Let's
+assume the result is 0xBBBBBBBBBBBBBBBB.
+
+8byteDeskey3 is used to encrypt the challenge 0x0001020304050607. Let's
+assume the result is 0xCCCCCCCCCCCCCCCC.
+
+The three 8byte values are concatenated (!dumb!), and the 24 byte response
+of 0xAAAAAAAABBBBBBBBCCCCCCCC is returned to the server. The server does
+the same thing to the hash on it's end and compares the result to the
+24 byte response. If they match, it was the correct original hash.
+
+Why this is boneheaded:
+----------------------
+
+7 char or less passwords.
+
+     --------------------  --------------------  --------------------
+    |   C23413A8A1E766   ||  5fAAD3B435B514    ||   04EE0000000000   |
+     --------------------  --------------------  --------------------
+
+The first thing we check is to see if the users password is less than
+8 characters in length. We do this by taking the 7 byte value of
+0x04EE0000000000, turning it into an 8 byte odd parity DES key,
+ and encrypting it against the 8 byte challenge of 0x0001020304050607.
+If we get the result of 0xCCCCCCCCCCCCCCCC then we are pretty sure
+it's < 8 chars in length.
+
+In order to be sure we can run through 0x??AAD3B435B514 (ie 256 possible
+combinations) to see that 5f shows us the result is 0xBBBBBBBBBBBBBBBB,
+proving that the password is less than 7 characters and also giving us
+the last byte of the first half of the LM hash.
+
+From this point, even assuming we're just joyriding and not worried about
+optimizing the way this is done (believe me, there are much more
+effective ways to do this that reduce the amount of time needed even
+further... this whole this is just showing that even a simplistic
+attack works against this implementation), it's no different than
+how a tool like L0phtcrack attacks the hashes in the registry.
+
+8 char or greater passwords.
+
+     --------------------  --------------------  --------------------
+    |   C23413A8A1E766   ||  AC435F2DD90417    ||   CCD60000000000   |
+     --------------------  --------------------  --------------------
+
+The first thing to check is whether the password is less than 8 characters
+in length. Deriving the 8 byte odd parity des key from 0x04EE0000000000
+and encrypting against 0x0001020304050607 does not, in this case, give
+us 0xCCCCCCCCCCCCCCCC, so we know that the password is 8 characters or
+greater.
+
+It takes us, in a worst case scenario, 65535 checks to figure out that
+the 2bytes that are used in the last third are 0xCCD6. Even approaching
+this in a completely brain-dead fashion (hey, turn-about is fair play),
+you can go through your 7 digit combinations of characters for the
+first third the same way you would the LM hash from the registry. This
+will yield not only the first third of the response, but also the
+first byte of the second third. Keep in mind that you already have the
+last two bytes that made up the third third.
+
+You could approach the middle third in the same fashion.
+
+(note: this whole method that MS is doing screams for a precompute
+table lookup attack - which given the small enough potential values
+is not impossible by any means)
+
+Thus, the challenge response is completely brute-forcable for the LM-hash.
+
+MS made the "oversight" of still sending the LM-hash response along with
+the NT response even when SP3 was installed. Thus it was a moot point
+as to how tough or well done the NT hash might or might not be.
+
+Since installing the LM-fix precludes continued use of windows 95 machines
+in regards to talking to NT machines, it is still a moot point as to
+how tough or well done the NT hash might or might not be.
+
+The LM hash is incredibly weak and your more secure NT hash is brought
+down to the lowest common denominator.
+
+It would have been nice if you could type a password greater than 14chars
+into the UserManager app.
+
+.mudge
+
+----------------------------------------------------------------------------
+
+
+
+[somebody posted the URL a day ago - though we hadn't made it publicly
+ available at the time as we were working out some minor bugs. This is
+ the official release. Sorry for any confusion and our appologies to
+ anyone who D/L'd the next to final rev that we had up for a day.
+ Just grab the newest version and remove the registry key from any previous
+ versions - HKEY_CURRENT_USER\Software\L0pht before you install. .mudge]
+
+      Document:  L0pht Security Announcement
+    URL Origin:  http://www.l0pht.com/l0phtcrack/
+  Release Date:  February 12th, 1998
+   Application:  Windows NT, SAMBA running on Unix machines
+      Severity:  New release of l0phtcrack v2.0
+        Author:  mudge@l0pht.com, weld@l0pht.com
+ Operating Sys:  Windows NT, Windows 95
+
+ L0phtCrack 2.0 Released
+
+ It's big. It's bad. It cuts through NT passwords like a diamond
+ tipped, steel blade. It ferrets them out from the registry, from
+ repair disks, and by sniffing the net like an anteater on
+ dexadrene.
+
+ For the six months since L0phtCrack 1.5 was first demonstrated publicly
+ we have been doing usability testing and listening to the L0phtCrack
+ user community for feature ideas. Thanks for your input. We hope you
+ are happy with the improvements in functionality and performance.
+
+ New features
+
+ The long awaited SMB session network sniffer is bundled in.
+ Collect LANMAN password hashes without administrator rights.
+
+ Use built-in SAMDUMP funtion to extract the password hashes
+ from the registry SAM file on the hard disk, an emergency repair
+ disk, or a backup tape.
+
+ Ability to save and restore a partially completed brute force
+ attempt. Current iteration and character set are saved with the
+ partial results. File is automatically saved every 5 minutes.
+
+  When one of the halves of a LANMAN password is found it is
+  displayed. Great for 8-12 character passwords where the 2nd
+  half of the password is quickly brute forced.
+
+  Custom character sets for brute forcing are supported.
+
+  Multiprocessing brute force algorithm. Benchmarked brute force
+  at 6 hours for A-Z characters and 62 hours for A-Z, 0-9 on a
+  quad Pentium Pro 200.
+
+  Exponential speedup for large numbers of users due to faster
+  search algorithm. It is now feasible to brute force 10,000 users
+  at a time,
+
+  L0phtCrack is now a friendly background process. It runs at
+  below normal priority and has the ability to completly hide and
+  be restored with a hotkey: Ctrl-Alt-L.
+
+L0phtCrack 2.0 is shareware
+
+L0phtCrack was originally envisioned as an experimental research tool.
+Many system administrators, security auditors, and tiger teams have
+asked for specific features to make L0phtCrack a more powerful and
+easier to use tool. We have decided to give L0phtCrack the quality and
+feature set needed by computer security professionals and distribute it
+as shareware.
+
+The trial period is 15 days, after which the product must be registered
+for $50. A command-line, stripped down version of the program is
+available for free with source code.
+
+cheers,
+
+mudge@l0pht.com - weld@l0pht.com
+
+----------------------------------------------------------------------------
+
+That part about deleting the registry key and downloading again only
+applies to people who installed 1.5 (1.52) and had problems with
+L0phtCrack 2.0 not giving a 15 day trial period. If l0phtcrack 2.0 worked
+fine for you the first time you are all set.  Sorry for the confusion.
+
+-weld
+
+On Thu, 12 Feb 1998, Mudgenski Von Splat wrote:
+
+[somebody posted the URL a day ago - though we hadn't made it publicly
+ available at the time as we were working out some minor bugs. This is
+ the official release. Sorry for any confusion and our appologies to
+ anyone who D/L'd the next to final rev that we had up for a day.
+ Just grab the newest version and remove the registry key from any
+previous
+ versions - HKEY_CURRENT_USER\Software\L0pht before you install. .mudge]
+
+----------------------------------------------------------------------------

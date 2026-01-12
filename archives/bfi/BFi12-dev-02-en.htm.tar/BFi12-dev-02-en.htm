@@ -1,0 +1,863 @@
+-[ BFi - English version ]----------------------------------------------------
+        BFi is an e-zine written by the Italian hacker community.
+        Full source code and original Italian version are available at:
+                http://bfi.s0ftpj.org/dev/BFi12-dev-02
+        English version translated by Tanith <lorettaharlowe@yahoo.it>
+------------------------------------------------------------------------------
+
+
+
+==============================================================================
+--------------------[ BFi12-dev - file 02 - 15/02/2003 ]----------------------
+==============================================================================
+
+
+-[ DiSCLAiMER ]---------------------------------------------------------------
+        The whole stuff contained in BFi has informative and educational
+	purposes only. In no event the authors could be considered liable
+	for damages caused to people or things due to the use of code,
+	programs, pieces of information, techniques published on the e-zine.
+	BFi is a free and autonomous way of expression; we, the authors,
+	are as free to write BFi as you are free to go on reading or to stop
+	doing it right now. Therefore, if you think you could be harmed by
+	the topics covered and/or by the way they are in, * stop reading
+	immediately and remove these files from your computer * .
+	You, the reader, will keep to youself all the responsabilities about
+	the use you will do of the information published on BFi by going on.
+	You are not allowed to post BFi to the newsgroups and to spread
+	*parts* of the magazine: please distribute BFi in its original and
+	complete form.
+------------------------------------------------------------------------------
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ ANGEL: THE P0WER T0 PR0TECT - PART II
+-----[ The Sponge <sponge@tiscali.it> - http://www.sikurezza.org/angel
+
+
+AngeL - The Power to protect
+"Moonlight preludes" part 2
+The Sponge <sponge@tiscali.it>
+
+0x0 Intro
+0x1 AngeL network engine
+0x2 Hook function handler
+0x2.1 Sp00fing
+0x2.2 Sanity check on TCP header
+0x2.3 Denial of service against X
+0x2.4 Protocol related sanity check
+0x2.5 Syn Flood
+0x2.6 Land
+0x2.7 Smurf
+0x2.8 Ping of death
+0x3 Comments and future development
+0x4 Bibliography
+
+
+0x0 Intro
+
+You've read "Ouverture in B minor", haven't you? I mean, the article published
+in BFi (http://bfi.s0ftpj.org/dev/BFi11-dev-05) where I have described AngeL
+and where we were talking about countermoves to avoid host based attacks to our
+linux box? Well, now we call into question our brand-new TCP/IP stack and we
+deal with AngeL net based part.
+
+As we did in last issue, we are going to refer to AngeL development version.
+Net based code is almost the same from "stable" to development version, I'll
+have instead to tuck up my sleeves and let code be more clear, and why not
+simplify new rules add.
+
+Now, we are in AngeL-0.9.x/src/modules/net directory, fasten your belts, have a
+pint of your favorite beer since we're to start our trip.
+
+A last remark about kernel. We'll touch on netfilter while dealing with
+firewalling system hook we are going to place. Though AngeL runs very well with
+2.2.xx kernel firewall system, we'll only deal with netfilter ignoring
+willingly dear old ipchains. As for code fragments borrowed by kernel, we are
+talking about vanilla kernel version #2.4.19.
+
+
+0x1 AngeL network engine
+
+engine.c file is net subsystem core. The task of the code contained in this
+file is very simple: that is, installing a hook into output chain included in
+netfilter firewalling system and to examine very carefully exiting packets. As
+for privacy maniacs, Angel creates a pattern matching into payload just to
+search shellcode, and we'll use very soon, we too, the same function used in
+angel_execve() .
+
+The first thing we have to do in order to install a hook in netfilter is to
+tell kernel where to place hook and, most important, handler function that will
+be called by TCP/IP stack when packets will match hook. Since netfilter
+programmers (that gave us a large code fragment as a gift) had foreseen many
+functions can be installed in a netfilter hook. It has been introduced then a
+priority concept, that states which function will be called the first one for
+every packet crossing TCP/IP stack.
+
+This is the structure we are to fill:
+
+<KERNEL CODE /usr/src/linux/include/linux/netfilter.h:44>
+struct nf_hook_ops
+{
+	struct list_head list;
+
+	/* User fills in from here down. */
+	nf_hookfn *hook;
+	int pf;
+	int hooknum;
+	/* Hooks are ordered in ascending priority. */
+	int priority;
+};
+</KERNEL CODE>
+
+As specified in comment, "list" field will NOT be filled. We, wicked mortal
+users ( :P ), will only have to deal with what's under or on the same level of
+hook field. Particularly, hook is pointer to the function that will be called
+by kernel at right time. Everytime a packet, in specified netfilter chain,
+matches point in which netfilter expects to find user functions, these
+functions will be used in the order stated by priority level they have been
+recorded.
+
+These chains I'm talking about actually find stream direction of packets
+flowing in the chain on itself. INPUT chain is crossed by packets incoming
+from net interface to our machine. On the opposite, OUTPUT chain is crossed by
+packets outgoing. In OUTPUT chain, has just been built and is to be sent to
+data link layer in order to attack to it level 2 data and to pass it to net
+card. There are many other chains, but we are only using the OUTPUT one. We
+want to control traffic created by our kernel, whose traffic is to leave our
+box.
+
+"hooknum" field, in fact, contains constant that finds out chain we are
+interested in. "pf" field (an acronym for "protocol family") shows protocol we
+are interested in. We want to seize IPv4 protocol traffic, and we'll set this
+variable to get that.
+
+At the end, last field is the famous priority level, that will be used to
+record hook. We want to record hook for the maximum of priority we can, to be
+sure to be the first one to look at outgoing traffic.
+
+I know what you, shrewd reader, are thinking. You create your little superbad.o
+module that is recorded after AngeL and does the worst. Unfortunately, while
+meeting my hook as the first one, I can decide, by approving packet, to let
+own packet outgoing to data link layer, so that your little module will
+receive nothing.
+
+<CODE engine.c:58>
+static struct nf_hook_ops angel_ops = {
+	{ NULL, NULL },
+	angel_output_hook,
+	PF_INET, // Work on IP version 4
+	NF_IP_LOCAL_OUT,
+	/*
+	 * Highest priority is set by NF_IP_PRI_FIRST constant. I suppose this
+	 * is the highest priority we can use outside netfilter core system.
+	 *
+	 */
+	NF_IP_PRI_FILTER - 1
+};
+</CODE>
+
+The remaining part of engine.c code is angel_net_init() function, which
+initializes net subsystem by installing the hook itself. In the meantime, there
+is a angel_net_shutdown() function that removes hook from netfilter system.
+
+Let's analyze in detail angel_net_init() function. We initialize some data
+structures to compute statistics for some flooding attacks, that flood with
+packets the victim host.
+
+<CODE engine.c:121>
+	for (i=0;i<HASH_SIZE;i++) {
+		hashtable.syn_packets[i]=0;
+		hashtable.jolt_packets[i]=0;
+		hashtable.xshok_packets[i]=0;
+		advised[i]=0;
+		syn_deny[i]=MIN_15;
+	}
+</CODE>
+
+We allocate some memory areas to contain default countermoves against some
+attacks and we initialize standard behaviours that AngeL will use to react to
+an attack. These actions can be modified later through /proc filesystem.
+
+<CODE engine.c:136>
+	actions_buffer.action_message	= kmalloc(ANGEL_ACTION_LENGTH, GFP_KERNEL);
+	actions_buffer.angel_synflood_action = kmalloc(ANGEL_ACTION_LENGTH, GFP_KERNEL);
+	actions_buffer.angel_land_action	= kmalloc(ANGEL_ACTION_LENGTH, GFP_KERNEL);
+	actions_buffer.angel_spoofing_action = kmalloc(ANGEL_ACTION_LENGTH, GFP_KERNEL);
+	actions_buffer.angel_smurf_action = kmalloc(ANGEL_ACTION_LENGTH, GFP_KERNEL);
+
+	if (setup_default_angel_behaviour() < 0)
+		return -1;
+</CODE>
+
+Now I register the hook physically.
+
+<CODE engine.c:164>
+	register_result = nf_register_hook (&angel_ops);
+	if (register_result == 0) 
+		  printk(KERN_INFO "[angel] network subsystem is up and running...\n");
+</CODE>
+
+If something is wrong and "register_result" value is not 0, angel_net_init()
+fails and net subsystem is not initialized.
+
+angel_net_shutdown() function doesn't contain code too difficult to be
+understood, the only task is de-registration of hook itself and freeing
+allocated memory areas.
+
+Now we've drunk half the first beer pint, we'll examine carefully really
+important code. Let's see what's angel_output_hook() .
+
+
+0x2 Hook function handler
+
+Everything begins at angel_hook.c file 50th line.
+
+<CODE angel_hook.c:50>
+unsigned int angel_output_hook ( unsigned int hook,
+		struct sk_buff **pskb,
+		const struct net_device *indev,
+		const struct net_device *outdev,
+		int (*okfn)(struct sk_buff *)) { 
+</CODE>
+
+Hook function prototype netfilter expects follows strictly what's stated by:
+
+<KERNEL CODE /usr/src/linux/include/linux/netfilter.h:38>
+typedef unsigned int nf_hookfn(unsigned int hooknum,
+			       struct sk_buff **skb,
+			       const struct net_device *in,
+			       const struct net_device *out,
+			       int (*okfn)(struct sk_buff *));
+</KERNEL CODE>
+
+angel_output_hook code begins to collect pointers useful for skbuff structure,
+that is the packet dealt with, for TCP header structure and for IP header, and
+then for the hard part.
+
+Please, don't mess with packets dealing with stuff about IP header "options"
+field. Since legal traffic doesn't need net level options, to prevent packets
+with options from damaging other hosts, let's throw up these "strange" packets.
+
+<CODE angel_hook.c:91>
+	if (ip->ihl != 5) {
+		printk(KERN_INFO "[angel]: Ip header comes with options. Killed.\n");
+		angel_net_stats.NetStats[IP_INSANITY]++;
+		angel_net_stats.NetStats[COUNTER_DROP]++;
+		return ANGEL_KILL;
+	}
+</CODE>
+
+ANGEL_KILL and ANGEL_SAFE_PACKET constants have the same value of constants
+defined by netfilter and they represent a packet destiny. ANGEL_KILL means
+packet will be discarded and kernel will take care of freeing resources
+allocated for that packet. (However, socket connected to this communication
+won't be closed).
+ANGEL_SAFE_PACKET instead means packet can leave firewall system and has to
+pass to data link level.
+
+
+0x2.1 Sp00fing
+
+Does AngeL forces our host to be honest? OK, then we won't spoof our IP
+address. :)
+
+<CODE angel_hook.c:111>
+
+	if (IS_SPOOFING(skb)) {
+		switch (actions_code.angel_spoofing_code) {
+			case ANGEL_KILL :
+				printk(KERN_INFO "[angel]: Spoofing attempt no. ( %ld ). Killed.\n", ++angel_net_stats.NetStats[SPOOFING]);
+				angel_net_stats.NetStats[COUNTER_DROP]++;
+				return ANGEL_KILL;
+				break;
+			case ANGEL_WARNING :
+				printk(KERN_INFO "[angel]: Spoofing attempt no. ( %ld ). Warning.\n", ++angel_net_stats.NetStats[SPOOFING]);
+				break;
+			case ANGEL_SAFE_PACKET :
+				return ANGEL_SAFE_PACKET;
+				break;
+			default:
+				printk(KERN_CRIT "[angel]: Unexpected action for spoofing... just drop\n");
+				angel_net_stats.NetStats[COUNTER_DROP]++;
+				return ANGEL_KILL;
+				break;
+		}
+	} // End of spoofing handling
+</CODE>
+
+IS_SPOOFING macro controls what sk_buff structure contains before doing actions
+scheduled for the attack we deal with. Now and then, I won't record how to
+manage actions scheduled for the attack as they're always the same.
+
+Here's macro IS_SPOOFING in all its magnificence.
+
+<CODE AngeL-0.9.x/include/attack_rulez.h>
+#define IS_SPOOFING(skb)	(angel_ip_spoofing(skb) == ANGEL_IP_SPOOF)
+</CODE>
+
+Surprise! I call angel_ip_spoofing function that checks everything. OK, let's
+be serious, let's see what it does:
+
+<CODE angel_misc_net.c:25>
+int angel_ip_spoofing (const struct sk_buff *skb) {
+...
+
+	for (dev = dev_base; dev; dev = dev->next) {
+		if (!(in_dev = dev->ip_ptr))
+			continue;
+		for (ifap = in_dev->ifa_list; ifap;ifap = ifap->ifa_next)
+			if (skb->nh.iph->saddr == ifap->ifa_local) {
+#ifdef IS_KERNEL_4
+				spin_unlock(&dev->queue_lock);
+#endif
+#ifdef IS_KERNEL_2
+				dev_unlock_list();
+#endif
+				return ANGEL_IP_REGULAR;
+			}
+	}
+#ifdef IS_KERNEL_2
+	dev_unlock_list();
+#endif
+	return ANGEL_IP_SPOOF;
+}
+</CODE>
+
+Basically we scroll net devices list, checking at least one of them to
+correspond to outgoing packet IP. If we find device, packet is valid,
+otherwise it isn't.
+
+
+0x2.2 Sanity check on TCP header
+
+Let's check now TCP protocol to be correct and not to have strange flags
+combinations.
+
+<CODE angel_hook.c:146>
+if (skb->nh.iph->protocol == IPPROTO_TCP) {
+
+		tcp = ((struct tcphdr *) (((char *) skb->nh.iph) + skb->nh.iph->ihl * 4));
+		if (angel_tcp_sanity_check(tcp) == ANGEL_TCP_INSANE) {
+			printk(KERN_INFO "[angel]: Tcp sanity check failure no. ( %ld ). Killed.\n", ++angel_net_stats.NetStats[IP_INSANITY]);
+			angel_net_stats.NetStats[COUNTER_DROP]++;
+			return ANGEL_KILL;
+		}
+		...
+</CODE>
+
+angel_tcp_sanity_check() checks that.
+
+<CODE angel_misc_net.c:89>
+int angel_tcp_sanity_check (const struct tcphdr *tcp) {
+	// Drop Xmas !! Ymax
+	if (tcp->res1 != 0)
+		return ANGEL_TCP_INSANE;
+	// Drops SYN without ACK but with other flags set
+	if ((tcp->syn && !tcp->ack)
+			&& (tcp->fin || tcp->rst || tcp->psh || tcp->urg))
+		return ANGEL_TCP_INSANE;	
+	// Drops SYN/ACK with RST and/or FIN set
+	if ((tcp->syn && tcp->ack) && (tcp->fin || tcp->rst))
+		return ANGEL_TCP_INSANE;	
+	// Drops TCP packet with no-sense flags ( or without flags at all )
+	if (!tcp->fin && !tcp->syn && !tcp->rst && !tcp->ack)
+		return ANGEL_TCP_INSANE;	
+	return ANGEL_TCP_SANE;
+}
+</CODE>
+
+OK, from our box only packets with a valid TCP header are going out, a very
+important step forward.
+
+
+0x2.3 Denial of service against X
+
+Though this is a local attack (luckily Xserver remote connections must be
+explicitly authorized) uses TCP/IP protocol, thus it's included here.
+
+<CODE angel_hook.c:163>
+	if (angel_X_dos(skb)) {	
+		printk(KERN_INFO "[angel]: Angel X dos attempt ( %ld ). UID: %d.\n", ++angel_net_stats.NetStats[X_DOS], current->uid);
+		angel_net_stats.NetStats[COUNTER_DROP]++;
+		return ANGEL_KILL;
+	}
+</CODE>
+
+What is checked is traffic to be effectively directed to port 6000 (the Xserver
+one) and payload, if present, not to contain a negative value for an
+instruction that can be specified in X. This negative value, not checked
+properly by X version prior to 3.3.6 one, causes a DoS since X code loops while
+trying decreasing negative value to 0, and of course it will never happen.
+
+<CODE angel_x_dos.c:32>
+int angel_X_dos(struct sk_buff *skb) {
+	...
+
+	if (tcp->dest != htons(6000)) 
+		return 0;
+
+	// I check package sent to contain useful data
+	if(!CONTAIN_DATA(skb))
+		return 0;
+	data=SKB_TCP_DATA(skb);
+	if (!strcmp(data,""))
+		return 0;
+	len_buf=strlen(buf);
+	
+	len_data=TCP_LENGTH_DATA(skb);
+	// Someone's trying to full my buf
+	if (len_data+strlen(buf)>sizeof(buf))
+		memset(buf,0,sizeof(buf));
+	if (len_data>sizeof(buf)) {	
+		printk(KERN_INFO "[Angel]Possible buffer overflow in X loop (angel_X_dos");
+		return 1;
+	}
+	strncat(buf, data,len_data);
+	
+	
+	if ((p=strstr(buf, "XC-QUERY-SECURITY-1")) != NULL) {
+		if (strlen(buf)!=len_data+len_buf)
+			strncat(buf,(char *)(strchr(data,0)+1),len_data+len_buf-strlen(buf)-1);
+		if ((strlen(p)>20)&&(p[20]<0)) {
+			memset(buf,0,sizeof(buf));
+			(* skb->sk->prot->disconnect)(skb->sk,0);
+			(* orig_sys_kill)(current->pid,9);
+			return 1;
+		}
+		if ((strlen(p)>20)&&(p[20]>=0)) {	
+			memset(buf,0,sizeof(buf));
+			return 0;
+		}
+	}
+	return 0;
+
+}
+</CODE>
+
+
+0x2.4 Protocol related sanity check
+
+Going on analyzing angel_output_hook() function (contained in angel_hook.c
+file), we find, after having checked traffic to server X, a control set on
+traffic of protocols usually used in an Internet-connected Linux box.
+
+<CODE angel_hook.c:171>
+...
+// HTTP Traffic
+if ((http=ctrl_http_traffic(skb))!=0) {
+
+		  printk(KERN_INFO "[angel]: HTTP arbitrary command execution attempt. Recognized string N. %d ( %ld ). UID: %d.\n",
+		  http, ++angel_net_stats.NetStats[HTTP], 
+		  current->euid );
+
+		  angel_net_stats.NetStats[COUNTER_DROP]++;
+		  return ANGEL_KILL;
+}
+// FTP Traffic
+if (ctrl_ftp_traffic(skb)) {
+		  printk(KERN_INFO "[angel]:  FTP remote exploit attempt ( %ld ). UID: %d.\n", 
+		  ++angel_net_stats.NetStats[FTP], 
+		  current->uid);
+		
+		  angel_net_stats.NetStats[COUNTER_DROP]++;
+		  return ANGEL_KILL;
+}
+...
+</CODE>
+
+As you can see, angel_hook() controls have a clear structure: if
+ctrl_[protocol]_traffic(struct sk_buff *sk) function returns a value which is
+not 0, then an attack is occurring through the examined protocol. Returned
+value semantics depend on specific function, but most of the times will be
+pattern index of the attack identified by the function.
+
+Even functions ctrl_[protcol]_traffic() are quite similar one to another. Let's
+examine ctrl_http_traffic. Function starts with declaring vector containing
+patterns identified in the books as attacks used through http protocol.
+
+<CODE angel_http.c:12>
+int ctrl_http_traffic(struct sk_buff *skb) {
+	char *str;
+	static char *strget; // string that will contain the payload
+	static int strgetsize=0; // length of strget
+	static char *http_string[PHFKNOWN+
+		IISKNOWN+INFOKNOWN+ALIBABAKNOWN+ALIENKNOWN+AMLITEKNOWN+BIZKNOWN+1] = {	
+			PHF1,	// phf arbitrary command attempt
+			PHF2,
+			PHF3,
+			IIS1,
+			IIS2,	// internet information server 
+			IIS3,
+			IIS4,
+			INFOSEARCH1, // infosearch arbitrary command attempt
+			ALIBABA1,  
+			ALIENFORM1,
+			AMLITE1,
+			BIZDB1,
+			NULL
+   };  
+	... 
+</CODE>
+
+Next check is this traffic to be directed towards port 80 of a server and to
+contain a payload. These checks are executed thanks to 2 macros: IS_TO_PORTN()
+and CONTAIN_DATA(), both defined in angel_http.h, though accessible by all
+ctrl_xxx_traffic functions thanks to "include" loops.
+
+The strategy is to save payload in a large enough string and to check if it
+contains one of the recognized patterns.
+
+<CODE angel_http.c:37>
+if ( (IS_TO_PORTN(skb,80)) && (CONTAIN_DATA(skb))	) {
+	  /*
+	   * Strget string is static so, every time, I check it not to be
+	   * too small to host new payload and I take care of allocating a 
+	   * larger one.
+           */
+	  if (strgetsize<TCP_LENGTH_DATA(skb)+1) {
+				 if ( (strgetsize!=0)  && ( !IS_ERR(strget) ) )
+							kfree(strget);
+				 strget=kmalloc((TCP_LENGTH_DATA(skb)+1),GFP_KERNEL);
+				 err = PTR_ERR(strget);
+				 if ( IS_ERR(strget)) {
+					printk(KERN_ERR "[angel] aiee invalid pointer at %s:%d\n", __FILE__, __LINE__);
+						return -err;
+				 }
+
+				 strgetsize=TCP_LENGTH_DATA(skb)+1;
+	  } 
+
+	  /*
+	   * I obtain payload...
+	   */
+	  strncpy(strget,SKB_TCP_DATA(skb),TCP_LENGTH_DATA(skb));
+	  strget[TCP_LENGTH_DATA(skb)]='\0';
+	  ...
+
+	  for(i=0;http_string[i]!=NULL;i++) {
+		if(strlen(strget)>=strlen(http_string[i]))
+		if(strstr(strget,http_string[i])) {
+			angel_tcp_close(skb->sk, 0);
+			(*orig_sys_kill)(current->pid,9);    
+			return (i+1);	
+		}
+	  }
+</CODE>
+
+If within a cycle a string considered as a dangerous one is found, socket is
+closed by angel_tcp_close() function, and running process is killed.
+angel_tcp_close() function is a novelty introduced while developing 0.9.1
+version (and immediately spread in 0.8.10 version, that I think has been
+released in the meantime you are reading this article). Kernel provides a
+useful tcp_close() to shut down tcp connections by releasing properly all
+internal structures (there's also a function to release allocated structures
+for udp "connections" that does a similar thing; don't forget talking about udp
+connection is nonsense). The problem (the same as managing handle_sys_request
+function found in the first part of the article) is kernel exports this symbol
+in two cases:
+
+	*) IPv6 support is configured;
+	*) khttp web server support is configured.
+
+Then, while compiling a module, a script such as
+( src/modules/buildutils/netHelperFind.sh ) borrows this function address, that
+is assigned to angel_tcp_close handler. Of course, if script can't find the
+symbol, old method will be used to shut down socket, but tcp_close() approach
+is, no doubt, the best one.
+
+Cunning reader has surely remarked a flow within this line of reasoning. Script
+is based first on /proc/ksyms and then on /boot/System.map to get back address,
+but file /boot/System.map could not be the one of presently running kernel.
+This could lead to unpredictable angel_tcp_close() behaviours. Of course,
+people are looking for solutions about this problem: about that, there are
+heated arguments in our mailing list (by the way, come see us on
+angel@sikurezza.org , thanks again to great Koba for hosting us).
+Note that, sooner or later, AngeL will be a kernel patch, and won't be anymore
+compilable as a module. This is possible also because system call vector has
+been removed from new 2.5.xx kernels; AngeL will be something integrating
+kernel and deactivable by a password, but not completely removable (as it is
+now).
+
+
+0x2.5 Syn Flood
+
+Once packets payload checks have been completed, which I remember to be
+application related, AngeL analyzes if outgoing packet is a syn flood attempt.
+If anyone among you doesn't know what I'm dealing with, please read again [1]
+about complete treatment of how to create a connection by using tcp protocol
+(three-way handshake). You only need to know, to understand what syn flood is,
+that, if I send a large number of connection requests (TCP/IP packets having
+SYN flag set) in a short time, receiving host allocates structures included in
+its own kernel to host possible connections and begins sending as an answer
+SYN/ACK packets. If I attacker don't send ACK packets which would stop
+three-way handshake, attacked host will wait until previously set sockets don't
+timeout. If attacker sends a VERY large number of SYN to a VERY large rate,
+victim (or rather service we are attacking, such as SMTP demon) will exhaust
+its resources and won't be able to accept anymore connections. So we caused a
+DoS very nasty for who receives it.
+
+Solution AngeL applies is, if packet has SYN flag we said, to increment a
+counter within a vector whose index is obtained by calculating a hash function
+on destination address. What we're trying to do is to understand the number of
+SYNs being sent to a certain host (except for hash function collisions).
+
+<CODE angel_hook.c:260>
+if (IS_SYN_FLOOD(skb)) {
+		  hash_value = hash(skb->nh.iph->daddr);
+		  hashtable.syn_packets[hash_value]++;
+		  ...
+</CODE>
+
+If this counter value trespass a fixed threshold (defined while compiling and
+hard coded within the program) AngeL will react considering packets as a part
+of an attack and will countermove the proper way.
+
+<CODE angel_hook.c:273>
+if (hashtable.syn_packets[hash_value] >= SYN_HARD_LIMIT) {
+		  switch (actions_code.angel_synflood_code) {
+					 case ANGEL_KILL :
+								printk(KERN_INFO "[angel]: Synflood attempt no. ( %ld ). Killed.\n", 
+									++angel_net_stats.NetStats[SYNFLOOD]);
+#ifdef VERBOSE
+								printk(KERN_INFO "[angel]: Synflood to %d.%d.%d.%d\n", NIPQUAD(ip->daddr));
+#endif
+								angel_net_stats.NetStats[COUNTER_DROP]++;
+								return ANGEL_KILL;
+					 case ANGEL_WARNING :
+								printk(KERN_INFO "[angel]: Synflood attempt no. ( %ld ). Warning.\n", 
+									++angel_net_stats.NetStats[SYNFLOOD]);
+#ifdef VERBOSE
+								printk(KERN_INFO "[angel]: Synflood to %d.%d.%d.%d\n", NIPQUAD(ip->daddr));
+#endif
+								return ANGEL_SAFE_PACKET;
+								break;
+					 case ANGEL_SAFE_PACKET:
+								return ANGEL_SAFE_PACKET;
+
+					 default:
+								printk(KERN_CRIT "[angel]: Unexpected action for spoofing... just drop\n");
+								angel_net_stats.NetStats[COUNTER_DROP]++;
+								return ANGEL_KILL;
+								break;
+		  }
+}
+
+} // End of syn flood handler
+</CODE>
+
+Heuristic approaches such this one aren't always accepted, especially from most
+exigent sysadmins. In fact, it could also be applied to false positives if a
+licit application ever needs to send SYN with a high rate. Anyway, practice
+awarded AngeL approach, efficient enough against this kind of DoS.
+
+
+0x2.6 Land
+
+There's little to say about this old kind of DoS and AngeL code preset to avoid
+such attack to start is quite explicative. It's all based on avoiding packets
+having same IP source address and destination, source and destination port
+number as the host and the service which are to be attacked. Just think about
+loop that would trigger if we try to connect to a service on a machine if we
+are recognized as that own machine and providing that service port as the
+source port.
+
+<CODE angel_hook.c:303>
+if (IS_LAND(skb)) {
+		  if (ANGEL_LAND_ACTION == ANGEL_KILL) {
+					 printk(KERN_INFO "[angel]: Land attempt no. ( %ld ). Killed.\n", 
+					 	++angel_net_stats.NetStats[LAND]);
+#ifdef VERBOSE
+					 printk(KERN_INFO "[angel]: Land to %d.%d.%d.%d\n", NIPQUAD(ip->daddr));
+#endif
+					 angel_net_stats.NetStats[COUNTER_DROP]++;
+					 //return NF_DROP;
+					 return ANGEL_KILL;
+		  }
+		  else {
+					 printk(KERN_INFO "[angel]: Land attempt no. ( %ld ). Warning.\n", 
+					 	++angel_net_stats.NetStats[LAND]);
+#ifdef VERBOSE
+					 printk(KERN_INFO "[angel]: Land to %d.%d.%d.%d\n", NIPQUAD(ip->daddr));
+#endif
+					 return ANGEL_SAFE_PACKET;
+		  }
+
+} // End of land handler	
+</CODE>
+
+
+0x2.7 Smurf
+
+As for the last two attack types, we have left TCP protocol and we ventured in
+ICMP. Within angel_hook, it's the same as moving from an if to another if.
+Attack named smurf is executed by sending an echo request packet to a net
+(internal or external) broadcast address that will act as an amplifier of our
+attack. Of course, attacker will hide his own IP address under the victim's
+one, who will get a large echo reply number that will subtract precious band to
+attacked host. Note: attack definitions such as IS_SYN_FLOOD , IS_LAND ,
+IS_SMURF can be found in include/attack_rulez.h .
+
+<CODE attack_rulez.h:12>
+#define IS_SMURF(skb) ((angel_ip_spoofing(skb)==ANGEL_IP_SPOOF) &&\
+				 (skb->sk->broadcast) && \
+				 ((((struct icmphdr *) (((char *)skb->nh.iph) +\
+					skb->nh.iph->ihl * 4)))->type==ICMP_ECHO))
+</CODE>
+
+At last, attack managing code is quite trivial:
+
+<CODE angel_hook:376>
+if (IS_SMURF(skb)) {
+		  switch (actions_code.angel_smurf_code) {
+			case ANGEL_KILL :
+				printk(KERN_INFO "[angel]: Smurf attempt no. ( %ld ). Killed.\n", 
+					++angel_net_stats.NetStats[SMURF]);
+#ifdef VERBOSE
+				printk(KERN_INFO "[angel]: Attempt to flood %d.%d.%d.%d\n", NIPQUAD(ip->saddr));
+#endif
+				angel_net_stats.NetStats[COUNTER_DROP]++;
+				return ANGEL_KILL;
+			case ANGEL_WARNING :
+				printk(KERN_INFO "[angel]: Smurf attempt no. ( %ld ). Warning.\n", 
+					++angel_net_stats.NetStats[SMURF]);
+#ifdef VERBOSE
+				printk(KERN_INFO "[angel]: Attempt to flood %d.%d.%d.%d\n", NIPQUAD(ip->saddr));
+#endif
+				return ANGEL_SAFE_PACKET;
+				break;
+			 case ANGEL_SAFE_PACKET:
+				return ANGEL_SAFE_PACKET;
+
+			 default:
+				printk(KERN_CRIT "[angel]: Unexpected action for smurf... just drop\n");
+					angel_net_stats.NetStats[COUNTER_DROP]++;
+				return ANGEL_KILL;
+				break;
+	  	  }
+</CODE>
+
+
+0x2.8 Ping of Death
+
+Ping of Death was an attack that had a severe impact on hosts connected to
+Internet around 1995-1996. It was Windoze95 and kernel 1.3.xx year and people
+realized that, when a host (actually I can't remember the list of operating
+system vulnerable to that attack) received an echo request contained in a
+properly built IP packet, that host crashed. Attack took advantage of
+possibility, through fragmentation, of creating an echo request contained in
+an IP packet whose size trespassed 65535 bytes; host kernel, while
+reassembling packet, had his internal structures overflowed, and this lead to
+kernel lockup.
+
+Approach done by AngeL checks an echo request to be contained in an IP packet
+that doesn't need fragmentation, also because, looking at ICMP protocol, a
+"ping" doesn't need more than an IP packet.
+
+<CODE attack_rulez.h:17>
+#define IS_PINGOFDEATH(skb) ((skb->nh.iph->frag_off == htons(0x2000)) &&\
+		(((struct icmphdr *) (((char *)skb->nh.iph) + \
+				      skb->nh.iph->ihl * 4)))->type == ICMP_ECHO)
+
+</CODE>
+
+In angel_hook code, checks for this kind of attack is trivial:
+
+<CODE angel_hook.c:403>
+if (IS_PINGOFDEATH(skb)) {
+		  printk(KERN_INFO "[angel]: Ping of death attempt no. ( %ld ). Killed.\n", ++angel_net_stats.NetStats[PINGOFDEATH]);
+		  angel_net_stats.NetStats[COUNTER_DROP]++;
+		  return ANGEL_KILL;
+}
+
+</CODE>
+
+
+0x3. COmments and future development
+
+By these lines, our trip into AngeL ends. This code fragment has been public
+for 2 years and would need more care, I first admit that. Anyway, I firmly
+believe in the future we'll be able to do something more that's good, and we'll
+find out interesting novelties to prevent our hosts to be rascals within web. I
+believe so also because of how valuable are angel@sikurezza.org mailing list
+registered members (I'd like to mention buffer, alor and the great gg sullivan
+as an example) and of their engagement to carry on this project.
+What now; network layer should be completely rewritten, careful readers have
+certainly remarked that, in case of remote buffer overflows, every check is
+null if attack is carried on by fragmenting packets. There must be a better
+approach while projecting hook, in order to obtain a more effective and less
+depending on false positives or other questions code. This code will be more
+flexible by adopting a plugin structure that let me add rules and countermoves
+against new attacks without having to wait for a new module release. What I'm
+thinking about is a "snort like" system, in which everyone can instruct AngeL
+through a sort of language and insert new attack patterns.
+
+A few more words about AngeL as a module structure. During development, among
+unexported symbols and almost illicit system call hijacking problems, actually
+I'm quite fed up of hiding behind a module. In the future, also because 2.6
+kernel will have LSM as default security framework, it could also be that
+AngeL interfaces by using this framework, or our project aims to become a
+static kernel patch (like openwall patches, to be clear).
+
+I hope I have made you more curious about kernel land exploring and especially
+about what can be done by putting a hook into netfilter chains. I hope you want
+to subscribe our mailing list, even only to criticize us heavily (but
+usefully), but I strongly hope you want to be part of code development and
+enhancement by adding patterns aiming to new attacks, signalling us new
+attacks, bug reporting and, why not, by offering us a pint of beer, dark of
+course.
+
+By saying so, I thank you all kind readers for keeping me company till now.
+We'll meet, I hope, with other articles and I invite everyone to wild hacking,
+the one stimulating our learning and experimenting will.
+
+TheSponge
+
+
+0x4 Bibliography
+
+[0] /usr/src/linux, Kernel sources, Autori Vari
+[1] W. Richard Stevens "TCP/IP Illustrated, Volume 1 The Protocols",
+			Addison-Wesley
+[2] www.google.com
+[3] www.sikurezza.org/angel
+
+
+
+-[ WEB ]----------------------------------------------------------------------
+
+        http://bfi.s0ftpj.org      [main site - IT]
+        http://bfi.cx              [mirror - IT]
+        http://bfi.freaknet.org    [mirror - AT]
+        http://bfi.anomalistic.org [mirror - SG]
+
+
+-[ E-MAiL ]-------------------------------------------------------------------
+
+        bfi@s0ftpj.org
+
+
+-[ PGP ]----------------------------------------------------------------------
+
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+Version: 2.6.3i
+mQENAzZsSu8AAAEIAM5FrActPz32W1AbxJ/LDG7bB371rhB1aG7/AzDEkXH67nni
+DrMRyP+0u4tCTGizOGof0s/YDm2hH4jh+aGO9djJBzIEU8p1dvY677uw6oVCM374
+nkjbyDjvBeuJVooKo+J6yGZuUq7jVgBKsR0uklfe5/0TUXsVva9b1pBfxqynK5OO
+lQGJuq7g79jTSTqsa0mbFFxAlFq5GZmL+fnZdjWGI0c2pZrz+Tdj2+Ic3dl9dWax
+iuy9Bp4Bq+H0mpCmnvwTMVdS2c+99s9unfnbzGvO6KqiwZzIWU9pQeK+v7W6vPa3
+TbGHwwH4iaAWQH0mm7v+KdpMzqUPucgvfugfx+kABRO0FUJmSTk4IDxiZmk5OEB1
+c2EubmV0PokBFQMFEDZsSu+5yC9+6B/H6QEBb6EIAMRP40T7m4Y1arNkj5enWC/b
+a6M4oog42xr9UHOd8X2cOBBNB8qTe+dhBIhPX0fDJnnCr0WuEQ+eiw0YHJKyk5ql
+GB/UkRH/hR4IpA0alUUjEYjTqL5HZmW9phMA9xiTAqoNhmXaIh7MVaYmcxhXwoOo
+WYOaYoklxxA5qZxOwIXRxlmaN48SKsQuPrSrHwTdKxd+qB7QDU83h8nQ7dB4MAse
+gDvMUdspekxAX8XBikXLvVuT0ai4xd8o8owWNR5fQAsNkbrdjOUWrOs0dbFx2K9J
+l3XqeKl3XEgLvVG8JyhloKl65h9rUyw6Ek5hvb5ROuyS/lAGGWvxv2YJrN8ABLo=
+=o7CG
+-----END PGP PUBLIC KEY BLOCK-----
+
+
+==============================================================================
+-----------------------------------[ EOF ]------------------------------------
+==============================================================================
+

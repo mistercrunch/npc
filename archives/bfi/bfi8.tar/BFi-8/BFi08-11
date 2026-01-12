@@ -1,0 +1,1575 @@
+==============================================================================
+------------[ BFi numero 8, anno 3 - 30/04/2000 - file 11 di 28 ]-------------
+==============================================================================
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ OpenBSD e FreeBSD: UTiLiZZARE LE STRUTTURE Di STATiSTiCA DEL KERNEL
+-----[ pIGpEN <pigpen@s0ftpj.org> <deadhead@sikurezza.org>
+
+
+	"Negli anni 60 noi abbiamo fatto la grande scoperta
+	 che la tecnologia della chimica organica puo'
+	 aiutare a cambiare la tua mente. E noi ora stiamo
+	 scoprendo che elettroni e schermi possono 
+	 produrre piu' cambiamenti delle polveri e delle
+					 sostanze da fumare. "
+					 
+ 				Timothy Leary - ultima intervista
+
+
+Canzoni Ascoltate:	U.S. Blues		- Grateful Dead
+			Blues for Allah		- Grateful Dead
+			Franklin's Tower	- Grateful Dead
+			Killing an Arab		- The Cure
+			Close to Me		- The Cure
+			Boys Don't Cry		- The Cure
+
+Ringraziamenti:		b0z0 -> per OpenBSD e per la sua disponibilita'
+			Kobaiashi -> per essere molto paziente =)
+
+COPYRIGHT:		Il seguente articolo e' coperto dal COFFEE-WARE dove
+			indicato... per il resto si applica quanto affermato
+			nel DISCLAIMER della rivista di BFi.
+
+
+In questo articolo parlero' di alcune strutture presenti nei kernel che
+possono essere piuttosto interessanti al fine di analizzare il traffico dal
+proprio sistema...
+In poche parole non e' raro trovare che le funzioni di gestione di un
+protocollo tengono aggiornate delle strutture statistiche contenenti il numero
+di pacchetti passati, quelli con lunghezza anomala ecc...
+Per farvi un esempio guardiamo su FreeBSD come si presenta la struttura per 
+il protocollo ip:
+
+struct	ipstat {
+	u_long	ips_total;		/* total packets received */
+	u_long	ips_badsum;		/* checksum bad */
+	u_long	ips_tooshort;		/* packet too short */
+	u_long	ips_toosmall;		/* not enough data */
+	u_long	ips_badhlen;		/* ip header length < data size */
+	u_long	ips_badlen;		/* ip length < ip header length */
+	u_long	ips_fragments;		/* fragments received */
+	u_long	ips_fragdropped;	/* frags dropped (dups, out of space) */
+	u_long	ips_fragtimeout;	/* fragments timed out */
+	u_long	ips_forward;		/* packets forwarded */
+	u_long	ips_fastforward;	/* packets fast forwarded */
+	u_long	ips_cantforward;	/* packets rcvd for unreachable dest */
+	u_long	ips_redirectsent;	/* packets forwarded on same net */
+	u_long	ips_noproto;		/* unknown or unsupported protocol */
+	u_long	ips_delivered;		/* datagrams delivered to upper level*/
+	u_long	ips_localout;		/* total ip packets generated here */
+	u_long	ips_odropped;		/* lost packets due to nobufs, etc. */
+	u_long	ips_reassembled;	/* total packets reassembled ok */
+	u_long	ips_fragmented;		/* datagrams successfully fragmented */
+	u_long	ips_ofragments;		/* output fragments created */
+	u_long	ips_cantfrag;		/* don't fragment flag was set, etc. */
+	u_long	ips_badoptions;		/* error in option processing */
+	u_long	ips_noroute;		/* packets discarded due to no route */
+	u_long	ips_badvers;		/* ip version != 4 */
+	u_long	ips_rawout;		/* total raw ip packets generated */
+	u_long	ips_toolong;		/* ip length > max ip packet size */
+	u_long	ips_notmember;		/* multicasts for unregistered grps */
+};
+
+Tale struttura accessibile via sysctl() mette in evidenza il numero di
+pacchetti ricevuti, quelli troppo lunghi, quelli con opzioni non valide,
+quelli con un bad checksum ecc...
+
+Se da una parte questo e' una struttura utile per gli sviluppatori, perche'
+non lo puo' essere pure per gli admin?
+
+Non dovrebbe risultare difficile scrivere un programma che tira fuori dal
+kernel tali strutture... ( se poi volete c'e' gia' qualcosa di confezionato
+con systat e netstat -s che pero' non mettono in evidenza tutte le 
+informazioni)
+
+Qui di seguito vi propongo knstat...
+
+[ Introduzione ]
+
+A volte puo' capitare di voler analizzare da un punto di vista statistico
+il numero di pacchetti che passano per la propria box o quelli che escono,
+quelli mal riusciti e quelli strani...
+Kerninetstat e' un tool realizzato sotto FreeBSD che tira fuori i dati dalle
+strutture *stat del kernel, tramite sysctl...
+
+[ Scopo ]
+
+Questo sorgente simile a systat, ma piu' completo sulla parte relativa al
+networking, puo' essere utilizzato come strumento per la sicurezza invocando
+il programma in questo modo (per es. con cron giornaliero):
+
+./knstat -udp >> udp_stat.log
+
+Oppure potete utilizzarlo come comando utile per testare le routine del
+kernel... in questo caso ad esempio:
+
+./knstat -ip
+
+IP Statistics
+
+		received         [ 1361 ]
+		bad checksum     [ 0 ]
+		pkts too short   [ 2 ]
+		no enough data   [ 0 ]
+		iph len < data   [ 0 ]
+		ip len < iph len [ 0 ]
+		fragments        [ 0 ]
+		frags dropped    [ 0 ]
+		frags timeout    [ 0 ]
+		forwarded        [ 0 ]
+		fast forward     [ 0 ]
+		cant forward     [ 0 ]
+		redirect sent    [ 0 ]
+		proto unknown    [ 0 ]
+		iplen > maxpksz  [ 0 ]
+		ip version != 4  [ 0 ]
+		total raw gen    [ 5 ]
+		mcast not memb   [ 0 ]
+
+[ Protocolli supportati e Utilizzo ]
+
+storpio# ./knstat
+
+Usage:
+	./knstat -option
+
+Option:   -ip
+          -icmp
+          -igmp
+          -tcp
+          -udp
+
+[ Utilizzo con TCP ]
+
+# knstat -tcp
+
+TCP Statistics
+
+Connection:
+		initiated:               [ 3 ]
+		accepted:                [ 2 ]
+		estabilished             [ 5 ]
+		dropped                  [ 0 ]
+		embryonic dropped        [ 0 ]
+		keepalive dropped        [ 0 ]
+		closed                   [ 5 ]
+
+Timers:
+		segs timed               [ 175 ]
+		rtt updated              [ 175 ]
+		delayed acks sent        [ 88 ]
+		dropped in rxmt timeouts [ 0 ]
+		retrasmit timeouts       [ 0 ]
+		persist timeouts         [ 0 ]
+		keepalive timeouts       [ 0 ]
+		keepalive probes sent    [ 0 ]
+
+Packets
+		sent                     [ 273 ]
+		data pkt                 [ 168 ]
+		data bytes               [ 3742 ]
+		data pkt retrasmitted    [ 0 ]
+		data bytes retrasmitted  [ 0 ]
+		ack only pkts            [ 98 ]
+		urg only pkts            [ 0 ]
+		win update only pkt      [ 0 ]
+		syn|fin|rst pkt          [ 7 ]
+		window probes            [ 0 ]
+
+
+		received                 [ 264 ]
+		pkt in sequence          [ 176 ]
+		byte in sequence         [ 4406 ]
+		pkt with checksum errors [ 0 ]
+		pkt with bad offset      [ 0 ]
+		pkt received too short   [ 0 ]
+		duplicate only pkts      [ 0 ]
+		duplicate only bytes     [ 0 ]
+		partial duplicate data   [ 0 ]
+		partial duplicate bytes  [ 0 ]
+		out of order pkts        [ 3 ]
+		out of order bytes       [ 0 ]
+		pkts with data after win [ 0 ]
+		bytes received after win [ 0 ]
+		pkts rcvd after close    [ 0 ]
+		pkts rcvd win probe      [ 0 ]
+		duplicate acks           [ 3 ]
+		acks for unsent data     [ 0 ]
+		acks packets             [ 175 ]
+		bytes acked by rcvd acks [ 1 ]
+		seg dropped due to PAWS  [ 0 ]
+		bogus syn                [ 0 ]
+		resnd due to MTU discov. [ 0 ]
+		listen queue overflow    [ 0 ]
+
+[ Utilizzo con UDP ]
+
+# knstat -udp
+
+UDP Statistics
+
+Total input  packets:      1328
+				Packet shorter than header: 0
+				Checksum error:             0
+				Data len larger than pkt:   0
+				No socket on port:          3 
+				Arrived as broadcast:       0
+				Not delivered:              0
+				Missing pcb cache:          0
+				Not for hashed pcb:         0
+
+Total ouput packets:       1247
+				Fast path:                  0
+
+[ Utilizzo con ICMP ]
+
+# knstat -icmp
+				
+ICMP Statistics
+
+		Number of calls to icmp_error  [ 3 ]
+		icmp_code out of range         [ 0 ]
+		pkts < ICMP_MINLEN             [ 0 ]
+		bad checksum                   [ 0 ]
+		bad length                     [ 0 ]
+		number of responses            [ 6 ]
+		m/bcast echo requests dropped  [ 0 ]
+
+[ Utilizzo con IGMP ]
+
+# knstat -igmp
+
+IGMP Statistics
+
+		messages received       [ 0 ]
+		rcvd with too few bytes [ 0 ]
+		rcvd with bad checksum  [ 0 ]
+		rcvd membership queries [ 0 ]
+		rcvd invalid queries    [ 0 ]
+		rcvd membership reports [ 0 ]
+		rcvd invalid reports    [ 0 ]
+		rcvd rep. for our grps  [ 0 ]
+		sent membership reports [ 3 ]
+
+[ il codice ]
+
+<-| knstat_freebsd.c |->
+/*
+ * Name: kerninetstat 
+ * Date: Sun Feb 13 13:16:33 2000
+ * Author: pIGpEN [pigpen@s0ftpj.org, deadhead@sikurezza.org]
+ *
+ * SoftProject Digital Security for Y2K (www.s0ftpj.org)
+ * Sikurezza.org Italian Security MailingList (www.sikurezza.org)
+ * 
+ * COFFEE-WARE LICENSE - This source code is like "THE BEER-WARE LICENSE" by
+ * Poul-Henning Kamp <phk@FreeBSD.ORG> but you can give me in return a coffee.
+ * 
+ * Tested on: FreeBSD 4.0-19990705-CURRENT FreeBSD 4.0-19990705-CURRENT #6 i386
+ *
+ * This simple source code uses sysctlbyname() to fetch statistics of a protocol
+ * you can use them for security purposes or for kernel testing... see also
+ * sources of systat or netstat -s...
+ *
+ * Note: some variables of stat structures can be not present in other kernel
+ * versions
+ */
+
+/* 
+ * knstat is intended to be used as cron job example:
+ *
+ * knstat -icmp >> icmp_stat.log
+ *
+ * if you wanna use this tool like a command define WAIT
+ *
+ * #define WAIT
+ *
+ */
+
+
+
+#include <stdio.h>
+#include <string.h>
+#include <err.h>
+#include <sysexits.h>
+
+#include <sys/types.h>
+#include <sys/sysctl.h>
+
+#include <netinet/in.h>
+#include <netinet/in_systm.h>
+#include <netinet/ip.h>
+#include <netinet/ip_var.h>
+#include <netinet/udp.h>
+#include <netinet/udp_var.h>
+#include <netinet/tcp.h>
+#include <netinet/tcp_timer.h>
+#include <netinet/tcp_var.h>
+#include <netinet/ip_icmp.h>
+#include <netinet/icmp_var.h>
+#include <netinet/igmp.h>
+#include <netinet/igmp_var.h>
+
+#define		Error(s)	err(EX_UNAVAILABLE, s);
+#define		E(s)		if(!strcmp(s, arg[1]))
+
+void	usage		__P((char *));
+void	ip_stat		__P((void));
+void	udp_stat	__P((void));
+void	tcp_stat	__P((void));
+void	icmp_stat	__P((void));
+void	igmp_stat	__P((void));
+
+struct prot {
+	char *name;
+	void (*funct) (void);
+};
+	
+
+struct prot protos[] = {
+	{ "-ip"  , ip_stat   },
+	{ "-udp" , udp_stat  },
+	{ "-tcp" , tcp_stat  },
+	{ "-icmp", icmp_stat },
+	{ "-igmp", igmp_stat },
+};
+
+	
+int main(int narg, char **arg)
+{
+	int i;
+	int len = sizeof(protos) / sizeof(struct prot);
+
+	
+	if(narg != 2){
+		usage(arg[0]);
+		exit(0);
+	}
+
+	/* Think different */
+	
+	for(i=0; i < len; i++) 
+		E(protos[i].name) {	
+			(*protos[i].funct) ();	
+			return 1;	
+		}
+
+	usage(arg[0]);
+
+	return 0; 
+}
+
+void usage(char *cmdname)
+{
+	printf("Usage:\n"
+	       "\t%s -option\n\n"
+	       "Option:   -ip\n" 
+	       "          -icmp\n"
+	       "          -igmp\n"
+	       "          -tcp\n"
+	       "          -udp\n", cmdname);
+}	       
+
+/*
+ * You can cover printf() with a macro... but I'm fucking about... so
+ * I have time to spend... 
+ */
+
+void ip_stat(void)
+{
+ struct ipstat i_stat;
+ int len = sizeof(i_stat);
+
+ if(sysctlbyname("net.inet.ip.stats", &i_stat, &len, 0, 0) < 0 )
+	 Error("[ip_stat] sysctlbyname");
+
+ printf("IP Statistics\n\n");
+ 
+ printf("\t\treceived         [ %ld ]\n", i_stat.ips_total);
+ printf("\t\tbad checksum     [ %ld ]\n", i_stat.ips_badsum);
+ printf("\t\tpkts too short   [ %ld ]\n", i_stat.ips_tooshort);
+ printf("\t\tno enough data   [ %ld ]\n", i_stat.ips_toosmall);
+ printf("\t\tiph len < data   [ %ld ]\n", i_stat.ips_badhlen);
+ printf("\t\tip len < iph len [ %ld ]\n", i_stat.ips_badlen);
+ printf("\t\tfragments        [ %ld ]\n", i_stat.ips_fragments);
+ printf("\t\tfrags dropped    [ %ld ]\n", i_stat.ips_fragdropped);
+ printf("\t\tfrags timeout    [ %ld ]\n", i_stat.ips_fragtimeout);
+ printf("\t\tforwarded        [ %ld ]\n", i_stat.ips_forward);
+ printf("\t\tfast forward     [ %ld ]\n", i_stat.ips_fastforward);
+ printf("\t\tcant forward     [ %ld ]\n", i_stat.ips_cantforward);
+ printf("\t\tredirect sent    [ %ld ]\n", i_stat.ips_redirectsent);
+ printf("\t\tproto unknown    [ %ld ]\n", i_stat.ips_noproto);
+ printf("\t\tiplen > maxpksz  [ %ld ]\n", i_stat.ips_toolong);
+ printf("\t\tip version != 4  [ %ld ]\n", i_stat.ips_badvers);
+ printf("\t\ttotal raw gen    [ %ld ]\n", i_stat.ips_rawout);
+ printf("\t\tmcast not memb   [ %ld ]\n", i_stat.ips_notmember);
+}
+
+void udp_stat(void)
+{
+ struct udpstat u_stat;
+ int len = sizeof(u_stat);
+
+ if(sysctlbyname("net.inet.udp.stats", &u_stat, &len, 0, 0) < 0) 
+	Error("[udp_stat] sysctlbyname");
+ 
+ printf("UDP Statistics\n\n");
+ 
+ printf("Total input  packets:      %ld\n", 	   u_stat.udps_ipackets);
+ printf("\t\t\t\tPacket shorter than header: %ld\n", u_stat.udps_hdrops);
+ printf("\t\t\t\tChecksum error:             %ld\n", u_stat.udps_badsum);
+ printf("\t\t\t\tData len larger than pkt:   %ld\n", u_stat.udps_badlen);
+ printf("\t\t\t\tNo socket on port:          %ld\n", u_stat.udps_noport);
+ printf("\t\t\t\tArrived as broadcast:       %ld\n", u_stat.udps_noportbcast);
+ printf("\t\t\t\tNot delivered:              %ld\n", u_stat.udps_fullsock);
+ printf("\t\t\t\tMissing pcb cache:          %ld\n", u_stat.udpps_pcbcachemiss);
+ printf("\t\t\t\tNot for hashed pcb:         %ld\n\n",u_stat.udpps_pcbhashmiss);
+ printf("Total ouput packets:       %ld\n",	   u_stat.udps_opackets);
+ printf("\t\t\t\tFast path:                  %ld\n", u_stat.udps_fastout);
+}	
+
+void tcp_stat(void)
+{
+ struct tcpstat t_stat;
+ int len = sizeof(t_stat);
+
+ if(sysctlbyname("net.inet.tcp.stats", &t_stat, &len, 0, 0) < 0)
+	 Error("[tcp_stat] sysctlbyname");
+
+ printf("TCP Statistics\n\n");
+
+ printf("Connection:\n");
+ printf("\t\tinitiated:               [ %ld ]\n", t_stat.tcps_connattempt);
+ printf("\t\taccepted:                [ %ld ]\n", t_stat.tcps_accepts);
+ printf("\t\testabilished             [ %ld ]\n", t_stat.tcps_connects);
+ printf("\t\tdropped                  [ %ld ]\n", t_stat.tcps_drops);
+ printf("\t\tembryonic dropped        [ %ld ]\n", t_stat.tcps_conndrops);
+ printf("\t\tkeepalive dropped        [ %ld ]\n", t_stat.tcps_keepdrops);
+ printf("\t\tclosed                   [ %ld ]\n", t_stat.tcps_closed);
+ printf("\nTimers:\n");
+ printf("\t\tsegs timed               [ %ld ]\n", t_stat.tcps_segstimed);
+ printf("\t\trtt updated              [ %ld ]\n", t_stat.tcps_rttupdated);
+ printf("\t\tdelayed acks sent        [ %ld ]\n", t_stat.tcps_delack);
+ printf("\t\tdropped in rxmt timeouts [ %ld ]\n", t_stat.tcps_timeoutdrop);
+ printf("\t\tretrasmit timeouts       [ %ld ]\n", t_stat.tcps_rexmttimeo);
+ printf("\t\tpersist timeouts         [ %ld ]\n", t_stat.tcps_persisttimeo);
+ printf("\t\tkeepalive timeouts       [ %ld ]\n", t_stat.tcps_keeptimeo);
+ printf("\t\tkeepalive probes sent    [ %ld ]\n", t_stat.tcps_keepprobe);
+#ifdef	WAIT 
+ getchar();
+#endif 
+ printf("\nPackets\n");
+ printf("\t\tsent                     [ %ld ]\n", t_stat.tcps_sndtotal);
+ printf("\t\tdata pkt                 [ %ld ]\n", t_stat.tcps_sndpack);
+ printf("\t\tdata bytes               [ %ld ]\n", t_stat.tcps_sndbyte);
+ printf("\t\tdata pkt retrasmitted    [ %ld ]\n", t_stat.tcps_sndrexmitpack);
+ printf("\t\tdata bytes retrasmitted  [ %ld ]\n", t_stat.tcps_sndrexmitbyte);
+ printf("\t\tack only pkts            [ %ld ]\n", t_stat.tcps_sndacks);
+ printf("\t\turg only pkts            [ %ld ]\n", t_stat.tcps_sndurg);
+ printf("\t\twin update only pkt      [ %ld ]\n", t_stat.tcps_sndwinup);
+ printf("\t\tsyn|fin|rst pkt          [ %ld ]\n", t_stat.tcps_sndctrl);
+ printf("\t\twindow probes            [ %ld ]\n", t_stat.tcps_sndprobe);
+ printf("\n\n");
+#ifdef	WAIT 
+ getchar();
+#endif 
+ printf("\t\treceived                 [ %ld ]\n", t_stat.tcps_rcvtotal);
+ printf("\t\tpkt in sequence          [ %ld ]\n", t_stat.tcps_rcvpack);
+ printf("\t\tbyte in sequence         [ %ld ]\n", t_stat.tcps_rcvbyte);
+ printf("\t\tpkt with checksum errors [ %ld ]\n", t_stat.tcps_rcvbadsum);
+ printf("\t\tpkt with bad offset      [ %ld ]\n", t_stat.tcps_rcvbadoff);
+ printf("\t\tpkt received too short   [ %ld ]\n", t_stat.tcps_rcvshort);
+ printf("\t\tduplicate only pkts      [ %ld ]\n", t_stat.tcps_rcvduppack);
+ printf("\t\tduplicate only bytes     [ %ld ]\n", t_stat.tcps_rcvdupbyte);
+ printf("\t\tpartial duplicate data   [ %ld ]\n", t_stat.tcps_rcvpartduppack);
+ printf("\t\tpartial duplicate bytes  [ %ld ]\n", t_stat.tcps_rcvpartdupbyte);
+ printf("\t\tout of order pkts        [ %ld ]\n", t_stat.tcps_rcvoopack);
+ printf("\t\tout of order bytes       [ %ld ]\n", t_stat.tcps_rcvoobyte);
+ printf("\t\tpkts with data after win [ %ld ]\n", t_stat.tcps_rcvpackafterwin);
+ printf("\t\tbytes received after win [ %ld ]\n", t_stat.tcps_rcvbyteafterwin);
+ printf("\t\tpkts rcvd after close    [ %ld ]\n", t_stat.tcps_rcvafterclose);
+ printf("\t\tpkts rcvd win probe      [ %ld ]\n", t_stat.tcps_rcvwinprobe);
+ printf("\t\tduplicate acks           [ %ld ]\n", t_stat.tcps_rcvdupack);
+ printf("\t\tacks for unsent data     [ %ld ]\n", t_stat.tcps_rcvacktoomuch);
+ printf("\t\tacks packets             [ %ld ]\n", t_stat.tcps_rcvackpack);
+ printf("\t\tbytes acked by rcvd acks [ %ld ]\n", t_stat.tcps_rcvwinupd);
+ printf("\t\tseg dropped due to PAWS  [ %ld ]\n", t_stat.tcps_pawsdrop);
+ printf("\t\tbogus syn                [ %ld ]\n", t_stat.tcps_badsyn);
+ printf("\t\tresnd due to MTU discov. [ %ld ]\n", t_stat.tcps_mturesent);
+ printf("\t\tlisten queue overflow    [ %ld ]\n", t_stat.tcps_listendrop);
+} 
+
+void icmp_stat(void)
+{
+ struct icmpstat i_stat;
+ int len = sizeof i_stat;
+
+ if(sysctlbyname("net.inet.icmp.stats", &i_stat, &len, 0, 0) < 0)
+	 Error("[icmp_stat] sysctlbyname");
+
+ printf("ICMP Statistics\n\n");
+
+ printf("\t\tNumber of calls to icmp_error  [ %ld ]\n", i_stat.icps_error);
+ printf("\t\ticmp_code out of range         [ %ld ]\n", i_stat.icps_badcode);
+ printf("\t\tpkts < ICMP_MINLEN             [ %ld ]\n", i_stat.icps_tooshort);
+ printf("\t\tbad checksum                   [ %ld ]\n", i_stat.icps_checksum);
+ printf("\t\tbad length                     [ %ld ]\n", i_stat.icps_badlen);
+ printf("\t\tnumber of responses            [ %ld ]\n", i_stat.icps_reflect);
+ printf("\t\tm/bcast echo requests dropped  [ %ld ]\n", i_stat.icps_bmcastecho);
+}
+
+void igmp_stat(void)
+{
+ struct igmpstat i_stat;
+ int len = sizeof i_stat;
+
+ if(sysctlbyname("net.inet.igmp.stats", &i_stat, &len, 0, 0) < 0)
+	 Error("[igmp_stat] sysctlbyname");
+
+ printf("IGMP Statistics\n\n");
+
+ printf("\t\tmessages received       [ %d ]\n", i_stat.igps_rcv_total);
+ printf("\t\trcvd with too few bytes [ %d ]\n", i_stat.igps_rcv_tooshort);
+ printf("\t\trcvd with bad checksum  [ %d ]\n", i_stat.igps_rcv_badsum);
+ printf("\t\trcvd membership queries [ %d ]\n", i_stat.igps_rcv_queries);
+ printf("\t\trcvd invalid queries    [ %d ]\n", i_stat.igps_rcv_badqueries);
+ printf("\t\trcvd membership reports [ %d ]\n", i_stat.igps_rcv_reports);
+ printf("\t\trcvd invalid reports    [ %d ]\n", i_stat.igps_rcv_badreports);
+ printf("\t\trcvd rep. for our grps  [ %d ]\n", i_stat.igps_rcv_ourreports);
+ printf("\t\tsent membership reports [ %d ]\n", i_stat.igps_snd_reports);
+}
+<-X->
+
+Queste strutture di statistica sono quindi uno strumento gia' interessante,
+ma potrebbe diventare ancora meglio... 
+
+Mi spiego meglio. Per ora il kernel tiene aggiornate strutture come questa:
+
+struct	tcpstat {
+	u_long	tcps_connattempt;	/* connections initiated */
+	u_long	tcps_accepts;		/* connections accepted */
+	u_long	tcps_connects;		/* connections established */
+	u_long	tcps_drops;		/* connections dropped */
+	u_long	tcps_conndrops;		/* embryonic connections dropped */
+	u_long	tcps_closed;		/* conn. closed (includes drops) */
+	u_long	tcps_segstimed;		/* segs where we tried to get rtt */
+	u_long	tcps_rttupdated;	/* times we succeeded */
+	u_long	tcps_delack;		/* delayed acks sent */
+	u_long	tcps_timeoutdrop;	/* conn. dropped in rxmt timeout */
+	u_long	tcps_rexmttimeo;	/* retransmit timeouts */
+	u_long	tcps_persisttimeo;	/* persist timeouts */
+	u_long	tcps_keeptimeo;		/* keepalive timeouts */
+	u_long	tcps_keepprobe;		/* keepalive probes sent */
+	u_long	tcps_keepdrops;		/* connections dropped in keepalive */
+
+	u_long	tcps_sndtotal;		/* total packets sent */
+	u_long	tcps_sndpack;		/* data packets sent */
+	u_long	tcps_sndbyte;		/* data bytes sent */
+	u_long	tcps_sndrexmitpack;	/* data packets retransmitted */
+	u_long	tcps_sndrexmitbyte;	/* data bytes retransmitted */
+	u_long	tcps_sndacks;		/* ack-only packets sent */
+	u_long	tcps_sndprobe;		/* window probes sent */
+	u_long	tcps_sndurg;		/* packets sent with URG only */
+	u_long	tcps_sndwinup;		/* window update-only packets sent */
+	u_long	tcps_sndctrl;		/* control (SYN|FIN|RST) packets sent */
+
+	u_long	tcps_rcvtotal;		/* total packets received */
+	u_long	tcps_rcvpack;		/* packets received in sequence */
+	u_long	tcps_rcvbyte;		/* bytes received in sequence */
+	u_long	tcps_rcvbadsum;		/* packets received with ccksum errs */
+	u_long	tcps_rcvbadoff;		/* packets received with bad offset */
+	u_long	tcps_rcvshort;		/* packets received too short */
+	u_long	tcps_rcvduppack;	/* duplicate-only packets received */
+	u_long	tcps_rcvdupbyte;	/* duplicate-only bytes received */
+	u_long	tcps_rcvpartduppack;	/* packets with some duplicate data */
+	u_long	tcps_rcvpartdupbyte;	/* dup. bytes in part-dup. packets */
+	u_long	tcps_rcvoopack;		/* out-of-order packets received */
+	u_long	tcps_rcvoobyte;		/* out-of-order bytes received */
+	u_long	tcps_rcvpackafterwin;	/* packets with data after window */
+	u_long	tcps_rcvbyteafterwin;	/* bytes rcvd after window */
+	u_long	tcps_rcvafterclose;	/* packets rcvd after "close" */
+	u_long	tcps_rcvwinprobe;	/* rcvd window probe packets */
+	u_long	tcps_rcvdupack;		/* rcvd duplicate acks */
+	u_long	tcps_rcvacktoomuch;	/* rcvd acks for unsent data */
+	u_long	tcps_rcvackpack;	/* rcvd ack packets */
+	u_long	tcps_rcvackbyte;	/* bytes acked by rcvd acks */
+	u_long	tcps_rcvwinupd;		/* rcvd window update packets */
+	u_long	tcps_pawsdrop;		/* segments dropped due to PAWS */
+	u_long	tcps_predack;		/* times hdr predict ok for acks */
+	u_long	tcps_preddat;		/* times hdr predict ok for data pkts */
+	u_long	tcps_pcbcachemiss;
+	u_long	tcps_cachedrtt;		/* times cached RTT in route updated */
+	u_long	tcps_cachedrttvar;	/* times cached rttvar updated */
+	u_long	tcps_cachedssthresh;	/* times cached ssthresh updated */
+	u_long	tcps_usedrtt;		/* times RTT initialized from route */
+	u_long	tcps_usedrttvar;	/* times RTTVAR initialized from rt */
+	u_long	tcps_usedssthresh;	/* times ssthresh initialized from rt*/
+	u_long	tcps_persistdrop;	/* timeout in persist state */
+	u_long	tcps_badsyn;		/* bogus SYN, e.g. premature ACK */
+	u_long	tcps_mturesent;		/* resends due to MTU discovery */
+	u_long	tcps_listendrop;	/* listen queue overflows */
+};
+
+Purtroppo la tcpstat non isola per connessione, ma fa di tutto un brodo...
+
+Non e' inoltre difficile pensare che sia possibile scrivere parti dei 
+pacchetti "strani" (almeno l'header) su un pseudo device o su procfs... e che
+un programma da user-level possa prelevare tale informazioni per leggerle...
+Tutto sommato pure alcuni firewall si stanno orientando verso questa strada...
+
+La struttura icmpstat e' secondo me quella che in questo momento dovrebbe
+essere pure rivista... 
+Tali strutture sono un qualcosa che potrebbe essere VERAMENTE potente
+se sviluppate adeguatamente... pensate per esempio alla possibilita' di
+tener traccia dei pacchetti con badcode... questi potrebbero ad esempio
+essere dei potenziali attivatori di backdoor nel nostro sistema...
+
+/*
+ * Variables related to this implementation
+ * of the internet control message protocol.
+ */
+struct	icmpstat {
+/* statistics related to icmp packets generated */
+	u_long	icps_error;		/* # of calls to icmp_error */
+	u_long	icps_oldshort;		/* no error 'cuz old ip too short */
+	u_long	icps_oldicmp;		/* no error 'cuz old was icmp */
+	u_long	icps_outhist[ICMP_MAXTYPE + 1];
+/* statistics related to input messages processed */
+ 	u_long	icps_badcode;		/* icmp_code out of range */
+	u_long	icps_tooshort;		/* packet < ICMP_MINLEN */
+	u_long	icps_checksum;		/* bad checksum */
+	u_long	icps_badlen;		/* calculated bound mismatch */
+	u_long	icps_reflect;		/* number of responses */
+	u_long	icps_inhist[ICMP_MAXTYPE + 1];
+	u_long	icps_bmcastecho; 	/* b/mcast echo requests dropped */
+	u_long	icps_bmcasttstamp; 	/* b/mcast tstamp requests dropped */
+};
+
+Per farvi capire il concetto vi presento un modulo che sfrutta un po' di piu'
+la stat, in questo caso di udp, visualizzando via syslog la provenienza di
+pacchetti anomali...
+
+<-| fbsd_sub_udp_input.c |->
+/*
+ * Name: Simple Example of log for bad packets
+ * Date: Fri Feb 18 21:42:57 2000
+ * Author: pIGpEN [pigpen@s0ftpj.org, deadhead@sikurezza.org]
+ *
+ * SoftProject Digital Security for Y2K (www.s0ftpj.org)
+ * Sikurezza.org Italian Security MailingList (www.sikurezza.org)
+ * 
+ * COFFEE-WARE LICENSE - This source code is like "THE BEER-WARE LICENSE" by
+ * Poul-Henning Kamp <phk@FreeBSD.ORG> but you can give me in return a coffee.
+ * 
+ * Tested on: FreeBSD 4.0-19990705-CURRENT FreeBSD 4.0-19990705-CURRENT #6 i386
+ */
+
+/*
+ * *stat structures show you general information... this module gives also  
+ * source address for variables of udpstat used in udp_input()... It is only
+ * an example... 
+ *
+ * Feb 10 10:11:13 storpio /kernel UDP: udps_badsum 4 from xxx.xxx.xxx.xxx
+ *
+ * We know source of a packet with badsum and its number in
+ * udpstat.udps_badsum...
+ *
+ * A cool idea can be log bad packets (at least ip header of these)
+ * via pseudo device (a bit like ipl) or via procfs...
+ */
+ 
+/*
+ * Use a Makefile for kld....
+ */
+ 
+#include <sys/param.h>
+#include <sys/systm.h>
+#include <sys/malloc.h>
+#include <sys/mbuf.h>
+#include <sys/kernel.h>
+#include <sys/proc.h>
+#include <sys/socket.h>
+#include <sys/socketvar.h>
+#include <sys/sysctl.h>
+#include <sys/syslog.h>
+#include <sys/protosw.h>
+#include <net/if.h>
+#include <net/route.h>
+#include <netinet/in.h>
+#include <netinet/in_systm.h>
+#include <netinet/in_pcb.h>
+#include <netinet/ip.h>
+#include <netinet/ip_var.h>
+#include <netinet/ip_icmp.h>
+#include <netinet/udp.h>
+#include <netinet/udp_var.h>
+
+
+extern struct 	protosw 	inetsw[];
+extern struct 	udpstat 	udpstat;
+extern int  	log_in_vain;
+extern struct 	inpcbhead 	udb;
+extern struct 	sockaddr_in 	udp_in;
+
+static void  	new_udp_input		__P((register struct mbuf *, int ));
+static int  	s_load	 		__P((struct module *, int, void *));
+int		badport_bandlim		__P((int));
+
+/*
+ * saving udp_input() with a funct ptr is not necessary... because it isn't 
+ * static so we can access it...
+ */
+
+static int
+s_load (struct module *module, int cmd, void *arg)
+{
+ int s;
+
+ switch(cmd) {
+	case MOD_LOAD:
+			s = splnet();
+			inetsw[ip_protox[IPPROTO_UDP]].pr_input = new_udp_input;
+		        splx(s);
+			break;
+			
+	case MOD_UNLOAD:
+			s = splnet();
+			inetsw[ip_protox[IPPROTO_UDP]].pr_input = udp_input;
+			splx(s);
+			break;
+ }
+
+ return 0;
+}
+
+static moduledata_t s_mod_1 = {
+	        "udp_mod",
+	        s_load,
+	        0
+};
+
+DECLARE_MODULE(udp_mod, s_mod_1, SI_SUB_PSEUDO, SI_ORDER_ANY);
+
+static void 
+new_udp_input(m, iphlen)
+	register struct mbuf *m;
+	int iphlen;
+{
+	register struct ip *ip;
+	register struct udphdr *uh;
+	register struct inpcb *inp;
+	struct mbuf *opts = 0;
+	int len;
+	struct ip save_ip;
+
+	udpstat.udps_ipackets++;
+
+	if (iphlen > sizeof (struct ip)) {
+		ip_stripoptions(m, (struct mbuf *)0);
+		iphlen = sizeof(struct ip);
+	}
+
+	ip = mtod(m, struct ip *);
+	if (m->m_len < iphlen + sizeof(struct udphdr)) {
+		if ((m = m_pullup(m, iphlen + sizeof(struct udphdr))) == 0) {
+			udpstat.udps_hdrops++;
+			log(LOG_INFO, 
+			   "UDP: udps_hdrops %ld from %s\n",
+			    udpstat.udps_hdrops,
+			    inet_ntoa(ip->ip_src));
+			return;
+		}
+		ip = mtod(m, struct ip *);
+	}
+	uh = (struct udphdr *)((caddr_t)ip + iphlen);
+
+	len = ntohs((u_short)uh->uh_ulen);
+	if (ip->ip_len != len) {
+		if (len > ip->ip_len || len < sizeof(struct udphdr)) {
+			udpstat.udps_badlen++;
+			log(LOG_INFO,
+			    "UDP: udps_badlen %ld from %s\n",
+			    udpstat.udps_badlen,
+			    inet_ntoa(ip->ip_src));
+			goto bad;
+		}
+		m_adj(m, len - ip->ip_len);
+		/* ip->ip_len = len; */
+	}
+	save_ip = *ip;
+
+	if (uh->uh_sum) {
+		bzero(((struct ipovly *)ip)->ih_x1, 9);
+		((struct ipovly *)ip)->ih_len = uh->uh_ulen;
+		uh->uh_sum = in_cksum(m, len + sizeof (struct ip));
+		if (uh->uh_sum) {
+			udpstat.udps_badsum++;
+			log(LOG_INFO,
+			    "UDP: udps_badsum %ld from %s\n",
+			    udpstat.udps_badsum,
+			    inet_ntoa(ip->ip_src));
+			m_freem(m);
+			return;
+		}
+	}
+
+	if (IN_MULTICAST(ntohl(ip->ip_dst.s_addr)) ||
+	    in_broadcast(ip->ip_dst, m->m_pkthdr.rcvif)) {
+		struct inpcb *last;
+		
+		udp_in.sin_port = uh->uh_sport;
+		udp_in.sin_addr = ip->ip_src;
+		m->m_len -= sizeof (struct udpiphdr);
+		m->m_data += sizeof (struct udpiphdr);
+
+		last = NULL;
+		for (inp = udb.lh_first; inp != NULL; 
+				inp = inp->inp_list.le_next) {
+			if (inp->inp_lport != uh->uh_dport)
+				continue;
+			if (inp->inp_laddr.s_addr != INADDR_ANY) {
+				if (inp->inp_laddr.s_addr !=
+				    ip->ip_dst.s_addr)
+					continue;
+			}
+			if (inp->inp_faddr.s_addr != INADDR_ANY) {
+				if (inp->inp_faddr.s_addr !=
+				    ip->ip_src.s_addr ||
+				    inp->inp_fport != uh->uh_sport)
+					continue;
+			}
+
+			if (last != NULL) {
+				struct mbuf *n;
+
+				if ((n = m_copy(m, 0, M_COPYALL)) != NULL) {
+					if (last->inp_flags & INP_CONTROLOPTS
+					    || last->inp_socket->so_options & 
+					    SO_TIMESTAMP)
+						ip_savecontrol(last, &opts, ip, n);
+					if (sbappendaddr(&last->inp_socket->so_rcv,
+						(struct sockaddr *)&udp_in,
+						n, opts) == 0) {
+						m_freem(n);
+						if (opts)
+						    m_freem(opts);
+						udpstat.udps_fullsock++;
+					} else
+						sorwakeup(last->inp_socket);
+					opts = 0;
+				}
+			}
+			last = inp;
+			if ((last->inp_socket->so_options&(SO_REUSEPORT |
+							SO_REUSEADDR)) == 0)
+				break;
+		}
+
+		if (last == NULL) {
+			udpstat.udps_noportbcast++;
+			goto bad;
+		}
+		if (last->inp_flags & INP_CONTROLOPTS
+		    || last->inp_socket->so_options & SO_TIMESTAMP)
+			ip_savecontrol(last, &opts, ip, m);
+		if (sbappendaddr(&last->inp_socket->so_rcv,
+		     (struct sockaddr *)&udp_in,
+		     m, opts) == 0) {
+			udpstat.udps_fullsock++;
+			goto bad;
+		}
+		sorwakeup(last->inp_socket);
+		return;
+	}
+	inp = in_pcblookup_hash(&udbinfo, ip->ip_src, uh->uh_sport,
+	    ip->ip_dst, uh->uh_dport, 1);
+	if (inp == NULL) {
+		if (log_in_vain) {
+			char buf[4*sizeof "123"];
+
+			strcpy(buf, inet_ntoa(ip->ip_dst));
+			log(LOG_INFO,
+			    "Connection attempt to UDP %s:%d from %s:%d\n",
+			    buf, ntohs(uh->uh_dport), inet_ntoa(ip->ip_src),
+			    ntohs(uh->uh_sport));
+		}
+		udpstat.udps_noport++;
+		if (m->m_flags & (M_BCAST | M_MCAST)) {
+			udpstat.udps_noportbcast++;
+			goto bad;
+		}
+		*ip = save_ip;
+
+		if (badport_bandlim(0) < 0)
+			goto bad;
+
+		icmp_error(m, ICMP_UNREACH, ICMP_UNREACH_PORT, 0, 0);
+		return;
+	}
+
+	udp_in.sin_port = uh->uh_sport;
+	udp_in.sin_addr = ip->ip_src;
+	if (inp->inp_flags & INP_CONTROLOPTS
+	    || inp->inp_socket->so_options & SO_TIMESTAMP)
+		ip_savecontrol(inp, &opts, ip, m);
+	iphlen += sizeof(struct udphdr);
+	m->m_len -= iphlen;
+	m->m_pkthdr.len -= iphlen;
+	m->m_data += iphlen;
+	if (sbappendaddr(&inp->inp_socket->so_rcv, (struct sockaddr *)&udp_in,
+	    m, opts) == 0) {
+		udpstat.udps_fullsock++;
+		goto bad;
+	}
+	sorwakeup(inp->inp_socket);
+	return;
+bad:
+	m_freem(m);
+	if (opts)
+		m_freem(opts);
+}
+<-X->
+
+Feb 10 00:00:00 storpio /kernel UDP: udps_badsum 1 from xxx.xxx.xxx.xxx
+
+Questo e' gia' un passo in avanti perche' dice la provenienza...
+e il corrispettivo incremento nel contatore interno alla *stat .
+
+E arriviamo al 28 febbraio giorno in cui dopo aver messo a posto una nuova
+macchina con OpenBSD decisi di fare il porting di knstat...
+A prima vista compresi che le strutture non venivano rese disponibili via
+sysctl ed a questo punto non mi resto' che scrivere da shell:
+
+# nm /bsd | grep stat
+
+e01bc284 T _Blowfish_expand0state
+e01bc390 T _Blowfish_expandstate
+e01bc210 T _Blowfish_initstate
+e030f3e8 B _ahstat
+e02d92dc T _apm_set_powstate
+e027d9a4 T _astattach
+e013279c T _cd9660_statfs
+e022ecac T _ch_getelemstatus
+e022eb2c T _ch_usergetelemstatus
+e02d4f38 T _compat_43_freebsd_sys_lstat
+e02d4edc T _compat_43_freebsd_sys_stat
+e02e48c4 T _compat_43_sys_fstat
+e02e480c T _compat_43_sys_lstat
+e02e4758 T _compat_43_sys_stat
+e0144390 T _disk_resetstat
+e0128bc8 T _dp8390_mediastatus
+e03afe58 B _espstat
+e0290e20 T _ess_get_dsp_status
+e020a210 T _ext2fs_statfs
+e02b3a68 T _fdcstatus
+e0167e1c T _fdesc_statfs
+e01fd18c T _ffs_statfs
+e03b1ad0 B _forkstat
+e01aceac T _fr_addstate
+e0318f94 B _fr_authstats
+e01ad3b8 T _fr_checkstate
+e01ace08 T _fr_state_ioctl
+e01ad664 T _fr_stateunload
+e01ad164 T _fr_tcpstate
+e01ad6c0 T _fr_timeoutstate
+e02d5564 T _freebsd_sys_fstatfs
+e02d5604 T _freebsd_sys_getfsstat
+e02d5824 T _freebsd_sys_lstat
+e02d57c8 T _freebsd_sys_stat
+e02d5458 T _freebsd_sys_statfs
+e02f29d8 D _frstats
+e023305c T _get_buffer_status
+e02cb4f4 T _ibcs2_sys_fstat
+e02cb324 T _ibcs2_sys_fstatfs
+e02cb444 T _ibcs2_sys_lstat
+e02cb394 T _ibcs2_sys_stat
+e02cb25c T _ibcs2_sys_statfs
+e03c96c4 B _icmpstat
+e03b214c B _igmpstat
+e03b4734 B _ip4stat
+e01ac730 T _ipfr_fragstats
+e0318f50 B _ipfr_stats
+e03b01e4 B _ips_stats
+e03c2ee0 B _ipstat
+e01ad960 T _ipstate_log
+e03195c4 B _isa_dma_stats_bounces
+e03195b4 B _isa_dma_stats_loads
+e03b2180 B _isa_dma_stats_nbouncebufs
+e02bb100 T _isapnp_wait_status
+e03b01bc B _iso_nchstats
+e01697c4 T _kernfs_statfs
+e03c33a8 B _kmemstats
+e02cdd40 T _linux_sys_fstat
+e02cf4bc T _linux_sys_fstatfs
+e02cded8 T _linux_sys_lstat
+e02cdec0 T _linux_sys_stat
+e02cf3f4 T _linux_sys_statfs
+e013a8dc T _lockstatus
+e03b3830 B _mbstat
+e01fea24 T _mfs_statfs
+e0177f64 T _msdosfs_statfs
+e0233920 T _mustek_get_status
+e031824c B _nat_stats
+e03192d0 B _nchstats
+e01e4670 T _nfs_statfs
+e01da074 T _nfsrv_statfs
+e03b4344 B _nfsstats
+e016a9c8 T _nullfs_statfs
+e014b7d4 T _pipe_stat
+e03b4edc B _playstats
+e016b1c0 T _portal_statfs
+e016c540 T _procfs_dostatus
+e016ce04 T _procfs_statfs
+e0327e6c B _rndstats
+e012a588 T _rtl80x9_mediastatus
+e03180bc B _rtstat
+e0297d48 T _setstatclockrate
+e014c0d8 T _soo_stat
+e0180b58 T _sppp_cp_change_state
+e01848e8 T _sppp_state_name
+e0136ce8 T _statclock
+e02d5370 T _statfs_to_freebsd_statfs
+e0165b08 T _statfs_to_ostatfs
+e031924c B _stathz
+e0230c40 T _stattach
+e02c1a10 T _svr4_sys_fstat
+e02c1d3c T _svr4_sys_fstat64
+e02c0294 T _svr4_sys_fstatvfs
+e02c0330 T _svr4_sys_fstatvfs64
+e02c1ca0 T _svr4_sys_fxstat
+e02c1920 T _svr4_sys_lstat
+e02c1ba4 T _svr4_sys_lxstat
+e02c1830 T _svr4_sys_stat
+e02c01c8 T _svr4_sys_statvfs
+e02c1aa8 T _svr4_sys_xstat
+e02c1dd8 T _svr4_ustat
+e013771c T _sys_fstat
+e016315c T _sys_fstatfs
+e0163234 T _sys_getfsstat
+e016448c T _sys_lstat
+e0165cb0 T _sys_ofstatfs
+e0165d44 T _sys_ogetfsstat
+e0165bf4 T _sys_ostatfs
+e01643c4 T _sys_stat
+e0163070 T _sys_statfs
+e03c9780 B _tcpstat
+e01afb60 T _tdb_hashstats
+e02eee54 D _time_State
+e02eee58 D _time_status
+e030f9e4 B _udpstat
+e016ef88 T _umapfs_statfs
+e017158c T _union_statfs
+e016646c T _vn_stat
+
+Uhm guarda che bello... conosciamo la posizione in cui si trovano le strutture
+tcpstat, icmpstat, udpstat, ipstat, igmpstat nel kernel... A questo punto
+mi e' bastato utilizzare la libreria kvm per estrarre tali valori dal kernel.
+Risultato:
+
+<- knstat_openbsd.c |->
+/*
+ * Name: knstat for OpenBSD
+ * Date: Mon Feb 28 21:38:57 2000
+ * Author: pIGpEN [pigpen@s0ftpj.org, deadhead@sikurezza.org]
+ *
+ * SoftProject Digital Security for Y2K
+ * Sikurezza.org - Italian Security Mailinglist
+ *
+ * COFFEE-WARE LICENSE - This source code is like "THE BEER-WARE LICENSE" by
+ * Poul-Henning Kamp <phk@FreeBSD.ORG> but you can give me in return a coffee.
+ *
+ * Tested on: OpenBSD 2.6 kern#0 i386
+ *
+ * Little revision - Mar 08 2000 ( This code is very simple... ) 
+ *
+ * $ calendar
+ *
+ * Mar 08 Ron "Pigpen" McKernan (Grateful Dead) dies in California, 1973
+ *
+ * :(   
+ * 						Let His Memory Shine!
+ */
+
+/*
+ * This is a simple porting of knstat on your OpenBSD box...
+ *
+ * compile with: cc filename -lkvm 
+ */ 
+
+#include <stdio.h>
+#include <string.h>
+#include <fcntl.h>
+#include <err.h>
+#include <sysexits.h>
+
+#include <sys/types.h>
+#include <sys/param.h>
+#include <sys/socket.h>
+
+#include <netinet/in.h>
+#include <netinet/in_systm.h>
+#include <netinet/ip.h>
+#include <netinet/ip_var.h>
+#include <netinet/udp.h>
+#include <netinet/udp_var.h>
+#include <netinet/tcp.h>
+#include <netinet/tcp_timer.h>
+#include <netinet/tcp_var.h>
+#include <netinet/ip_icmp.h>
+#include <netinet/icmp_var.h>
+#include <netinet/igmp.h>
+#include <netinet/igmp_var.h>
+
+#include <nlist.h>
+#include <kvm.h>
+
+#define		WAIT
+#define		Error(s)	err(EX_UNAVAILABLE, s);
+#define		E(s)		if(!strcmp(s, arg[1]))
+
+void		usage		__P((char *));
+void		print_ip	__P((kvm_t *));
+void		print_udp	__P((kvm_t *));
+void		print_tcp	__P((kvm_t *));
+void		print_icmp	__P((kvm_t *));
+void		print_igmp	__P((kvm_t *));
+
+struct prot {
+	char *name;
+	void (*funct) (kvm_t *);
+};
+	
+
+struct prot protos[] = {
+	{ "-ip"  , print_ip   },
+	{ "-udp" , print_udp  },
+	{ "-tcp" , print_tcp  },
+	{ "-icmp", print_icmp },
+	{ "-igmp", print_igmp },
+};
+
+struct nlist list[] = {
+ 	{"_ipstat"},
+	{"_udpstat"},
+	{"_tcpstat"},
+	{"_icmpstat"},
+	{"_igmpstat"},
+	{NULL}
+};	
+	
+int main(int narg, char **arg)
+{
+	kvm_t *kd;
+	int i;
+	int len = sizeof(protos) / sizeof(struct prot);
+
+	
+	if(narg != 2){
+		usage(arg[0]);
+		exit(0);
+	}
+
+	/* Think different */
+	
+	for(i=0; i < len; i++) 
+		E(protos[i].name) {
+		  if(!(kd = kvm_openfiles(NULL, NULL, NULL, O_RDONLY, NULL))) 
+			Error("kvm_openfiles()");
+		  if(kvm_nlist(kd, list) != 0)
+			Error("kvm_nlist()");
+
+  		  (*protos[i].funct) (kd);
+		  kvm_close(kd);	
+ 		  return 1;	
+		}
+
+	usage(arg[0]);
+
+	return 0; 
+}
+
+void usage(char *cmdname)
+{
+	printf("Usage:\n"
+	       "\t%s -option\n\n"
+	       "Option:   -ip\n" 
+	       "          -icmp\n"
+	       "          -igmp\n"
+	       "          -tcp\n"
+	       "          -udp\n", cmdname);
+}	       
+
+
+
+/*
+ * You can cover printf() with a macro... but I'm fucking about... so
+ * I have time to spend... 
+ */
+
+void print_ip(kvm_t *kd)
+{
+ struct ipstat i_stat;
+
+
+ if(!list[0].n_value)
+	Error("[print_ip] checking nlist");
+
+ kvm_read(kd, list[0].n_value, &i_stat, sizeof i_stat);
+
+ printf("IP Statistics\n\n");
+ 
+ printf("\t\treceived         [ %ld ]\n", i_stat.ips_total);
+ printf("\t\tbad checksum     [ %ld ]\n", i_stat.ips_badsum);
+ printf("\t\tpkts too short   [ %ld ]\n", i_stat.ips_tooshort);
+ printf("\t\tno enough data   [ %ld ]\n", i_stat.ips_toosmall);
+ printf("\t\tiph len < data   [ %ld ]\n", i_stat.ips_badhlen);
+ printf("\t\tip len < iph len [ %ld ]\n", i_stat.ips_badlen);
+ printf("\t\tfragments        [ %ld ]\n", i_stat.ips_fragments);
+ printf("\t\tfrags dropped    [ %ld ]\n", i_stat.ips_fragdropped);
+ printf("\t\tfrags timeout    [ %ld ]\n", i_stat.ips_fragtimeout);
+ printf("\t\tforwarded        [ %ld ]\n", i_stat.ips_forward);
+ printf("\t\tcant forward     [ %ld ]\n", i_stat.ips_cantforward);
+ printf("\t\tredirect sent    [ %ld ]\n", i_stat.ips_redirectsent);
+ printf("\t\tproto unknown    [ %ld ]\n", i_stat.ips_noproto);
+ printf("\t\tiplen > maxpksz  [ %ld ]\n", i_stat.ips_toolong);
+ printf("\t\tip version != 4  [ %ld ]\n", i_stat.ips_badvers);
+ printf("\t\ttotal raw gen    [ %ld ]\n", i_stat.ips_rawout);
+
+}
+
+void print_udp(kvm_t *kd)
+{ 
+ struct udpstat u_stat;
+ 
+
+ if(!list[1].n_value)
+	Error("[print_udp] checking nlist");
+
+ kvm_read(kd, list[1].n_value, &u_stat, sizeof u_stat); 
+ 
+ printf("UDP Statistics\n\n"); 
+
+ printf("Total input  packets:      %ld\n", 	   u_stat.udps_ipackets);
+ printf("\t\t\t\tPacket shorter than header: %ld\n", u_stat.udps_hdrops);
+ printf("\t\t\t\tChecksum error:             %ld\n", u_stat.udps_badsum);
+ printf("\t\t\t\tData len larger than pkt:   %ld\n", u_stat.udps_badlen);
+ printf("\t\t\t\tNo socket on port:          %ld\n", u_stat.udps_noport);
+ printf("\t\t\t\tArrived as broadcast:       %ld\n", u_stat.udps_noportbcast);
+ printf("\t\t\t\tNot delivered:              %ld\n", u_stat.udps_fullsock);
+ printf("Total ouput packets:       %ld\n\n",	   u_stat.udps_opackets);
+}	
+
+void print_tcp(kvm_t *kd)
+{
+ struct tcpstat t_stat;
+
+ 
+ if(!list[2].n_value)
+	Error("[print_tcp] checking nvalue");  
+ 
+ kvm_read(kd, list[2].n_value, &t_stat, sizeof t_stat);
+
+ printf("TCP Statistics\n\n");
+
+ printf("Connection:\n");
+ printf("\t\tinitiated:               [ %d ]\n", t_stat.tcps_connattempt);
+ printf("\t\taccepted:                [ %d ]\n", t_stat.tcps_accepts);
+ printf("\t\testabilished             [ %d ]\n", t_stat.tcps_connects);
+ printf("\t\tdropped                  [ %d ]\n", t_stat.tcps_drops);
+ printf("\t\tembryonic dropped        [ %d ]\n", t_stat.tcps_conndrops);
+ printf("\t\tkeepalive dropped        [ %d ]\n", t_stat.tcps_keepdrops);
+ printf("\t\tclosed                   [ %d ]\n", t_stat.tcps_closed);
+ printf("\nTimers:\n");
+ printf("\t\tsegs timed               [ %d ]\n", t_stat.tcps_segstimed);
+ printf("\t\trtt updated              [ %d ]\n", t_stat.tcps_rttupdated);
+ printf("\t\tdelayed acks sent        [ %d ]\n", t_stat.tcps_delack);
+ printf("\t\tdropped in rxmt timeouts [ %d ]\n", t_stat.tcps_timeoutdrop);
+ printf("\t\tretrasmit timeouts       [ %d ]\n", t_stat.tcps_rexmttimeo);
+ printf("\t\tpersist timeouts         [ %d ]\n", t_stat.tcps_persisttimeo);
+ printf("\t\tkeepalive timeouts       [ %d ]\n", t_stat.tcps_keeptimeo);
+ printf("\t\tkeepalive probes sent    [ %d ]\n", t_stat.tcps_keepprobe);
+#ifdef	WAIT 
+ getchar();
+#endif 
+ printf("\nPackets\n");
+ printf("\t\tsent                     [ %d ]\n", t_stat.tcps_sndtotal);
+ printf("\t\tdata pkt                 [ %d ]\n", t_stat.tcps_sndpack);
+ printf("\t\tdata bytes               [ %ld ]\n", 
+					(long) t_stat.tcps_sndbyte);
+ printf("\t\tdata pkt retrasmitted    [ %d ]\n", t_stat.tcps_sndrexmitpack);
+ printf("\t\tdata bytes retrasmitted  [ %ld ]\n", 
+					(long)t_stat.tcps_sndrexmitbyte);
+ printf("\t\tack only pkts            [ %d ]\n", t_stat.tcps_sndacks);
+ printf("\t\turg only pkts            [ %d ]\n", t_stat.tcps_sndurg);
+ printf("\t\twin update only pkt      [ %d ]\n", t_stat.tcps_sndwinup);
+ printf("\t\tsyn|fin|rst pkt          [ %d ]\n", t_stat.tcps_sndctrl);
+ printf("\t\twindow probes            [ %d ]\n", t_stat.tcps_sndprobe);
+ printf("\n\n");
+#ifdef	WAIT 
+ getchar();
+#endif 
+ printf("\t\treceived                 [ %ld ]\n", (long)
+						t_stat.tcps_rcvtotal);
+ printf("\t\tpkt in sequence          [ %d ]\n", t_stat.tcps_rcvpack);
+ printf("\t\tbyte in sequence         [ %ld ]\n", (long) t_stat.tcps_rcvbyte);
+ printf("\t\tpkt with checksum errors [ %d ]\n", t_stat.tcps_rcvbadsum);
+ printf("\t\tpkt with bad offset      [ %d ]\n", t_stat.tcps_rcvbadoff);
+ printf("\t\tpkt received too short   [ %d ]\n", t_stat.tcps_rcvshort);
+ printf("\t\tduplicate only pkts      [ %d ]\n", t_stat.tcps_rcvduppack);
+ printf("\t\tduplicate only bytes     [ %ld ]\n", 
+						(long) t_stat.tcps_rcvdupbyte);
+ printf("\t\tpartial duplicate data   [ %d ]\n", t_stat.tcps_rcvpartduppack);
+ printf("\t\tpartial duplicate bytes  [ %ld ]\n", 
+					(long) t_stat.tcps_rcvpartdupbyte);
+ printf("\t\tout of order pkts        [ %d ]\n", t_stat.tcps_rcvoopack);
+ printf("\t\tout of order bytes       [ %ld ]\n", 
+						(long) t_stat.tcps_rcvoobyte);
+ printf("\t\tpkts with data after win [ %d ]\n", t_stat.tcps_rcvpackafterwin);
+ printf("\t\tbytes received after win [ %ld ]\n", 
+					(long) t_stat.tcps_rcvbyteafterwin);
+ printf("\t\tpkts rcvd after close    [ %d ]\n", t_stat.tcps_rcvafterclose);
+ printf("\t\tpkts rcvd win probe      [ %d ]\n", t_stat.tcps_rcvwinprobe);
+ printf("\t\tduplicate acks           [ %d ]\n", t_stat.tcps_rcvdupack);
+ printf("\t\tacks for unsent data     [ %d ]\n", t_stat.tcps_rcvacktoomuch);
+ printf("\t\tacks packets             [ %d ]\n", t_stat.tcps_rcvackpack);
+ printf("\t\tbytes acked by rcvd acks [ %d ]\n", t_stat.tcps_rcvwinupd);
+ printf("\t\tseg dropped due to PAWS  [ %d ]\n", t_stat.tcps_pawsdrop);
+ printf("\t\tbogus syn                [ %d ]\n", t_stat.tcps_badsyn);
+
+} 
+
+void print_icmp(kvm_t *kd)
+{
+ struct icmpstat i_stat;
+
+
+ if(!list[3].n_value) 
+	Error("[print_icmp] checking list n_value");
+ 
+ kvm_read(kd, list[3].n_value, &i_stat, sizeof(i_stat));  
+
+ printf("ICMP Statistics\n");
+ printf("\t\tNumber of calls to icmp_error  [ %ld ]\n", i_stat.icps_error);
+ printf("\t\ticmp_code out of range         [ %ld ]\n", i_stat.icps_badcode);
+ printf("\t\tpkts < ICMP_MINLEN             [ %ld ]\n", i_stat.icps_tooshort);
+ printf("\t\tbad checksum                   [ %ld ]\n", i_stat.icps_checksum);
+ printf("\t\tbad length                     [ %ld ]\n", i_stat.icps_badlen);
+ printf("\t\tnumber of responses            [ %ld ]\n", i_stat.icps_reflect);
+ printf("\t\tm/bcast echo requests dropped  [ %ld ]\n", i_stat.icps_bmcastecho);
+ printf("Input Packet\n\n");
+ printf("\tEcho Reply                         [ %ld ]\n",i_stat.icps_inhist[0]);
+ printf("\tDestination Unreachable            [ %ld ]\n",i_stat.icps_inhist[3]); 
+ printf("\tSource Quench                      [ %ld ]\n",
+						i_stat.icps_inhist[4]);
+ printf("\tRedirect                           [ %ld ]\n",
+						i_stat.icps_inhist[5]);
+ printf("\tEcho                               [ %ld ]\n",
+						i_stat.icps_inhist[8]);
+ printf("\tRouter Advert                      [ %ld ]\n",
+						i_stat.icps_inhist[9]);
+ printf("\tRouter Solicitation                [ %ld ]\n",
+						i_stat.icps_inhist[10]);
+ printf("\tTime Exceed                        [ %ld ]\n",
+						i_stat.icps_inhist[11]);
+ printf("\tTimestamp Request                  [ %ld ]\n",
+						i_stat.icps_inhist[13]);
+ printf("\tTimestamp Reply                    [ %ld ]\n",
+						i_stat.icps_inhist[14]);
+ printf("\tInformation Request                [ %ld ]\n",
+						i_stat.icps_inhist[15]);
+ printf("\tInformation Reply                  [ %ld ]\n",
+						i_stat.icps_inhist[16]);
+ printf("\tAddress Mask Request               [ %ld ]\n",
+						i_stat.icps_inhist[17]);
+ printf("\tAddress Mask Reply                 [ %ld ]\n",
+						i_stat.icps_inhist[18]);     
+#ifdef WAIT
+ getchar(); 
+#endif
+ printf("Output Packet\n\n");
+ printf("\tEcho Reply                        [ %ld ]\n",
+						i_stat.icps_outhist[0]);
+ printf("\tDestination Unreachable           [ %ld ]\n",
+						i_stat.icps_outhist[3]); 
+ printf("\tSource Quench                     [ %ld ]\n",
+						i_stat.icps_outhist[4]);
+ printf("\tRedirect                          [ %ld ]\n",
+						i_stat.icps_outhist[5]);
+ printf("\tEcho                              [ %ld ]\n",
+						i_stat.icps_outhist[8]);
+ printf("\tRouter Advert                     [ %ld ]\n",
+						i_stat.icps_outhist[9]);
+ printf("\tRouter Solicitation               [ %ld ]\n",
+						i_stat.icps_outhist[10]);
+ printf("\tTime Exceed                       [ %ld ]\n",
+						i_stat.icps_outhist[11]);
+ printf("\tTime Stamp Request                [ %ld ]\n",
+						i_stat.icps_outhist[13]);
+ printf("\tTime Stamp Reply                  [ %ld ]\n",
+						i_stat.icps_outhist[14]);
+ printf("\tInformation Request               [ %ld ]\n",
+						i_stat.icps_outhist[15]);
+ printf("\tInformation Reply                 [ %ld ]\n",
+						i_stat.icps_outhist[16]);
+ printf("\tMask Request                      [ %ld ]\n",
+						i_stat.icps_outhist[17]);
+ printf("\tMask Reply                        [ %ld ]\n",
+						i_stat.icps_outhist[18]);
+}
+
+void print_igmp(kvm_t *kd)
+{
+ struct igmpstat i_stat;
+
+
+ if(!list[4].n_value) 
+	Error("[print_igmp] checking list nvalue");
+
+ kvm_read(kd, list[4].n_value, (char *) &i_stat, sizeof i_stat);
+	
+ printf("IGMP Statistics\n\n");
+
+ printf("\t\tmessages received       [ %ld ]\n", i_stat.igps_rcv_total);
+ printf("\t\trcvd with too few bytes [ %ld ]\n", i_stat.igps_rcv_tooshort);
+ printf("\t\trcvd with bad checksum  [ %ld ]\n", i_stat.igps_rcv_badsum);
+ printf("\t\trcvd membership queries [ %ld ]\n", i_stat.igps_rcv_queries);
+ printf("\t\trcvd invalid queries    [ %ld ]\n", i_stat.igps_rcv_badqueries);
+ printf("\t\trcvd membership reports [ %ld ]\n", i_stat.igps_rcv_reports);
+ printf("\t\trcvd invalid reports    [ %ld ]\n", i_stat.igps_rcv_badreports);
+ printf("\t\trcvd rep. for our grps  [ %ld ]\n", i_stat.igps_rcv_ourreports);
+ printf("\t\tsent membership reports [ %ld ]\n", i_stat.igps_snd_reports);
+}
+<-X->
+
+Su Open ho realizzato una parte che su FreeBSD non avevo fatto per
+pigrizia :) ovvero un'analisi sui codici ICMP:
+
+./knstat -icmp
+
+ICMP Statistics
+		Number of calls to icmp_error  [ 0 ]
+		icmp_code out of range         [ 0 ]
+		pkts < ICMP_MINLEN             [ 0 ]
+		bad checksum                   [ 0 ]
+		bad length                     [ 0 ]
+		number of responses            [ 23 ]
+		m/bcast echo requests dropped  [ 0 ]
+Input Packet
+
+	Echo Reply                         [ 10 ]
+	Destination Unreachable            [ 64 ]
+	Source Quench                      [ 0 ]
+	Redirect                           [ 0 ]
+	Echo                               [ 23 ]
+	Router Advert                      [ 0 ]
+	Router Solicitation                [ 0 ]
+	Time Exceed                        [ 0 ]
+	Timestamp Request                  [ 0 ]
+	Timestamp Reply                    [ 0 ]
+	Information Request                [ 0 ]
+	Information Reply                  [ 0 ]
+	Address Mask Request               [ 0 ]
+	Address Mask Reply                 [ 0 ]
+
+Output Packet
+
+	Echo Reply                        [ 23 ]
+	Destination Unreachable           [ 0 ]
+	Source Quench                     [ 0 ]
+	Redirect                          [ 0 ]
+	Echo                              [ 0 ]
+	Router Advert                     [ 0 ]
+	Router Solicitation               [ 0 ]
+	Time Exceed                       [ 0 ]
+	Time Stamp Request                [ 0 ]
+	Time Stamp Reply                  [ 0 ]
+	Information Request               [ 0 ]
+	Information Reply                 [ 0 ]
+	Mask Request                      [ 0 ]
+	Mask Reply                        [ 0 ]
+
+Il discorso delle strutture di statistica di OpenBSD e anche NetBSD e'
+lo stesso di FreeBSD; giusto per confermare leggo da netinet/tcp_var.h:
+
+/*
+ * TCP statistics.
+ * Many of these should be kept per connection,
+ * but that's inconvenient at the moment.
+ */
+struct	tcpstat {
+	u_int32_t tcps_connattempt;	/* connections initiated */
+	u_int32_t tcps_accepts;		/* connections accepted */
+	u_int32_t tcps_connects;	/* connections established */
+	u_int32_t tcps_drops;		/* connections dropped */
+	u_int32_t tcps_conndrops;	/* embryonic connections dropped */
+	u_int32_t tcps_closed;		/* conn. closed (includes drops) */
+	u_int32_t tcps_segstimed;	/* segs where we tried to get rtt */
+	u_int32_t tcps_rttupdated;	/* times we succeeded */
+	u_int32_t tcps_delack;		/* delayed acks sent */
+	u_int32_t tcps_timeoutdrop;	/* conn. dropped in rxmt timeout */
+	u_int32_t tcps_rexmttimeo;	/* retransmit timeouts */
+	u_int32_t tcps_persisttimeo;	/* persist timeouts */
+	u_int32_t tcps_persistdrop;	/* connections dropped in persist */
+	u_int32_t tcps_keeptimeo;	/* keepalive timeouts */
+	u_int32_t tcps_keepprobe;	/* keepalive probes sent */
+	u_int32_t tcps_keepdrops;	/* connections dropped in keepalive */
+
+	u_int32_t tcps_sndtotal;		/* total packets sent */
+	u_int32_t tcps_sndpack;		/* data packets sent */
+	u_int64_t tcps_sndbyte;		/* data bytes sent */
+	u_int32_t tcps_sndrexmitpack;	/* data packets retransmitted */
+	u_int64_t tcps_sndrexmitbyte;	/* data bytes retransmitted */
+	u_int64_t tcps_sndrexmitfast;	/* Fast retransmits */
+	u_int32_t tcps_sndacks;		/* ack-only packets sent */
+	u_int32_t tcps_sndprobe;	/* window probes sent */
+	u_int32_t tcps_sndurg;		/* packets sent with URG only */
+	u_int32_t tcps_sndwinup;	/* window update-only packets sent */
+	u_int32_t tcps_sndctrl;		/* control (SYN|FIN|RST) packets sent */
+
+	u_int32_t tcps_rcvtotal;	/* total packets received */
+	u_int32_t tcps_rcvpack;		/* packets received in sequence */
+	u_int64_t tcps_rcvbyte;		/* bytes received in sequence */
+	u_int32_t tcps_rcvbadsum;	/* packets received with ccksum errs */
+	u_int32_t tcps_rcvbadoff;	/* packets received with bad offset */
+	u_int32_t tcps_rcvmemdrop;	/* packets dropped for lack of memory */
+	u_int32_t tcps_rcvnosec;	/* packets dropped for lack of ipsec */
+	u_int32_t tcps_rcvshort;	/* packets received too short */
+	u_int32_t tcps_rcvduppack;	/* duplicate-only packets received */
+	u_int64_t tcps_rcvdupbyte;	/* duplicate-only bytes received */
+	u_int32_t tcps_rcvpartduppack;	/* packets with some duplicate data */
+	u_int64_t tcps_rcvpartdupbyte;	/* dup. bytes in part-dup. packets */
+	u_int32_t tcps_rcvoopack;	/* out-of-order packets received */
+	u_int64_t tcps_rcvoobyte;	/* out-of-order bytes received */
+	u_int32_t tcps_rcvpackafterwin;	/* packets with data after window */
+	u_int64_t tcps_rcvbyteafterwin;	/* bytes rcvd after window */
+	u_int32_t tcps_rcvafterclose;	/* packets rcvd after "close" */
+	u_int32_t tcps_rcvwinprobe;	/* rcvd window probe packets */
+	u_int32_t tcps_rcvdupack;	/* rcvd duplicate acks */
+	u_int32_t tcps_rcvacktoomuch;	/* rcvd acks for unsent data */
+	u_int32_t tcps_rcvackpack;	/* rcvd ack packets */
+	u_int64_t tcps_rcvackbyte;	/* bytes acked by rcvd acks */
+	u_int32_t tcps_rcvwinupd;	/* rcvd window update packets */
+	u_int32_t tcps_pawsdrop;	/* segments dropped due to PAWS */
+	u_int32_t tcps_predack;		/* times hdr predict ok for acks */
+	u_int32_t tcps_preddat;		/* times hdr predict ok for data pkts */
+
+	u_int32_t tcps_pcbhashmiss;	/* input packets missing pcb hash */
+	u_int32_t tcps_noport;		/* no socket on port */
+	u_int32_t tcps_badsyn;		/* SYN packet with src==dst rcv'ed */
+
+	u_int32_t tcps_rcvbadsig;	/* rcvd bad/missing TCP signatures */
+	u_int64_t tcps_rcvgoodsig;	/* rcvd good TCP signatures */
+};
+
+Ok, credo di aver completato il discorso.
+
+bau
+
+pIGpEN
+
+
+==============================================================================
+--------------------------------[ EOF 11/28 ]---------------------------------
+==============================================================================

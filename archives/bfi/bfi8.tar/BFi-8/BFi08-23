@@ -1,0 +1,198 @@
+==============================================================================
+------------[ BFi numero 8, anno 3 - 30/04/2000 - file 23 di 28 ]-------------
+==============================================================================
+
+
+-[ MiSCELLANE0US ]------------------------------------------------------------
+---[ LKM : TR0VARLi
+-----[ pIGpEN <pigpen@s0ftpj.org> <deadhead@sikurezza.org>
+
+
+Ho dovuto scrivere per necessita' un kld per FreeBSD che controllasse
+l'indirizzo in cui si trova una determinata funzione nel kernel
+(che si attaccava ad un puntatore a funzione interno ad una struttuta cdevsw)
+e l'effettivo indirizzo a cui si riferisse in quel momento il puntatore
+interno a quella struttura... (ovviamente prima di farlo puntare alla nostra
+funzione).
+
+Poi ho pensato che, per quanto banale e stolto sia questo concetto e per
+quanto figo possa essere scrivere un qualcosa che nasconde il nome di un
+lkm, e' comunque facile scoprire un lkm sul proprio sistema che modifica
+system calls o anche qualsiasi struttura *sw o simili...
+
+Faccio un esempio:
+
+cambio la open tramite lkm... in *BSD la sy_call della struttura
+sysent[SYS_open] puntera' al mio codice... mentre dal kernel possiamo sapere
+l'indirizzo della open. Ne deriva che qualcuno l'ha modificata (in realta'
+non e' sempre cosi' visto che soprattutto nel caso delle strutture tipo
+protosw, ecc... questo potrebbe essere stato fatto per es. da un firewall...
+ipfilter per es. agisce sulla pr_slowtimo della inetsw[0] (protocollo ip))
+da un supporto alternativo per i protocolli (ad es. supporti di compressione
+o autenticazione)... ma comunque conoscendo il nostro sistema siamo in grado
+di capire con un po' di utilizzo quelle che sono normali (casi abbastanza
+eccezionali) e quelle anomale...)
+
+Vi presento un codice di esempio per FreeBSD che checka su un po' di syscalls
+e sputa output di questo tipo:
+
+open: altered! [function] at 0xc014db08 [syscall] at 0xc08962c8
+
+dove 	function --> e' quella che sta nel kernel
+	syscall	 --> e' quella a cui punta la chiamata di sistema
+
+(E' chiaro che in un caso normale dovevano avere indirizzi uguali...)
+
+Ovviamente niente di tutto questo si puo' fare se l'intruso apporta le 
+modifiche direttamente (per es. sulla open() ) nel kernel ricompilandolo...
+
+E' pure chiaro che questo concetto sia poi portabile su altri os.
+
+Se per le syscalls in genere non c'e' problema, questo puo' nascere quando si
+ha un supporto disponibile via lkm o no con funzione interessata di tipo 
+static (oppure non static, ma con nome diverso dalla funzione che normalmente
+si attacca al supporto; ad es. sul kernel in ip_fw_chk_ptr si "attacca" 
+ip_fw_chk: se avete un fw vostro e gli avete fatto puntare pippo il nostro
+programma confronterebbe l'indirizzo a cui punta ip_fw_chk_ptr con quello di
+ip_fw_chk e quindi ovvio che non lo troverebbe :O Ma, come dicevo prima, un
+admin conosce il suo sistema e quello che installa :) almeno credo...)
+
+<-| sec_lkm.c |->
+/*
+ * Name: LKM DETECT0R
+ * Date: Tue Apr 18 12:00:16 2000
+ * Author: pIGpEN [ pigpen@s0ftpj.org, deadhead@sikurezza.org ]
+ *
+ * SoftProject 2000 - Digital Sekurity for Y2k
+ * Sikurezza.org - Italian Security MailingList
+ * FreeBSD Abuser - Current does it better ! ;)
+ *
+ * COFFEE-WARE LICENSE - This source code is like "THE BEER-WARE LICENSE" by
+ * Poul-Henning Kamp <phk@FreeBSD.ORG> but you can give me in return a coffee.
+ *
+ * Tested on: FreeBSD 3.4-RELEASE FreeBSD 3.4-RELEASE #5: Mon Mar i386
+ *
+ * This module gives you a compare between a syscall & its kernel function...
+ * So You can detect lkm wich modifies your system...
+ *
+ * Note: This code is only a way to demostrate this ... you can also modify 
+ * this for *sw structure (ex. protosw, devsw and so on...)
+ *
+ * Compile with: make
+ *
+ * Use: make load
+ * 	make unload
+ */
+
+#include <sys/types.h>
+#include <sys/param.h>
+#include <sys/kernel.h>
+#include <sys/systm.h>
+#include <sys/module.h>
+#include <sys/sysent.h>
+#include <sys/sysproto.h>
+#include <sys/syscall.h>
+
+static int	module_handler		__P((module_t, int, void *));
+
+static moduledata_t S_Check = {
+	"scheck",
+	module_handler,
+	NULL
+};
+
+DECLARE_MODULE(scheck, S_Check, SI_SUB_EXEC, SI_ORDER_MIDDLE);
+
+#define	c(x, y, n) if(sysent[x].sy_call!=(sy_call_t *) y) \
+ printf("%s: altered! [function] at %p, [syscall] at %p\n", \
+		 n, y, sysent[x].sy_call);
+
+static int
+module_handler(module_t mod, int cmd, void *arg)
+{
+	switch(cmd) {
+		case MOD_LOAD:
+			c(SYS_exit, 		exit, 		"exit");
+			c(SYS_fork, 		fork, 		"fork");
+			c(SYS_read, 		read, 		"read");
+			c(SYS_write, 		write, 		"write");
+			c(SYS_open,		open,		"open");
+			c(SYS_close,		close,		"close");
+			c(SYS_wait4,		wait4,		"wait");
+			c(SYS_link,		link,		"link");
+			c(SYS_unlink,		unlink,		"unlink");
+			c(SYS_chdir,		chdir,		"chdir");
+			c(SYS_fchdir,		fchdir,		"fchdir");
+			c(SYS_mknod,		mknod,		"mknod");
+			c(SYS_chmod,		chmod,		"chmod");
+			c(SYS_chown,		chown,		"chown");
+			c(SYS_getfsstat,	getfsstat,	"getfsstat");
+			c(SYS_getpid,		getpid,		"getpid");
+			c(SYS_mount,		mount,		"mount");
+			c(SYS_unmount,		unmount,	"unmount");
+			c(SYS_setuid,		setuid,		"setuid");
+			c(SYS_getuid,		getuid,		"getuid");
+			c(SYS_mount,		mount,		"mount");
+			c(SYS_unmount,		unmount,	"unmount");
+			c(SYS_setuid,		setuid,		"setuid");
+			c(SYS_getuid,		getuid,		"getuid");
+			c(SYS_geteuid,		geteuid,	"geteuid");
+			c(SYS_ptrace,		ptrace,		"ptrace");
+			c(SYS_recvmsg,		recvmsg,	"recvmsg");
+			c(SYS_sendmsg,		sendmsg,	"sendmsg");
+			c(SYS_recvfrom,		recvfrom,	"recvfrom");
+
+			/*
+			 * ..... put here other syscalls ....
+			 */
+
+			c(SYS_ioctl,		ioctl,		"ioctl");	
+			c(SYS_setsockopt,	setsockopt,	"setsockopt");
+			c(SYS___sysctl,		__sysctl,	"sysctl");
+			break;
+	}
+
+	return 0;
+}
+	
+/*			
+
+# SoftProject 2000 - Digital Sekurity for Y2k
+# Sikurezza.org - Italian Security MailingList
+#
+# COFFEE-WARE LICENSE - This source code is like "THE BEER-WARE LICENSE" by
+# Poul-Henning Kamp <phk@FreeBSD.ORG> but you can give me in return a coffee.
+#
+# Tested on: FreeBSD 3.4-RELEASE FreeBSD 3.4-RELEASE #3: Thu Mar i386
+# < pigpen@s0ftpj.org > 
+
+.PATH: /sys/kern
+SRCS	= sec_lkm.c 
+CFLAGS+= -I/sys
+KMOD	= seclkm 
+NOMAN	= t
+KLDMOD	= t
+
+KLDLOAD		= /sbin/kldload
+KLDUNLOAD	= /sbin/kldunload
+
+CLEANFILES+= ${KMOD}
+
+load:
+	${KLDLOAD} -v ./${KMOD}
+
+unload:
+	${KLDUNLOAD} -v -n ${KMOD}
+
+.include <bsd.kmod.mk>
+
+*/
+<-X->
+
+bau bau,
+pIGpEN
+
+
+==============================================================================
+--------------------------------[ EOF 23/28 ]---------------------------------
+==============================================================================

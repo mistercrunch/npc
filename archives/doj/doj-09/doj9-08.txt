@@ -1,0 +1,186 @@
+pooooopooooooooooppoooooopoopooooooooooooppooooooooopooooooopoooooooppoooooopoop
+p           Discordant Opposition Journal - Issue 9 - December 2000            o
+p                               File 8 of 15                                   o
+poooooooopoooooooooooopoooopooooooopoooooopooooooooooooopooooooppooooooopoooooop
+
+                            introduction to cgi exploits
+                            how, why, and when they work
+
+                          fwaggle <fwaggle@subterranea.net.>
+
+foreword
+~~~~~~~~
+
+this document is intended solely for the purpose of academic curiosity. it is
+not intended to educate new hackers, or to arm them with destructive information. secondly, this article is intended to be distributed as part of issue #9 of the
+discordant opposition journal (http://discordia.subterranea.net/). this article
+may be redistributed as part of other e-zines, websites, or texts, as long as it
+remains intact in it's entirety.
+
+the author will not be held responsible for any actions or effects resulting from
+the use/misuse of this information.
+
+what is cgi?
+~~~~~~~~~~~~
+
+cgi stands for common gateway interface, and it is quite an old method for
+transferring (usually dynamic) output from a script or program, via the web
+server software, and to the client's browser. it's major use is for dynamic
+content of any sort, including form handling.
+
+basically, the sky is the limit with cgi. you can do pretty much anything with
+it if you have the skills. unfortunately however, the more complicated the
+script (and the less experienced the author), security risks are eventually
+inevitable.
+
+because this text is designed to give you a complete understanding of the
+security risks involved with cgi, we will first of all explain how cgi scripts
+work, and what they look like.
+
+cgi and the httpd
+~~~~~~~~~~~~~~~~~
+
+the httpd basically returns all the output (STDOUT) from the script/program, to
+the browser. the first thing the cgi script must do is give the httpd a http
+header. this looks like this, and is displayed before all webpages (the httpd
+adds it for .html files):
+
+Content-Type: text/html
+
+this is followed by two carriage returns (represented as \n in c or perl). you
+can use other mime types, for example if you are outputting a gif image, you
+would use this:
+
+Content-Type: image/gif
+
+etc cetera. for all intents and purposes, we will work with the mime type
+text/html. because these seem to be the easiest to exploit.
+
+of course, you normally shouldn't be able to get the source code of a cgi script,
+with most httpds. there are some exploits which will allow you to get the source
+code, but we won't really discuss that here. perhaps later, but i doubt it ;)
+
+so, because you can't see the source code, you have to guess how it could be
+exploited by seeing how it reacts to certain input. we'll discuss this later.
+let's look at some perl scripts.
+
+a simple cgi script in perl
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+since the majority of cgi scripts are written in perl (with c/c++ being the
+second comer), this is what we'll study (not to mention the fact that i'm good
+at perl, but suck at c++). a simple perl cgi script might look like this:
+
+#!/usr/bin/perl
+print "Content-Type: text/html\n\n";
+print "iyam eleet";
+exit 0;
+
+let's explain this line by line. the first line (the one with the #! at the
+start of it), tells the operating system (unix), what program is used to
+interpret and execute this script. you may have already seen this, and you will
+definitely see this as you progress and learn more.
+
+the second line prints out what's called "the http header". we've already
+discussed this above.. so you shouldn't have any questions about that, right?
+right.
+
+the third line prints "iyam elite" to STDOUT, which httpd passes to the browser.
+this is all you see in your browser window.
+
+the last line makes perl exit without an error. this isn't really needed for cgi
+scripts, but it's supposedly good perl practice ;)
+
+so.. this type of script is basically non exploitable, short of a security flaw
+in perl or apache itself. the reason is because it doesn't accept any input! so
+let's look at one which does.
+
+a perl script which uses GET method
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+this script will take the information given in the GET method. the get method?
+i hear you ask. the get method is utilized by using the url of a script, followed
+by a question mark. for example:
+
+http://www.somesite.com/script.cgi?getmethoddata
+
+in perl, the information take from the get method is passed to perl (and many other
+scripting languages) in an environment variable called QUERY_STRING. the
+following script illustrates:
+
+#!/usr/bin/perl
+print "Content-Type: text/html\n\n";
+open (FILE, "$ENV{QUERY_STRING}");
+@file = <FILE>;
+close FILE;
+foreach $line (@file) {
+  print "$line"
+}
+exit 0;
+
+the above script takes a filename given to it from the get method, reads it, and
+prints it out to the browser. this can be exploited a million different ways, if
+the script is poorly written (as the one is above), and the httpd is badly
+configured. however, let's look at how this script is used, and how the output
+looks.
+
+notice the open line, which opens the path (between the quotes)
+$ENV{QUERY_STRING}? this is basically whatever is after the question mark (?)
+in the url.
+
+let's say, you call the script with this url:
+
+http://www.somesite.com/filereader.cgi?filereader.cgi
+
+it would read itself, and print it's sourcecode out to the browser. people
+usually use these kind of scripts for converting plaintext files into attractive
+html files, without inserting the html into every text.
+
+the major variable to the equation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+overall, the major variable to the equation would be the server software, the
+httpd. in this case, we are presuming that the httpd is apache, or acts the same
+as it in every way. we are also assuming that the operating system is unix based,
+and the httpd is operating as root.
+
+unfortunately for the wannabe hacker, not too many web servers run suid root (as
+the root user). the reason for this is because for any exploit to work and give
+you root access, the thing you are exploiting must be running with root
+privilidges, capisch?
+
+so, the exploits listed here probably won't work on just any box. but, they work
+great for explaining how things work ;)
+
+exploiting the above script
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+the above script can be exploited quite easily, because it does not check to see
+if a path is included in the environment variable QUERY_STRING. so if we call it
+with this url:
+
+http://www.somesite.com/filereader.cgi?/etc/shadow
+
+again, assuming the httpd is running with root privilidges, we see something like
+this:
+
+root:pf84Mklaj3la:0:0:Charlie &:/root:/usr/local/bin/bash
+luser:pf84Mklaj3la:1000:1000:loser the user:/home/luser:/usr/local/bin/bash
+
+because we have a root password, and a normal user password, and they're both
+the same, we basically have root on this website, so long as we can crack the
+passwords. however, please don't try this, both the passwords and the url for
+somesite.com are ficticious. i don't want to be emailed by the somesite.com
+admins who are pissed at me because they keep getting hacking attempts by
+newbies.
+
+next issue
+~~~~~~~~~~
+
+next time, i'll continue this little text, and explain how to exploit scripts
+which use the post method, as well as scripts which have support for
+meta-characters, and others. make sure to check out the DoJ!
+
+fwaggle
+fwaggle@subterranea.net
+

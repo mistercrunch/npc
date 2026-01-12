@@ -1,0 +1,912 @@
+
+       $                                                                              $
+       $$ $                            GOLD-EDICION                                $ $$
+       $$ $$ $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$ $$ $$
+       $$ $$ $$(·····)$(···)$$(···)$(·)(·)$$(··)$$$$$$$$(···)$(·)$(·)(·)$(···)$$$ $$ $$
+       $$ $$ $$$$$|$$$$()$$$$$()$$$$$|\$|$$(·$$·)$(···)$$$$/$$$|$$$|\$|$$()$$$$$$ $$ $$
+       $$ $$ $$$$$|$$$$(··)$$$()$$$$$|$\|$$(·$$·)$$$$$$$$$/$$$$|$$$|$\|$$(··)$$$$ $$ $$
+       $$ $$ $$$$(|)$$$(····)$(···)$(·)(·)$$(··)$$$$$$$$(···)$(·)$(·)(·)$(····)$$ $$ $$
+       $$ $$ $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$ $$ $$
+       $$ $                            TeRCeRa PaRTe                               $ $$
+       $                                                                              $
+
+/015. Continuacion...
+
+
+IP-SPOOFING DEMISTIFICADO
+
+
+     El propósito de este documento es explicar el IP-spoofing a las masas. Solamente se requiere
+un poco de conocimiento práctico de Unix y TCP/IP para entenderlo sin problemas. Oh, y que no seas un inútil...
+    IP-spoofing es una compleja técnica de ataque constituida por varias partes. (En la actuali-
+dad, IP-spoofing no es el ataque, sino sólo un paso en el ataque. El ataque es actualmente un 
+aprovechamiento de la relación entre dos trusted hosts. Sin embargo, en este documento, IP-spoo-
+fing irá referido al ataque completo.) Explicaré la técnica en detalle, incluyendo información 
+relevante sobre sistemas operativos y redes.
+
+
+[SECCIÓN I. INFORMACIÓN PREVIA]
+
+
+                   -- [Los Protagonistas]--
+
+
+                   A: host objetivo
+                   B: host con el que se establece la relación (“trusted host”)      
+                   X: host no alcanzable 
+                   Z: host atacante
+                   (1)2: host 1 disfrazado como host 2
+
+
+                   --[Los Esquemas]--
+
+
+    Hay muchos esquemas en el documento y tienen que ser interpretados como el siguiente ejemplo:
+
+tick     host a      control       host b
+  1          A      ---SYN--->       B
+
+tick: un paso de tiempo. No hay distinción entre *cuanto* tiempo pasa entre cada paso, simplemen-
+te que el tiempo pasa. Generalmente no es mucho.
+host a: Un sistema participando en una conversación basada en TCP.
+control: Este campo muestra cualquier conjunto de bits de control relevantes en la cabecera  de 
+TCP y la dirección que están tomando los datos.
+host b: Un sistema prticipando en una conversación basada en TCP. 
+
+En este caso, en el primer paso el host a le está enviando un segmento TCP al host b con el bit 
+de SYN  ac-tivado. A menos que se indique lo contrario, no nos importa la porción de datos de 
+dicho segmento TCP.
+
+
+                   --[Trusted Hosts]--
+
+
+    En el mundo del Unix, la confianza se da fácilmente. Digamos que tienes una cuenta en el 
+sistema A, y otra en la máquina B.  Para facilitar ir de una a la otra con un mínimo esfuerzo, 
+deseas establecer una rela-ción o unión entre ambas. En tu directorio home en A creas un archivo 
+.rhosts: `echo “B nombre-de-usuario” > ~/.rhosts´  En tu directorio home en B creas otro archivo 
+.rhosts: `echo “A nombre-de-usuario” > ~/.rhosts´ (Como alternativa, el root puede establecer una
+configuración similar en /etc/hosts.equiv, la diferencia está en que entonces sería a nivel del 
+host entero, no sólo a nivel individual.) Ahora, puedes usar cualquiera de los comandos r* sin 
+necesidad de tener que perder el tiempo con verificaciones de passwords. Estos comandos permiti-
+rán la autentificación en base a las direcciones, lo que ofrecerá o negará el acceso dependiendo 
+de la dirección IP del solicitante. 
+
+
+                   --[Rlogin]--
+
+
+    Rlogin es un simple protocolo cliente-servidor que utiliza TCP como medio de transporte. 
+Rlogin permite a un usuario identificarse (hacer login) remotamente desde un host a otro, y, si 
+el host objetivo confía en el otro (ver apartado anterior), no nos pedirá ningún password. En 
+lugar de esto habrá comprobado la identidad del cliente (nosotros) analizando nuestra dirección 
+IP. Por tanto, como en el ejemplo de arriba, podemos usar rlogin para hacer login remotamente 
+desde A a B (o viceversa) y no nos pedirán ningún password. 
+
+
+                   --[Internet Protocol (IP)]--
+
+
+    IP es el protocolo de red menos fiable de todo el sistema TCP/IP. Posee dos campos de encabe-
+zamiento de 32-bits para la información de las direcciones. IP es también el más empleado de 
+todos los protocolos TCP/IP ya que casi todo el tráfico TCP/IP está encapsulado en datagramas IP.
+El trabajo del IP es enrutar paquetes de la red. No ofrece ningún mecanismo de comprobación (es 
+un protocolo “sin conexión”). IP simplemente envía datagramas y confía que lleguen intactos a su
+destino. Si no lo hacen, IP puede intentar enviar un mensaje ICMP de error al origen, aunque por 
+supuesto este paquete también puede extraviarse. (ICMP significa Internet Control Message Proto-
+col, y se usa para informar sobre las condiciones en las que se encuentra una red y sobre los 
+errores que se van produciendo al IP y a otros protocolos). IP no tiene ningún medio para garanti-
+zar el envío de paquetes.  No mantiene ninguna información sobre el estado de la conexión. Cada 
+datagrama IP es enviado sin niguna relación con el último enviado o el siguiente a mandar. Esto,
+unido al hecho de que es sencillísimo modificar la pila de IP para permitir la elección de una 
+dirección IP arbitrariamente en los campos de origen (y de destino) convierten al protocolo IP 
+en algo fácilmente modificable.
+
+
+                   --[Transmission Control Protocol ]--
+
+
+    TCP es el protocolo orientado a la conexión, el protocolo de transporte en el que se puede
+confiar plenamente dentro del sistema TCP/IP. Orientado-a-la-conexión significa simplemente que
+los dos hosts que participan en una discusión deben establecer previamente una conexión antes de
+que los datos puedan liarse a tortas. La seguridad se consigue a través de diferentes modos, pero
+los dos que nos conciernen ahora mismo son secuenciación de datos e identificación. TCP asigna 
+números secuenciales a cada segmento e identifica todos los segmentos de datos recibidos desde el
+otro extremo. (Se revisa la secuencia de números, no los segmentos en sí). Estas características
+hacen que TCP sea mucho más difícil de trucar que IP.
+
+
+                   --[Números Secuenciales, Identificaciones y otras indicaciones]--
+
+
+    Dado que TCP posee una seguridad bastante aceptable, debe ser capaz de recuperar datos perdi-
+dos, dupli-cados, o fuera-de-servicio. Asignando una secuencia de números a cada byte transmitido,
+y requiriendo una identificación para cada uno recibido del extremo opuesto, TCP puede garantizar
+una transmisión sin errores. El extremo receptor utiliza la secuencia de números para asegurar el
+orden correcto de los datos y eliminar bytes duplicados. 
+    Los números secuenciales del TCP se pueden imaginar como contadores de 32-bits. Se encuentran
+en un rango desde el 0 hasta el 4.294.967.295. Cada byte de datos intercambiado en una conexión 
+TCP (junto a otros indicadores) va secuenciado. El campo del número secuencial en la cabecera TCP
+contendrá el número secuencial correspondiente al *primer* byte de datos en el segmento TCP. El 
+campo del número de identifi-cación (ACK) en la cabecera TCP muestra el valor del siguiente 
+número secuencial *esperado*, y también identifica *todos* los datos hasta este número de ACK 
+menos uno. 
+    Para el control del flujo, TCP envía un paquete para decirle al otro extremo cuántos datos 
+puede buffear. Dado que este paquete es de 16 bits, se puede notificar un máximo de 65535 bytes.
+El objetivo de este méto-do es enviar una notificación desde un TCP al otro sobre la amplitud de
+la secuencia de números a emplear de manera que sea aceptable.
+    Otros indicadores en la cabecera TCP a mencionar son RST (reset), PSH (push) and FIN (finish).
+Si se re-cibe un RST, se corta inmediatamente la comunicación. Los RSTs se envían normalmente 
+cuando un extre-mo recibe un segmento que simplemente no tiene relación con  la conexión que está
+establecida (veremos un ejemplo abajo). El indicador PSH le dice al receptor que pase tan pronto 
+como sea posible todos los datos que se han ido almacenando a la aplicación correspondiente. El 
+indicador FIN es la manera en que una aplica-ción comienza el amable cierre de la conexión (el 
+corte de una conexión es un proceso de 4 direcciones).  Cuando un extremo recibe un FIN, lo ACKea
+(autentifica) y ya no espera recibir más datos (sin embargo el envío es todavía posible). 
+
+
+                   --[Estableciendo una Conexión TCP]--
+
+
+    Para poder intercambiar datos usando TCP, los hosts deben establecer una conexión. TCP 
+establece una conexión siguiendo un proceso de 3 pasos llamado el Saludo de las 3 direcciones. 
+Si la máquina A está utilizando un cliente de rlogin y desea conectar a un daemon de rlogin en 
+la máquina B, el proceso es el siguiente:
+
+              fig(1)
+
+1          A     ---SYN--->     B
+
+2          A     <---SYN/ACK---     B
+
+3          A     ---ACK--->     B
+
+
+    En (1) el programa cliente le está diciendo al servidor que quiere una conexión. Este es el 
+único propósi-to del indicador SYN. El cliente le está diciendo al server que el campo de 
+secuencia numérica es válido, y que debería ser comprobado. El cliente configurará el campo de 
+secuencia numérica en la cabecera TCP a su ISN (Initial Sequence Number, número inicial de la 
+secuencia). El server, al recibir este segmento (2) responderá con su propio ISN (por lo tanto 
+el flag SYN está activado) y una autentificación (ACK) del primer segmento enviado por el cliente
+(que será el ISN-del-cliente + 1). El cliente entonces ACKea (autentifica) el ISN del servidor 
+(3). Ahora ya puede tener lugar la transferencia de datos.
+
+
+                   --[El ISN y el Incremento de los  Números Secuenciales]--
+
+
+    Es importante entender cómo son elegidos los números secuenciales inicialmente, y cómo cambi-
+an con respecto al tiempo. El número secuencial inicial se cambia a 1 cuando el host se iniciali-
+za. (TCP llama a esta variable “tcp_iss” dado que se trata del número secuencial inicial *de enví-
+o* (initial*send* sequence number). La otra variable de número secuencial, “tcp_irs” es el número
+secuencial inicial *de recepción* (initial *receive* sequence number) y se establece al crearse 
+la conexión de 3 direcciones que tratamos antes. Pero no nos vamos a preocupar por las distincio-
+nes entre las dos variables). Esto da a entender un error, y se autentifica como tal con el co-
+rrespondiente comentario en la función tcp_init() de dónde aparece.  El ISN se incrementa en 
+128.000 cada segundo, lo que provoca que el contador de ISN de 32-bits quede agotado cada 9.32 
+horas si no se establece ninguna conexión. Sin embargo, cada vez que se establece un connect(), 
+el contador es incrementado en 64.000.
+    Esto es así por una importante razón, y es hacer mínimo el riesgo de que datos de una vieja 
+encarnación pasada (jeje, quiero decir, desde el mismo cuarteto de direcciones-IP y puertos TCP 
+locales y remotos) de la conexión actual pueda llegar y joder las cosas. Aquí se aplica el concep-
+to del tiempo de espera de 2MSL, pero no lo analizaremos porque no es el objetivo de este docu-
+mento. Si los números secuenciales fuesen elegidos al azar cuando llega una conexión, no se po-
+dría garantizar que esos números secuenciales fuesen distintos de los empleados en una conexión 
+anterior. Si una porción de datos quedase retenida en mitad de su recorrido y después consiguiese
+llegar a su destino interfiriendo con el reenvío de la vieja conexión, ten por seguro que se 
+joderán las cosas. 
+
+
+                   --[Puertos]--
+
+
+    Para garantizar el acceso simultáneo al módulo de TCP, TCP provee un interfaz de usuario
+llamado puerto. Los puertos son utilizados por el kernel para identificar procesos de red. Y 
+éstos son estrictamente entidades de transporte (que es lo mismo que decir que al IP le importa
+un pimiento su presencia). Junto a una dirección IP, un puerto TCP forma lo que hemos llamado 
+extremo de una comunicación de red. De hecho, en un momento dado *cualquier* conexión de Internet
+puede ser descrita por 4 números: la dirección IP de inicio y su puerto , y la dirección IP de 
+destino y el correspondiente puerto de destino. Los servers suelen ceñirse a puertos corrientes 
+para que puedan ser localizados a través de puertos estandar en sistemas diferentes. Por ejemplo,
+el daemon de rlogin se encuentra en el puerto TCP 513.
+
+
+
+
+                   [SECCIÓN II.  EL ATAQUE]
+
+
+    ...El diablo encuentra trabajo para las manos que no hacen nada...
+
+
+                   --[Antes de nada...]
+
+
+    El IP-spoofing se compone de varios pasos, que resumiré brevemente ahora y luego analizaremos
+con más profundidad. Primero, se elige el host objetivo. A continuación descubrimos un indicio de
+“confianza” con otro host, es decir, nos lleva a un trusted host. Entonces se desactiva el trus-
+ted-host, y se hace un muestreo de  los números secuenciales de TCP del objetivo.  Se usurpa la 
+personalidad del trusted host, se averiguan los números secuenciales correspondientes, y se in-
+tenta la conexión a un servicio que sólo requiera identifica-ción basada en direcciones. Si sale 
+bien, el atacante ejecuta un simple comando para dejar una puerta trasera en el sistema. 
+
+
+                   --[ Cosas Necesarias ]--
+
+
+    Hay varias cosas que se necesitan para llevar a cabo esta técnica:
+
+              - cerebro, mente, o cualquier otro dispositivo pensante
+              - host objetivo
+              - trusted host 
+              - host atacante (con acceso de root)
+              - software de IP-spoofing 
+
+    Generalmente el ataque se hace desde la cuenta root del host atacante contra la cuenta de 
+root del objetivo. Si el atacante se va a tomar todas estas molestias, sería estúpido no aspirar 
+como mínimo a ser root. (Dado que se necesita ser root para ejecutar el ataque, esto no debería 
+ser problema). 
+
+
+                   --[ IP-Spoofing es un “Ataque Ciego”]--
+
+
+    Un factor que muchas veces no se analiza pero que es crítico en el IP-spoofing es el hecho
+de que el ataque es ciego. El atacante va a estar suplantando la identidad de un trusted-host 
+para poder saltarse la seguridad del host objetivo. El trusted-host se desactiva empleando el
+método explicado abajo. Lo que el host objetivo cree es que está manteniendo una conversación 
+con otro colega. En realidad, el atacante está sen-tado en alguna oscura esquina de Internet, 
+falsificando paquetes desde este trusted-host mientras está enfrascado en una batalla de DoS 
+(denial of service). Los datagramas IP enviados con la dirección IP falsificada alcanzan su obje-
+tivo sin problemas (recordemos que IP es un protocolo “sin conexión” , cada datagrama es enviado
+sin tener en cuenta lo que pase con el otro extremo) pero los datagramas que el host objetivo
+envía de vuelta (destinados al trusted-host)  se van a la mierda. El atacante nunca los ve. Los 
+routers que intervienen conocen dónde se supone que tienen que ir los datagramas. Se supone que 
+van hacia el trsuted-host.  En lo que respecta al nivel de red, desde aquí es desde dónde fueron 
+originados y ahí es donde deberían ir las contestaciones. Por supuesto una vez que los datagramas
+son enrutados hacia allí y la infor-mación es desmultiplexada y llega al TCP, se desecha (el TCP
+del trusted-host no puede responder --ver abajo). Por lo tanto el atacante tiene que ser inteli-
+gente y *saber* qué fue enviado, y *saber* qué respuesta está buscando el server.  El atacante no
+puede ver lo que el host objetivo le envía, pero puede *predecir* lo que le enviará; eso unido al
+conocimiento con certeza de lo que *enviará*, le permite al atacante librarse de esta “ceguera”. 
+
+
+                   --[ Encontrando Trusted-Hosts]--
+
+
+    Después de elegir un objetivo el atacante debe averiguar los posibles trusted-hosts disponi-
+bles (por el bien de todo esto, daremos por hecho que el host objetivo *SI* confía en alguien. 
+Si no es así, el ataque se acaba-ría aquí).  Averiguar en quién confía un host puede no ser fácil.
+Un “showmount -e” puede mostrarte a dónde se exportan los archivos del sistema, y rcpinfo también
+puede ofrecerte información interesante.  Si se tiene abundante información sobre el host, no 
+debería ser difícil.  Si todo esto falla, probar direcciones IP vecinas en un esfuerzo de fuerza
+bruta puede ser una opción viable.
+
+
+                   --[ Desactivación del Trusted-Host Empleando Synflooding ]--
+
+
+    Una vez que hemos encontrado el trusted-host, debemos desactivarlo. Dado que el atacante va 
+a hacerse pasar por él, debe asegurarse de que este host no reciba ningún tráfico de la red y nos
+fastidie las cosas.  Existen muchas maneras para hacer esto, la que voy a explicar es el TCP SYN 
+flooding.
+    Una conexión TCP se inicia cuando un cliente hace una petición a un server con el SYN flag 
+activado en la cabecera TCP. Normalmente el server devolverá un SYN/ACK al cliente identificado 
+por la dirección de 32-bits  en la cabecera IP. El cliente enviará entonces un ACK al server 
+(como veíamos en la figura 1 al principio)  y la transferencia de datos podrá comenzar.Sin embar-
+go, existe un límite máximo de las peticiones de SYN concurrentes que TCP puede procesar para una
+determinada conexión. Este límite se denomina “backlog” y es la longitud de la cola donde se al-
+macenan las conexiones entrantes (por tanto todavía incompletas). Este límite de la cola tiene en
+cuenta el número de conexiones incompletas (el saludo de 3 direcciones está incompleto) y el núme-
+ro de conexiones completadas que han sido sacadas de la cola por la aplicación correspondiente 
+por medio del sistema de llamada accept(). Si este límite “backlog” se alcanza, TCP desechará en 
+silencio todas las peticiones de SYN hasta que las conexiones pendientes puedan ser resueltas. 
+Este es el quid de la cuestión.
+    El host atacante envía varias peticiones de SYN al puerto TCP que se desea desactivar. Este 
+host también debe asegurarse de que la dirección-IP del origen sea cambiada por otra, en este 
+caso un host inalcanzable (el TCP del host objetivo enviará su respuesta a esta dirección. (IP 
+puede informar al TCP de que el host no es alcanzable, pero TCP considera que estos errores son 
+temporales y deja la resolución de ellos al IP (reen-rutar los paquetes, etc.) , quien en efecto 
+los ignora). La dirección-IP debe ser inalcanzable porque el atacante no desea que ningún host 
+reciba los SYN/ACKs que llegarán enviados por el TCP del host objetivo (si lo anterior sucediese,
+daría como resultado un RST que se enviaría al TCP del host objetivo, lo que anularía nuestro 
+ataque). El proceso es así:
+
+                              fig(2)
+
+1       Z(x)    ---SYN--->      B
+
+        Z(x)    ---SYN--->      B
+
+        Z(x)    ---SYN--->      B
+
+        Z(x)    ---SYN--->      B
+
+        Z(x)    ---SYN--->      B
+
+                ...
+
+2       X    <---SYN/ACK---     B
+
+        X    <---SYN/ACK---     B
+
+                ...
+
+3       X      <---RST---       B
+
+
+    En (1) el host atacante envía un gran número de peticiones  SYN al objetivo (recuerda que el 
+objetivo en esta fase del ataque es el “trusted-host”) para llenar su cola de backlog con cone-
+xiones pendientes. 
+    (2) El host objetivo responde con SYN/ACKs a lo que él cree es el origen de los SYNs que le 
+llegan.  Durante todo esto todas otras peticiones a este puerto TCP serán ignoradas. 
+    Diferentes implementaciones de TCP poseen tamaños de backlog distintos. BSD generalmente 
+tiene un backlog de 5 (Linux tiene un backlog de 6). Pero además existe un `gracioso´ margen de 
+3/2. Esto es, TCP permitirá un número de conexiones de hasta backlog*3/2+1. Esto hará posible una
+conexión incluso si el backlog señala 0. 
+
+    Nota-del-Autor:[ Para un análisis más exhaustivo del TCP SYN flooding, leer mi trabajo sobre
+este tema. Cubre el proceso completo al detalle, con teoría y práctica. Está acompañado de código
+para su funciona-miento, un análisis estadístico y más.
+Búscalo en el número 49 de Phrack. -daemon9 6/96]
+
+
+                   --[ Muestreo de los Números Secuenciales y Predicción ]--
+
+
+    Ahora el atacante necesita hacerse una idea de dónde se encuentra el TCP del host objetivo de
+entre el espacio de la secuencia numérica de 32-bits. El atacante conecta a un puerto TCP del 
+host objetivo (SMTP es una buena elección) justo antes de lanzar el ataque y completa el “saludo”
+de 3 direcciones con dicho host. El proceso es exactamente como en la fig(1), excepto que el 
+atacante guardará el valor del ISN enviado por el host objetivo. Muchas veces, este proceso se 
+repite varias veces y el último ISN enviado se almacena. El atacante necesita saber cuál es el 
+RTT (round-trip time, tiempo de ida/vuelta) desde el objetivo a su host. (El proceso puede repe-
+tirse varias veces, y se calcula una media de todos los RTTs hallados). El RTT es necesa-rio para
+poder predecir con seguridad el siguiente ISN. El atacante tiene un punto de referencia (el últi-
+mo ISN enviado) y conoce también cómo funciona el incremento de los números secuenciales 
+(128.000/segundo y 64.000 por cada connect) y ahora tiene una idea bastante aproximada de cuánto 
+tardará un datagrama IP en viajar por Internet hasta alcanzar al objetivo (aproximadamente la 
+mitad del RTT, dado que la mayoría de las veces las rutas son simétricas). Después de que el a-
+tacante haya conseguido esta información, inmediata-mente se procede a la siguiente fase del a-
+taque (si otra conexión TCP llegase a algún puerto del objetivo antes de que el atacante haya 
+podido continuar con el ataque, el ISN real tendría una diferencia de 64.000 con el ISN previsto).
+    Cuando el segmento spoofeado recorre su camino hasta el objetivo, pueden pasar varias cosas 
+dependien-do de la exactitud de la predicción del atacante:
+- Si el número secuencial está EXACTAMENTE donde el TCP receptor espera que esté, los datos 
+que llegan serán colocados en la siguiente posición disponible del búffer receptor.
+- Si el número secuencial es MENOR que el valor esperado el byte de datos se considera como 
+una repetición de la transmisión, y es desechado.
+- Si el número secuencial es MAYOR  que el valor esperado pero todavía dentro de los límites de 
+la capacidad del búffer, el byte de datos se considera que es un byte futuro, y es controlado por
+el TCP, pendiente de la llegada de los bytes que faltan antes que él.  Si llega un segmento con 
+un número secuencial MAYOR  que el valor esperado y que NO está dentro de los límites de la 
+capacidad del búffer el segmento es excluido, y TCP enviará un segmento de respuesta con el
+número secuencial *esperado*.
+
+
+                   --[ Alteración... ]--
+
+
+    Aquí es donde empieza la parte más emocionante del ataque:
+
+                     fig(3)
+
+1       Z(b)    ---SYN--->      A
+
+2       B     <---SYN/ACK---    A
+
+3       Z(b)    ---ACK--->      A
+
+4       Z(b)    ---PSH--->      A
+
+                [...]
+
+
+    El host atacante spoofea su dirección-IP para que sea la del “trusted-host” (el cual todavía 
+debería estar sufriendo los efectos del ataque de D.O.S , denial of service) y envía su petición 
+de conexión al puerto 513 del host objetivo (1). En (2), el host objetivo responde a la petición
+de conexión spoofeada con un SYN/ACK, que recorrerá su camino hasta el trusted-host (el cual, si 
+*pudiera* procesar este segmento entrante, lo consideraría un error, e inmediatamente envía un 
+RST al host objetivo). Si todo va de acuerdo con lo previsto, el SYN/ACK será ignorado por el 
+trusted host. Después de (1), el atacante puede descansar un poco para darle tiempo al host obje-
+tivo para enviar el SYN/ACK (el atacante no puede ver este segmento). Entonces, en (3) el atacan-
+te envía un ACK al host objetivo conteniendo el número secuencial previsto (más uno, porque esta-
+mos ACKeándolo). Si el atacante acierta en su predicción, el host objetivo aceptará el ACK. El 
+host objetivo establece la conexión y la transferencia de datos puede comenzar (4).
+    Generalmente, después de establecer la conexión , el atacante insertará una backdoor en el 
+sistema que le permitirá llevar a cabo nuevas intrusiones de una manera más fácil. (Con un `cat +
++ >> ~/.rhosts´ suele bastar. Esta es una buena idea por varias razones: es rápido, permite acce-
+sos más simples, y no es interacti-vo. Recuerda, el atacante no puede ver el tráfico que proviene
+del host objetivo, por lo tanto todas las respuestas caerán en el olvido). 
+
+
+                   --[ Por Qué Funciona ]--
+
+
+    El IP-Spoofing funciona porque los servicios de trust entre ordenadores (como los “trusted-
+hosts”) solamente basan su seguridad en autentificaciones de las direcciones de red. Dado que el
+IP es fácilmente engañable, la falsificación de direcciones no es difícil. La parte más complica-
+da del ataque es la predicción de los números secuenciales, porque es ahí donde las suposiciones 
+y conjeturas entran en escena. Reducir las dudas y las adivinanzas al mínimo es básico para tener
+más posibilidades de éxito. Incluso un sistema que utilice los TCP wrappers de Wietse Venema es 
+vulnerable al ataque. Los TCP wrappers se basan en los hostnames o en direcciones-IP para las 
+autentificaciones de los usuarios...
+
+
+
+
+                   [ SECCIÓN III. MEDIDAS PREVENTIVAS ]
+
+              ...Más vale prevenir que curar...
+
+
+                   --[ No Confiar en Nadie ]--
+
+
+    Una sencilla solución para prevenir este ataque es no utilizar la autentificación basada en
+direcciones. Desactivar los comandos r*, borrar todos los archivos .rhosts y vaciar el archivo 
+/etc/hosts.equiv. Esto forzará a todos los usuarios a emplear otras medidas de acceso remoto 
+(telnet, ssh, skey, etc.)
+
+
+                   --[ Filtrado de Paquetes ]--
+
+
+    Si tu host tiene una conexión directa a Internet, puedes utilizar tu router para ayudarte. 
+Primero asegúrate de que únicamente hosts de tu propia LAN interna pueden participar en relacio-
+nes de trust (ningún host interno debe ser  trusted-host de otro sistema externo a la LAN, o 
+viceversa). Entonces simplemente filtra *todo* el tráfico desde fuera (desde Internet) que desea 
+llegar hasta el interior (a tu LAN). 
+
+
+                   --[ Métodos Criptográficos ]--
+
+
+    UN método obvio para evitar el IP-spoofing es obligar a que todo el tráfico de la red sea 
+encriptado y/o autentificado. Mientras se debaten otras posibles soluciones, puede establecerse 
+ésta como medida estandar de seguridad.
+
+
+                   --[ Número Secuencial Inicial Aleatorio ]--
+
+
+    Dado que los números secuenciales no son escogidos aleatoriamente (o incrementados aleatoria-
+mente) el ataque funciona. Bellovin aporta un parche para TCP que implica una partición del espa-
+cio dedicado al número secuencial. Cada conexión tendría su propio espacio separado de número 
+secuencial. Los números secuenciales serían incrementados como antes, sin embargo, no habría 
+ninguna relación obvia o apreciable entre la numeración en estos espacios. Se sugiere la fórmula 
+siguiente:
+
+         ISN=M+F(localhost,localport,remotehost,remoteport)
+
+Donde M es el cronómetro de 4 microsegundos y F es un hash criptográfico. F no debe ser calcula-
+ble desde el exterior o el atacante podría todavía averiguar la secuencia numérica. Bellovin 
+sugiere que F sea un hash de el id de la conexión y un vector secreto (un número aleatorio, o un 
+número de host secreto relacionado combinado con el tiempo que lleva encendida la máquina).
+
+
+***Segunda Parte:
+
+
+))RESTRINGIENDO UN FTP RESTRINGIDO
+
+                                                                                  
+No, no es un trabalenguas... Este articulo esta basado en uno de los errores de configuracion mas
+usuales en lo referente a permisos y FTP, que en principio no puede parecer obvio, pero que a mas
+de un administrador ha tenido dandose cabezazos contra la pared durante algunos dias :) 
+
+Uno de los servicios mas frecuentes que ofrece un servidor es el de FTP, ya sea anonimo o para 
+que sus usuarios puedan transferir ficheros.
+Tampoco es extraño encontrar servidores que restrinjan el acceso de sus usuarios al home director
+y de los mismos, porque para que deberia tener acceso un usuario al sistema entero si solo usa 
+FTP para actualizar sus paginas web, por ejemplo? 
+
+El articulo parte de mi experiencia con WU-FTPD, aunque cualquier servidor FTP que tenga la opci-
+on de restringir el acceso de los usuarios y use un /bin/ls del directorio del usuario es poten-
+cialmente vulnerable. Y ahora, la chicha... 
+
+Permisos, propiedades y privilegios
+
+Cuando creamos una cuenta en el sistema (normalmente con adduser, useradd o alguna de sus varian-
+tes) se pone como propietario del home directory del usuario al propio usuario (siempre que yo 
+haya visto), p.e.: 
+
+drwx------   2 usuario  users        1024 Jun 21 11:26 /home/usuario/
+
+Esto es lo logico, y lo que cabria esperar del directorio de un usuario.
+El problema viene cuando configuramos un servidor de FTP que restrinja el acceso de los usuarios 
+a su propio directorio. Para tal fin, debemos crear una estructura de directorios en el home di-
+rectory del usuario que simule la de nuestro sistema: 
+
+/etc: passwd,group - para que el servidor FTP pueda asociar los UIDs y GIDs con nombres, y asi 
+hacerlo mas agradable al cliente. 
+
+/bin: ls, compress, gzip... - para binarios que deba ejecutar el servidor FTP. 
+
+/lib, /usr/lib: para librerias, en caso de que los binarios no esten enlazados estaticamente. 
+
+/dev: algunos sistemas operativos necesitan acceso a ciertos dispositivos para las conexiones de 
+red. 
+
+Estos directorios no tienen porque ser manipulados por el usuario, conque podemos poner de pro-
+pietario al superusuario y ponerle permisos restrictivos para el usuario. 
+
+Despistes
+
+El problema viene cuando hacemos esto y no advertimos que el home directory del usuario es pro-
+piedad de ese usuario y, por tanto, puede manipular cualquier fichero que cuelgue de el. No es 
+poco frecuente encontrar un escenario asi: 
+
+drwxr-xr-x   6 usuario  users        1024 Jun 21 11:26 /home/usuario/
+drwx--x--x   2 root     root         1024 Jun 21 11:26 /home/usuario/bin/
+
+En el que el usuario usuario puede modificar libremente el directorio bin que esta en su home 
+directory (si el directorio tiene contenido no propiedad del usuario, no se puede borrar, pero 
+nada impide que lo renombremos :) ). 
+
+Y para que todo esto? Veamos como funciona wu.ftpd por dentro.
+Cuando pedimos un listado de un directorio a traves de FTP (comando LIST), lo que el servidor FTP
+hace es EJECUTAR el /bin/ls , y en caso de acceso de que sea un acceso FTP restringido (guest), 
+el /bin/ls del home directory del usuario).
+
+Recordemos que el servidor FTP se ejecuta como root, para abrir un puerto privilegiado (21) y 
+tener acceso a los ficheros con informacion del usuario en caso de que sea un sistema con shadow.
+Cuando un usuario entra por FTP restringido, el servidor cambio su euid (efective uid, el UID con
+el que corre) al del usuario. El servidor usa seteuid() en lugar de setuid() para que poder recu-
+perar privilegios de superusuario en caso de que sea necesario, ya que con setuid() no podria 
+recuperarlos.
+
+Bueno, siguiendo con el funcionamiento, el servidor FTP ejecuta este /bin/ls despues de hacer un 
+chroot() al directorio del usuario. chroot() cambia el directorio raiz del proceso al que le pase-
+mos como parametro, es decir, despues de un chroot() el proceso solo tiene acceso a esa parte del
+sistema de ficheros, y no puede salir de ahi (teoricamente). 
+
+Si el usuario puede modificar el /bin/ls (escenario que se mostraba antes), estamos a su merced =)
+El programa que sustituya a ls se ejecutara al hacer un LIST, con euid igual al uid del usuario, 
+pero uid=0, con lo que este ls puede hacer tranquilamente un setuid(0) y recuperar los privile-
+gios del superusuario, eso si, dentro del directorio restringido del usuario. 
+
+Salir del chroot()
+
+Como hemos dicho, aunque podamos ejecutar codigo arbitrario, nos encontramos dentro de un sistema
+de ficheros restringido por chroot() a nuestro home directory. Un chroot() se hereda de padres a 
+hijos, con lo que si expandimos un proceso seguira estando limitado por el chroot(). 
+
+El directorio raiz de un proceso es una propiedad que se guarda junto con el resto de informacion
+del proceso en una tabla de procesos que mantiene el sistema en memoria (a la que como super-
+usuario tenemos acceso total), con lo que lo unico que debemos hacer es acceder a esta tabla de 
+procesos, modificar nuestro directorio raiz, y expandir un proceso, que heredara el nuevo direc-
+torio raiz, y por tanto habremos escapado del chroot(). 
+
+Otra aproximacion (para Linux) podria ser cargar un modulo del kernel para capturar el syscall 
+chroot() y modificarlo para que no nos restringiera el sistema de ficheros o, puesto que el 
+kernel tiene acceso a todo el sistema, para que ejecutara codigo arbitrario en cualquier parte. 
+Creatividad :) 
+
+Al final del articulo podeis encontrar codigo de un modulo para Linux que modifica el syscall a 
+chroot() para que no nos restrinja el acceso al sistema de ficheros y un sustituto para el ls que
+carga dicho modulo. 
+
+La practica
+
+A continuacion os pego un ejemplo comentado para aclarar dudas :) 
+
+thx:~# ftp
+ftp> o ilm
+Connected to ilm.
+220 ilm FTP server (Version wu-2.4(4) Wed Oct 15 16:11:18 PDT 1997) ready.
+Name (ilm:root): usuario
+331 Password required for usuario.
+Password:
+230 User usuario logged in.  Access restrictions apply.
+Remote system type is UNIX.
+Using binary mode to transfer files.
+
+usuario conecta a la maquina donde tiene acceso restringido. Al conectar, el servidor ejecuta un
+chroot() al home directory del usuario 
+
+ftp> ls
+200 PORT command successful.
+150 Opening ASCII mode data connection for /bin/ls.
+total 5
+drwxr-xr-x   5 usuario  users        1024 Jun 21 11:26 .
+drwxr-xr-x   5 usuario  users        1024 Jun 21 11:26 ..
+d--x--x--x   2 root     root         1024 Jun 21 11:26 bin
+drwxr-xr-x   2 root     root         1024 Jun 21 11:26 etc
+drwxr-xr-x   2 usuario  users        1024 Jun 21 11:26 home
+226 Transfer complete.
+ftp> cd ..
+250 CWD command successful.
+ftp> ls
+200 PORT command successful.
+150 Opening ASCII mode data connection for /bin/ls.
+total 5
+drwxr-xr-x   5 usuario  users        1024 Jun 21 11:26 .
+drwxr-xr-x   5 usuario  users        1024 Jun 21 21:26 ..
+d--x--x--x   2 root     root         1024 Jun 21 11:26 bin
+drwxr-xr-x   2 root     root         1024 Jun 21 11:26 etc
+drwxr-xr-x   2 usuario  users        1024 Jun 21 11:26 home
+226 Transfer complete.
+
+usuario esta restringido a su home directory 
+
+ftp> ls bin/ls
+200 PORT command successful.
+150 Opening ASCII mode data connection for /bin/ls.
+---x--x--x   1 root     root       138008 Jun 21 11:26 bin/ls
+226 Transfer complete.
+ftp> ren bin bin.old
+350 File exists, ready for destination name
+250 RNTO command successful.
+ftp> mkdir bin
+257 MKD command successful.
+ftp> cd bin
+250 CWD command successful.
+ftp> put ls
+226 Transfer complete.
+ftp> put insmod
+226 Transfer complete.
+ftp> put chr.o
+226 Transfer complete.
+
+modifica el binario del ls y sube otros ficheros que necesite 
+
+ftp> chmod 555 ls
+200 CHMOD command successful.
+ftp> chmod 555 insmod
+200 CHMOD command successful.
+
+cambia los modos adecuadamente para que pueda ejecutar los ficheros que acaba de subir 
+
+ftp> ls
+200 PORT command successful.
+150 Opening ASCII mode data connection for /bin/ls.
+UID: 0 EUID: 1002
+Cambiando EUID...
+UID: 0 EUID: 0
+Cargando modulo chroot...
+Modulo cargado.
+226 Transfer complete.
+
+y ejecuta el ls modificado, que cambia su euid a 0 y carga el modulo troyano 
+
+ftp> bye
+221 Goodbye.
+thx:~# 
+
+llegado a este punto, el usuario tiene cargado el modulo del kernel que captura y anula la llama-
+da a chroot() 
+
+thx:~# ftp
+ftp> o ilm
+Connected to ilm.
+220 ilm FTP server (Version wu-2.4(4) Wed Oct 15 16:11:18 PDT 1997) ready.
+Name (ilm:root): usuario
+331 Password required for usuario.
+Password:
+230 User usuario logged in.  Access restrictions apply.
+Remote system type is UNIX.
+Using binary mode to transfer files.
+
+llegados a este punto, el servidor ha hecho un chroot() al directorio del usuario, que ha sido 
+capturado y anulado por el modulo 
+
+ftp> ls
+200 PORT command successful.
+150 Opening ASCII mode data connection for /bin/ls.
+total 1697
+drwxr-xr-x  21 root     root         1024 Jun 21 11:57 .
+drwxr-xr-x  21 root     root         1024 Jun 21 11:57 ..
+-rw-r--r--   1 root     root          118 Apr 21 11:26 .bash_history
+drwxr-xr-x   2 root     bin          2048 Jun 21 11:26 bin
+drwxr-xr-x   2 root     root         1024 Jun  8 11:26 boot
+drwxr-xr-x   2 root     root         1024 Oct  6 11:26 cdrom
+drwxr-xr-x   3 root     root        21504 Jun 21 15:26 dev
+drwxr-xr-x  14 root     root         3072 Jun 21 15:26 etc
+drwxr-xr-x   7 root     root         1024 Jun 21 19:26 export
+drwxr-xr-x   7 root     root         1024 Jun 21 19:26 home
+dr-xr-xr-x   5 root     root            0 Jun 21 14:26 proc
+
+...
+
+-rw-r--r--   1 root     root       404717 Mar 12 18:06 vmlinuz
+226 Transfer complete.
+
+con lo que usuario tiene acceso a todo el sistema de ficheros... 
+
+ftp> get /etc/passwd
+226 Transfer complete.
+
+... con todo lo que ello comporta 
+
+ftp> bye
+221 Goodbye.
+thx:~#
+
+Esto es una pequeñisima demostracion de lo que puede hacerse, pensar solo que hemos cargado un 
+modulo del kernel, algo bastante grave para la integridad de nuestro sistema...
+No costaria nada crear un modulo que modifique ficheros, cambie permisos, etc, pero eso ya lo 
+dejo para vosotros :) ( o al menos para los que no leais el codigo ;) ) 
+
+Solucion
+
+Bueno, supongo que ya habran visto que la solucion es trivial, poner de propietario del home 
+directory del usuario al superusuario, y restringir los permisos, p.e.: 
+
+ilm:~$ ls -ula /home/usuario
+total 5
+drwxr-xr-x   6 root     root         1024 Jun 21 11:26 ./
+drwxr-xr-x   8 root     root         1024 Jun 21 11:26 ../
+d--x--x--x   2 root     root         1024 Jun 21 11:26 bin/
+drwxr-xr-x   2 root     root         1024 Jun 21 11:26 etc/
+drwxr-xr-x   2 usuario  users        1024 Jun 21 11:26 home/
+ilm:~$
+
+Conclusion
+
+Este no es un fallo generico del servidor FTP, sino mas bien un error nada raro de configuracion,
+si ya tenian todo correcto, al menos espero que los haya entretenido :) 
+
+--------------------------------------------(·)--------------------------------------------------
+
+/016. Noticias
+
+Hola, mi nombre es _C[at]AR[ci]-^d^- (cat para los amigos :)) y soy el nuevo integrante de esta 
+grandiosa zine :). Gracias POS por dejarme entrar (je).
+Bueno, yo me encargare de mantenerlos informados sobre lo que esta ocurriendo en el mundo de la 
+informatica (no les molesta esa palabra :(), mientras ustedes estan aprendiendo de la mano de los
+demas integrantes el maravilloso arte del hacking >:).
+Las noticias que encuentres seguro la encontraras en la red, ya que fueron extraidas de un servi-
+cio de noticias de una muy buena empresa llamada Clarin (servicio via mail, asi que son las mas
+recientes). Para aquellos que digan o piensen que soy un chorro o un ladron les digo, que no es 
+delito fomentar la informacion, al contrario la informacion es poder, lo malo no es poder acceder
+a ella... Mis comentarios que son pocos se encuentran en [] en las noticias (para que no sean tan
+aburridas :). Bueno, a leer nomas...
+
+Uff, que largo no?.  ;)
+
+NOTICAS del Lunes, 01 de Marzo de 1999
+
+SURGEN CUESTIONAMIENTOS SOBRE EL NUEVO PENTIUM III
+
+Dos grupos defensores de los derechos de privacidad solicitaron la intervención del gobierno 
+federal de los Estados Unidos para que detenga la distribución de los nuevos chips Pentium III 
+de Intel por problemas relacionados, justamente, con la privacidad [ que raro no ?]. The Center
+of Democracy and Technology (CDT) y la Privacy Rights Clearing House presentaron su solicitud en
+forma oficial el viernes último ante la Comisión Federal de Comercio (FTC). En la misma, solici-
+tan a la FTC que suspenda inmediatamente la distribución del chip y que comience una investiga-
+ción en Intel por llevar adelante "prácticas comerciales desleales y engañosas", según se citaba 
+en la presentación [ pobres los que ya lo habian comprado...]. Asimismo, también solicitan que se
+detenga la distribución de los sistemas basados en el nuevo procesador a menos que el número de 
+serie sea desconectado en forma segura. La CDT manifestó que recientes revelaciones sobre lo 
+sencillo que resulta acceder al número de serie hace que el mecanismo de seguridad del chip de 
+Intel sea cuestionable. Y justamente el viernes, importantes fabricantes de PC entre los que 
+figuran IBM, Dell, Hewlett-Packard, y Gateway, comenzaron a vender sistemas con el nuevo proce-
+sador [ja, eso les pasa por hacerle la contra a AMD :)]. En la presentación, ambos grupos también
+argumentan que Intel engañó a los consumidores al hacerles creer que el número de serie del chip,
+o PSN, era un dispositivo seguro, cuando en realidad no advirtió que por el mecanismo de seguri-
+dad en cuestión podría verse perjudicada su privacidad al trabajar en Internet. 
+http://www.wired.com/news/news/politics/story/18152.html
+
+
+MICROSOFT ABRIO SU NEGOCIO ONLINE [ NOOOO!, porke a nosotros ???]
+
+En una maniobra que puede ponerle presión a los revendedores y minoristas que operan a través de
+la red, Microsoft lanzó un negocio online para comercializar sus propios productos. El site, 
+llamado Shop.Microsoft.com, [ apuntenlo en su lista de hack.. ] ofrece descripciones y precios 
+de populares productos como el Encarta Africana, el Office 97, o el Flight Simulator. De acuerdo
+al mecanismo de venta dispuesto por la empresa, los consumidores hacen llegar sus pedidos a Micro-
+soft, aunque deben elegir uno de los representantes de venta de la compañía de Bill Gates para 
+que éste se encargue de la entrega a domicilio. El lanzamiento de Shop.Microsoft llega en momen-
+tos en que compañías como Compaq Computer y Hewlett-Packard recomendaron a los comercios minoris-
+tas que vendan sus productos a los clientes directamente a través de sus páginas web. La decisión
+de Microsoft también se relaciona con que el software es uno de los artículos más elegido por los
+consumidores a la hora de realizar compras online, e incluso un reciente estudio dado a conocer
+por Jupiter Research predijo que para el 2002 el 35 por ciento de todas las ventas de software se
+harán en forma online. A su vez, el flamante negocio de Microsoft le permitirá a la empresa mos-
+trar las capacidades para el comercio electrónico de algunos de sus productos comerciales como, 
+por ejemplo, el Windows NT.
+http://www.wired.com/news/news/business/story/18144.html
+[ Billy Puertas, dejate de joder ya, estas podrido en guita y todavia nos seguis jodiendo... :(]
+
+
+FREE-PC YA SUMA UN MILLON DE ASPIRANTES
+
+Con una gran demanda registrada durante la primera semana en la que se lanzó la promoción, 
+Free-PC manifestó el viernes que ya recibió más de un millón de solicitudes de personas que están 
+dispuestas a revelar sus datos personales a cambio de recibir una computadora personal en forma 
+gratuita. [ eso me gusta... :)]
+La demanda superó ampliamente las expectativas de la empresa, la cual en un principió puso a 
+disposición 10 mil máquinas a quienes revelaran información personal [ informacion personal ?, ni
+por una computadora (o si..)]. El sistema de Free-PC, una subsidiaria de Idealab, se basa en ofre-
+cer PCs a cambio de datos personales para que los usuarios puedan recibir avisos orientados exclu-
+sivamente a sus preferencias a través del correo electrónico. Cuando Free-PC recolecta la infor-
+mación de los consumidores se la hace llegar a sus anunciantes y sponsors, los cuales preparan 
+las publicidades y las envían a los ordenadores de los usuarios quienes, al encender las máquinas,
+las reciben en sus desktops. De acuerdo a lo manifestado por la empresa, Free-PC espera empezar a
+distribuir las computadoras durante el segundo trimestre del año, seguramente entre mayo y junio.
+Al mismo tiempo, la compañía informó que para elegir los 10 mil usuarios que recibirán sus máqui-
+nas entre el millón de aspirantes no se utilizará un sistema de lotería o basado en la suerte. 
+Los afortunados serán determinados de acuerdo a cuales son los primeros anunciantes a los que 
+Free-PC quiere acceder.
+http://www.news.com/News/Item/0,4,32983,00.html?st.ne.ni.lh
+
+
+***Espero que les hayan gustado las noticias, no olvideD que puedes contactarte conmigo en el 
+irc (irc.ciudad.com.ar) en el canal #Hackers_del_irc o por mail a catarcid@coreoweb.com. Ah, no 
+se gasten en decirme que mi nick es horrible, infantil, de winusers, de lamer, de estupido, etc...
+ya me lo dijieron en un canal amigo (xxxx.ar jaajjajaja POSEIDON me prohibe los chivos) :).
+C h a o..
+_[][]-^^- _C[at]AR[ci]-^d^-
+" La curiosidad mato al gato... PERO ESTE REVIVIO DE LA SATISFACCION :)"
+
+NOTA: para aquellos que dijieron que esta zine es un porkeria, ke es muy basica, ke es de lamer,
+etc. les pregunto una cosa: CUANDO ERAN NOVATOS QUE ZINE LEIAN ???, LA CRITICARIAN TANTO COMO LO
+ESTAN HACIENDO CON ESTA ??, O ACASO NO EXISTIAN LAS ZINE EN SUS TIEMPOS ???.
+
+Chau y gracias por darme esta oportunidad...
+
+--------------------------------------------(·)--------------------------------------------------
+
+/017. Club Manga y Anime
+
+
+Bueno el guacho de Zor[k]orZ se jue de vacasiones a mexico asi q no va a estar aka para
+haces esta seccion ya q el es el encargado de esa parte de la e-zine, como yo no tengo la
+mas put.. de esto no la hare para no poner cualkier cosa, asi q hasta el proximo numero.
+
+KE ESTES DIFRUTANDO TUS VACIONESSSSSS!!!!!!!! Zor[k]orZ
+Y no te olvides de traer alguna mexicanita para aka.
+
+--------------------------------------------(·)--------------------------------------------------
+
+/018. Links
+
+Estamos nuevamente en esta seccion donde seleccionamos los mejores links q hemos encontrado
+por ahi. Basta de parloteo y vamos al grano:
+
+LINKS:
+
+01- http://members.xoom.com/Zaphod99/index2.htm 
+
+Este fue el q se dijo en la seccion programaz
+
+02- http://www.ultimate-photoshop.com/tips/scans/
+
+Este sitio contiene diferentes recursos sobre Photoshop pero lo mas destacable es la recopilacion
+de enlaces a cada una de las tecnicas y trucos sobre el programa. Si ha dedicado un tiempo a reco-
+rrer la web buscado cosas de estas (lecciones paso a paso que ilustran como hacer algo en 
+Photoshop) tal vez tenga la impresion de existe mucha informacion de este tipo...pero es falso
+(bueno esto depende de lo que cada uno considere como abundante, desde luego) En cualquier caso 
+ver casi toda ella recopilada le permitira (creo) darse cuenta que no hay tanto...
+
+03- http://www.ciudadfutura.com/photoshop
+
+He dicho yo que no hay tanto como parece sobre Photoshop ? Pues en castellano y bueno, menos. 
+Pero ahora hay una gran pagina (es nueva, al menos para mi) en castellano. Con todo tipo de
+tecnicas bien explicadas y algunas originales que no podra encontrar en ningun otro sitio. 
+Fantastica pagina (si esta intereseado en el tema)
+
+En cualquier caso este sitio le ahorrara un monton de tiempo y le permitira ir al grano.
+
+04- http://search.warez.com/index.shtml
+
+La competencia de Astalavista. Probablemente no sea mejor, pero es una buena alternativa. Y ha 
+mejorado bastante en cuanto a cantidad y calidad de resultados devueltos. Asi pues... si esta 
+buscando un crack... y no lo encuentra...puede probar aqui tambien.
+
+05- http://vbwire.com/
+    http://vbwire.com/index.html?vid=32&a=4
+
+Posiblemente el mejor sitio para estar al dia sobre el mundo Visual Basic. En solo unas pocas 
+paginas actualizadas constantemente, tendra de un vistazo el mejor resumen sobre nuevos componen-
+tes, actualizaciones, articulos de prensa, libros, nuevos sitios web y un largisimo etc.
+Tambien un boletin electronico enviado semanalmente con el resumen de las noticias mas importan-
+tes.
+
+
+*** Nota del editor: El put... notepad no me da mas memoria asi q esto se parira nuevamente.
+
+NOS VEMOS!!!!!! (tecno-zine3-4.txt)
+
+

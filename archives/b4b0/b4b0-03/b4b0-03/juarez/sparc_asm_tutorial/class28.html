@@ -1,0 +1,447 @@
+<HTML>
+<HEAD>
+</HEAD>
+<BODY bgcolor=#FFFFFF HEIGHT=100 WIDTH=89 TEXT=#000000 LINK=#0000FF VLINK=#FF0000>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<A NAME="section-1"><H1>CLASS 28</H1></A>
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+
+<center>
+<H2>Floating Point</H2>
+</center>
+
+
+So far we have deferred the discussion of floating point.  That's
+because it's so important.  We'll discuss it at some length now.
+ <P>
+
+Integers are a great thing, but they have some limitations.  The two
+main limitations that they have are:
+<UL>
+<LI> they can't represent fractional quantities
+<LI> they have a limited range: +/- about 2 billion - clearly not
+                large enough for many tasks.
+</UL>
+
+We'll first talk about how to address the fractional-quantity issue.
+ <P>
+
+If we want to represent fractions, we could do so just like we do in the
+decimal system: include places with values less than 1.  We do this by
+introducing a <B>binary point</B> (just like a decimal point) and then
+numbering positions to the right of the binary point with negative
+exponents:
+<PRE>
+                           binary point
+                                v
+        |  |  |  |  |  |  |  |  |  |  |  |
+                                ^
+          7  6  5  4  3  2  1  0 -1 -2 -3
+         2  2  2  2  2  2  2  2  2  2  2
+</PRE>
+
+
+Now we can represent, eg, 2.5 as 
+<PRE>
+
+        10.1 - which is (1 * 2) + (1 * 1/2).
+
+</PRE>
+ <P>
+
+The nice thing is that we can still store these numbers as integers --
+we just change the way they are interpreted on input and output.
+Numbers which are stored internally as integers, but are given a given a
+binary point for input and output, are called <I>fixed point</I> numbers.
+They are fixed point because we assume that the binary point is fixed at
+some position. 
+ <P>
+
+For example, we could have a 32-bit fixed-point representation in which the
+binary point was to the right of bit number 1:
+<PRE>
+        000000000000000000000000000000.0
+</PRE>
+or we could have a fixed-point representation in which we assumed the
+binary point was to the left of bit number 31:
+<PRE>
+        .0000000000000000000000000000000
+
+</PRE>
+What are we giving up by getting the ability to repesent fractions?  We
+are giving up range.  For example, in the last case, we can only
+repesent quantities between zero and one.  In fact, if the binary point
+is the right of bit number B, then we can represent (using unsigned
+representation) the numbers 0 to 2^(32-B).  To interpret any bit
+pattern, just take its value as an unsigned integer and divide it by
+2^B.  So one way to think of a fixed-point number is an integer times
+some negative power of two:
+<PRE>
+
+                     -B 
+                A * 2
+</PRE>
+
+How is arithmetic done with fixed-point quantities?  Addition is
+straightforward - you can simply add the two bit patterns as integers
+and the result has the binary point in the same place.   However,
+multiplication is more tricky.  Consider:
+<PRE>
+        x * 2^(-B)  *   y * 2^(-B)   =   xy * 2^(-2*B)
+</PRE>
+
+which means that the binary point is now at position 2B, rather than
+position B as before.  Here is an example.  Using a fixed-point
+representation in which the binary point is to the right of bit number
+one, multiply 3.5 by 2.5:
+
+<PRE>
+        11.1  = 3.5  (note that 111 = 7, and 3.5 = 7/2)
+        10.1  = 2.5  (note that 101 = 5, and 2.5 = 5/2)
+
+</PRE>
+
+Now, multiplying 111 by 101, we get 100011, so the binary point needs to
+go at position 2 - 1000.11 - to give the right answer of 8.75.
+
+
+<hr>
+<center>
+<H2>Renormalization</H2>
+</center>
+
+Putting the binary point in position two changes our encoding, though,
+so we need to shift the result one place to the right to get the binary
+point back in the right place:
+
+<PRE>
+        01000.1
+</PRE>
+
+This is called <I>renormalization</I> - putting the result of a calculation
+into the form expected for storage.  
+ <P>
+
+So the result we get is actually 1000.1, which is 8.5 - an error of
+0.25.   This occurs because with only one place to the right of the
+binary point, we can only represent 8.5 or 9.0 -- nothing in between.
+ <P>
+
+Some terms: 
+<UL>
+<LI> <b>Precision</b> = the number of binary digits that can be represented.
+In a fixed point representation using 32 bit integers, this is always
+32. 
+<LI> <b>ULPs</b> = units in the last place.   This is the smallest difference
+between any two numbers.
+<LI> <b>Accuracy</b> = whether the number represents what we intend it to.  The
+opposite of error.
+</UL>
+
+
+Note that our representations may not be accurate for a number of
+reasons:
+<UL>
+<LI> the true number may not be representable in a finite 
+                amount of binary digits, e.g., the number 0.1, which
+                in binary is .000110011001100...
+<LI> the true number may not be representable in a finite number
+                of digits in ANY base, e.g., irrational numbers
+<LI> the true number may not be known; all we have is a measurement
+<LI> the true number may be known but the representation is
+                incorrect -- eg., the result of an incorrect calculation.
+</UL>
+
+Now we return to support for a wide range of values as well as
+fractional values.    
+ <P>
+
+Clearly representing numbers as different as 10^23 and 10^-23 using
+place value is very expensive - we'd need a lot of bits.   So we take a
+lesson from the way scientists and engineers represent numbers -
+scientific notation.   In scientific notation we represent a number as
+ <P>
+<PRE><B>
+                          exponent
+        significand * base   </B>
+</PRE>
+
+
+Since the exponent is a much smaller number than is the number itself,
+we save a lot of storage this way.   In all floating point
+representations, the base is fixed (almost always it is 2) so we don't
+need to store the base either.
+ <P>
+
+Thus, another definition of precision would be: the number of digits
+in the significand. 
+ <P>
+
+To completely specify a floating point representation, we need four
+numbers: the <b>base (B)</b>, the <b>precision (p)</b>, <b>e-min</b>, and 
+<b>e-max</b> (smallest and largest exponents).
+ <P>
+
+Floating point representations are by nature <EM>inexact</EM>.  There are two
+reasons for this inexactness:
+
+<OL>
+<LI> A real number may lie in between two floating point representations;  
+
+<LI> A real number may be larger that the largest or smaller than the 
+     smallest f.p. representation.
+</OL>
+
+ <P>
+Many representations could be used for the same number:
+<PRE>
+        3.00 * 10^2 
+        0.30 * 10^3
+        0.03 * 10^4
+</PRE>
+all of these encode the number 300.  However, it is a bad thing to have
+multiple representations for the same number, because of equality
+comparisons.   We want each number to have only one representation so
+that we can compare for equality simply by comparing bit patterns.  
+ <P>
+
+For this reason we define what is called <EM>normalized</EM> form for a
+f.p. number.  A number is in <b>normalized form if its leftmost digit is
+non-zero</b> (of course in binary this means that the leftmost digit is 1).
+Normalized form allows our f.p. representations to be unique.
+ <P>
+
+Of course, this makes it impossible to represent zero, so we define zero
+as a special case.   We use the exponent (e-min - 1) to signify that the
+number is zero.  This is a good choice, since it will be smaller than
+any number and so won't need special treatment during comparisons.  Of
+course it will need special treatment during arithmetic -- if the
+exponent is equal to e-min - 1 the number has to be treated as if it
+were zero.
+ <P>
+
+<hr>
+<P>
+<h2>Floating Point Addition</h2>
+
+How is addition performed in a floating point system?  Remember that
+fp is just the combination of a fixed point representation with an base
+and exponent.  Addition and Subtraction:
+<PRE>
+        1) Bring significands into alignment (same exponent)
+        2) Do fixed-point (ie integer) addition / subtraction
+        3) Do floating-point normalization 
+</PRE>
+
+Examples.
+<PRE>
+        x = 2.15 * 10^12 =   2.15                  * 10^12
+      - y = 1.25 * 10^-5 = - 0.0000000000000000125 * 10^12
+                           -------------------------------
+                             2.1499999999999999875 * 10^12
+</PRE>
+
+which, when normalized, yields 2.15 * 10^12.
+ <P>
+
+Another example:
+<PRE>
+        x = 2.15 * 10^12 =   2.15                  * 10^12
+      - y = 1.25 * 10^12 = - 1.25                  * 10^12
+                           -------------------------------
+                             0.90                  * 10^12
+</PRE>
+
+which, when normalized, yields 9.00 * 10^11.
+ <P>
+
+<H3>Calculation Error</H3>
+
+Now, how about the case of 10.1 - 9.93?   This is
+<PRE>
+        x = 1.01 * 10^1
+      - y = 0.99 * 10^1
+        ---------------
+    x - y = 0.02 * 10^1
+</PRE>
+
+which, when normalized, is 2.00 * 10^-1.   However, the true (accurate)
+answer is 1.70 * 10^-1.  Our calculated answer is off by 30 ulps, and 
+is wrong in every position!
+ <P>
+
+What happened -- well, notice that when we aligned the significands, we
+were forced to drop a digit from the representation of y.  We lost an
+important digit, because x and y are very close in value, so they only
+differ significantly in the last digits.   
+ <P>
+
+<hr>
+<center>
+<H2>Floating Point Numbers on the SPARC</H2>
+</center>
+
+Because fp operations are so complicated, designers usually set aside a
+special piece of hardware, outside the CPU, to do fp calculations.  It
+is called the Floating Point Unit (FPU). This allows the CPU to run
+faster as long as it is performing non-fp operations.  Communication
+between the CPU and FPU is by means of special fp registers, that are
+contained in the FPU but can be written and read by the CPU.
+ <P>
+
+When the CPU fetches an fp instruction, it simply passes it to the FPU
+for execution.  Most fp instructions take longer than a single cycle, so
+the CPU goes on ahead and fetches and executes subsequent instructions
+while the FPU is working.
+ <P>
+
+This is called <EM>instruction-level parallelism</EM>.  The CPU and the
+FPU can be working in parallel (that is, simultaneously) on different
+instructions.
+ <P>
+
+Now, what happens if we try to load from a register but the FPU isn't
+done yet, so the register doesn't have the value we expect?  The FPU
+marks a register as invalid as soon as it is known to be the destination
+of an instruction.  If the CPU tries to store from that register, it
+stalls (simply waits) until the FPU clears the invalid flag.  So the
+programmer needn't worry about getting the correct data, but the program
+might run slowly without the programmer being able to tell why.
+ <P>
+
+The FPU can also compare fp numbers.  It has its own set of condition
+codes, and the CPU can test those fp condition codes by means of special
+conditional branches, called floating-point branch instructions.
+ <P>
+
+The FPU has 32 registers, %f0 through %f31.  There are no register
+windows in the FPU.  To access the registers, use the regular load and store
+instructions: ld and st.  So we could write code such as:
+<PRE>
+        ld      [%fp + 64], %f2
+        set     var_m, %o0
+        st      %f0, [%o0]
+</PRE>
+
+There are <b>single, double, and extended precision fp ops</b>.  We will just
+cover the single precision ops:
+<PRE>
+        fadds
+        fsubs   
+        fmuls
+        fdivs
+        fsqrts          
+        fmovs           moves data between fp registers
+        fnegs           negate
+        fabss           absolute value  
+        fitos           integer to single float
+        fstoi           single float to integer
+        fcmps           compare
+</PRE>
+
+There is an additional case to consider for comparisons.  Suppose one of
+the operands is NaN.  Then, we cannot establish an ordering, so there is
+an <EM>unordered</EM> case as well as a less than, equal, and greater than.
+ <P>
+
+<hr>
+<center>
+<H2>Final Remarks on Floating Point</H2>
+</center>
+
+ANSI C defines <CODE>float</CODE>, <CODE>double</CODE>, and 
+<CODE>long double</CODE>.  There is not 
+guaranteed to be any relationship between these and the types defined in
+IEEE 754, because computers with C compilers may not necessarily support
+IEEE 754.  However, on the SPARC, the correspondence is as follows:
+<PRE>
+        ANSI C          IEEE 754
+        ------          --------
+        float           single precision
+        double          double precision
+        long double     extended precisiion
+</PRE>
+
+Here is an <b>example program that illustrates some floating point error
+issues</b>, using ANSI C.
+<PRE>
+#include &lt;math.h&gt;
+main()
+{
+     float f;
+     long double d;
+     
+     float pi = 3.14159265358979323846f;
+     double dpi = 3.14159265358979323846;
+     long double ldpi = 3.14159265358979323846L;
+
+     printf("        actual = 3.14159265358979323846\n");
+     printf("      float pi = %.7f\n", pi);
+     printf("     double pi = %.16f\n", dpi);
+     printf("long double pi = %.35Lf\n", ldpi);
+     printf("\n");
+
+     printf("      float pi/10.0f = %.7f\n", pi/10.0f);
+     printf("     double pi/10.0  = %.16f\n", dpi/10.0);
+     printf("long double pi/10.0L = %.35Lf\n", ldpi/10.0L);
+     printf("\n");
+
+     printf("      float pi*0.1f  = %.7f\n", pi*0.1f);
+     printf("     double pi*0.1   = %.16f\n", dpi*0.1);
+     printf("long double pi*0.1L  = %.35Lf\n", ldpi*0.1L);
+     printf("\n");
+
+     d =  ldpi*0.1L - ldpi/10.0L;
+     printf("ldpi*0.1L - ldpi/10.0L = %.35Lg\n", d);
+}
+</PRE>
+
+<b>When we run this program on a SPARC machine, we get:</b>
+
+<PRE>
+        actual = 3.14159265358979323846
+      float pi = 3.1415927
+     double pi = 3.1415926535897931
+long double pi = 3.14159265358979323845999999999999997
+
+      float pi/10.0f = 0.3141593
+     double pi/10.0  = 0.3141592653589793
+long double pi/10.0L = 0.31415926535897932384599999999999998
+
+      float pi*0.1f  = 0.3141593
+     double pi*0.1   = 0.3141592653589793
+long double pi*0.1L  = 0.31415926535897932384600000000000003
+
+long double = 4.8148248609680896326399448564623183e-35
+</PRE>
+
+This example illustrates a number of points about IEEE 754 and ANSI C.
+First of all, the default type for a constant is <CODE>double</CODE>.  To get a
+<CODE>float</CODE> or a <CODE>long double</CODE> you need to use a suffix, 
+(f or L).   Second 
+there are <b>two kinds of rounding errors</b> shown: 
+<ol>
+<LI> the variable has less precision than the input, so it is accurate 
+     to within 1/2 ulp; 
+<li> the variable has more precision than the input, but can't express 
+     the input exactly.
+</ol>
+
+Finally, look at the final value calculated.  The true value should be
+zero, but due to the inaccuracy in representing 0.1, the calculated
+value is nonzero.  So the relative error is infinite, and the calculated
+value is wrong in every place.
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<H3>
+For class 29 notes, <A HREF="class29.html">click here</A>
+</H3>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<H3>
+For more information, contact me at <A HREF="mailto:tvohra@mtu.edu">tvohra@mtu.edu</A>
+</H3>
+
+</BODY>
+</HTML>

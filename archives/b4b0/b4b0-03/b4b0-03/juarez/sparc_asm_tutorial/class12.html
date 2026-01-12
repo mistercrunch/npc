@@ -1,0 +1,421 @@
+<HTML>
+<HEAD>
+</HEAD>
+<BODY  bgcolor=#FFFFFF HEIGHT=100 WIDTH=89 TEXT=#000000 LINK=#0000FF VLINK=#FF0000>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">                
+<A NAME="section-1"><H1>CLASS 12</H1></A>
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">                
+
+<center>
+<H2>
+Extended Precision Arithmetic
+</H2>
+</center>
+
+<P>
+<H3>
+Addition of larger numbers (say 96 bit numbers)
+</H3>
+
+Number stored in three registers (%l0, %l1, %l2), most significant 
+bits of the number stored in %l0.
+
+<P>
+Also, number to be added stored in three registers, %l3, %l4, %l5 
+with the most significant bit stored in %l3. 
+
+<P>
+<b>Special instructions:</b> addx, addxcc 
+
+<P>
+Similar to add and addcc, except that they add one to the answer 
+if the carry bit is set.
+
+<P>
+So now, the addition of the two large numbers (96 bits each) can be carried 
+out as:
+<PRE><B>
+addcc   %l2, %l5, %o2
+addxcc  %l1, %l4, %o1
+addx    %l0, %l3, %o0
+</B></PRE>
+
+<P>
+<br>
+<H3>
+Subtraction of larger numbers (say 96 bit numbers)
+</H3>
+
+<P>
+We again have to perform subtraction using the 2's complement method.
+
+<P>
+To find the 2's complement of the number to be subtracted 
+(stored in three registers %l3, %l4, %l5): 
+
+<PRE>
+not      %l5, %l5
+not      %l4, %l4
+not      %l3, %l3
+inccc    %l5           ! make it 2's complement
+addxcc   %l4, %g0, %l4 ! propogate carry
+addx     %l3, %g0, %l3 ! propogate carry
+
+Now perform normal addition of large numbers as shown :
+
+addcc    %l2, %l5, %o2 
+addxcc   %l1, %l4, %o1
+addx     %l0, %l3, %o0
+</PRE>
+
+<P>
+Another method of doing this is by making use of the 
+<B>subx and subxcc</B> intructions. They are same as the <b>sub and subcc</b> 
+instructions, but <b>subtract one more</b> if the carry bit C is set.
+<PRE><B>
+subcc   %l2, %l5, %o2 
+subxcc  %l1, %l4, %o1
+subx    %l0, %l3, %o0
+</B></PRE>
+
+<P>
+Similarly, we can have <b>multiplication and division of larger 
+numbers</b> also, but not using single instructions. The logic for extended
+precision multiplication and division is a lot more complicated, and 
+beyond the scope of this course. 
+
+<P>
+<PRE>
+e.g.  for AB x CD = EFGH
+                    A     B
+              x     C     D
+              ---------------
+                 BD    BD
+            BC   BC
+            AD   AD
+  +    AC   AC
+  -----------------------------
+       E    F    G     H
+</PRE>
+
+<hr>
+<P>
+
+<center>
+<H2>Memory!</H2>
+</center>
+
+As described earlier in the course, the CPU can only operate on values when they are
+in registers.  However, there are only 32 accessible registers, yet most
+programs use much more data than that.  So we need a storage facility
+that holds data when it is not currently being used by the CPU.  This
+storage is called <EM>memory</EM>.
+ <P>
+
+We have already discussed how memory is used by the CPU -- each memory
+location has an address, and the CPU performs "read" and "write"
+operations on the memory using these addresses.
+ <P>
+
+The SPARC architecture v. 7 (used on current machines) specifies
+addresses to be 32 bits long, so it can address 4GB of memory.
+Variables in memory can occupy 1, 2, 4, or 8 bytes; these are referred
+to as <b>bytes, halfwords, words</b>, and <b>doublewords</b>.  One can load or store
+any of these quantities from or into memory.  These correspond to the C
+data types <CODE>char, short, int</CODE>.  Doublewords are not supported
+by (our version of) C.
+ <P>
+
+<PRE>
+C data type           Sparc data type      Bits
+
+char                      byte              8
+short                     half             16
+int, long                 word             32
+</PRE>
+
+<P>
+In the SPARC architecture, memory addresses must be <b>aligned</b>.
+Halfwords must only be accessed on two-byte (even) boundaries.  Words
+must only be accessed on 4-byte (multiple of 4) boundaries.  Doublewords
+must only be accessed on 8-bytes boundaries.  This is for efficiency --
+at the hardware level, transfers are always in terms of words.
+ <P>
+
+The SPARC architecture is <EM><b>big endian</b></EM>, which orders bytes left
+to right, and preserves the proper semantics for string comparisions.
+The address of a halfword, word, or doubleword is the address of the
+smallest-numbered byte it contains.
+ <P>
+
+<hr>
+<center>
+<H2>The Stack</H2>
+</center>
+
+<b>LIFO (Last in First out)</b> data structure.
+
+<p>
+<b>Heap</b>: How is it different from the stack ????
+
+<P>
+How should we store C variables in memory?  There are basically two
+kinds of variables in C: <EM>static</EM> and <EM>automatic</EM>.  How to
+store static variables?  Just set the memory aside for the duration of
+the program's execution.  How about automatic variables?  Automatic
+variables come and go as subroutines are called and return.  For this
+sort of memory allocation pattern we use a <EM>stack.</EM>
+ <P>
+
+It's just traditional to start the program at the top of memory (low
+addrs) and the stack at the bottom of memory (high addrs).  The stack
+starts from <CODE>0xf8000000</CODE> and grows toward smaller values.
+Programs in the SPARC architecture start from <CODE>0x2000</CODE>.  How
+much space is set aside below the program and above the stack?  (16K
+below and 32M above)
+ <P>
+
+The stack is maintained using two pointers: the stack pointer
+(<CODE>%o6</CODE> or <CODE>%sp</CODE>) and the frame pointer
+(<CODE>%i6</CODE> or <CODE>%fp</CODE>).  The stack pointer always points
+to the lowest-numbered (that is, most recently pushed) item on the stack
+-- the <EM>top</EM> of the stack .  To put something on the stack, we subtract
+its size from the stack pointer, then use the memory pointed to by the
+new <CODE>%sp</CODE>.  To get space for a new <b>doubleword</b> on the stack, we:
+<PRE>
+	sub %sp, 8, %sp 
+</PRE> 
+and then use the memory pointed to be <CODE>%sp</CODE>.  The stack is
+always <b>kept doubleword aligned</b>.  So we always modify <CODE>%sp</CODE> in
+multiples of 8.  If we want 94 bytes we instead ask for 96 and just
+ignore the unused 2 bytes.
+ <P>
+
+<P>
+So if we need 30 bytes, we have to allocate 32 bytes (always a
+multiple of 8).  The number can be made a multiple of 8 by chopping the last
+three bits. But this does not serve our purpose. <B>Why??</B>
+
+<p>
+Below, we have the results of chopping the last three bits: 
+<PRE>
+31 = 011111      011000 = 24
+23 = 010111      010000 = 16 , and so on
+</PRE>
+
+The trick we use to do this is to <EM>add</EM> a <EM>truncated</EM> negative 
+number to the
+stack pointer.  Truncating a negative number always gives a smaller (or
+equal) number.  Adding a smaller number is the same as subtracting a
+larger number, so enough stack space is always allocated.  To truncate,
+we clear the low 3 bits of the number.  For example, -1 truncated is -8,
+-8 truncated is -8,  -9 trucated is -16.  Usually we know as we're
+writing the program how much space we want to allocate.  So we can
+calculate this using the assembler:
+<PRE>
+	add %sp, -94 & 0xfffffff8, %sp
+</PRE>
+or
+<PRE>
+	add %sp, -94 & -8, %sp
+</PRE>
+The result is to subtract 96 from the stack pointer. So the previous instruction
+is the same as: 
+<PRE>
+	add %sp, -96, %sp
+</PRE>
+
+Another example is shown below. In this case, we need 31 bytes, so we should 
+be subtracting 32 instead. This is done as follows: 
+
+<PRE>
+	add %sp, -31 & -8, %sp
+
+31 =  011111               -31 = 100001
+8  =  000100               - 8 = 111100
+
+  31                       1 0 0 0 0 1
+&amp; -8                       1 1 1 0 0 0
+----------------------------------------
+  32                       1 0 0 0 0 0
+</PRE>
+<P>
+
+<hr>
+<H3>The Frame Pointer</H3>
+
+We tend to allocate space on the stack in big chunks, for example when
+we enter a subroutine or at the beginning of a program.  However, within
+a subroutine we could push a lot of stuff on the stack, too.  So, we
+need a way to "throw it all away" when the subroutine exits.  Hence the
+frame pointer, <CODE>%i6</CODE> or <CODE>%fp</CODE>.  Every time we
+start a program or enter a subroutine we need to copy the
+<CODE>%sp</CODE> to the <CODE>%fp</CODE>.  Then when we leave the
+subroutine, we simply copy the <CODE>%fp</CODE> to the <CODE>%sp</CODE>
+and, whoosh, it's all gone.   
+ <P>
+
+Now, here's the trick: note that <CODE>%sp</CODE> is really
+<CODE>%o6</CODE> and <CODE>%fp</CODE> is really <CODE>%i6.</CODE>
+Remember that when the <CODE>save</CODE> instruction is executed, the
+CWP is decremented, which renames all of the "o" registers to "i"
+registers.   So, when <CODE>save</CODE> is executed, the stack pointer
+becomes the frame pointer automatically.
+ <P>
+
+Because we want to allocate space on the stack whenever a subroutine is
+called, the save instruction has another feature: it performs an
+addition, which is always used (with a negative value) to decrease the
+stack pointer.    Thus, the <CODE>save</CODE> instruction does two things:
+<UL>
+<LI> First, decrement the CWP (in the process, renaming <CODE>%sp</CODE>
+to <CODE>%fp</CODE>);
+<LI> Then, add something (negative, always) to the old <TT>%sp</TT> yielding the
+new <TT>%sp.</TT>
+</UL>
+
+Whenever we enter a subroutine, we also need to set aside space on the
+stack for 8 of the registers -- so we always "save" 64 bytes more than
+the amount of local storage we need.   So if the subroutine being
+entered has no local variables, we would code the <CODE>save</CODE>
+instruction as
+<PRE>
+	save %sp, -64, %sp
+</PRE>
+
+If the subroutine does have local (automatic) variables, we need to set
+aside even more space on the stack.
+For example, if we wanted to store five integers on the stack at the
+start of the program, we would code:
+<PRE>
+	save %sp, (-64 - (5 * 4)) & -8, %sp
+</PRE>
+
+Note that the constant will be calculated by the assembler, and the
+resulting number (-88) is what will be used in the immediate field of
+the instruction.
+ <P>
+
+<hr>
+<H3>Addressing Stack Variables</H3>
+
+<B>Loads and Stores.</B> here is a load/store pair for each data size (byte,
+halfword, word, and doubleword).
+
+<P>
+<B>bytes :</B> can be loaded or stored anywhere<BR>
+<B>half words :</B> can only be loaded to or stored into addresses divisible by 2.<BR>
+<B>words :</B> can only be loaded to or stored into addresses divisible by 4<BR>
+<B>double words :</B> can only be loaded to or stored into addresses divisible by 8
+<P>
+
+<STRONG>LOAD INSTRUCTIONS:</STRONG><BR>
+<PRE>
+ldsb  - load signed byte, propagate sign left.
+ldub  - load unsigned byte, clear higher 24 bits
+ldsh  - load signed half word, propogate sign left
+lduh  - load unsigned half word, clear higher 16 bits
+ld    - load word
+ldd   - load double, register number should be even, four bytes into n, 
+	next four into n+1
+</PRE>
+
+<P>
+The format for all these instructions is:
+<P>
+<PRE>
+<b>ld..  [%fp - number],  register</b> <BR>
+e.g.   ld    [%fp - 4],  %l1
+       ldub  [%fp - 5],  %l2
+       ldsh  [%fp - 8],  %l3
+       ldd   [%fp - 16], %l5  ! illegal, why???????
+</PRE>
+
+<P>
+<br>
+<STRONG>STORE INSTRUCTIONS</STRONG><BR>
+<PRE>
+stb - store low byte of register (0-7) into memory
+sth - store low two bytes of register (0-15) into memory
+st  - store register
+std - store double register, register number should be even, first
+      four bytes from register n, next four from register n + 1.
+</PRE>
+
+<P>
+The format for all these instructions is :
+<P>
+<PRE>
+<b>st..  register, [%fp - number]</b> <br>
+e.g.  st  %l1,  [%fp - 4]
+      sth %l2,  [%fp - 6]
+      stb %l3,  [%fp - 7]
+      sth %l4,  [%fp - 9] ! illegal, why????
+</PRE>
+
+<P>
+<b>Why do we need signed & unsigned versions of ldb and ldh?</b> <br>
+<b>Answer:</b> sign extension. Remember that the register may not 
+be the same size as the
+item being moved to or from memory. In the case of a store, this
+doesn't matter too much; we simply store only the low-order byte or
+bytes from the register (in the case of <CODE>stb</CODE> and
+<CODE>sth</CODE>). However in the case of a load, we may want to
+perform sign extension. Sign extension is necessary if we have, say,
+an 8-bit signed number stored in a memory byte. If we want to operate
+on the number in a register, we have to convert it from an 8-bit
+representation to a 32-bit representation (since all operations are on
+registers, and registers are 32 bits wide). To convert an 8 bit number
+to a 32 bit number, we need to extend the sign bit from the 8 bit number
+to fill up the high 24 bits of the 32 bit number.
+ <P>
+
+For each instruction, the <b>pointer is enclosed in square brackets</b>.  
+The pointer may be a <b>register, register plus a constant</b>, or <b>two
+registers</b> added together. 
+ <P>
+
+So the following are <b>legal</b>:
+<PRE>
+	ld [%g1], 	%l0
+	ld [%fp - 4], 	%l1
+	ld [%l0 + %l1],	%l2
+
+</PRE>
+and
+<PRE>
+	st %l0,		[%g1]
+	st %l1		[%fp - 4]
+	st %l2,		[%l0 + %l1]
+</PRE>
+
+But the following are <b>illegal</b>: 
+<PRE>
+	st %l0,		[%g1 + 3 + 6]
+	st %l1		[%fp - 4 + 15]
+	st %l2,		[%l0 + %l1 + %l3]
+</PRE>
+
+Why?? Well, because that is too much work to be done in one clock cycle,
+or to be encoded as one instruction. 
+
+ <P>
+The constant is <b>signed two's complement in 13 bits</b>.  In fact, for all
+<B>format 3 instructions</b> (discussed later), if the immediate mode is used 
+for the second argument, the constant is 13 bits.  The makes it 
+<b>-4096 <= c <= 4095</b>.
+ <P>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<H3>
+For class 13 notes, <A HREF="class13.html">click here</A>
+</H3>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<H3>
+For more information, contact me at <A HREF="mailto:tvohra@mtu.edu">tvohra@mtu.edu</A>
+</H3>
+
+</BODY>
+</HTML>

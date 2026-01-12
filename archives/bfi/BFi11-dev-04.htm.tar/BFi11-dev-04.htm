@@ -1,0 +1,1145 @@
+==============================================================================
+--------------------[ BFi11-dev - file 04 - 17/01/2002 ]----------------------
+==============================================================================
+
+
+-[ DiSCLAiMER ]---------------------------------------------------------------
+        Tutto il materiale contenuto in BFi ha fini eslusivamente informativi
+        ed educativi. Gli autori di BFi non si riterranno in alcun modo
+        responsabili per danni perpetrati a cose o persone causati dall'uso
+        di codice, programmi, informazioni, tecniche contenuti all'interno
+        della rivista.
+        BFi e' libero e autonomo mezzo di espressione; come noi autori siamo
+        liberi di scrivere BFi, tu sei libero di continuare a leggere oppure
+        di fermarti qui. Pertanto, se ti ritieni offeso dai temi trattati
+        e/o dal modo in cui lo sono, * interrompi immediatamente la lettura
+        e cancella questi file dal tuo computer * . Proseguendo tu, lettore,
+        ti assumi ogni genere di responsabilita` per l'uso che farai delle
+        informazioni contenute in BFi.
+        Si vieta il posting di BFi in newsgroup e la diffusione di *parti*
+        della rivista: distribuite BFi nella sua forma integrale ed originale.
+------------------------------------------------------------------------------
+
+
+-[ MiSCELLANE0US ]------------------------------------------------------------
+---[ DRiVERS E SEH iN WiN NT/2000
+-----[ valv`0 <valvoline@s0ftpj.org>
+
+
+	  ---[ un okkio ai drivers ed il SEH in Win NT/2000 ]---
+	  ---[       valv`0 <valvoline@s0ftpj.org>          ]---
+
+
+.Introduzione.
+<---------------------------------------------------------------------------->
+I drivers di windows NT, che manipolano direttamente  indirizzi  "modo-utente"
+oppure  che chiamano funzioni che possono causare  un exception, devono  poter
+gestire le eccezioni possibili. Win NT,  insieme  a  Visual C/C++, fornisce un
+meccanismo  conosciuto  come  SEH  o Structured Exception Handling per  farlo.
+In quest'articolo, provero`  a dare le basi e ad analizzare quello che si deve
+e NON DEVE!  fare  nella  costruzione  di un buon driver per  Windows NT/2000.
+Molti di  voi staranno  pensando: "che palle,  il solito articolo  prettamente 
+tecnico,  dove  non  si capira`  niente."  Beh,  forse  sara` pure vero, ma vi
+ricordo  che  con  l'avvento  di  win2000/XP  oramai  tutto  il  grosso  viene 
+svolto  a livello Kernel/Driver; quindi una  buona conoscenza del  sistema  e`
+alla  base di una buona analisi  e gestione coscenziosa di una macchina Win di
+livello avanzato. Quindi rimbocchiamoci le mani e cominciamo subito.
+
+
+.I Drivers e le Exceptions.
+<---------------------------------------------------------------------------->
+I  drivers  che  non  gestiscono le  exceptions ( o  che  le gestiscono male)
+causano  un  arresto  del  sistema  operativo, con  il  familiare messaggio di
+errore: KMODE_EXCEPTION_NOT_HANDLED. Normalmente,  questo  e' indicativo di un
+driver  che  sta` accedendo  un indirizzo  utente  invalido. Ovviamente, se il 
+driver utilizza un sistema Structured Exception Handling (da qui in poi: SEH),
+l'exception  dovrebbe  essere gestita ed il sistema non generera` il messaggio
+di errore.
+ 
+Visual C  utilizza le keywords __try ed __except per implementare SEH. Qquando
+si  costruiscono  drivers  per  win NT,  l'ambiente  di  sviluppo  fornisce le
+definizioni per "try" ed "except". Queste keywords abbreviate  possono  essere
+usate in programmi C,ma non possono essere usate in programmi C++: dal momento
+che il meccanismo di gestione delle eccezioni di C++  non  e` compatibile  con
+il  gestore  di  eccezioni  del  sistema  operativo, non e' possibile usare le 
+keyword "try" ed "except" con drivers modo kernel.
+ 
+E` da notare che il  modello SEH che descriviamo qui, non deve essere confuso
+con  il  modello  di  terminazione  dei  processi. Sfortunatamente, e`  facile
+confoderli. Il gestore  di  terminazione  usa la keyword "__try" per indicare 
+l'inizio di un blocco di terminazione  e  la keyword "__finally" per indicare
+la terminazione  del  blocco. Il gestore  di  terminazione e`  utile quando si
+prova ad assicurare che  le  risorse siano rilasciate correttamente, eseguendo
+il codice nel blocco di terminazione. Ma  poiche` non c'entra un'emerita cippa
+con quello di cui parliamo in questo articolo, rimandiamo  ad  altro  luogo ed 
+altra  data  questa  simpatica  chiaccherata. Qui  sotto  c'e`  un codice  di
+esempio  che   usa  un  gestore  di  exception. Nell'esempio  analizziamo  un 
+buffer modo-utente per  assicurarci che sia valido:
+ 
+<-| seh_ex0.c |->
+/*
+ leggiamo dati da un indirizzo modo-utente. Dobbiamo, inoltre assicurarci
+ che sono dati validi.
+*/
+BOOLEAN OsrProbeForRead(Buffer, Length)
+{
+    ULONG idx;
+    UCHAR dummyArg;
+    PUCHAR effectiveAddress;
+
+    /* controlliamo il buffer di input leggendo un byte da ogni pagina
+       nel range specificato.
+    */
+    __try {
+        for (idx = ADDRESS_AND_SIZE_TO_SPAN_PAGES(Buffer, Length);idx;idx--) {
+            effectiveAddress = (PUCHAR) Buffer;
+            effectiveAddress += ((idx-1) * PAGE_SIZE);
+            dummyArg = *effectiveAddress;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        DbgPrint("Exception is 0x%x\n", GetExceptionCode());
+        return FALSE;
+    }
+    /*
+      se siamo arrivati sin qui, il buffer di input è valido!
+    */
+    return TRUE;
+}
+<-X->
+ 
+Il  codice  e`  molto  semplice: consiste di un blocco protetto (il codice tra
+__try  ed  __except)  e  di  un  gestore  di  exception  (il  codice che segue
+__except). Guardiamolo piu` in dettaglio:
+
++ l'espressione dopo la clausola __except  indica le azioni che devono essere
+prese quando si verifica un exception.  Il blocco di codice che segue __except
+e` eseguito solo se l'espressione valutata ha un valore non zero.
+
++ ci sono due funzioni, che possono essere  usate solo dal blocco di __except:
+  - GetExceptionInformation (invoca la funzione __exception_info)
+  - GetExceptionCode (invoca la funzione __exception_code)
+Queste   due funzioni    forniscono    informazioni   addizionali   riguardo 
+l'exception appena verificatasi.
+
++ Non tutte le exceptions possono essere catturate.  In alcuni casi il sistema
+operativo, continuera` a killarsi con un KMODE_EXCEPTION_NOT_HANDLED.
+
++ La logica dell'exception non e` invocata se il blocco protetto non causa una
+exception.
+
+Come abbiamo  mostrato in questo esempio, l'uso primario di SEH nei drivers e`
+di proteggere  l'accesso  ai buffers modo-utente. Questo perche` il gestore di
+page-fault    insieme    al   sistema    operativo    genera    un   exception
+(STATUS_ACCESS_VIOLATION) se si accede ad un  indirizzo  invalido.  Ovviamente
+esistono altre  exceptions, diverse da quella appena vista. Per questo motivo,
+WinNT  usa gli "status code" come valori di riconoscimento per le exceptions.
+ 
+La  gestione  delle  eccezioni e` basata su uno stack di gestori di eccezioni
+individuali. In questo modo,  il codice generato dal compilatore per un __try,
+costruisce  un  nuovo  blocco  per  l'eccezione, che  viene messo nello stack.
+Se si verifica un exception, quindi, il sistema operativo inizia  ad esaminare
+il primo blocco.  Questo  implica  valutare  l'espressione che segue il blocco
+__except  ed agire  di  conseguenza;  ci  sono  tre valori validi  che possono
+verificarsi / essere valutati:
+
++ EXCEPTION_EXECUTE_HANDLER (1): indica che il blocco di exception puo`
+essere eseguito.
+
++ EXCEPTION_CONTINUE_SEARCH (0): indica che il gestore non puo` gestire questa
+particolare exception. Il blocco per l'eccezione e` rimosso dallo stack e
+viene esaminato il prossimo.  Se  il  sistema  operativo rimane  senza blocchi
+da esaminare, si killa con un KMODE_EXCEPTION_NOT_HANDLED.
+
++ EXCEPTION_CONTINUE_EXECUTION (-1): indica  che l'exception  dovrebbe  essere
+ignorata  e  l'esecuzione del  codice  deve  continuare dal punto in cui si e`
+verificata l'eccezione.
+
+Tipicamente  si  usano  EXCEPTION_EXECUTE_HANDLER o EXCEPTION_CONTINUE_SEARCH.
+
+Teoricamente,  se   un   driver  e`  stato  in grado  di  risolvere  la  causa
+dell'exception,  potrebbe essere possibile usare EXCEPTION_CONTINUE_EXECUTION,
+ma questo in pratica  si usa raramente (per non dire mai). Tornando al  nostro
+codice,  notiamo  che  il  gestore  dell'  exception  e`  sempre  eseguito  se 
+l'exception  occorre  dentro  questo  blocco.  Spesso,  si preferisce usare un
+filtro  che ci permetta di ottenere piu`  informazioni riguardo le exceptions.
+di  seguito  c'e`  una routine  che  chiameremo  da  __except  per salvare  le 
+informazioni sull'exception e generare, quindi, un bug-check:
+
+
+<-| seh_ex1.c |->
+ULONG BackgroundExceptionFilter( ULONG Code, PEXCEPTION_POINTERS pointers)
+{
+    PEXCEPTION_RECORD ExceptionRecord;
+    PCONTEXT Context;
+
+    ExceptionRecord = pointers->ExceptionRecord;
+    Context = pointers->ContextRecord;
+
+    DbgBreakPoint();
+
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+<-X->
+
+vediamo come usarla, dentro un semplice blocco __try / __except:
+
+...
+...
+<-| seh_ex2.c |->
+runAgain = FALSE;
+
+__try {
+     runAgain=(*backgroundTask->BackgroundTaskProc)(backgroundTask->Context);
+ } __except ( BackgroundExceptionFilter(GetExceptionCode(),
+ 					GetExceptionInformation()) ) {
+    DbgPrint(("\nunexpected exception when calling background routine\n"));
+ }
+<-X->
+ 
+In realta`, uno degli obiettivi nell'usare gestori di exception strutturati e`
+che  la vera  azione  del  processare   l'exception  causa  la  perdita  delle
+informazioni  nello  stack. Quindi, quando esaminiamo il problema da dentro un
+debugger,  frequentemente  troviamo  che  lo stack  e`  stato  svuotato, e  le
+informazioni riguardo cosa il sistema stesse facendo al momento dell'exception
+sono andate perdute. Un filtro di exceptions, allora, ci permette di esaminare
+i dati e ripristinare il tutto in maniera efficente. In generale, SEH e` molto
+utile quando si chiamano funzioni che  potrebbero degenerare in una exception.
+Vediamone  un  esempio,  con  la  funzione MmProbeAndLockPages. Essa di solito
+ritorna  STATUS_ACCESS_VIOLATION (indicando che l'indirizzo dell'utente non e`
+valido), ma  puo`  anche generare  un  STATUS_QUOTA_EXCEEDED (indicando che la
+memoria  non  puo` essere bloccata a causa di restrizioni di risorse). Vediamo
+allora come applicare la nostra funzione di filtro a quanto detto. Proteggiamo
+ogni chiamata fuori dal nostro file system con un blocco __try/__except. Se si
+verifica una exception, la routine e` chiamata nel filtro.
+
+<-| seh_es3.c |->
+static BOOLEAN FsdSupExceptionFilter(PEXCEPTION_POINTERS ExceptionInformation,
+                                     ULONG ExceptionCode)
+{
+    DbgPrint("********************************************************\n");
+
+    DbgPrint("*** FSDK DEBUGGING: E` stata catturata un exception  ***\n");
+    DbgPrint("*** nella routine FSD; L'FSDK avviera` un breakpoint.***\n");
+    DbgPrint("*** Se e` stato settato un debugger, partira`        ***\n");
+    DbgPrint("*** immediatamente.                                  ***\n");
+    DbgPrint("***                                                  ***\n");
+    DbgPrint("*** windbg commands:                                 ***\n");
+    DbgPrint("\n\n    !exr %x ; !cxr %x ;  !kb\n\n",
+            ExceptionInformation->ExceptionRecord,
+            ExceptionInformation->ContextRecord);
+    DbgPrint("***                                                  ***\n");
+    DbgPrint("***                                                  ***\n");
+    DbgPrint("********************************************************\n");
+
+    /*
+      attakkiamo un breakpoint qui nel caso ci sia un debugger attivo.
+      Usiamo un blocco try/except, per assicurarci che se non c'e` nessun
+      debugger attivo non perderemo informazioni rilevanti sull'errore
+      generato.
+    */
+    __try {
+        DbgBreakPoint();
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        /*
+          L'obiettivo e` quello di non crashare la macchina
+          se nessun debugger risulta attivo.
+        */
+    }
+    DbgPrint("********************************************************\n");
+    DbgPrint("*** FSDK DEBUGGING: e` stata chiamata KeBugCheckEx.  ***\n");
+    DbgPrint("*** Il sistema, si arrestera` immediatamente.        ***\n");
+    DbgPrint("********************************************************\n");
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+<-X->
+
+Nel  codice  sopra,  viene  usata   un'altra  tecnica  molto  utile,  chiamata
+"DbgBreakPoint".  Se un debugger  di  kernel e` attivo, catturera` l'exception
+(STATUS_BREAKPOINT  -  0x80000003)  ed  il nostro gestore non sara` coinvolto.
+Ovviamente, se non c'e`  un debugger  di kernel,  verra` invocato  il  nostro
+gestore che  procedera` ad ignorare l'exception  e  a  continuare come  se il
+breakpoint non fosse avvenuto.  Viene  usata questa tecnica perche` assicura
+che  anche  se viene lasciato un breakpoint in un driver, esso non causera` un
+crash del sistema; ovviamente ne rallentera` l'esecuzione notevolmente (motivo
+per  cui  e` buona regola rimuovere i breakpoints  da  zone  di  codice  usate
+frequentemente).
+Usare SEH  e` un requisito fondamentale per ogni driver che manipola buffers a
+livello utente; anche se non difficoltoso, e` essenziale per assicurare che il
+sistema non vada in crash se il buffer utente risulta invalido.
+
+
+.I BlueScreens - Questi Sconosciuti.
+<---------------------------------------------------------------------------->
+Ma  vediamo, adesso,  piu`  da  vicino i fatidici nemici che nella precedente
+discussione abbiamo cercato a tutti i costi di evitare. L'obiettivo e` quello
+di  riuscire  a  capire  sino  in fondo  perche`  sono  pericolosi  e  perche` 
+andrebbero evitati. Facciamo un salto  indietro  e proviamo  ad immaginare una
+situazione tipica:
+
+Hai  appena  aggiunto  alcune  funzionalita`  al  tuo  favoloso  programma  di
+cifratura on-the-fly del tuo disco fisso (scusate la deviazione mentale, ma e`
+quello a cui sto lavorando N.P). Resetti  la  macchina. Il  tuo  driver  viene
+caricato  ed  inizi  a  testarlo e... whaablaaaaaaamaaaaaam!  Il  tuo  monitor
+scricchiola come se fosse stato divelto in due (vero, qu3st?), compare uno
+sfondo blue in modo testo 80x50 - a segnalare l'inizio di altre tre ore di
+ricerca di un motivo e di un colpevole tra le radici e le migliaia di linee di
+codice del nostro programma (possibilmente ASM.. ehehe). Niente di nuovo vero?
+
+Tutti noi oramai abbiamo un rapporto di amore/odio nei confronti dei BSOD (in
+gergo: Blue Screen Of Death).  I  messaggi di errore "cryptici" ed i dump HEX
+sono,  oramai,  parte  della  nostra giornata tipo. Persino i piu` esperti del
+settore (ciao, m0libdeno!) raramente capiscono cosa sta` dietro quegli strani
+messaggi che il kernel ci restituisce a seguito di un errore sconosciuto.
+
+
+.Da dove vengono i BlueScreens?.
+<---------------------------------------------------------------------------->
+I BluScreens sono un modo di NT per dire che qualcosa e` andato terribilmente
+male  e  che  il  sistema e` stato fermato a causa di NT stesso (completamente
+divelto);  continuare  potrebbe  portare  alla  perdita  di  dati  o alla loro
+corruzione  totale.  Lo schermo e` mostrato con una chiamata ad una delle due
+funzioni  KeBugCheck(...)  o  KeBugCheckEx(...).  Entrambe sono esportate per
+l'utilizzo in drivers di dispositivi e/o filesystems:
+
+<-| seh_ex4.c |->
+VOID KeBugCheck( 
+        IN ULONG BugCheckCode
+);
+
+VOID KeBugCheckEx(
+        IN ULONG BugCheckCode,
+        IN ULONG BugCheckParameter1,
+        IN ULONG BugCheckParameter2,
+        IN ULONG BugCheckParameter3,
+        IN ULONG BugCheckParameter4
+);
+<-X->
+
+Entrambe le chiamate prendono un parametro (BugCheckCode). Questo parametro e`
+conosciuto anche come: "codice di STOP" e generalmente categorizza le ragioni
+del blocco del sistema. KeBugCheckEx(...) prende quattro parametri addizionali
+che  sono semplicementi stampati sul BluScreen, insieme con il codice di stop.
+
+Questi parametri hanno  un significato predefinito per alcuni codici di stop
+standard (alcuni  dei quali,  verranno  descritti dopo), ma e` anche possibile
+usare   dei   propri   codici   personali  ridefinendo  la  tabella  standard.
+KeBugCheck(...)  non  fa`  niente  di  piu` che chiamare KeBugCheckEx(...) con
+i quattro  parametri  settati  a 0. La prima cosa che fa` KeBugCheckEx(...) e`
+disabilitare tutti  gli interrupts chiamando KiDisableInterrupts(...). Quindi
+porta  la macchina nel modo BlueScreen e dumpa il messaggio di stop.
+
+Le  operazioni  sono realizzate  con  una  chiamata  a  HalDisplayString(...).
+Essa prende  un  parametro, che e` una stringa da stampare sul BOFD, controlla
+inoltre per  vedere  se  il  sistema  e` gia nel modo BlueScreen  e  se  non
+lo e` viene switchato in tale stato. Quindi dumpa la stringa in  memoria-video
+/modo-testo alla  posizione  corrente  del cursore. HalDisplayString(...) puo`
+essere usato per lanciare e produrre dei BlueScreen personalizzati, oppure per
+stampare messaggi di informazioni per il BlueScreen mostrato. Sfortunatamente,
+se  si  chiama  HalDisplayString(...) dopo che il sistema  ha  passato il BOFD
+iniziale, non c'e` modo per ripristinare lo schermo al suo modo precedente!
+
+KeBugCheckEx(...),   successivamente,  chiama   KeGetBugMessageText(...), una
+funzione che converte  un codice di stop nel suo equivalente in testo usando
+una  tabella  interna  di nomi  di  codici di stop. E` possibile vedere il set
+completo dei codici predefiniti del sistema ed i loro testi associati nel file
+bugcodes.h nella DDK microsoft. 
+
+A questo  punto  KeBugCheckEx(...)  chiama  un  qualunque  gestore   di  Bugs
+che  i  drivers  hanno   registrato  ( un  gestore  e`  registrato  chiamando 
+KeRegisterBugCheckCallback(...)). Il suo scopo e` quello di riempire un buffer
+(allocato   dal   chiamante   della  routine di registro) con  lo  stato  del
+device che sara` esaminato da dentro WinDbg. 
+
+Le chiamate ai  BugCheck sono anche utili quando il dispositivo che il nostro
+driver sta` controllando  deve  essere  spento  quando  si  verifica  un crash
+di   sistema:  verranno   ritornati,   infatti,  i  puntatori  necessari  per
+disabilitare  il  DEV ( Molti nuovi sistemi di protezione hardware utilizzano
+un sistema di questo tipo, che disabilita i drivers necessari all'utilizzo del
+software  se  non  viene riscontrata la presenza di una key nel sistema .NDA)
+
+Il sistema, quindi,  chiama  KeDumpMachineState(...)  che  dumpa il resto del
+testo sullo schermo. KeDumpMachineState(...) prova ad interpretare ognuno dei
+quattro parametri che erano stati passati a KeBugCheckEx(...) come  indirizzo
+valido  internamente  ad un modulo caricato e si ferma quando puo` risolverne
+uno; viene usata la funzione interna KiPcToFileHeader(...) per svolgere tutto.
+
+L'informazione ritornata da KiPcToFileHeader(...) riguarda il primo parametro
+che e` stato risolto con successo;  viene stampato  immediatamente seguendo il
+form  di  testo del codice di stop ed include l'indirizzo base del modulo ed
+il nome del modulo. In questo modo,  un parametro di indirizzo puo` essere uno
+qualunque dei 4 parametri KeBugCheckEx(...). 
+
+Il resto dello schermo  e` diviso in tre aree. La prima e` l'area CPUID, sotto
+c'e` l'area dei driver caricati ed infine c'e` un trace dello stack.
+
+L'area CPUID include il CPUID, i  settaggi dell'IRQL al tempo di scrittura del
+bluescreen (su  macchine  x86 questo sara` sempre 0x1F - SYNCH_LEVEL - poiche`
+HAL disabilita tutti gli interrupts quando switcha il modo video) ed il numero
+della build. Il numero della build (accessibile via  'NtBuildNumber'), e`  una
+variabile a 32-bit esportata dal kernel; la parte alta e` C (checked build) o
+F (free build), il resto e` il numero della build attuale (es: 2600 per XP).
+
+Sotto  l'area CPUID  c'e` l'area dei drivers caricati. Ogni driver nel sistema
+tiene  traccia  dei moduli caricati e del suo time stamp, mostrato nella parte
+centrale del bluscreen. In realta` queste informazioni sono di scarsa utilita`
+ma e` possibile usarle, ad esempio, per essere sicuri che la versione del
+driver che sta girando sul sistema e` quella che pensavamo. Il numero stampato
+esprime il numero di secondi dalle 4P.M. del 31/12/69, fino a quando il driver
+e` stato compilato  e  viene estratto dall'header del PE (portable executable)
+del  driver.   KeDumpMachineState(...)   lo   ottiene   con   una  chiamata  a
+RtlImageNtHeader(...). 
+
+La regione sotto i drivers  caricati fornisce alcuni dettagli su cosa accade.
+In pratica e` un trace di stack che parte da KeBugCheckEx e procede in avanti.
+KeDumpMachineState(...) stampa tanti frammenti quanti ne entrano nello schermo
+a meno che non incontri un puntatore a stack invalido. Lo stack e` letto
+usando la  funzione KiReadStackValues(...); ogni frammento mostrato consiste
+di:
+
++ indirizzo
++ indirizzo di ritorno
++ le prime 4 DWORDS nel frammento (che potrebbero essere parametri passati)
++ il nome del modulo a cui l'indirizzo di ritorno del frame sta puntando
+
+Se il nostro driver sta nel trace, con buona probabilita` l'errore sara` nel
+dump e guardando agli indirizzi di ritorno che puntano al driver sara`
+possibile vedere dove esso e` chiamato da altre funzioni che conducono
+all'errore.
+Ovviamente, e`  possibile  che  il driver abbia causato alcune alterazioni, da
+qualche parte,  che non sono state individuate e quindi non sono listate nello
+stack (.NDA.)
+
+KeBugCheckEx(...) quindi prova a connettere un debugger; tuttavia, non chiama
+il  debugger  a  questo punto. Scrive, invece, un crash-dump (se i crash-dumps
+sono stati abilitati),  quindi  come  ultima  azione invoca qualunque debugger
+attivo con un breakpoint.
+
+
+.Interpretare i codici di arresto.
+<---------------------------------------------------------------------------->
+In molti casi  la  piu` importante informazione fornita da un bluescreen e` il
+codice di stop e i 4 parametri stampati con essa. Questi parametri devono
+essere interpretati con le informazioni sui codici di stop. Adesso proveremo a 
+fornire  una  mini-referenza,  coprendo  i  piu` importanti e comuni codici di 
+arresto.  Proveremo,  inoltre,  ad  interpretare i parametri listati con essi.
+
+
++ IRQL_NOT_LESS_OR_EQUAL (0xA)
+
+Questo e` il piu` conosciuto (ed odiato), dal momento che lo si incontra con la
+maggior  frequenza.   Viene  ritornato  quando  il  kernel (oppure  un  driver)
+determina che il corrente IRQL e` piu` grande del previsto. L'epicentro per
+molti di  questi errori e` in MmAccessFault(...), il gestore di errori della
+Memoria.
+MmAccessFault e` responsabile  per  la  gestione  degli  errori  di  pagina e
+tipicamente lo fa in silenzio. Quando IRQL e` in DISPATCH_LEVEL (o un livello
+piu` alto), essa ritorna  un 'STATUS_IN_PAGE_ERROR'  al  gestore  degli errori
+di pagine del sistema; quest'ultimo puo` quindi chiamare KeBugCheckEx(...) con
+un 'IRQL_NOT_LESS_OR_EQUAL'. Un  altro punto dove questi errori possono essere
+generati e` nella funzione di gestione thread del kernel: ExpWorkerThread(..);
+dopo essere ritornata da una routine di lavoro, controlla l'IRQL per
+assicurarsi del suo PASSIVE_LEVEL (il livello in cui era prima che l'elemento
+di lavoro fosse chiamato). Se non e` in PASSIVE_LEVEL, ritorna un
+IRQL_NOT_LESS_OR_EQUAL.
+I parametri per questo errore sono mostrati sotto:
+
+--------
+IRQL_NOT_LESS_OR_EQUAL (0xA) (dal thread attivo)
+ 
+Param1 indirizzo della routine attiva chiamata
+Param2 IRQL invalido
+Param3 copia di Param1
+Param4 puntatore alla struttura dati di lavoro
+
+IRQL_NOT_LESS_OR_EQUAL (0xA) (da MmAccessFault)
+ 
+Param1 indirizzo che e` stato referenziato
+Param2 IRQL invalido
+Param3 tipo di accesso (0 == lettura, 1 == scrittura) 
+Param4 indirizzo dove e` stata incontrata la referenza
+--------
+
+
++ KMODE_EXCEPTION_NOT_HANDLED (0x1E)
+
+Questo errrore  e`  generato  da piu` posti nel kernel, incluso  il gestore di
+exception  del sistema.  Si  verifica quando  un exception scatta senza che il
+sistema  abbia  modo  di  prevederla  e/o  gestirla. Un esempio di questo tipo 
+avviene  quando  MmAccessFault(...) ritorna un errore a causa di una referenza
+di  memoria  invalida ad una pagina protetta. Ad esempio, un driver che scrive
+su una pagina di sola-lettura generera` questo tipo di errore. I parametri
+sono mostrati sotto:
+
+--------
+KMODE_EXCEPTION_NOT_HANDLED (0x1E)
+ 
+Param1 il codice dell'exception (NTSTATUS.H per dettagli)
+Param2 indirizzo del codice dove si e` verficata l'exception
+Param3 primo parametro exception
+Param4 secondo parametro exception
+
+0x800000003 Breakpoint hit with no debugger active
+0xC00000005 Access violation (in questo caso Param4 e` l'indirizzo che e`
+stato referenziato).
+--------
+
++ UNEXPECTED_KERNEL_MODE_TRAP (0x7F)
+
+Questo codice e` molto simile a quello di KMODE_EXCEPTION_NOT_HANDLED, ma
+questo e` il risultato di una trap di sistema per il quale non ci sono gestori
+adatti.
+Per esempio, se  avviene un  exception per il calcolo in virgola mobile, ed il
+sistema non e`  preparato  a  gestirlo  (ad esempio, se avviene nel codice del
+kernel),  viene  generata  questa  espressione.  Per questo tipo di errore, il
+primo parametro mostra il tipo di  exception della CPU e gli altri parametri
+sono praticamente inutili.
+
+--------
+UNEXPECTED_KERNEL_MODE_TRAP (0x7F)
+ 
+Param1 il codice di exception della CPU
+--------
+
+
++ PAGE_FAULT_IN_NON_PAGED_AREA (0x50)
+
+Questo tipo si colloca con IRQL_NOT_LESS_OR_EQUAL in termini di frequenza con
+cui  si  incontra.  E`  generato  quando un componente del kernel accede ad un
+indirizzo  che  e` fuori dalla memoria paginata (vi ricorda niente ? :-) ), ma
+non   c'è   nessun   valido   mapping   per  la  memoria.  Ancora  una  volta,
+MmAccessFault(...)  e`  la  sorgente  di  tutto.  Un  driver puo` avviarlo sia
+eseguendo un riferimento a dati, oppure saltando fuori (ad esempio, tornando
+da una funzione che ha sfondato lo stack .NDA.)
+
+---------
+PAGE_FAULT_IN_NON_PAGED_AREA (0x50)
+ 
+Param1 indirizzo referenziato
+---------
+
+
+.Analisi di un Sistema (nshare di miralink: http://www.miralink.com).
+<---------------------------------------------------------------------------->
+La  chiave  di ogni buona analisi e` ovviamente assicurarsi di usare i giusti
+attrezzi per il lavoro da svolgere! Nell'analizzare il crash-dump di esempio,
+useremo  WinDB  (build 2127.1)  e  i386kd.
+
+Il crash di cui parliamo e` stato ottenuto da un sistema con Win NT 5.0 (SP2),
+mentre  girava l'ultima versione di nshare della miralink  (www.miralink.com).
+La  piattaforma aveva lavorato perfettamente con tutte le versioni precedenti
+del programma, ma in questa mostrava uno stranissimo:
+
+ PAGE_FAULT_IN_NONPAGED_AREA
+
+mentre  la macchina in  questione aveva traffico di rete su porte firewallate
+dal programma di cui sopra.
+
+Ovviamente il primo pensiero e` andato a qualche bug dell'architettura di rete
+(sempre  possibile  quando  si  usa  un programma esterno che si appoggia sul
+livello di rete per mapparlo/controllarlo/redirigerlo). Solo successivamente,
+mi sono accorto che il vero responsabile era nshare.
+
+Quando ho iniziato  a  controllarlo,  ho notato che il sistema crashava sul so
+(nessun driver era coinvolto nel crash). Doveva, allora,  essere un errore del
+programma:  nessuna applicazione di norma deve essere in grado di crashare il
+sistema operativo (ho detto "dovrebbe") :-)
+
+Un codice di errore di 0x50 (PAGE_FAULT_IN_NONPAGED_AREA), come detto sopra,
+e` uno dei piu` comuni che si puo` osservare su macchine con kernel NT. Come
+dovremmo oramai sapere, esso si verifica come risultato di un errore di pagina
+su  di un indirizzo dentro lo spazio di indirizzamento di sistema (normalmente
+tra  0x80000000  e  0xFFFFFFFF) che non supporta paginazione in quell'area. In
+conclusione,  qualcuno  nel sistema ha provato ad accedere ad una locazione di
+memoria  invalida (puntatore ad una  struttura dati non inizializzata o ad una
+regione di memoria rilasciata). Senza grossi problemi il gestore della memoria
+(Memory Manager) lo considera un errore critico e blocca il sistema. In questo
+caso  i quattro parametri ci dicono  tutto riguardo il perche` il sistema e`
+andato  in  crash. Il primo parametro indica l'indirizzo virtuale che e` stato
+toccato ed il secono parametro indica se o no l'indirizzo e` stato letto
+(zero) o scritto (uno). Il senso degli altri due parametri non e` molto utile
+in NT. In questo caso, il codice di arresto e` stato:
+
+STOP: PAGE_FAULT_IN_NONPAGED_AREA (af3defc4, 0, 0, 0)
+ 
+cioe' un  tentativo  di  accedere  all'indirizzo  af3defc4. L'indirizzo e` un
+indirizzo "permesso", ma non e` uno di quelli che si vedono normalmente in
+uso, probabilmente perche` la macchina in questione ha un 512Mb di memoria
+fisica; questo  a  conferma del  fatto che l'errore e` un problema di
+programmazione.
+Una  volta determinata la sorgente del problema, iniziamo a guardare lo stack
+che  ha  dichiarato  l'halt.  Su  di  un sistema multi-processore non e` molto
+semplice,  dal momento che l'arresto potrebbe non essere avvenuto sulla CPU 0,
+anche se, ovviamente, il debugger iniziera` a controllare la CPU 0.
+
+A  questo  punto,  si inizia  con il guardare nello stack ogni processore nel
+tentativo di identificare quale processore ha chiamato KeBugCheckEx. In questo
+caso, otteniamo le informazioni mostrate sotto:
+ 
+-----------
+0: kd> kv
+cannot get version packet on a crash dumpcannot get version packet on a crash
+dumpChildEBP RetAddr  Args to Child
+
+
+f766ce14 80003e47 80153f7c 00000000 00000000 ntkrnlmp!KeWaitForSingleObject+0x9a(FPO: [Non-Fpo]
+f766ce34 8019ace2 7ffde000 77fa5560 00000000 halmps!ExAcquireFastMutex+0x2b (FPO: [0,2,0])
+f766ce4c 8019aba1 00000001 b980ae08 b980ae58 ntkrnlmp!PspExitProcess+0x8c(FPO: [Non-Fpo]
+f766ced0 8019a53c 00000000 f766cf04 0006fea4 ntkrnlmp!PspExitThread+0x447(FPO: [Non-Fpo]
+f766cef4 80140da9 ffffffff 00000000 00000000 ntkrnlmp!NtTerminateProcess+0x13c(FPO: [Non-Fpo]
+f766cef4 77f681ff ffffffff 00000000 00000000 ntkrnlmp!KiSystemService+0xc9 (FPO: [0,0] TrapFrame @ f766cf04)
+f766cdf4 80153f70 b980aea4 00000000 00000000 0x77f681ff [Stdcall: 257]
+0006ff5c 00000000 00000000 00000000 00000000 ntkrnlmp!PspActiveProcessMutex(FPO: [Non-Fpo]
+
+0: kd> ~1
+1: kd> kv
+
+dumpChildEBP RetAddr  Args to Child
+
+f7b9ab24 80143e8f 00000000 af3defc4 00000000 ntkrnlmp!MmAccessFault+0x29a(FPO: [Non-Fpo]
+f7b9ab24 8015c925 00000000 af3defc4 00000000 ntkrnlmp!KiTrap0E+0xc7 (FPO: [0,0] TrapFrame @ f7b9ab3c) <---- !!!!!
+f7b9abb8 8015481a f7abeca0 b980ae08 00010000 ntkrnlmp!ExpCopyProcessInfo+0x11 (FPO: [2,0,3])
+f7b9ac38 8015b811 00b40000 00010000 f7b9aec8 ntkrnlmp!ExpGetProcessInformation+0x156(FPO: [Non-Fpo]
+f7b9aeec 80140da9 00000005 00b40000 00010000 ntkrnlmp!NtQuerySystemInformation+0x725(FPO: [Non-Fpo]
+f7b9aeec 77f67e27 00000005 00b40000 00010000 ntkrnlmp!KiSystemService+0xc9 (FPO: [0,0] TrapFrame @ f7b9af04)
+f7b9abac b2ec4ff0 f7abeca0 b2ec4e58 8015481a 0x77f67e27 [Stdcall: 257]
+00b3fabc 00000000 00000000 00000000 00000000 0xffffffff`b2ec4ff0 [Stdcall: 257]
+-----------
+
+Da quanto appena visto, non possiamo capire quale CPU ha causato l'arresto.
+A questo punto, chiediamo aiuto al OEM Support Tools KD extension. Troviamo
+che lo stack per la CPU-1 ha chiamato KeBugCheckEx:
+
+> !b.stack
+T. Address  RetAddr  Called Procedure
+
+*1 F7B9AAD0 8012E67A _KeBugCheckEx@20(00000050, AF3DEFC4, 00000000,...);
+*0 F7B9AAFC 80118AE8 @KiFlushSingleTb@8(F7B9AB38, 801450C1, 80118AE8,...);
+*0 F7B9AB04 801450C1 @FxsrSwapContextNotify@8(80118AE8, 80118AE8, 8011BB44,...);
+*0 F7B9AB08 80118AE8 @KiFlushSingleTb@8(80118AE8, 8011BB44, 00000000,...);
+*0 F7B9AB0C 80118AE8 @KiFlushSingleTb@8(8011BB44, 00000000, BC442E08,...);
+*0 F7B9AB10 8011BB44 dword ptr EAX(00000000, BC442E08, FFFFF000,...);
+*1 F7B9AB28 80143E8F _MmAccessFault@16(00000000, AF3DEFC4, 00000000,...);
+*1 F7B9AB40 800031DA _KiIpiServiceRoutine@8(F7B9AB54, 800031E0, 0001001C,...);
+*0 F7B9AB48 800031E0 _HalEndSystemInterrupt@8(0001001C, 000000E1, 00000010,...);
+*0 F7B9AB64 80120DEB _MmMapLockedPagesSpecifyCache@24(00006C8E, 00000000, AC900023,...);
+*1 F7B9ABBC 8015481A _ExpCopyProcessInfo@8(F7ABECA0, B980AE08, 00010000,...);          <--------------
+*1 F7B9AC3C 8015B811 _ExpGetProcessInformation@12(00B40000, 00010000, F7B9AEC8,...);
+*0 F7B9AC58 F7C363A8 _NbtDereferenceDevice@4(B70D2E78, 80E6964C, 80E69528,...);
+*1 F7B9AC74 801128AF dword ptr [ECX+EAX*4+38](B70D2E78, 80E69528, 0000004A,...);
+*1 F7B9AC88 F7B49BBB @IofCallDriver@8(F7B9000E, 80E01279, 80E69400,...);
+*1 F7B9ACAC 8012DF3E @KfReleaseSpinLock@8(F7B9ACDC, ABC8C008, C02AF230,...);
+*1 F7B9ACC0 8012D140 @MiChargeCommitmentCantExpand@8(BCA7EFBC, 80150F30, 00000100,...);
+*1 F7B9ACE0 8010A8BC _MmAllocateSpecialPool@12(00000100, 7366704E, 00000000,...);
+*1 F7B9AD10 801134E1 @KfReleaseSpinLock@8(EBC40937, 00000000, EBC40938,...);
+*1 F7B9AD14 EBC40937 _IoReleaseCancelSpinLock@4(00000000, EBC40938, A5332F00,...);
+*1 F7B9AD5C EBC4624B _NpAddDataQueueEntry@24(801096D9, F7B9ADC0, A5332F00,...);
+*0 F7B9AD60 801096D9 @KfReleaseSpinLock@8(F7B9ADC0, A5332F00, F7B9ADE8,...);
+*0 F7B9ADA8 8012DDE8 @KfReleaseSpinLock@8(00000000, A8E9EFFC, C4000010,...);
+*0 F7B9ADD0 8012DC15 @KfReleaseSpinLock@8(F7B9AE34, F7B9AE34, 00000000,...);
+*1 F7B9ADE8 80131164 @MiInsertNode@8(00B4FFFF, 00B40000, C4000010,...);
+*1 F7B9AE38 80181E56 _MiInsertVad@4(80181E9B, F7B9AF04, 00B3FA3C,...);
+*0 F7B9AE3C 80181E9B @ExReleaseFastMutex@4(F7B9AF04, 00B3FA3C, 801813DE,...);
+*0 F7B9AE84 80139804 @KfReleaseSpinLock@8(00000004, BC8EEFD4, 00010000,...);
+*1 F7B9AEF0 80140DA9 dword ptr EBX(00000005, 00B40000, 00010000,...);
+
+Nota che  possiamo  osservare  la chiamata  KeBugCheckEx: se e` presente sullo
+stack, anche se in un frammento di stack "ghost",  deve essere stata chiamata.
+A  questo  punto,  abbiamo  l'errore di  pagina che ha causato l'operazione di
+terminazione del sistema. KiTrap0E  sullo stack, che e` l'errore di pagina del
+gestore del kernel, poiche` trap14  (0x0E) e`  l'errore  di  pagina sulla CPU.
+Esso e` avvenuto nella funzione ExpCopyProcessInfo. Questa funzione era stata
+invocata  da  ExpGetProcessInformation.  Sfortunatamente,  non abbiamo nessuna
+sorgente di informazione riguardo le due funzioni. Alcune fonti non ufficiali
+ci  dicono  che:  le  funzioni  provano  a  copiare  un  gruppo di dati da una
+struttura  EPROCESS in un buffer temporaneo (.NDA.). Cosi` abbiamo controllato
+gli  argomenti  per  determinare se uno era in effetti una struttura EPROCESS.
+Ed effettivamente era cosi`: il secondo parametro e` una struttura EPROCESS:
+
+1: kd> !process b980ae08
+!process b980ae08     <----- secondo parametro
+
+PROCESS b980ae08  Cid: 0120    Peb: 7ffdf000  ParentCid: 007c
+    DirBase: 08c6f000  ObjectTable: 00000000  TableSize:   0.
+    Image: cgiapp.exe
+    VadRoot a856cfc8 Clone 0 Private 30. Modified 0. Locked 0.
+    B980AFC4 MutantState Signalled OwningThread 0
+    Process Lock Owned by Thread   bf6b6dc0
+    Token             b0834eb0
+    ElapsedTime       0:00:00.0500
+    UserTime          0:00:00.0015
+    KernelTime        0:00:00.0015
+    QuotaPoolUsage[PagedPool]         3713
+    QuotaPoolUsage[NonPagedPool]      832
+    Working Set Sizes (now,min,max)  (145, 50, 345) (580KB, 200KB, 1380KB)
+    PeakWorkingSetSize                167
+    VirtualSize                       4 Mb
+    PeakVirtualSize                   9 Mb
+    PageFaultCount                    164
+    MemoryPriority                    BACKGROUND
+    BasePriority                      8
+    CommitCharge                      36
+
+    THREAD bf6b6dc0  Cid 120.78  Teb: 00000000  Win32Thread: 00000000 RUNNING
+    Not impersonating
+    Owning Process b980ae08
+    WaitTime (seconds)      338550
+    Context Switch Count    53
+    UserTime                                       0:00:00.0000
+    KernelTime                                    0:00:00.0015
+    Start Address 0x77f0528c
+    Win32 Start Address 0x01001150
+    Stack Init f766d000 Current f766cc80 Base f766d000 Limit f766a000 Call 0
+    Priority 16 BasePriority 8 PriorityDecrement 0 DecrementCount 0
+    ChildEBP RetAddr  Args to Child
+    f766ce14 80003e47 80153f7c 00000000 00000000 ntkrnlmp!KeWaitForSingleObject+0x9a
+    f766ce34 8019ace2 7ffde000 77fa5560 00000000 halmps!ExAcquireFastMutex+0x2b
+    f766ce4c 8019aba1 00000001 b980ae08 b980ae58 ntkrnlmp!PspExitProcess+0x8c
+    f766ced0 8019a53c 00000000 f766cf04 0006fea4 ntkrnlmp!PspExitThread+0x447
+    f766cef4 80140da9 ffffffff 00000000 00000000 ntkrnlmp!NtTerminaeProcess+0x13c
+    f766cef4 77f681ff ffffffff 00000000 00000000 ntkrnlmp!KiSystemService+0xc9
+    f766cdf4 80153f70 b980aea4 00000000 00000000 +0x77f681ff
+    0006ff5c 00000000 00000000 00000000 00000000 ntkrnlmp!PspActiveProcessMutex
+
+Il trace dello stack sopra e` molto interessante: il processo tracciato e` in
+uscita. Da questo, iniziamo a sospettare che stiamo osservando un interessante
+bug: un processo sta raccogliendo informazioni riguardo un secondo processo,
+ed   il  secondo  processo  sta  terminando.  I  due  threads  sono  avviati 
+simultaneamente, uno sulla CPU0 ed uno sulla CPU1.
+
+Il  thread  sulla  CPU0  ( il thread che sta terminando) sta entrando in una
+condizione di wait. Esso non e` stato ancora segato (quindi sta ancora
+girando), ma ha incontrato una mutex considerata leggittima e sta aspettando
+questa mutex (lo determiniamo dalla chiamata a ExAcquireFastMutex).
+
+Questo non mostra un bug, ma certamente accresce i nostri sospetti. Decidiamo
+che  e` tempo di porre la nostra attenzione sul thread che va in errore (gira
+sulla CPU 1).
+
+Facciamo un po' di backtracing sul codice; per farlo, usiamo  le  informazioni
+sul  frame  nello  stack.  In questo  caso, esso e` stato semplice da trovare,
+perche` il  debugger ha trovato e riportato la locazione del trap  (notate le
+frecce: <---- che  ho disseminato nei dumps). Se non lo avesse fatto, avremmo
+cercato manualmente sullo stack. Sulle piattaforme IA32 che girano su WinNT, i
+valori  dei  registri  DS  ed  ES  contengono il valore 0x23 e quindi possiamo
+identificare  la locazione della trap cercando questi valori (il registro DS,
+e` registrato 0x34bytes dall'inizio della trap). Questa tecnica e` spiegata in
+dettaglio in un articolo della microsoft (Q159672) (.NDA.)
+
+La  trap ci dice cosa  contenevano i registri al tempo dell'errore. Da questa
+informazione possiamo lavorare all'indietro per provare a tracciare com'era
+il codice al momento del crash. In questo caso la funzione che abbiamo bisogno
+di  analizzare e` stata  appena chiamata e questo ci rende facile sapere cosa
+cercare; quindi usando il debugger generiamo una porzione di codice assembler
+per questa funzione:
+
+> !trap f7b9ab3c
+eax=af3defb0  ebx=b2ec4e58 ecx=00005d28  edx=00000481 esi=f7abeca0 edi=b980ae08
+eip=8015c925  esp=f7b9abb0 ebp=f7b9ac38  iopl=0 nv up ei ng nz na pe nc
+cs=0008 ss=0010 ds=0023 es=0023 fs=0030 gs=0000 efl=00010282
+ErrCode = 00000000
+8015C925  8B4014           mov         eax,dword ptr [eax+14h]         
+
+La  trap e`  avvenuta  all'indirizzo  0xf7b9ab3c,  mentre  provava ad accedere
+all'indirizzo 0xaf3defb0 (un valore nel registro EAX di questo esempio).
+Quindi l'istruzione:
+ 
+8015C925  8B4014           mov         eax,dword ptr [eax+14h]                           
+
+sta provando a ricevere alcuni valori  dalla memoria. Lavorando di  reversing
+da questo, proviamo a determinare dove arriva il codice con questo particolare
+valore.  Sotto,  mostriamo  il  reversing dall'inizio della funzione corrente
+(ExpCopyProcessInfo).
+
+> u 8015c914 <---------------------
+NT!_ExpCopyProcessInfo@8+0x0:
+8015C914  53              push       ebx                           
+8015C915  56              push       esi                           
+8015C916  57              push       edi                           
+8015C917  8B7C2414        mov        edi,dword ptr [esp+14h]                           
+8015C91B  8B8704010000    mov        eax,dword ptr [edi+104h]                           
+8015C921  85C0            test       eax,eax                           
+8015C923  740C            je         _ExpCopyProcessInfo@8+1Dh
+8015C925  8B4014          mov        eax,dword ptr [eax+14h] 
+
+Con  un crash  di questo  tipo, di  solito si lavora all'indietro seguendo le
+tracce  delle  informazioni   in  nostro   possesso  per  vedere  se  possiamo
+determinare dove si e` verificato il problema.
+
+In  questo caso,  il  contenuto  del  registro  EAX arriva usando l'indirizzo
+0x104bytes  dall'indirizzo contenuto nel registro EDI. Questo suona tanto come
+una de-referenza  di  alcuni campi  interni ad una struttura dati. L'indirizzo
+della  struttura dati e` stato estratto dallo stack (il puntatore dello stack
+e` ESP), 0x14bytes dal punto corrente dello stack-pointer.
+
+Dal momento che le tre istruzioni precedenti avevano pushato tre valori nello
+stack e la funzione di ritorno e` anch'essa salvata qui dentro, notiamo che
+questo  sembra  stia referenziando  il secondo parametro (con il parametro 1 a
+0x10  dallo  stack-pointer).  Non  dimentichiamo  che lo stack cresce in giu`
+quindi gli  argomenti sopra il corrente stack-pointer sono valori sullo stack.
+
+Dal momento che notiamo che il parametro  e`  EPROCESS, crediamo che questo e`
+consistente -stiamo provando a caricare informazioni dalla struttura EPROCESS.
+Quindi, la  nostra prossima domanda diventa: cosa sta dentro la struttura
+EPROCESS  all'offset 0x104? Usiamo un "!strct" per mostrare il formato della
+struttura EPROCESS:
+
+> !strct eprocess
+Structure EPROCESS (Size:0x1f8) member offsets:
++0000    Pcb(KPROCESS struct)
++0000    Header(DISPATCHER_HEADER struct)
++0010    ProfileListHead(LIST_ENTRY struct)
++0018    DirectoryTableBase
++0020    LdtDescriptor(KGDTENTRY struct)
++0028    Int21Descriptor(KIDTENTRY struct)
++0030    IopmOffset
++0032    Iopl
++0033    VdmFlag
++0034    ActiveProcessors
++0038    KernelTime
++003c    UserTime
++0040    ReadyListHead(LIST_ENTRY struct)
++0048    SwapListEntry(LIST_ENTRY struct)
++0050    ThreadListHead(LIST_ENTRY struct)
++0058    ProcessLock
++005c    Affinity
++0060    StackCount
++0062    BasePriority
++0063    ThreadQuantum
++0064    AutoAlignment
++0065    State
++0066    ThreadSeed
++0067    DisableBoost
++0068    ExitStatus
++006c    LockEvent(KEVENT struct)
++006c    Header(DISPATCHER_HEADER struct)
++007c    LockCount
++0080    CreateTime
++0088    ExitTime
++0090    LockOwner
++0094    UniqueProcessId
++0098    ActiveProcessLinks(LIST_ENTRY struct)
++0098    Flink
++009c    Blink
++00a0    QuotaPeakPoolUsage
++00a8    QuotaPoolUsage
++00b0    PagefileUsage
++00b4    CommitCharge
++00b8    PeakPagefileUsage
++00bc    PeakVirtualSize
++00c0    VirtualSize
++00c8    Vm(MMSUPPORT struct)
++00c8    LastTrimTime
++00d0    LastTrimFaultCount
++00d4    PageFaultCount
++00d8    PeakWorkingSetSize
++00dc    WorkingSetSize
++00e0    MinimumWorkingSetSize
++00e4    MaximumWorkingSetSize
++00e8    VmWorkingSetList
++00ec    WorkingSetExpansionLinks(LIST_ENTRY struct)
++00f4    AllowWorkingSetAdjustment
++00f5    AddressSpaceBeingDeleted
++00f6    ForegroundSwitchCount
++00f7    MemoryPriority
++00f8    LastProtoPteFault
++00fc    DebugPort
++0100    ExceptionPort
++0104    ObjectTable
++0108    Token
++010c    WorkingSetLock(FAST_MUTEX struct)
++010c    Count
++0110    Owner
++0114    Contention
++0118    Event(KEVENT struct)
++0128    OldIrql
++012c    WorkingSetPage
++0130    ProcessOutswapEnabled
++0131    ProcessOutswapped
++0132    AddressSpaceInitialized
++0133    AddressSpaceDeleted
++0134    AddressCreationLock(FAST_MUTEX struct)
++0134    Count
++0138    Owner
++013c    Contention
++0140    Event(KEVENT struct)
++0150    OldIrql
++0154    HyperSpaceLock
++0158    ForkInProgress
++015c    VmOperation
++015e    ForkWasSuccessful
++015f    MmAgressiveWsTrimMask
++0160    VmOperationEvent
++0164    PageDirectoryPte(HARDWARE_PTE struct)
++0164    Valid
++0164    Write
++0164    Owner
++0164    WriteThrough
++0164    CacheDisable
++0164    Accessed
++0164    Dirty
++0164    LargePage
++0164    Global
++0164    CopyOnWrite
++0164    Prototype
++0164    reserved
++0164    PageFrameNumber
++0168    LastFaultCount
++016c    ModifiedPageCount
++0170    VadRoot
++0174    VadHint
++0178    CloneRoot
++017c    NumberOfPrivatePages
++0180    NumberOfLockedPages
++0184    NextPageColor
++0186    ExitProcessCalled
++0187    CreateProcessReported
++0188    SectionHandle
++018c    Peb
++0190    SectionBaseAddress
++0194    QuotaBlock
++0198    LastThreadExitStatus
++019c    WorkingSetWatch
++01a0    Win32WindowStation
++01a4    InheritedFromUniqueProcessId
++01a8    GrantedAccess
++01ac    DefaultHardErrorProcessing
++01b0    LdtInformation
++01b4    VadFreeHint
++01b8    VdmObjects
++01bc    ProcessMutant(KMUTANT struct)
++01bc    Header(DISPATCHER_HEADER struct)
++01cc    MutantListEntry(LIST_ENTRY struct)
++01d4    OwnerThread
++01d8    Abandoned
++01d9    ApcDisable
++01dc    ImageFileName
++01ec    VmTrimFaultValue
++01f0    SetTimerResolution
++01f1    PriorityClass
++01f2    SubSystemMinorVersion
++01f3    SubSystemMajorVersion
++01f2    SubSystemVersion
++01f4    Win32Process
+
+> * esp+14 looks like Param2
+> * eax is (esp+14)->(104)
+> * Test for null
+> * eax = *(eax+14)
+
+Nota l'offset 0x104 - ObjectTabke. Tornando indietro al codice disassemblato,
+notiamo  che dopo  aver caricato questo valore in memoria, esso e` testato per
+assicurare che non e` un puntatore a NULL:
+
+8015C921  85C0  test     eax,eax                           
+8015C923  740C  je       _ExpCopyProcessInfo@8+1Dh                           
+
+Dal  momento che stiamo eseguento l'istruzione che segue il "je", sappiamo che
+il test  avviene  con  successo  ed  abbiamo  un valore  non-NULL. Proviamo a
+comparare  questo risultato  con  il  contenuto  corrente dei dati in memoria.
+Facciamo  questo  dumpando  il contenuto  della  struttura  EPROCESS, usando
+kdex2x86:
+
+0: kd> !strct eprocess B980Ae08
+Structure EPROCESS (Size:0x1f8) at 0xb980ae08:
++0000    Pcb(KPROCESS struct)
++0000    Header(DISPATCHER_HEADER struct)
++0010    ProfileListHead(LIST_ENTRY struct)
++0018    DirectoryTableBase =   08c6f000 21570000
++0020    LdtDescriptor(KGDTENTRY struct)
++0028    Int21Descriptor(KIDTENTRY struct)
++0030    IopmOffset =           20ad
++0032    Iopl =                 00
++0033    VdmFlag =              00
++0034    ActiveProcessors =     00000001
++0038    KernelTime =           00000001
++003c    UserTime =             00000001
++0040    ReadyListHead(LIST_ENTRY struct)
++0048    SwapListEntry(LIST_ENTRY struct)
++0050    ThreadListHead(LIST_ENTRY struct)
++0058    ProcessLock =          00000000
++005c    Affinity =             0000000f
++0060    StackCount =           0001
++0062    BasePriority =         08
++0063    ThreadQuantum =        24
++0064    AutoAlignment =        00
++0065    State =                00
++0066    ThreadSeed =           54
++0067    DisableBoost =         00
++0068    ExitStatus(NTSTATUS) = 0(STATUS_SUCCESS)
++006c    LockEvent(KEVENT struct)
++006c    Header(DISPATCHER_HEADER struct)
++007c    LockCount =            00000000
++0080    CreateTime(LARGE_INTEGER/ULARGE_INTEGER union) = following
++0080    None(Anonymous struct) = following
++0088    ExitTime(LARGE_INTEGER/ULARGE_INTEGER union) = following
++0088    None(Anonymous struct) = following
++0090    LockOwner =            BF6B6DC0 (-> PKTHREAD)
++0094    UniqueProcessId =      00000120 (-> HANDLE)
++0098    ActiveProcessLinks(LIST_ENTRY struct)
++0098    Flink =                BF2E4EA0 (-> PLIST_ENTRY)
++009c    Blink =                B2EC4EA0 (-> PLIST_ENTRY)
++00a0    QuotaPeakPoolUsage =   00000460 00002938
++00a8    QuotaPoolUsage =       00000340 00000e81
++00b0    PagefileUsage =        00000024
++00b4    CommitCharge =         00000024
++00b8    PeakPagefileUsage =    0000003a
++00bc    PeakVirtualSize =      00905000
++00c0    VirtualSize =          004e5000
++00c8    Vm(MMSUPPORT struct)
++00c8    LastTrimTime(LARGE_INTEGER/ULARGE_INTEGER union) = following
++00d0    LastTrimFaultCount =   000000a2
++00d4    PageFaultCount =       000000a4
++00d8    PeakWorkingSetSize =   000000a7
++00dc    WorkingSetSize =       00000091
++00e0    MinimumWorkingSetSize = 00000032
++00e4    MaximumWorkingSetSize = 00000159
++00e8    VmWorkingSetList =     C0502000 (-> PMMWSL)
++00ec    WorkingSetExpansionLinks(LIST_ENTRY struct)
++00f4    AllowWorkingSetAdjustment = 01
++00f5    AddressSpaceBeingDeleted = 00
++00f6    ForegroundSwitchCount = 00
++00f7    MemoryPriority =       00
++00f8    LastProtoPteFault =    00000000
++00fc    DebugPort =            00000000
++0100    ExceptionPort =        b3030f68
++0104    ObjectTable =          00000000 (-> PHANDLE_TABLE) <------------ !!!!
++0108    Token =                B0834EB0 (-> PACCESS_TOKEN)
++010c    WorkingSetLock(FAST_MUTEX struct)
++010c    Count =                00000001
++0110    Owner =                00000000 (-> PKTHREAD)
++0114    Contention =           00000000
++0118    Event(KEVENT struct)
++0128    OldIrql =              0000003d
++012c    WorkingSetPage =       0002ec71
++0130    ProcessOutswapEnabled = 00
++0131    ProcessOutswapped =    00
++0132    AddressSpaceInitialized = 01
++0133    AddressSpaceDeleted =  00
++0134    AddressCreationLock(FAST_MUTEX struct)
++0134    Count =                00000001
++0138    Owner =                00000000 (-> PKTHREAD)
++013c    Contention =           00000000
++0140    Event(KEVENT struct)
++0150    OldIrql =              00000000
++0154    HyperSpaceLock =       00000000
++0158    ForkInProgress =       00000000 (-> PETHREAD)
++015c    VmOperation =          0000
++015e    ForkWasSuccessful =    00
++015f    MmAgressiveWsTrimMask = 00
++0160    VmOperationEvent =     00000000 (-> PKEVENT)
++0164    PageDirectoryPte(HARDWARE_PTE struct)
++0168    LastFaultCount =       00000000
++016c    ModifiedPageCount =    00000000
++0170    VadRoot =              a856cfc8
++0174    VadHint =              a856cfc8
++0178    CloneRoot =            00000000
++017c    NumberOfPrivatePages = 0000001e
++0180    NumberOfLockedPages =  00000000
++0184    NextPageColor =        5d24
++0186    ExitProcessCalled =    01
++0187    CreateProcessReported = 00
++0188    SectionHandle =        00000004 (-> HANDLE)
++018c    Peb =                  7FFDF000 (-> PPEB)
++0190    SectionBaseAddress =   01000000
++0194    QuotaBlock =           BDCEEFD0 (-> PEPROCESS_QUOTA_BLOCK)
++0198    LastThreadExitStatus(NTSTATUS) = 0(STATUS_SUCCESS)
++019c    WorkingSetWatch =      00000000 (-> PPAGEFAULT_HISTORY)
++01a0    Win32WindowStation =   00000000 (-> HANDLE)
++01a4    InheritedFromUniqueProcessId = 0000007C (-> HANDLE)
++01a8    GrantedAccess(ACCESS_MASK) = 1f0fff( STANDARD_RIGHTS_ALL )
++01ac    DefaultHardErrorProcessing = 00008000
++01b0    LdtInformation =       00000000
++01b4    VadFreeHint =          ba2cafc8
++01b8    VdmObjects =           00000000
++01bc    ProcessMutant(KMUTANT struct)
++01bc    Header(DISPATCHER_HEADER struct)
++01cc    MutantListEntry(LIST_ENTRY struct)
++01d4    OwnerThread =          00000000 (-> PKTHREAD)
++01d8    Abandoned =            00
++01d9    ApcDisable =           00
++01dc    ImageFileName =        cgiapp.exe......
++01ec    VmTrimFaultValue =     00000000
++01f0    SetTimerResolution =   00
++01f1    PriorityClass =        02
++01f2    SubSystemMinorVersion = 00
++01f3    SubSystemMajorVersion = 04
++01f2    SubSystemVersion =     0400
++01f4    Win32Process =         00000000
+ 
+*Nota che il valore in 0x104 e` null!
+
+Abbiamo terminato la nostra analisi credendo di aver trovato una
+racecondition multiprocessore all'interno di NT. Specificatamente il gestore
+della objecttable e` stato cancellato e deallocato allo stesso tempo, un
+thread separato ha tentato di dereferenziarlo. Il tutto e` stato riportato a
+chi di dovere, blablablablablablalblalblalblalblalbla.
+
+
+.Conclusioni.
+<---------------------------------------------------------------------------->
+Queste sono le magie dietro i bluescreen. Nella mia esperienza le informazioni
+presentate sui bluescreen servono molto come un "cenno". Tracciare realmente
+un problema richiede di giocare sugli errori da dentro "SoftIce/NT" o WinDbg.
+Entrambi i debuggers ottengono un controllo completo al punto di 
+KeBugCheckEx(...),  quindi e`  possibile controllare intorno per altre tracce.
+Ovviamente,  la  maggior  parte  delle  volte,  bisognera`  guardare  l'errore 
+verificatosi prima di riuscire a capirlo realmente.
+
+
+.Credits & Resources.
+<---------------------------------------------------------------------------->
+greetz, fly out to the following:
+
+hellbreak, cmcsynth, bizio, tittyz, cozzola, The Ugly, smaster, Cavallo,
+DreadN, Berry, FuSyS, Kobaiashi, naif, nail.
+
+m0libdeno - il cdz lo copio appena finisco di duplicare la memoria... ahaah
+qu3st - disk0frigido rulez
+\spirit\ - y0 br0
+vecna - ( non posso mica metterti nei greetz dai :) )
+
+...and all the other, that my broken mind'd broken.
+
+Resources:
+
+[A] Inside Windows NT - A. Solomon
+[B] Undocumented Windows NT - P. Dabak, S. Phadke, M. Borate
+[C] Windows NT Device Driver Development - P. Viscarola, W. Mason
+
+
+-[ WEB ]----------------------------------------------------------------------
+
+	http://www.bfi.cx
+	http://www.s0ftpj.org/bfi/
+	http://bfi.itapac.net
+
+
+-[ E-MAiL ]-------------------------------------------------------------------
+
+        bfi@s0ftpj.org
+
+
+-[ PGP ]----------------------------------------------------------------------
+
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+Version: 2.6.3i
+
+mQENAzZsSu8AAAEIAM5FrActPz32W1AbxJ/LDG7bB371rhB1aG7/AzDEkXH67nni
+DrMRyP+0u4tCTGizOGof0s/YDm2hH4jh+aGO9djJBzIEU8p1dvY677uw6oVCM374
+nkjbyDjvBeuJVooKo+J6yGZuUq7jVgBKsR0uklfe5/0TUXsVva9b1pBfxqynK5OO
+lQGJuq7g79jTSTqsa0mbFFxAlFq5GZmL+fnZdjWGI0c2pZrz+Tdj2+Ic3dl9dWax
+iuy9Bp4Bq+H0mpCmnvwTMVdS2c+99s9unfnbzGvO6KqiwZzIWU9pQeK+v7W6vPa3
+TbGHwwH4iaAWQH0mm7v+KdpMzqUPucgvfugfx+kABRO0FUJmSTk4IDxiZmk5OEB1
+c2EubmV0PokBFQMFEDZsSu+5yC9+6B/H6QEBb6EIAMRP40T7m4Y1arNkj5enWC/b
+a6M4oog42xr9UHOd8X2cOBBNB8qTe+dhBIhPX0fDJnnCr0WuEQ+eiw0YHJKyk5ql
+GB/UkRH/hR4IpA0alUUjEYjTqL5HZmW9phMA9xiTAqoNhmXaIh7MVaYmcxhXwoOo
+WYOaYoklxxA5qZxOwIXRxlmaN48SKsQuPrSrHwTdKxd+qB7QDU83h8nQ7dB4MAse
+gDvMUdspekxAX8XBikXLvVuT0ai4xd8o8owWNR5fQAsNkbrdjOUWrOs0dbFx2K9J
+l3XqeKl3XEgLvVG8JyhloKl65h9rUyw6Ek5hvb5ROuyS/lAGGWvxv2YJrN8ABLo=
+=o7CG
+-----END PGP PUBLIC KEY BLOCK-----
+
+
+==============================================================================
+-----------------------------------[ EOF ]------------------------------------
+==============================================================================

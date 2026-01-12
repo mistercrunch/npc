@@ -1,0 +1,126 @@
+pooooopooooooooooppoooooopoopooooooooooooppooooooooopooooooopoooooooppoooooopoop
+p           Discordant Opposition Journal - Issue 9 - December 2000            o
+p                               File 6 of 15                                   o
+poooooooopoooooooooooopoooopooooooopoooooopooooooooooooopooooooppooooooopoooooop
+
+-: ircx explained :-
+-: fwaggle :-
+
+introduction:
+~~~~~~~~~~~~~
+
+"what the fuck is ircx?" i can hear some of you saying right now. basically, it's an extension to the irc protocol. hence the little x on the end of irc. it isn't very widely used, and more often than not it isn't properly implemented. funnily enough, the best implementation i have seen of ircx, is with microsoft's exchange chat service.
+
+a windows server package called ircplus is often figured as an ircx service, but it in fact is a very poor implementation. as is eliteircd, the author of eircd really should read the ircx rfc and try to make his daemon ircx compatible. if there was an ircx daemon for unix, i would be using it immediately.
+
+so, we've established what ircx is. but what's it do? if you want a server to play with it on, join #hacking on irc.subterranea.net. to really notice the effects of ircx, you need an ircx compatible client. some patches for bitchx allow this, but mirc does the best job of implementing ircx.
+
+"owners" and "hosts"
+~~~~~~~~~~~~~~~~~~~~
+
+the first thing you will notice when you join a channel using an ircx client and server, is that instead of having an @ in front of the operator names, it sometimes has a period (.). this is because instead of having "operator" (+o) modes, ircx has "owner" and "host" modes.
+
+when a channel is created, the founder has owner status. this is represented with a period in front of their nicknames. they can set other users to host status (similar to chanop status on ircd), by setting mode +o on that nickname. channel owners can also set mode +q, which will bestow channel ownership on that particular user.
+
+channel hosts are for all intents and purposes identical to chanops on ircd. they have all the same powers. however, channel owners have power over channel hosts. for example, a channel owner can kick anyone in the channel, or deop them at any time. a channel host however, can kick anyone EXCEPT channel owners.
+
+the periods in front of the nicknames in the nicklist, and the mode +q only show up if the client sends the command "IRCX" to the server. otherwise, mode +o and mode +q both show up as mode +q, and owners also have @'s in front of their nicks. this is to allow backward compatibility with irc clients.
+
+user@host masking
+~~~~~~~~~~~~~~~~~
+
+this feature has been implemented on quite a few ircds, but it comes standard with ircx servers. it involves masking the last subnet of an ip address, or the third and subsequent levels of a dns hostname. therefore, making it much more difficult for lame script kiddies to DoS someone.
+
+therefore, a user joining like this:
+
+--> fwaggle (~fwaggle@123.456.789.123) has joined #hacking
+
+would be masked like so:
+
+--> fwaggle (~fwaggle@123.456.789.XXX) has joined #hacking
+
+and a hostname, such as this:
+
+--> fwaggle (~fwaggle@dialup.666.someisp.net) has joined #hacking
+
+would be masked accordingly:
+
+--> fwaggle (~fwaggle@XXXXXX.XXX.someisp.net) has joined #hacking
+
+as you can see, this would make it next to impossible for lame little script kiddies to takeover channels with packeting. unfortunately there is a minor security hole which allows brute forcing of the ip address to eventually allow you to guess it. this will maybe be discussed in a subsequent text.
+
+however, to aid in the banning of bad people, channel owners and hosts can see the hostmasks of people who enter and leave their channel.
+
+access lists
+~~~~~~~~~~~~
+
+another unique feature of ircx is that channel hosts and owners can modify an "access list" for their channel. the most obvious explanation of what this is, is a ban list. for example, mode #hacking +b fwaggle!*@* is the same as ACCESS #hacking ADD DENY fwaggle*!*@*.
+
+typing /ACCESS #hacking, brings up the access list for #hacking, including deny access. however, bans are quite simple and a basic feature of any ircd. what ircx is capable of is much more interesting.
+
+/ACCESS #hacking ADD OWNER fwaggle!*@* would mean that any user with the nickname fwaggle would be given owner access when joining the channel. of course, this is quite dangerous, and therefore a tighter hostmask using ip addresses would be more suitable. 
+
+by the same token, we can /ACCESS #hacking ADD HOST fwaggle!*@* to make any user with the nickname fwaggle a host when they join. the server handles this function automatically. finally, we have /ACCESS #hacking ADD VOICE fwaggle!*@*, which does exactly what it suggests, gives +v to matching users.
+
+access lists are also available to sysops to use on nicknames, servers themselves, etc.
+
+channel properties
+~~~~~~~~~~~~~~~~~~
+
+yet another unique channel function of ircx is its ability to set properties. the properties that can be applied to a channel are listed below, and explanations will follow.
+
+MEMBERKEY
+HOSTKEY
+OWNERKEY
+CLIENT
+SUBJECT
+TOPIC
+LANGUAGE
+ONJOIN
+ONPART
+
+i'm pretty sure this is all the properties, but i might have missed one or six. several of these properties, such as CLIENT, SUBJECT, and LANGUAGE, serve no real purpose at all in current implementations. i believe they are intended to be used in true ircx clients.. but as yet i haven't really seen them used.
+
+you can set a property using the following syntax:
+
+/PROP #channel <PROPERTY> :values
+
+for example:
+
+/PROP #hacking MEMBERKEY :31337
+
+MEMBERKEY is for all intents and purposes the same as setting mode +k. it means that a user may only join the channel if they specify the correct key (or they have access). the above example is basically the same as setting mode +k 31337. 
+
+HOSTKEY and OWNERKEY are basically similar to MEMBERKEY. however, these keys do not limit access to the channel. they allow users who join the channel with the specified key, to obtain host or owner status, depending on the key they join with. all keys are case sensitive.
+
+the TOPIC property is basically the same as using the /TOPIC command.
+
+ONJOIN and ONPART are used to send the value specified, as a message to the user, from the channel when they join. in the case of ONPART, it is sent as a notice, when they leave. for example:
+
+/PROP #hacking ONJOIN :hi there everyone\ni said hi you fuckers
+
+you will notice the \n implementation of CRLF. this allows you to specify multiple lines in the onjoin. the above command, would produce this to a user who joins:
+
+--> fwaggle has joined #hacking
+<#hacking> hi there everyone
+<#hacking> i said hi you fuckers
+
+only the user who joins will see this, which makes it much more effective for announcements or greetings than a bot which simply messages the channel (it doesn't flood everyone else in a busy channel).
+
+by the same token, ONPART works similarly..
+
+/PROP #hacking ONPART :oi!\nwhere tha fuck do you think you're goin?\nget your ass back here
+
+<-- you have left #hacking
+-#hacking- oi!
+-#hacking- where tha fuck do you think you're goin?
+-#hacking- get your ass back here
+
+other ircx features i can't be bothered explaining
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+microsoft's implementation of ircx includes support for what's called NTLM authentication. these means that users on a windows NT domain can be assigned certain privilidges such as irc operator privilidges. i'll discus why i think this is a bad idea, in my next article "shortcomings of ircx".
+
+ircx also supports server based channel registration, which allows reliable channel security, without relying on a seperate services package.
+
+so. next issue of the DoJ, i'll probably explain some of the shortcomings of ircx, which should interest the script kiddies out there. stay tuned.

@@ -1,0 +1,585 @@
+==============================================================================
+-------------[ BFi numero 9, anno 3 - 03/11/2000 - file 16 di 21 ]------------
+==============================================================================
+
+
+-[ REVERSiNG ]----------------------------------------------------------------
+---[ ZPPP PR0JECT
+-----[ Ritz <ritz@freemail.it>
+
+
+     	ZPPP Project: un semplice esercizio di Assembly coding per Linux
+
+La programmazione in Assembly sotto Linux non sembrava essere, fino a poco
+tempo fa, un argomento seguito da molte persone, almeno qui in Italia. Proprio
+per questo e' nato il RACL, Reversing & Asm Coding for Linux, che ha lo scopo
+di diffondere l'"arte" del reverse enginnering e asm coding riferiti a questo
+so. Per le varie info al riguardo rimando al sito http://racl.immagika.org .
+
+Cosa sia il reverse engineering o la programmazione in Assembly non lo
+spieghero' certo in questo articolo, qui infatti cerchero' di introdurre
+brevemente a *come* in Linux si puo' programmare in asm, portando anche un
+semplice esempio pratico (trovate i src completi nel zppp.tgz di questo BFi).
+
+Naturalmente, Linux e' un sistema operativo a 32-bit, il quale opera in
+protected mode [piccola nota: quando dico asm coding intendo sempre in
+architetture i32, ovvero da Intel 386 in su =) ].
+
+Quando scriviamo un programma in asm per Linux dobbiamo prima di tutto
+scegliere la sintassi che desideriamo adottare (a chi proviene dalla
+programmazione in asm sotto win32 o dos questo aspetto risultera'
+probabilmente strano). Nello scrivere un listato asm da compilare e linkare
+proprio sotto Linux, infatti, abbiamo a disposizione 2 scelte differenti
+proprio nella sintassi a nostra disposizione. La prima, la classica sintassi
+Intel, e' quella normalmente utilizzata in win, mentre la seconda, la sintassi
+AT&T (quella utilizzata originariamente nei sistemi UNIX), presenta alcune
+caratteristiche che la differenzia da quest'ultima e la rende, secondo molti,
+meno ambigua, ad esempio:
+
+- In un'operazione, il registro di destinazione deve sempre essere il secondo.
+- Il nome dei registri e' preceduto dal simbolo "%". Ad esempio per copiare
+  eax in ebx scriveremo al posto di mov ebx, eax (sintassi Intel)
+  mov %eax, %ebx (sintassi AT&T).
+- La lunghezza dell'operando va posposta all'operazione che opera su di esso.
+  Ad esempio, per copiare bx (word) in ax (word) si scrivera' movw %bx, %ax,
+  per il byte si usa la lettera b, per la dword la lettera l.
+- Ogni operando immediato va posposto al simbolo "$" (quello di Bill Gate$),
+  ad esempio addl $5,%eax.
+- Non mettere un prefisso a un operando indica che e' un indirizzo di memoria.
+  Es. movl $ciao,%eax muove l'offset di ciao in eax, mentre movl ciao,%eax
+  muove il contenuto di ciao (la dw da esso puntato) in eax.
+
+A seconda della sintassi con cui viene scritto il listato sorgente, si
+scegliera' quindi il compilatore. Nel caso sia stata scelta la classica
+sintassi Intel il compilatore piu' utilizzato e' il NASM, in caso contrario si
+potra' usare, ad esempio, il GAS (Gnu Assembler), contenuto nel GCC.
+Una volta che il sorgente viene compilato, bastera' semplicemente linkarlo con
+dei linker quali gcc o ld ottenendo come risultato finale l'eseguibile vero e
+proprio.
+
+Per quanto riguarda invece le classiche funzioni di i/o da console, file, etc.
+in Linux abbiamo a disposizione due diverse possibilita', ovvero possiamo
+decidere se chiamare la funzione del kernel relativa al nostro scopo o se
+preferiamo invece utilizzare le libc.
+Nel secondo caso bastera' eseguire semplici call alla relativa funzione
+passando i relativi argomenti nello stack, avendo l'accortezza, una volta che
+la funzione e' stata eseguita, di pulire lo stack stesso (in Linux e'
+obbligatorio farlo *sempre* dopo che si torna da una funzione).
+Scegliendo la prima ipotesi, invece, dovremo fare delle chiamate al kernel, e
+cio' in Linux avviene attraverso l'int 0x80. Prima di eseguire questo int, in
+eax sara' messo il numero di funzione richiesto, quindi rispettivamente in
+ebx, ecx, edx, esi, edi i relativi argomenti. Il valore di ritorno si trovera'
+in eax e non sara' utilizzato lo stack. E' cmq buona norma non mettere in eax
+direttamente il numero della funzione, poiche' tali numeri con le successive
+versioni dei kernel possono variare, ma utilizzare invece nomi che le
+identifichino, quali sys_write o sys_exit.
+
+Ma veniamo ora ad un esempio pratico: il programma che spieghero' di seguito
+e' un semplice tool che serve a configurare una connessione a Internet. Esso
+pone all'utente varie domande, terminate le quali va a scrivere alcuni file e
+script di configurazione.
+
+Per scriverlo utilizzeremo la classica sintassi Intel. I src verranno
+compilatie con NASM e linkati con gcc.
+Dato che e' il primo esempio ho deciso di utilizzare sia il kernel che le libc
+per le chiamate varie, anche se solitamente si utilizza una delle 2.
+Ho anche messo direttamente i numeri delle funzioni in eax come dimostrazione.
+
+-----------------------------
+
+global main
+
+extern	printf
+extern	scanf
+extern	strlen
+
+NULL	equ	0
+
+-----------------------------
+
+Prima di tutto dichiariamo l'entrypoint "main" (la funzione main() necessaria
+per il linker gcc) che indica il punto di inizio esecuzione del nostro codice.
+Fatto cio' dichiariamo le funzioni esterne delle libc che ci serviranno, nella
+fattispecie printf, scanf e strlen (non chiedetemi a cosa servono per
+favore :)) .
+Infine gli equates, con classico NULL = 0.
+
+-----------------------------
+
+section .data
+
+;
+;
+; qui vanno messe le varie domande da porre, i messaggi vari, e cosi' via...
+;
+;
+
+format		db	'%s',NULL
+
+handle		dd	NULL
+
+; ---------------------------------------------------------
+
+optionspath	db		'/etc/ppp/options',NULL
+optionshandle	dd		NULL
+
+optionsbuffer	db		'lock',0xA
+		db		'defaultroute',0xA
+		db		'noipdefault',0xA
+		db		'modem',0xA
+optionsins	TIMES	0x15 db NULL
+optionsbuffer2	db		'115200',0xA
+		db		'crtscts',0xA
+		db		'passive',0xA
+		db		'asyncmap 0',0xA
+		db		'name "'
+optionsins2	TIMES	0x15 db NULL
+
+; ---------------------------------------------------------
+
+pppscriptpath	db		'/etc/ppp/pppscript',NULL
+pppscripthandle	dd		NULL
+
+pppscriptbuffer	db		'TIMEOUT 60',0xA
+		db		'ABORT ERROR',0xA
+		db		'ABORT BUSY',0xA
+		db		'ABORT "NO CARRIER"',0xA
+		db		'ABORT "NO DIALTONE"',0xA
+		db		'"" "AT&FH0"',0xA
+		db		'OK "atdt'
+pppscriptins	TIMES	0x15 db NULL
+pppscript2	db		'TIMEOUT 75',0xA
+		db		'CONNECT',NULL
+
+; ---------------------------------------------------------
+
+papsecretspath	db		'/etc/ppp/pap-secrets',NULL
+ppsecretshandle	dd		NULL
+
+papsecrets1	db		'"'
+papsecrets	TIMES	0x40 db NULL
+
+; ---------------------------------------------------------
+
+scriptpath	db		'/usr/sbin/zppp',NULL
+scriptbuffer	db		'/usr/sbin/pppd -detach connect "/usr/sbin/chat -v 
+-f /etc/ppp/pppscript"',NULL
+
+; ---------------------------------------------------------
+
+resolvpath	db		'/etc/resolv.conf',NULL
+resolvhandle	dd		NULL
+
+resolv		db		'search '
+resolvins	TIMES	0x15 db NULL
+
+resolv2		db		'nameserver '
+resolvins2	TIMES	0x15 db NULL
+
+resolv3		db		'nameserver '
+resolvins3	TIMES	0x15 db NULL
+
+-----------------------------
+
+Come vedete dalla sezione .data il prg dovra' creare 5 file: /etc/ppp/options,
+/etc/ppp/pppscript, /etc/ppp/pap-secrets, /etc/resolv.conf e lo script di
+connessione, che potremo benissimo mettere in /usr/sbin/zppp. I "TIMES 0xN db
+NULL" equivalgono semplicemente alle dichiarazioni "db N dup(NULL)" del
+TASM, ovvero riempiono di NULL una quantita' N di byte. Il resto dovrebbe
+essere tutto chiaro.
+
+Ovviamente i contenuti dei file dovranno avere degli spazi vuoti proprio per
+permettere l'inserimento dei dati personali per la connessione.
+
+NOTA: i src sono stati scritti come esempio di coding, come potete vedere non
+ci sono sistemi di sicurezza contro overflow vari, ma non e' questo lo scopo
+dell'esempio.
+
+Una volta dichiarata la sezione .data possiamo mettere sotto tutti i dati
+inizializzati che ci serviranno. Piccola nota: i dati non inizializzati
+andrebbero messi a rigore in .bss, ma anche .data va bene.
+
+Ora inzia la sezione .text
+
+-----------------------------
+
+section .text
+
+main:
+
+	push	dword graphic1
+	call	printf
+	add	esp, 4
+
+	push	dword head
+	call	printf
+	add	esp, 4
+
+	push	dword graphic2
+	call	printf
+	add	esp, 4
+	
+	push	dword copyright
+	call	printf
+	add	esp, 4
+	
+	push	dword explain
+	call	printf
+	add	esp, 4
+	
+	push	dword phone
+	call	printf
+	add	esp, 4
+	
+	push	dword phonebuffer
+	push	dword format
+	call	scanf
+	add	esp, 8
+	
+	push	dword device
+	call	printf
+	add	esp, 4
+	
+	push	dword devicebuffer
+	push	dword format
+	call	scanf
+	add	esp, 8
+	
+	push	dword user
+	call	printf
+	add	esp, 4
+	
+	push	dword userbuffer
+	push	dword format
+	call	scanf
+	add	esp, 8
+	
+	push	dword pw
+	call	printf
+	add	esp, 4
+	
+	push	dword pwbuffer
+	push	dword format
+	call	scanf
+	add	esp, 8
+	
+	push	dword domain
+	call	printf
+	add	esp, 4
+	
+	push	dword domainbuffer
+	push	dword format
+	call	scanf
+	add	esp, 8
+	
+	push	dword dns1
+	call	printf
+	add	esp, 4
+	
+	push	dword dns1buffer
+	push	dword format
+	call	scanf
+	add	esp, 8
+
+	push	dword dns2
+	call	printf
+	add	esp, 4
+
+	push	dword dns2buffer
+	push	dword format
+	call	scanf
+	add	esp, 8
+	
+-----------------------------
+
+Anche qui tutto e' facilmente comprensibile: il prg infatti fa tutte le
+domande necessarie e aspetta la risposta da parte dell'utente. Notate
+SEMPRE che lo stack viene pulito con l'istro add esp. Potete farlo anche
+pushando lo stack in registri che non vi servono, ma qui ho preferito il
+primo metodo.
+Fatto cio' andiamo a sistemare uno a uno i file che poi saranno scritti:
+
+-----------------------------
+
+	push	dword devicebuffer
+	call	strlen
+	add	esp, 4
+	mov	dword  [lendev], eax
+	mov	ecx, eax
+	inc	ecx
+	mov	byte [devicebuffer+eax], 0xA
+	
+	mov	esi, dword devicebuffer
+	mov	edi, dword optionsins
+	repz	movsb
+
+	mov	ecx, 0x28
+	mov	esi, dword optionsbuffer2
+	mov	edi, dword optionsins
+	add	edi, dword [lendev]
+	inc	edi
+	repz	movsb
+	
+	push	dword userbuffer
+	call	strlen
+	mov	dword [lenuser], eax
+	mov	byte [userbuffer+eax], '"'
+	
+	mov	ecx, eax
+	inc	ecx
+	mov	esi, dword userbuffer
+	mov	edi, dword optionsins
+	add	edi, 0x29
+	add	edi, dword [lendev]
+	repz	movsb
+	
+	mov	eax, dword optionsbuffer
+	add	eax, 0x4E
+	add	eax, dword [lendev]
+	add	eax, dword [lenuser]
+	mov	dword [eax], NULL
+	
+-----------------------------
+
+Per fare tutte queste operazioni come vedete bisogna fare un po' di taglio e
+cucito;) nel senso che i byte dei buffer non si trovano tutti al loro posto, 
+anzi, quindi repz movsb vari. Come avrete gia' notato, nel NASM per muovere un
+offset in un registro si scrive "mov reg, dword buffer", mentre per muovere il
+contenuto del buffer in questione nello stesso registro si scrive
+"mov reg, dword [buffer]". Un po' diverso anche qui da TASM o MASM. Inoltre,
+viene accettato il prefisso 0x per indicare i valori hex.
+
+Dopo che i byte sono stati tutti allineati correttamente e il buffer e' pronto
+per essere scritto nel file, vengono eseguite le ultime 5 istruzioni del
+blocco sopra presentato, che hanno lo scopo di mettere byte NULL alla fine del
+buffer per questioni di sicurezza nel caso in cui essi non fossero gia'
+presenti perche' sono stati sovrascritti nelle operazioni di "allineamento".
+
+Le stesse operazioni vanno fatte anche per tutti gli altri file:
+
+-----------------------------
+
+	push	dword phonebuffer
+	call	strlen
+	mov	dword [lenphone], eax
+	add	esp, 4
+	
+	mov	byte [phonebuffer+eax], '"'
+	mov	byte [phonebuffer+eax+1], 0xA
+	mov	ecx, eax
+	add	ecx, 2
+	
+	mov	esi, dword phonebuffer
+	mov	edi, dword pppscriptins
+	repz	movsb
+
+	mov	ecx, 0x13 
+	mov	esi, dword pppscript2
+	mov	edi, dword pppscriptins
+	add	edi, eax
+	add	edi, 2
+	repz	movsb
+
+	mov	eax, dword pppscriptbuffer
+	add	eax, 0x71
+	add	eax, dword [lenphone]
+	mov	dword [eax], NULL
+
+; ---------------------------------------------------------
+
+	push	dword userbuffer
+	call	strlen
+	mov	dword [lenuser], eax
+	
+	mov	ecx, eax
+	inc	ecx
+	mov	esi, dword userbuffer
+	mov	edi, dword papsecrets
+	repz	movsb
+
+	mov	dword [papsecrets+eax],0x22092A09
+	
+	push	dword pwbuffer
+	call	strlen
+	add	esp, 4
+	mov	dword [lenpw], eax
+	
+	mov	byte [pwbuffer+eax],'"'
+	mov	ecx, eax
+	inc	ecx
+
+	mov	esi, dword pwbuffer
+	mov	edi, dword papsecrets
+	add	edi, dword [lenuser]
+	add	edi, 4
+	repz	movsb
+	
+	mov	eax, dword papsecrets
+	add	eax, 0x6
+	add	eax, dword [lenuser]
+	add	eax, dword [lenpw]
+	mov	dword [eax], NULL
+
+; ---------------------------------------------------------
+
+	push	dword domainbuffer
+	call	strlen
+	add	esp, 4
+	mov	dword [lendomain], eax
+	mov	byte [domainbuffer+eax], 0xA
+	mov	ecx, eax
+	inc	ecx
+	mov	esi, dword domainbuffer
+	mov	edi, dword resolvins
+	repz	movsb
+
+	push	dword dns1buffer
+	call	strlen
+	add	esp, 4
+	mov	dword [lendns1buffer], eax
+	mov	byte [dns1buffer+eax], 0xA
+	mov	ecx, eax
+	inc	ecx
+	mov	esi, dword dns1buffer
+	mov	edi, dword resolvins2
+	repz	movsb
+	
+	cmp	dword [dns2buffer], 0x0000006E
+	jz	otherdns
+	
+; inizio sezione inutine se non c'e' il 2o dns ---------------
+
+	push	dword dns2buffer
+	call	strlen
+	add	esp, 4
+	mov	dword [lendns2buffer], eax
+	mov	byte [dns2buffer+eax], 0xA
+	mov	ecx, eax
+	inc	ecx
+	mov	esi, dword dns2buffer
+	mov	edi, dword resolvins3
+	repz	movsb
+
+	mov	ecx, dword [lendns2buffer]
+	add	ecx, 0xB
+	mov	esi, dword resolv3
+	mov	edi, dword resolvins2
+	add	edi, dword [lendns1buffer]
+	inc	edi
+	repz	movsb
+
+; fine sezione inutine se non c'e' il 2o dns -----------------
+	
+otherdns:
+
+	mov	ecx, dword [lendns1buffer]
+	add	ecx, dword [lendns2buffer]
+	add	ecx, 0x16
+	mov	esi, dword resolv2
+	mov	edi, dword resolvins
+	add	edi, dword [lendomain]
+	inc	edi
+	repz	movsb
+	
+	mov	eax, dword resolv
+	add	eax, 0x1F
+	add	eax, dword [lendomain]
+	add	eax, dword [lendns1buffer]
+	add	eax, dword [lendns2buffer]
+	mov	dword [eax], NULL
+
+-----------------------------
+
+Soliti lavori di allineamento, con l'accortezza di aver inserito l'opzione di
+poter utilizzare anche un solo server dns.
+
+*Solo* dopo che tutti i buffer sono a posto possono esere scritti su file. E
+qui usero' le chiamate al kernel al posto di chiamate quali fopen(). Eccone
+alcune sintassi.
+
+Syscall 4- ssize_t sys_write(unsigned int fd, const char * buf, size_t count)
+Syscall 6- sys_close(unsigned int fd)
+Syscall 8- int sys_creat(const char * pathname, int mode)
+
+-----------------------------
+
+	mov	eax, 0x8
+	mov	ebx, dword optionspath
+	mov	ecx, 0x1A4
+	int	0x80
+	cmp	eax, -1
+	jz	near error
+	mov	dword [handle], eax
+
+-----------------------------
+
+Il numero della chiamata e' 8, cioe' sys_create. In ebx va l'offset di
+optionspath, in ecx i permessi.
+Come si impostano i giusti permessi? Semplice: considerato che il valore 
+numerico di un permesso (che so, 755) e' sempre espresso in sistema ottale, 
+bastera' convertire tale valore in hex e quindi metterlo in ecx, nient'altro.
+Altra considerazione: per quanto ci riguarda i file di config posso anche
+essere leggibili da tutti, se volete che cio' non avvenga modificate
+semplicemente il valore da mettere in ecx.
+
+-----------------------------
+
+	push	dword optionsbuffer
+	call	strlen
+	add	esp, 4
+	
+	mov	ebx, dword [handle]
+	mov	ecx, dword optionsbuffer
+	mov	edx, eax
+	mov	eax, 0x4
+	int	0x80
+	
+-----------------------------
+
+Con il pezzo sopra di codice andiamo a scrivere nel file che abbiamo appena
+creato tramine sys_write, numero 0x4. Il numero di byte da scrivere lo
+ricaviamo con un strlen del buffer che ci interessa.
+
+Ora non ci resta che chiudere l'handle.
+
+-----------------------------
+
+	mov	eax, 0x6
+	mov	ebx, dword [handle]
+	int	0x80
+
+-----------------------------
+
+Fatte queste operazioni per i vari file, non dovremo fare altro che compilare
+il tutto con
+
+$ nasm -f elf zppp.asm
+
+e quindi andare a linkare il file .o con
+
+$ gcc zppp.o
+
+per avere come risultato l'eseguibile a.out.
+E il nostro tool e' terminato, siamo pronti ad eseguire /usr/sbin/zppp.
+
+Testandolo qua e la', ho visto personalmente che su SlackWare e RedHat funzia
+a dovere. Su SuSe, invece, il pppd in alcuni casi da' problemi dopo l'avvenuta
+connessione. Questo fatto non sembra, pero', essere dovuto allo zppp, in
+quanto esso crea tutti i file necessari correttamente, bensi' al pppd. Fatemi
+sapere.
+
+Per i soliti suggerimenti, critiche, bug del prg e cosi' via mandatemi una
+mail.
+
+Byz,
+
+Ritz
+
+http://racl.immagika.org
+ritz@freemail.it
+racl@alfatechnologies.it
+
+
+==============================================================================
+---------------------------------[ EOF 16/21 ]--------------------------------
+==============================================================================

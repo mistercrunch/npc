@@ -1,0 +1,641 @@
+<HTML>
+<HEAD>
+</HEAD>
+<BODY  bgcolor=#FFFFFF HEIGHT=100 WIDTH=89 TEXT=#000000 LINK=#0000FF VLINK=#FF0000>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+<A NAME="section-1"><H1>CLASS 7</H1></A>
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">
+
+<center>
+<H2>
+Filling Delay Slots
+</H2>
+</center>
+
+Let's try our first attempts at optimization. We want to fill the delay
+slots, and in order to do so, we need to modify the order of the instructions,
+but at the same time ensure that we do not modify the logic of the program.
+
+Let's take one more look at the program <b>first.s</b>
+<Pre><hr>
+<B> /* first.s */ </B>
+
+        .global _main
+_main:
+        save    %sp, -64, %sp
+        mov     9, %l0
+        sub     %l0, 1, %o0
+        sub     %l0, 7, %o1
+        call    .mul
+        nop          	     ! wasted machine cycle
+        sub     %l0, 11, %o1
+        call    .div
+        nop          	     ! wasted machine cycle
+        mov     %o0, %l1
+        mov     1, %g1
+        ta      0
+<hr></Pre>
+
+We find that there are two wasted cycles in this program (represented by 
+the two nops.) This program can be modified to be a bit more efficient. 
+
+<Pre><hr>
+        .global _main
+_main:
+        save    %sp, -64, %sp
+        mov     9, %l0
+        sub     %l0, 1, %o0
+        call    .mul	
+        sub     %l0, 7, %o1	! Delay slot filled
+        call    .div
+        sub     %l0, 11, %o1	! Delay slot filled
+        mov     %o0, %l1
+        mov     1, %g1
+        ta      0
+<hr></Pre>
+
+<H2>
+Branching in Sparc Assembly
+</H2>
+
+Can we use any instruction to fill the delay slot? The answer is an obvious 
+<b>no</b>. We cannot use any instruction that modifies the logic of the program, 
+or affects the outcome of the branch. Branching in Sparc assembly is based on
+the value of certain condition codes.  There are four condition codes in case
+of the SPARC architecture. They are :
+
+<Pre>
+Z  - set if the result was zero
+N  - set if the result was negative
+V  - set if execution resulted in number too large to store in register 
+C  - if any carry out of the register after execution of instruction
+</Pre>
+
+Based on the value of each of these condition codes, a branch may be taken
+or not taken. There are only certain instructions in Sparc Assembly that set
+the condition codes. Once the condition codes are set, the branch outcome 
+depends on the value of these condition codes. The condition codes remain 
+in their state until they are overwritten by another instuction which modifies
+the condition codes. Hence, placing such an instruction in the delay slot of a
+branch or before the branch has actually taken place might not be a good idea.
+
+
+<P>
+The ordinary instructions do not set the condition codes. For example, the <b>add</b>
+instruction does not modify any condition codes. 
+we need modified instructions. But we can use the modified <b>addcc</b> instruction
+which can be used to add two numbers, and at the same time, use the results of the 
+addition to set the condition codes. 
+
+<Pre>
+add r1, r2(or c), r3         ! no condition codes set
+
+addcc r1, r2(or c), r3       ! condition codes are set
+</Pre>
+
+<P>
+<b>Example:</b>
+
+<P>
+Let us assume for the sake of simplicity that the  maximum number that can be stored 
+in a register is 255, min. -256. i.e. We are assuming that the numbers are stored
+in a 9-bit register.
+
+<P>
+<STRONG>
+Which of the condition code variables (Z, C, V, N) will be set by the following 
+statement:
+
+<P>
+addcc r1, r2(or c), r3
+
+<OL>
+  <LI> If  r1 is 10, r2 is -10 
+
+
+  <LI> If  r1 is 20, r2 is 40
+
+
+  <LI> If r1 is 240, c is 50
+
+
+  <LI> If r1 is 2, r2 is -250
+</OL>
+</STRONG>
+
+<hr>
+<P>
+
+<center>
+<H2>Control Structures.</H2>
+</center>
+
+High Level Languages contain a wide range of control structures;
+<I>e.g.,</I> in C we have for loops, while loops, do loops, switch statements,
+and the goto statement. One aspect of Assembly Language's FLEXIBILITY
+is that it can implment all of these control structures easily.
+However, in order to have flexibility, we wind up with simplicity.  The
+simplicity of Assembly Language can make it somewhat painful to program in. 
+        
+
+<H3>Branching, Testing.</H3>
+
+Branches are the control transfer instruction that you'll use most 
+often.  Branches are control transfers that NEVER return - they're like 
+a "goto" in C. 
+                        
+<P>
+<H3>Branch Instructions</H3>
+
+<P>
+The format is:  <b>b...   label</b>   (b... is one of the branches 
+testing integer condition codes)
+
+<P>
+The various <b>branch mnemonics</b> are:
+
+<P>
+<PRE>
+<b>ba</b>              branch always, similar to goto
+
+<b>bn</b>              branch never, similar to a nop
+
+<b>bl</b>              branch on less than zero
+
+<b>ble</b>             branch on less than or equal to
+
+<b>be</b>              branch on equal to zero
+
+<b>bne</b>             branch on not equal to zero
+
+<b>bge</b>             branch on greater than or equal to zero
+
+<b>bg</b>              branch on greater than zero
+</PRE>
+
+Note what complements (opposites) are:
+<PRE>
+Condition       Complement
+---------       ----------
+   bl              bge
+   ble             bg
+   be              bne
+   bne             be
+   bge             bl
+   bg              ble
+</PRE>
+                
+Less than what (for example)?  The branches take effect based on
+<I>condition codes</I> stored in the control unit.  These are bits that
+are modified by certain instructions; the ones you'll use most are
+
+<PRE>
+  <b>addcc</b>    reg,    reg_or_imm,    reg
+  <b>subcc</b>    reg,    reg_or_imm,    reg
+</PRE>
+
+The condition codes are set based on the value of the last operand
+above.  They are:
+
+<PRE>
+ Z - was it zero?
+ N - was it negative?
+ V - did it generate an overflow as number too large to be stored in register? 
+ C - did it generate a carry-out? 
+</PRE>
+
+
+<hr>
+<p>
+<H2>The Relationship between Assembly and C</H2>
+
+As already mentioned, the role of assembly and machine language is to
+provide a small set of flexible operations that: 
+<UL>
+<LI> Can be efficiently implemented in hardware
+<LI> Can efficiently support the range of high level language operations
+     that we'd like to use. 
+</UL>
+
+ <P>
+As such, it is an intermediary language.  It's really not intended, in
+general, for programmer use.  
+ <P>
+The fact that SPARC machine language can be efficiently implemented in
+hardware is clear from the fact that processor clock speeds for SPARC
+chips are very fast.  A typical SPARC CPU might run at 100 MHz.  This
+means that the interpreter, running in hardware, can execute 100 million
+instructions each second.
+  <P>
+To illustrate how SPARC assembly language is useful for implementing a
+wide range of control structures efficiently, we'll look at how common C
+control structure are implemented in SPARC assembly.  
+ <P>
+Along the way we'll get more flavor of assembly language programming and
+we'll see more examples on how to fill delay slots.  Note that in each
+case, we start by filling each delay slot with a nop.  Once we are sure
+the loop is correct, then we can move instructions around to replace
+nop's and fill the delay slots with useful instructions.
+
+<hr>
+ <P>
+<center>
+<H2>C control structures.</H2>
+</center>
+ <P>
+Here are the C Control structures that we'll examine: 
+<ul>
+<LI> while loops
+<LI> do-while loops
+<LI> for loops,
+<LI> if-then
+<LI> if-then-else. 
+<LI> switch statements
+</ul>
+
+ <P>
+<b>Note: </b> You can use these examples as templates for your own Assembly
+language programming; understand and copy them into your code when you
+want specific control structures.
+ <P>
+
+<hr>
+<P>
+<center>
+<H2>
+Do....While loop
+</H2>
+</center>
+
+Consider the following C/C++ program: 
+
+<PRE>
+/* <b> third.c </b> */ 
+
+/* <b>Calculate y= (x-1) * (x-7) / (x-11) for x = 0 to 10. </b> */ 
+
+#define A2 1
+#define A1 7
+#define A0 11
+
+main()
+{
+   int x = 0, y;
+
+   do {
+        y = ((x-A2) * (x-A1) / (x-A0) ;
+        x++ ;
+        }   while (x &lt; 11) ;
+}
+<hr></PRE>
+
+Now let's see the assembly code corresponding to this HLL code:
+
+<PRE>
+/* <b> third.m </b> */ 
+
+        define(a2, 1)
+        define(a1, 7)
+        define(a0, 11)
+
+        define(x_r, l0)
+        define(y_r, l1)
+
+        .global _main
+_main:
+
+        save    %sp, -64, %sp
+        clr     %x_r
+
+        .global loop
+loop:
+        sub     %x_r, a2, %o0
+        call    .mul
+        sub     %x_r, a1, %o1
+        call    .div
+        sub     %x_r, a0, %o1
+        mov     %o0, %y_r
+
+        add     %x_r, 1, %x_r
+        subcc   %x_r, 11, %g0
+        bl      loop
+        nop
+
+        mov     1, %g1
+        ta      0
+<hr></PRE>
+
+<P>
+After passing through the <b>macro-processor m4</b>, we get the actual 
+assembly code as shown below: 
+
+<PRE>
+/* <b> third.s </b> */
+
+        .global _main
+_main:
+
+        save    %sp, -64, %sp
+        clr     %l0
+
+        .global loop
+loop:
+        sub     %l0, 1, %o0
+        call    .mul	       ! branch instruction
+        sub     %l0, 7, %o1    ! delay slot	
+        call    .div	       ! branch instruction
+        sub     %l0, 11, %o    ! delay slot1
+
+        mov     %o0, %l1
+        add     %l0, 1, %l0    ! x++
+
+        subcc   %l0, 11, %g0   ! check for x less than 11
+        bl      loop           ! actual branch instruction
+        nop
+
+        mov     1, %g1
+        ta      0
+<hr></PRE>
+
+<P>
+<b>Problem:</b> The final delay slot cannot be filled...WHY ???
+
+<P>
+Well, the answer is that there is no instruction that can be 
+moved into the delay slot, which will not modify the logic of
+the program. The add instruction modifies the register <b>l0</b>
+so it cannot be moved in the delay slot. 
+
+
+<P>
+<b>Solution:</b> We can modify the order in which the instructions will be 
+executed, as shown below: 
+
+<PRE>
+/* <b> third.1.s </b> */
+
+        .global _main
+_main:
+        save    %sp, -64, %sp
+        clr     %l0
+
+        .global loop
+
+loop:
+        sub     %l0, 1, %o0
+        call    .mul
+        sub     %l0, 7, %o1
+        call    .div
+        sub     %l0, 11, %o1
+
+        add     %l0, 1, %l0
+        subcc   %l0, 11, %g0
+
+        bl      loop
+        mov     %o0, %l1       ! nop eliminated
+
+        mov     1, %g1
+        ta      0
+</PRE>
+
+Here, the <b>mov</b> instruction has been moved in the delay slot, as it did not 
+change the logic of the program. 
+
+<hr>
+<P>
+<center>
+<H2> While loop </H2>
+</center>
+
+<P>
+<b>While loops</b> are the most common <b>high level language (HLL)</b> construct, but 
+are actually somewhat tricky at the assembly language level.  We will develop an 
+efficient while loop in assembly language in a series of steps.  Consider this fragment 
+of C code:
+
+<P>
+Example from the book:
+
+<P>
+<PRE>
+/* <b> fourth.c </b> */
+
+while (a &lt;=17)
+{
+   a = a + b ;
+   c ++ ;
+}
+</PRE>
+
+<P>
+<H4>
+Corresponding assembly language code:
+</H4>
+
+<PRE>
+/* <b> fourth.s </b> */
+
+test:
+        cmp    %a_r, 17
+        bg       done
+        nop
+        add     %a_r, %b_r, %a_r
+        add     %c_r, 1, %c_r
+        ba       test
+        nop
+done:
+</PRE>
+<P>
+
+<P>
+How many instructions are executed for each pass thru the loop?  Answer:
+7. First observation: we have two control transfer instructions, but
+only one loop.  We should test the condition at the bottom of the loop,
+and leave the loop then.
+
+<P>
+<H4>
+To remove the extra unconditional branch instruction:
+</H4>
+
+<PRE>
+/* <b> fourth.1.s </b> */
+
+test:
+        cmp     %a_r, 17
+        bg      done
+        nop
+loop:   
+        add     %a_r, %b_r, %a_r
+        add     %c_r, 1, %c_r
+        cmp    %a_r, 17
+        ble      loop
+        nop
+done:
+</PRE>
+<P>
+
+Now how many instructions in loop?  5.  A 29% decrease in running time.
+ <P>
+Now, why replicate code?  Simply branch to the bottom of the
+loop to get started:
+
+<PRE><hr>
+/* <b> fourth.2.s </b> */
+
+        ba      test
+        nop
+loop:   
+        add     %a_r, %b_r, %a_r
+        add     %c_r, 1, %c_r
+test:
+        cmp     %a_r, 17
+        ble     loop
+        nop
+done:
+<hr></PRE>
+<P>
+
+Decreased code length *and* the loop is more maintainable this way.
+Now let's remove the nop. 
+
+<P>
+<H4>
+Removal of the first nop
+</H4>
+<PRE><hr>
+/* <b> fourth.3.s </b> */
+
+        ba      test
+        cmp     %a_r, 17
+loop:   
+        add     %a_r, %b_r, %a_r
+        add     %c_r, 1, %c_r
+        cmp     %a_r, 17
+test:
+        ble     loop
+        nop
+done:
+<hr></PRE>
+<P>
+
+Now we would like to eliminate the nop inside the loop (more important
+than the first nop).  Can we move an instruction from the loop body into
+the delay slot?  Say, like this:
+<PRE><hr>
+/* <b> fourth.4.s </b> */
+        ba test
+        cmp     %a_r, 17
+loop:
+        add     %c_r, 1, %c_r
+        cmp     %a_r, 17
+test:
+        ble     loop
+        add     %a_r, %b_r, %a_r
+done:
+<hr></PRE>
+        
+(A rule for debugging loops: always test what happens if the loop
+executes <b>no</b> times, <b>one</b> time, and <b>two</b> times.)  
+The one time and two times case is OK, but the no times case results 
+in a being modified, which it shouldn't.
+
+ <P>
+To address loops, branch instructions can be <STRONG>annulled</STRONG>. An 
+annulled branch will not execute the delay slot instr if the branch is not 
+taken. The basic idea is the the delay slot can be part of the loop this way,
+and when the loop isn't taken, the delay slot isn't executed either.
+ <P>
+
+So our <b>final, correct</b> and <b>efficient</b> version with <b>second nop 
+also removed</b> is:
+
+<P>
+<PRE><hr>
+/* <b> fourth.5.s </b> */
+
+        ba       test
+        cmp    %a_r, 17
+loop:   
+        add     %c_r, 1, %c_r
+        cmp    %a_r, 17
+test:
+        ble,a   loop
+        add     %a_r, %b_r, %a_r
+done:
+<hr></PRE>
+<P>
+
+If the branch is not taken, then the statement after the branch (in 
+the pipeline) is not executed, it is <b>annulled</b>. 
+ <P>
+
+Now we have four instructions inside the loop.  This makes sense: two to
+do the work, one to set the condition, and one to conditionally branch.
+ <P>
+It's probably simplest just to copy this example whenever you need a
+while loop --- use it as a <b>template</b>.
+ <P>
+
+<hr>
+<center>
+<H2>For loops</H2>
+</center>
+ <P>
+The <b>for</b> loop is defined in terms of a <b>while</b> loop:
+
+<PRE><hr>
+   for (ex1; ex2; ex3) st
+
+<b>This is the same as : </b>
+
+    ex1;
+    while ( ex2 ) 
+    {
+        st
+        ex3;
+    }
+<hr></PRE>
+
+So, to translate something like:
+<PRE><hr>
+/* <b> fifth.c </b> */
+
+  for (a = 1; a <= b; a++)
+      c *= a;
+<hr></PRE>
+
+We would wind up with (after filling delay slots!):
+
+<PRE><hr>
+/* <b> fifth.s </b> */
+
+                ba      test
+                mov     1, %a_r         ! a = 1
+        loop:
+                call    .mul
+                mov     %c_r, %o1
+                mov     %o0, %c_r
+                add     %a_r, 1, %a_r
+        test:
+                cmp     %a_r, %b_r
+                ble,a   loop
+                mov     %a_r, %o0
+
+<hr></PRE>
+
+Note that the overall structure of the <b>embedded while loop</b> is evident.
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">  
+<H3>
+For class 8 notes, <A HREF="class8.html">click here</A><BR>
+</H3>
+
+<img src="http://www.b4b0.org/images/barwhit.gif" alt="">  
+<H3>
+For more information, contact me at <A HREF="mailto:tvohra@mtu.edu">tvohra@mtu.edu</A><BR>
+</H3>
+
+</BODY>
+</HTML>

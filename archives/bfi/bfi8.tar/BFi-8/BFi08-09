@@ -1,0 +1,407 @@
+==============================================================================
+-------------[ BFi numero 8, anno 3 - 30/04/2000 - file 9 di 28 ]-------------
+==============================================================================
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ BSD KERNEL: AGiRE SULLE iNTERFACCE Di RETE
+-----[ pIGpEN <pigpen@s0ftpj.org> <deadhead@sikurezza.org>
+
+
+MUSiCA:		Cure - Paris
+		Rolling Stones - Undercover
+
+Saluti:		dize, felipe, Shade76, sikurezza.org, s0ftpj staff...
+
+TASTIERA:	geotecnosciamanica
+
+
+In questo articolo vedremo come e' possibile modificare le funzioni di
+gestione di un'interfaccia di rete... lo faro' in modo sintetico e
+pratico arrivando subito al dunque...
+
+Cominciamo con il dire che le interfacce sono tutte linkate tra di loro 
+attraverso una TAILQ (sys/queue.h per maggiori informazioni sulle strutture
+e le macro di linkaggio)
+
+[net/if_var.h]
+
+/*
+ * Structure defining a network interface.
+ *
+ * (Would like to call this struct ``if'', but C isn't PL/1.)
+ */
+struct ifnet {
+	void	*if_softc;		/* pointer to driver state */
+	char	*if_name;		/* name, e.g. ``en'' or ``lo'' */
+	TAILQ_ENTRY(ifnet) if_link; 	/* all struct ifnets are chained */
+	struct	ifaddrhead if_addrhead;	/* linked list of addresses per if */
+        int	if_pcount;		/* number of promiscuous listeners */
+	struct	bpf_if *if_bpf;		/* packet filter structure */
+	u_short	if_index;		/* numeric abbreviation for this if  */
+	short	if_unit;		/* sub-unit for lower level driver */
+	short	if_timer;		/* time 'til if_watchdog called */
+	short	if_flags;		/* up/down, broadcast, etc. */
+	int	if_ipending;		/* interrupts pending */
+	void	*if_linkmib;		/* link-type-specific MIB data */
+	size_t	if_linkmiblen;		/* length of above data */
+	struct	if_data if_data;
+	struct	ifmultihead if_multiaddrs; /* multicast addresses configured */
+	int	if_amcount;		/* number of all-multicast requests */
+/* procedure handles */
+	int	(*if_output)		/* output routine (enqueue) */
+		__P((struct ifnet *, struct mbuf *, struct sockaddr *,
+		     struct rtentry *));
+	void	(*if_start)		/* initiate output routine */
+		__P((struct ifnet *));
+	int	(*if_done)		/* output complete routine */
+		__P((struct ifnet *));	/* (XXX not used; fake prototype) */
+	int	(*if_ioctl)		/* ioctl routine */
+		__P((struct ifnet *, u_long, caddr_t));
+	void	(*if_watchdog)		/* timer routine */
+		__P((struct ifnet *));
+	int	(*if_poll_recv)		/* polled receive routine */
+		__P((struct ifnet *, int *));
+	int	(*if_poll_xmit)		/* polled transmit routine */
+		__P((struct ifnet *, int *));
+	void	(*if_poll_intren)	/* polled interrupt reenable routine */
+		__P((struct ifnet *));
+	void	(*if_poll_slowinput)	/* input routine for slow devices */
+		__P((struct ifnet *, struct mbuf *));
+	void	(*if_init)		/* Init routine */
+		__P((void *));
+	int	(*if_resolvemulti)	/* validate/resolve multicast */
+		__P((struct ifnet *, struct sockaddr **, struct sockaddr *));
+	struct	ifqueue if_snd;		/* output queue */
+	struct	ifqueue *if_poll_slowq;	/* input queue for slow devices */
+};
+
+Questa struttura definisce un'interfaccia di rete... Come dicevo le ifnet 
+sono linkate attraverso una TAILQ ed e' possibile cercare una di esse partendo
+da una ifnethead (ifnet) fino a quando si trova la struttura voluta o si 
+termina la TAIL...
+
+In pratica:
+
+abbiamo la ifnethead definita cosi': TAILQ_HEAD(ifnethead, ifnet);
+
+che corrisponde a:
+
+struct ifnethead {
+	struct ifnet *tqh_first;
+	struct ifnet **tqh_last;
+};
+
+La testa e' poi definita cosi':
+
+struct ifnethead ifnet;
+
+una ricerca senza utilizzare le macro di una particolare interfaccia (es. ed0) 
+sara' uguale alla seguente:
+
+struct ifnet *ifp;
+
+for(ifp = ifnet.tqh_first; ifp; ifp = ifp->if_link.tqe_next) {
+	if(!strcmp(ifp->if_name,"ed") &&
+	   if_unit == 0)
+	   /* trovata */ blabla..
+}
+
+in cui:		- if_name e' il nome dell'interfaccia (ed nel nostro caso)
+		- if_unit e' il suo numero (0 nel nostro caso)
+
+
+Con macro invece:
+
+struct ifnet *ifp;
+
+TAILQ_FOREACH(ifp, &ifnet, if_link) {
+	if(!strcmp(ifp->if_name,"ed") &&
+	   if_unit == 0)
+	   /* trovata */ blabla..
+}	   
+
+Un'altra cosa importante che vi devo dire e' che quando si maneggia le 
+interfacce la funzione di blocco non e' piu' la splnet() , ma la splimp() .
+
+Detto questo e' chiaro che noi vogliamo agire sulle procedure handles...
+
+Ecco un esempio di sostituzione della ether_output...
+
+<-| eth_out_ex.c |->
+/*
+ * This kld gives you an example of how you can modify 
+ * the output function of an Ethernet Interface....
+ * 
+ * 
+ * Note: Don't use it for loopback, ppp or other no eth interfaces !
+ *
+ * pigpen [pigpen@s0ftpj.org, deadhead@sikurezza.org]
+ * 
+ * SoftProject NoProfit 
+ * Italian Security Organization
+ * www.s0ftpj.org
+ *
+ * Sikurezza.org
+ * Italian Security MailingList
+ * www.sikurezza.org
+ *
+ */
+
+/* 
+ * pay attention... this kld can change in future...
+ * 
+ * uname -a
+ *
+ * FreeBSD storpio.cameretta.pig 4.0-19990705-CURRENT FreeBSD 4.0-19990705-
+ * CURRENT #4 ..... i386
+ *
+ * If you wanna a porting of this code and you have no time to do that 
+ * write me at: deadhead@sikurezza.org with subject "PORTING A KLD"
+ * 
+ */
+
+#define INTERFACE		"ed"
+#define INTERFACE_NUM		0
+
+
+#include <sys/param.h>
+#include <sys/systm.h>
+#include <sys/malloc.h>
+#include <sys/mbuf.h>
+#include <sys/kernel.h>
+#include <sys/proc.h>
+#include <sys/socket.h>
+#include <sys/socketvar.h>
+#include <net/if.h>
+#include <netinet/in.h>
+#include <netinet/in_systm.h>
+#include <netinet/ip.h>
+#include <netinet/ip_var.h>
+
+#include <net/netisr.h>
+#include <net/route.h>
+#include <net/if_types.h>
+
+#include <netinet/in_var.h>
+#include <netinet/if_ether.h>
+
+
+
+
+#define		IFP2AC(IFP)	((struct arpcom *) IFP)
+#define		senderr(e)	do { error = (e); goto bad;} while (0)
+
+int	my_eth_output			__P((register struct ifnet *,
+					     struct mbuf *, struct sockaddr *,
+					     struct rtentry *));
+
+static int	module_handler		__P((struct module *, int, void *));
+
+/*
+ * Ethernet output routine.
+ * Encapsulate a packet of type family for the local net.
+ * Use trailer local net encapsulation if enough data in first
+ * packet leaves a multiple of 512 bytes of data in remainder.
+ * Assumes that ifp is actually pointer to arpcom structure.
+ */
+int
+my_eth_output(ifp, m0, dst, rt0)
+	register struct ifnet *ifp;
+	struct mbuf *m0;
+	struct sockaddr *dst;
+	struct rtentry *rt0;
+{
+	short type;
+	int s, error = 0;
+ 	u_char edst[6];
+	register struct mbuf *m = m0;
+	register struct rtentry *rt;
+	register struct ether_header *eh;
+	int off, len = m->m_pkthdr.len, loop_copy = 0;
+	int hlen;	/* link layer header lenght */
+	struct arpcom *ac = IFP2AC(ifp);
+
+	
+	if ((ifp->if_flags & (IFF_UP|IFF_RUNNING)) != (IFF_UP|IFF_RUNNING))
+		senderr(ENETDOWN);
+	rt = rt0;
+	if (rt) {
+		if ((rt->rt_flags & RTF_UP) == 0) {
+			rt0 = rt = rtalloc1(dst, 1, 0UL);
+			if (rt0)
+				rt->rt_refcnt--;
+			else
+				senderr(EHOSTUNREACH);
+		}
+		if (rt->rt_flags & RTF_GATEWAY) {
+			if (rt->rt_gwroute == 0)
+				goto lookup;
+			if (((rt = rt->rt_gwroute)->rt_flags & RTF_UP) == 0) {
+				rtfree(rt); rt = rt0;
+			lookup: rt->rt_gwroute = rtalloc1(rt->rt_gateway, 1,
+							  0UL);
+				if ((rt = rt->rt_gwroute) == 0)
+					senderr(EHOSTUNREACH);
+			}
+		}
+		if (rt->rt_flags & RTF_REJECT)
+			if (rt->rt_rmx.rmx_expire == 0 ||
+			    time_second < rt->rt_rmx.rmx_expire)
+				senderr(rt == rt0 ? EHOSTDOWN : EHOSTUNREACH);
+	}
+	hlen = ETHER_HDR_LEN;
+	switch (dst->sa_family) {
+	case AF_INET:
+		if (!arpresolve(ac, rt, m, dst, edst, rt0))
+			return (0);	/* if not yet resolved */
+		off = m->m_pkthdr.len - m->m_len;
+		type = htons(ETHERTYPE_IP);
+		break;
+	case AF_UNSPEC:
+		loop_copy = -1; /* if this is for us, don't do it */
+		eh = (struct ether_header *)dst->sa_data;
+ 		(void)memcpy(edst, eh->ether_dhost, sizeof (edst));
+		type = eh->ether_type;
+		break;
+
+	default:
+		printf("%s%d: can't handle af%d\n", ifp->if_name, ifp->if_unit,
+			dst->sa_family);
+		senderr(EAFNOSUPPORT);
+	}
+
+	/*
+	 * Add local net header.  If no space in first mbuf,
+	 * allocate another.
+	 */
+	M_PREPEND(m, sizeof (struct ether_header), M_DONTWAIT);
+	if (m == 0)
+		senderr(ENOBUFS);
+	eh = mtod(m, struct ether_header *);
+	(void)memcpy(&eh->ether_type, &type,
+		sizeof(eh->ether_type));
+ 	(void)memcpy(eh->ether_dhost, edst, sizeof (edst));
+ 	(void)memcpy(eh->ether_shost, ac->ac_enaddr,
+	    sizeof(eh->ether_shost));
+
+	/*
+	 * If a simplex interface, and the packet is being sent to our
+	 * Ethernet address or a broadcast address, loopback a copy.
+	 * XXX To make a simplex device behave exactly like a duplex
+	 * device, we should copy in the case of sending to our own
+	 * ethernet address (thus letting the original actually appear
+	 * on the wire). However, we don't do that here for security
+	 * reasons and compatibility with the original behavior.
+	 */
+	if ((ifp->if_flags & IFF_SIMPLEX) && (loop_copy != -1)) {
+		if ((m->m_flags & M_BCAST) || (loop_copy > 0)) {
+			struct mbuf *n = m_copy(m, 0, (int)M_COPYALL);
+
+			(void) if_simloop(ifp, n, dst, hlen);
+		} else if (bcmp(eh->ether_dhost,
+		    eh->ether_shost, ETHER_ADDR_LEN) == 0) {
+			(void) if_simloop(ifp, m, dst, hlen);
+			return (0);	/* XXX */
+		}
+	}
+/*#ifdef BRIDGE
+	if (do_bridge) {
+		struct mbuf *m0 = m ;
+
+		if (m->m_pkthdr.rcvif)
+			m->m_pkthdr.rcvif = NULL ;
+		ifp = bridge_dst_lookup(m);
+		bdg_forward(&m0, ifp);
+		if (m0)
+			m_freem(m0);
+		return (0);
+	}
+#endif*/
+	s = splimp();
+	/*
+	 * Queue message on interface, and start output if interface
+	 * not yet active.
+	 */
+	if (IF_QFULL(&ifp->if_snd)) {
+		IF_DROP(&ifp->if_snd);
+		splx(s);
+		senderr(ENOBUFS);
+	}
+	IF_ENQUEUE(&ifp->if_snd, m);
+	if ((ifp->if_flags & IFF_OACTIVE) == 0)
+		(*ifp->if_start)(ifp);
+	splx(s);
+	ifp->if_obytes += len + sizeof (struct ether_header);
+	if (m->m_flags & M_MCAST)
+		ifp->if_omcasts++;
+	return (error);
+
+bad:
+	if (m)
+		m_freem(m);
+	return (error);
+}
+
+
+
+static int
+module_handler(struct module *module, int cmd, void *arg) {
+	int s;
+	struct ifnet *ifp;
+	
+	switch(cmd) {
+		case MOD_LOAD:
+		 s = splimp();
+		 for(ifp = ifnet.tqh_first; ifp; ifp = ifp->if_link.tqe_next) {
+		  /* pig: sys/queue.h-> TAILQ_FOREACH(ifp, &ifnet, if_link) */
+			printf("%s%d -> ", ifp->if_name, ifp->if_unit);
+			if(!strcmp(ifp->if_name,INTERFACE) &&
+					ifp->if_unit == INTERFACE_NUM) {
+				ifp->if_output = my_eth_output;
+				printf("MODIFIED");
+			} else
+				printf("no");
+			printf("\n");
+		 }
+		 splx(s);
+		 break;
+		 
+		case MOD_UNLOAD:
+		 s = splimp();
+		 for(ifp = ifnet.tqh_first; ifp; ifp = ifp->if_link.tqe_next) {
+		  if( !strcmp(ifp->if_name,INTERFACE) &&
+			     ifp->if_unit == INTERFACE_NUM) {
+		   ifp->if_output = ether_output;
+		   printf("%s%d output funct: Updated\n",ifp->if_name, 
+				   		         ifp->if_unit);
+		  }
+		 }
+		 splx(s);
+		 break;
+	}
+
+	return 0;
+}
+
+static moduledata_t mymod = {
+	"eth_out",
+	module_handler,
+	0
+};
+
+DECLARE_MODULE(eth_out, mymod, SI_SUB_PSEUDO, SI_ORDER_ANY);
+<-X->
+
+Una semplice log() o printf() all'interno della funzione my_eth_output()
+mette in evidenza il fatto che viene eseguita la nostra funzione, detto
+questo sta a voi farvi venire le idee su come sfruttare quanto descritto...
+
+bye
+
+pIGpEN
+
+
+==============================================================================
+---------------------------------[ EOF 9/28 ]---------------------------------
+==============================================================================

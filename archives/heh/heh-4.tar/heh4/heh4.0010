@@ -1,0 +1,475 @@
+                         CONOCIENDO A KERBEROS
+Presentacion
+
+Buenas.
+Este es mi primer texto para la HEH!, y habla de uno de los protocolos/servicios
+de autenticacion mas utilizados y seguros.
+
+Espero que lo disfruten.
+
+Saludos...
+             MovAx
+	     
+Kerberos fue desarrollado como parte del "Project Athena" del MIT.
+
+"Kerberos" era un perro de tres cabezas con cola de serpiente que cuidaba la
+puerta de entrada al infierno.
+Fue elegido este nombre ya que Kerberos se basa en tres capas: Autentificacion,
+administracion de cuentas y auditoria. (aunque las ultimas dos cabezas nunca
+fueron implementadas)
+
+Kerberos viene a corregir el problema de las redes con multiples servidores y/o
+servicios que requieran autentificacion, ya que los usuarios debian "loguearse"
+en cada computadora por separado (ya sea manualmente con los cuadros de
+user/pass o mediante el propio sistema). El problema de esto es que en entornos
+no-seguros (como puede ser una simple red conectada por hubs) es muy facil
+"capturar" las passwords mediante -entre otros metodos- sniffing. Otro problema
+de seguridad es que los usuarios pueden ingresar en las computadoras de otros
+usuarios y pretender ser ellos. Por ultimo tambien es posible alterar la
+direccion de red de una computadora para hacerse pasar por otra, ganando asi
+acceso a los servicios.
+
+Kerberos tambien brinda una administracion centralizada de las cuentas de los
+usuarios, evitando tener que "replicar" cuentas por todos los servidores.
+
+A diferencia de muchos protocolos usados con este fin, Kerberos utiliza un
+sistema de encriptacion simetrico (una sola password) a diferencia de otros que
+utilizan mecanismos de clave publica (dos passwords).
+
+Actualmente se esta utilizando ampliamente Kerberos Version 4, aunque la version
+5 ya esta se encuentra disponible. En este texto voy a hablar solo de la version
+4, asi puedo seguir robando con otro texto el proximo numero XD.
+
+Kerberos tiene las siguientes ventajas con respecto a otros sistemas de
+autentificacion:
+
+		Es SEGURO: Un "sniffeador" en la red no puede obtener suficiente
+	                   informacion necesaria como para hacerse pasar por     
+			   otro usuario.
+
+		Es CONVENIENTE: Ya que los servicios a los que autentifica
+			        Kerberos no pueden identificar usuarios sin el,
+				Kerberos debe ser lo suficientemente estable
+				como para resistir ataques y deficiencias.
+				Sin duda Kerberos cumple eso.
+
+		Es TRANSPARENTE: El usuario no debe enterarse que existe un
+				 proceso de identificacion mas que ingresando
+				 alguna que otra password.
+
+		Es ESCALABLE: Debido a las caracteristicas del sistema, es
+			      imprescindible poder crecer en la cantidad de
+			      servidores Kerberos y servicios que utilizan
+			      Kerberos sin perder performance ni seguridad.
+  
+Considerando la complejidad de este sistema, comenzaremos viendo la version 4.
+Despues terminaremos examinando la ultima version.
+
+.-KERBEROS VERSION 4-.
+
+La version 4 de Kerberos utiliza encriptacion DES para la utilizacion de sus
+servicios.
+
+Kerberos se basa en la utilizacion de muchos "Dialogos" entre las computadoras
+que participan de la autenticacion.
+Aqui hay un ejemplo del dialogo utilizado cuando la computadora "C" pide acceso
+a un servicio del servidor "V"
+
+
+Esquema 1
+
+	=======================================
+	=     PC's    =  Informacion Enviada  = 
+	=======================================
+     1.	=  C ---> AS  =     IDc + Pc + IDv    =
+     2.	=  AS ---> C  =        TICKET         =
+     3.	=  C --->  V  =     IDc + TICKET      = 
+	=======================================
+	
+	TICKET = Ekv[ IDc + ADc + IDv ]
+
+Donde: C -------- Cliente
+       AS ------- Servidor de autenticacion
+       V -------- Servidor
+       IDc ------ Identificador de usuario en 'C'
+       IDv ------ Identificador de 'V'
+       Pc ------- Password del usuario en 'C'
+       ADc ------ Direccion de red de 'C'
+       Kv ------- Clave secreta conocida por 'AS' y 'V'
+       Ekv ------ Funcion de encriptacion usando Kv como clave
+       + -------- Simbolo de concatenacion
+       
+
+
+En este escenario el cliente 'C' envia el nombre de usuario y password a 'AS'
+incluyendo el ID de usuario, el ID de servidor y la password del usuario.
+'AS' busca en su base de datos y si encuentra un registro que concuerde con
+la informacion que le enviaron, le manda un "Ticket" a 'C' el cual contiene
+la direccion de red de 'C', el User ID de 'C', y el ID de 'V'. Este ticket
+esta encriptado CON LA PASSWORD COMPARTIDA SOLO ENTRE 'AS' y 'C'. Por lo que
+es imposible para el cliente u otro "atacante" de la red modificar su contenido.
+Una vez enviado el ticket a 'C', este lo re-envia a 'V', el cual lo desencripta
+con su clave y verifica si toda la informacion contenida es correcta.
+Si el ticket pasa la prueba 'V' le da permiso de acceso al servicio requerido
+por 'C'.
+
+Cada uno de los elementos contenidos en el ticket es importante, sobre todo
+la direccion de red de 'C', ya que un atacante podria capturar ese "ticket"
+desde otra PC y reenviarlo al servidor. Con la inclusion de esta informacion
+el servidor corrobora que el usuario realmente sea quien dice ser, ya que los
+tickets solo son validos desde la computadora que se pidieron.
+
+Facil, no?
+Pero este modelo solo soluciona algunos de los problemas con la identificacion
+en entornos abiertos, pero algunos problemas quedan todavia sin solucion...
+
+Seria conveniente minimizar la cantidad de veces que el usuario debe ingresar
+su password.
+Supongamos que el usuario llega a la ma#ana a su trabajo, se loguea en 'C' y
+revisa si le llego algun correo electronico. Para eso 'C' debe enviar su pass
+a 'AS' para que este genere el ticket para ser presentado al servidor de correo.
+Esto es inconveniente ya que la password del usuario esta recorriendo varias
+veces la red (lo que no es muy seguro que digamos...)
+El problema se soluciono usando tickets "reusables" por un periodo de tiempo
+para evitar el trafico de passwords por la red.
+
+Pero esto tambien tiene un problema, ya que si el usuario quiere acceder a su
+servidor de impresion tambien tendria que enviar su password a 'AS' para que
+este genere el ticket y (bla,bla,bla,bla)
+Para esto se creo el TGS (Ticket Granting Server) con el cual el sistema pasaria
+a ser de esta forma:
+
+Esquema 2
+
+Por cada inicio de sesion:
+
+	=======================================
+	=     PC's    =  Informacion Enviada  = 
+	=======================================
+     1.	=  C ---> AS  =     IDc + IDtgs       =
+     2.	=  AS ---> C  =     Ekc [TICKETtgs]   =
+	=======================================
+
+Por cada tipo de servicio:
+
+	=======================================
+	=     PC's    =  Informacion Enviada  = 
+	=======================================
+     3.	=  C ---> TGS = IDc + IDv + TICKETtgs =
+     4.	=  AS ---> C  =    Ekc [TICKETtgs]    =
+	=======================================
+	
+Por cada sesion del servicio
+
+	=======================================
+	=     PC's    =  Informacion Enviada  = 
+	=======================================
+     5.	=  C ---> V   = IDc + TICKETv         =
+	=======================================
+
+	TICKETtgs = Ektgs [ IDc + ADc + IDtgs + TS1 + Lifetime1]
+	TICKETv   = Ekv [ IDc + ADc + IDv + TS2 + Lifetime2]
+	
+Donde: C -------- Cliente
+       AS ------- Servidor de autenticacion
+       TGS ------ Ticket Granting Server
+       V -------- Servidor
+       IDc ------ Identificador de usuario en 'C'
+       IDv ------ Identificador de 'V'
+       ADc ------ Direccion de red de 'C'
+       Kv ------- Clave secreta conocida por 'AS' y 'V'
+       Ekc ------ Funcion de encriptacion usando Kc como clave
+       Ekv ------ Funcion de encriptacion usando Kv como clave
+       Lifetime1- Maximo tiempo de validez para el Ticket Granting Ticket
+       Lifetime2- Maximo tiempo de validez para el Ticket otorgado para 'V'
+       + -------- Simbolo de concatenacion
+       
+Veamos:
+
+El nuevo servicio (TGS) le da un ticket al usuario que ya se autentico en 'AS'.
+Asi, primero 'C' le pide el llamado 'Ticket Granting Ticket' (TICKETtgs) a 'AS'
+Este ticket es guardado por el modulo cliente en 'C'.
+Cada vez que el usuario tenga que validarse en un servicio, el cliente envia
+"TICKETtgs" a 'TGS' en vez de realizar cada validacion por separado.
+
+'TGS', a su vez envia el ticket respectivo para el servicio que requirio 'C'.
+Asi, 'C', guarda cada ticket que le otorgaron para acceder a los servicios
+hasta que se acabe su "Tiempo de vida" (Lifetime2).
+
+Ahora noten este detalle... vieron el esquema 2?, entonces seguro que se
+estan preguntando "Donde cuernos esta Pc (password de 'C')???"
+La respuesta es: En ningun lado. Ya que 'TGS' encripta el ticket que envia
+a 'C' ya encriptado y 'C' lo desencripta localmente, por lo que:
+NO HAY PASSWORDS RONDANDO POR LA RED. (fuck... =) )
+
+Aun asi, los problemas de seguridad no se acaban, ya que un usuario no
+autorizado puede capturar el TICKETtgs, cambiar su direccion de red, y hacerse
+pasar por el otro usuario una vez que este se desconecte. (siempre y cuando
+que este ticket no expire)
+Tambien es posible capturar el "Service Granting Ticket" (TICKETv) y de la
+misma manera hacerse pasar por el otro usuario y tener acceso a los servicios.
+
+Pero otra vez, la gente del MIT se ocupo de encontrar una forma de que no sea
+tan facil hacerse pasar por otro usuario en la red.
+
+Se ocuparon que cuando 'C' se loguea por primera vez en el dia, 'AS' provee
+de una clave especial a 'C' y a 'TGS' de una forma segura, asi cuando 'C'
+pide un ticket de servicio a 'TGS', ambos se autentifican entre si usando esa
+"clave secreta". 
+Esta clave secreta es denominada "Session Key"
+En este esquema se muestra como el distribuida esa "Session Key" a lo largo
+de los procesos de validacion
+
+Esquema 3
+
+Paso 1:
+
+(a) Authentication Service Exchange (para obtener el Ticket Granting Ticket)
+
+
+	==================================================================
+	=     PC's    =              Informacion Enviada                 =
+	==================================================================
+     1.	=  C ---> AS  =              IDc + IDtgs + TS1                   =
+     2.	=  AS ---> C  = EKc[Kc,tgs + IDtgs + TS2 + Lifetime2 + TICKETtgs =
+	==================================================================
+   
+        TICKETtgs = Ektgs[ Kc,tgs + IDc + ADc + IDtgs + TS2 + Lifetime2 ]	
+
+
+Paso 2:
+
+(b) Ticket-Granting Service Exchange (para obtener el ticket para un servicio)
+
+
+	==================================================================
+	=     PC's    =              Informacion Enviada                 =
+	==================================================================
+     3.	=  C ---> TGS = IDv + TICKETtgs + AUTHENTICATORc                 =
+     4.	=  TGS ---> C = EKc,v [Kc,v + IDv + TS4 + TICKETv                = 
+	==================================================================
+	
+	TICKETtgs = Ektgs[ Kc,tgs + IDc + ADc + IDtgs + TS2 + Lifetime2 ]	
+        TICKETv = EKv [ Kc,v + IDc + ADc + IDv + TS4 + Lifetime4 ]
+	AUTHENTICATORc = Ekc,tgs [ IDc + ADc + TS3 ]
+
+Paso 3:
+
+(c) Client/Server Authentication Exchange (para acceder al servicio)
+
+
+	==================================================================
+	=     PC's    =              Informacion Enviada                 =
+	==================================================================
+     5.	=  C ---> V   = TICKETv + AUTHENTICATORc                         =
+     6.	=  V ---> C   = EKc,v [ TS + 1 ] (para autenticacion mutua)      = 
+	==================================================================
+        
+	TICKETv = EKv [ Kc,v + IDc + ADc + IDv + TS4 + Lifetime4 ]
+	AUTHENTICATORc = Ekc,tgs [ IDc + ADc + TS3 ]
+
+
+A no preocuparse!, ahora paso a escribirles que significa cada simbolos en las
+tres fases.
+
+
+Paso 1:
+        Mensaje 1: (el cliente pide el ticket-granting ticket a 'AS')
+	           
+	           IDc -------- Identidad del usuario en 'C'
+
+		   IDtgs ------ Le dice a AS que el usuario esta requiriendo
+		                acceso al TGS
+
+		   TS1 -------- (TimeStamp 1)
+		                Verifica la sincronizacion de los relojes
+		                de 'AS' y 'C'
+	
+	Mensaje 2: ('AS' le devuelve el TGT a 'C')
+	
+	           EKc -------- Encriptacion del mensaje 2, basado en la clave
+	                        de 'C'
+
+		   Kc,tgs ----- Copia de la "Session Key" creada por 'AS' para
+		                permitir el intercambio seguro entre el cliente
+				y 'TGS' sin necesidad de crear una clave 
+				permanente
+
+		   IDtgs ------ Confirma que el ticket sea realmente para el
+		                TGS
+
+		   TS2 -------- Informa al cliente la hora en la que se envio
+		                el ticket 
+
+		   Lifetime2 -- Indica al cliente el tiempo de vida del ticket
+
+		   TICKETtgs -- El ticket en si para ser usado con 'TGS'
+
+
+Paso 2:            
+        Mensaje 3: ('C' pide el Service-Granting Ticket a 'TGS')
+
+	
+	           IDv ----------- Le dice a 'TGS' que 'C' intenta acceder al
+		                   servidor 'V'
+
+		   TICKETtgs ----- De esta forma se asegura que 'AS' ya valido
+		                   a 'C' exitosamente.
+
+		   AUTHENTICATORc- Creado por el mismo cliente para validar el
+		                   ticket
+	
+	Mensaje 4: ('TGS' le devuelve el SGT a 'C')
+	
+
+		   EKc,tgs ------- Clave compartida solo entre 'C' y 'TGS', la
+		                   cual protege el contenido del mensaje.
+
+		   Kc,tgs -------- Copia de la "Session Key", creada por 'TGS'
+		                   para asegurar el intercambio seguro sin
+				   requerir de una clave permanente entre ellos
+				   dos.
+
+		   IDv ----------- Confirma que el ticket se refiera a 'V'
+
+		   TS4 ----------- Informa el momento en que el ticket fue
+		                   enviado
+		   
+		   TICKETv ------- Ticket para ser enviado a 'V' para confirmar
+		                   identificacion y dar acceso al servicio.
+		   
+		   TICKETtgs ----- Ticket reusable para que el usuario no deba
+		                   ingresar la password repetidas veces.
+		   
+		   Ektgs ------------- El ticket es encriptado con la clave
+		                       compartida entre 'C' y 'TGS' para evitar
+				       su falsificacion.
+		   
+		   Kc,tgs ------------ Copia de la "Session Key", usada para
+		                       desencriptar el AUTHENTICATOR, y por ende
+				       verificar el ticket.
+		   
+		   IDc --------------- Indica quien el due#o del ticket.
+		   
+		   ADc --------------- Previene el uso del ticket desde otra
+		                       computadora que no sea la que genero el
+				       ticket.
+		   
+		   IDtgs ------------- Se asegura a el server que se ha
+		                       desencriptado la password con exito.
+		   
+		   TS2 --------------- Informa a 'TGS' el momento en que el
+		                       ticket fue enviado.
+		   
+		   Lifetime2 --------- Otra vez, el tiempo de vida del ticket.
+		   
+		   AUTHENTICATORc- Asegura a 'TGS' que el cliente que presento
+		                   el ticket es el mismo que el cliente al que
+				   le fue enviado el ticket. Tiene un lifetime
+				   muy corto, para evitar el re-envio desde otra
+				   PC.
+		   EKc,tgs ----------- La clave compartida entre 'C' y 'TGS'
+		   
+		   IDc --------------- Indica quien el due#o del ticket.
+		   
+		   ADc --------------- Previene el uso del ticket desde otra
+		                       computadora que no sea la que genero el
+				       ticket.
+		   
+		   TS2 --------------- Informa a 'TGS' el momento en que el
+		                       ticket fue enviado.
+				       
+Paso 3:
+        Mensaje 5: (el cliente pide acceso a un servicio de 'V')
+		   
+		   TICKETv ------- Le da seguridad a 'V' de que 'C' fue validado
+		                   correctamente con 'AS'
+		   
+		   AUTHENTICATORc- Generado por el cliente para validad el 
+		                   ticket.
+	
+	Mensaje 6: (opcional para que 'C' autentifique a 'V')
+		     
+		   EKc,v --------- 'C' lo usa para corroborar de que el mensaje
+		                   vino de 'V'
+		   
+		   TS5 + 1 ------- 'C' lo usa para asegurarse de que el mensaje
+		                   no es un replay de un reply viejo.
+		   
+		   TICKETv ------- El ticket reusable para no andar pidiendo
+		                   passwords cada vez que se accede a ese server
+		   
+		   Ekv ----------- El ticket es encriptado con una clave que
+		                   solo conoce el server y el 'TGS' para evitar
+				   que lo modifiquen.
+		   
+		   Kc,v ---------- Copia de la "Session Key" accesible por el
+		                   cliente, usada para desencriptar el 
+				   AUTHENTICATOR.
+		   
+		   IDc ----------- Identifica el due#o de este ticket.
+		   
+		   ADc ----------- Previene el uso del ticket desde otra
+		                   direccion que no sea a al que se le entrego
+				   el ticket.
+		   
+		   IDv ----------- Con esto se asegura que se ha desencriptado
+				   el ticket exitosamente. Garantizando la 
+				   identificacion.
+		   
+		   TS4 ----------- TimeStamp del momento de emision del ticket
+		   
+		   Lifetime4 ----- Especifica el tiempo de vida del ticket.
+		   
+		   AUTHENTICATORc- Asegura al server que el cliente que presento
+		                   el ticket es el mismo que el cliente al que
+				   le fue enviado el ticket. Tiene un lifetime
+				   muy corto, para evitar el re-envio desde otra
+				   PC.
+		   
+		   EKc,v --------- AUTHENTICATOR esta encriptado con una clave
+		                   que solo conocen el cliente y el servidor
+				   para evitar la adulteracion del mismo.
+		   
+		   IDc ----------- Tiene que coincidir con el ID en el ticket
+		                   para garantizarlo.
+		   
+		   ADc ----------- Tiene que coincidir con la direccion de red
+		                   del server.
+		   
+		   TS5 ----------- Informa el momento en que fue creado el
+		                   ticket.
+			
+
+Una vez visto este complicado sistema, voy a tratar de resumirlo con un hermoso
+gif hecho con gIMP (Que lo distruten) <kerb01.gif>
+
+
+
+Cualquier duda, comentario, sugerencia, insulto o piropo: GOTO CONTACTO 
+
+En la continuacion de este texto voy a escribir un poco de:
+
+    Interacion de Kerberos entre varios realms (Reinos)
+    Routeo de tickets.
+    Nuevas caracteristicas implementadas en Kerberos 5.
+    Flags para utilizar con los tickets.
+    Mas ASCII art!
+    
+
+Saludos, agradecimientos, insultos, etc.
+
+          Gracias a : aSy, Cabe, Darkfang, nlm , line, Pescad0r, TaNIno, zomba,
+                  y todos los de #DigitalRebel que me olvido de poner.
+		  
+	    " "   a la gente de Ezkracho (por organizar la eko y hacerme pasar 
+	          un buen rato) :)
+				      
+            " "   a mi mama, mi papa y todos los que me conocen XD
+	
+Contacto:
+
+	Mail: MovAx <movax@softhome.net>
+	IRC : #Underground  #Linux ---- irc.satlink.com
+	      #Linux               ---- irc.prima.com.ar
+	    	      

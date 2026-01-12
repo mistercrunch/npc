@@ -1,0 +1,764 @@
+================================================================================
+---------------------[ BFi13-dev - file 21 - 20/08/2004 ]-----------------------
+================================================================================
+
+
+-[ DiSCLAiMER ]-----------------------------------------------------------------
+        Tutto il materiale contenuto in BFi ha fini esclusivamente informativi
+        ed educativi. Gli autori di BFi non si riterranno in alcun modo
+        responsabili per danni perpetrati a cose o persone causati dall'uso
+        di codice, programmi, informazioni, tecniche contenuti all'interno
+        della rivista.
+        BFi e' libero e autonomo mezzo di espressione; come noi autori siamo
+        liberi di scrivere BFi, tu sei libero di continuare a leggere oppure
+        di fermarti qui. Pertanto, se ti ritieni offeso dai temi trattati
+        e/o dal modo in cui lo sono, * interrompi immediatamente la lettura
+        e cancella questi file dal tuo computer * . Proseguendo tu, lettore,
+        ti assumi ogni genere di responsabilita` per l'uso che farai delle
+        informazioni contenute in BFi.
+        Si vieta il posting di BFi in newsgroup e la diffusione di *parti*
+        della rivista: distribuite BFi nella sua forma integrale ed originale.
+--------------------------------------------------------------------------------
+
+
+-[ HACKiNG ]--------------------------------------------------------------------
+---[ LiNUX SECURiTY M0DULE DEMYSTiFiED ]----------------------------------------
+-----[ RageMan <rageman@s0ftpj.org> http://www.s0ftpj.org       ]---------------
+-----[         <rageman@olografix.org> http://www.olografix.org ]---------------
+
+
+--[ Indice 
+
+0x00   Genesi
+0x01   Introduzione
+0x02   LSM, architettura generale
+0x03   Security Field
+0x04   Security Hook
+0x05   Interfaccia ed inizializzazione del framework LSM
+0x06   Nobol
+0x07   Considerazioni
+0x08   Varie ed eventuali
+0x09   Risorse in rete
+
+
+--[ 0x00 - Genesi
+
+In principio Linus creo' il kernel, ed esso era vuoto e deserto. 
+Poi vennero le features ed il kernel comincio' a popolarsi. 
+La vita scorreva serena finche' un bel giorno Linus disse "si divida quel che
+ora e' unito, vi siano i Loadable Kernel Modules" e cosi' avvenne. 
+
+(Genesi, la creazione del Kernel)
+
+
+--[ 0x01 - Introduzione
+
+I Loadable Kernel Modules, per gli amici LKM, sono stati da sempre croce e 
+delizia di Linux. Se da un lato venivano elogiati i vantaggi forniti
+dall'utilizzo di porzioni di codice caricate a run-time, dall'altro lato si
+temevano 'effetti collaterali' legati all'utilizzo di questa tecnologia. 
+Gli effetti, tanto temuti in principio, si manifestarono ben presto. 
+Correva l'anno 1997 e HalfLife pubblico' su Phrack il primo di una lunga serie
+di attacchi diretti al kernel, mediante l'utilizzo degli LKM. 
+Il problema fondamentale da risolvere, trattando questa classe di attacchi,
+consisteva nell'individuare un sistema che consentisse di 'capire' quando ci si
+poteva fidare del kernel, e vice versa, gestendo le due situazioni in maniera
+adeguata; nel branch stable del kernel, fino alla serie 2.4, pochi erano i modi
+per implementare un tale sistema: spesso si ricorreva al system call hijacking.
+Tramite questa tecnica non si faceva altro che implementare una serie di
+security check prima di procedere con l'invocazione della system call originale,
+si utilizzava insomma la stessa tecnica adottata per portare attacchi al kernel
+come arma di difesa. Sebbene tale approccio risultasse funzionale dal punto di
+vista pratico, non costituiva il metodo migliore per la soluzione del problema:
+quello che mancava era un'interfaccia tra LKM e strutture interne del kernel.
+La soluzione si proponeva all'alba del nuovo millenio con la nascita del
+progetto Linux Security Module, LSM per gli amici, come patch per la serie 2.4
+del kernel. LSM e' stato ideato come framework comune ai moduli per la gestione
+della sicurezza. Lo sviluppo del progetto e' andato avanti e nella serie 2.6,
+quella che originariamente era una patch, e' diventata un'highlight feature
+presente nel branch stable. 
+
+"La LUCE, abbiamo visto la LUCE... siamo in missione per conto di Linus"
+(team di sviluppo LSM) 
+
+
+--[ 0x02 - LSM, architettura generale
+
+All'inizio del cammino lungo la via che porto' alla luce, Linus parlo' ai suoi
+devoti sviluppatori comunicando i requisiti _fondamentali_ che il framework
+nascente avrebbe dovuto avere. Il framework secondo la parola di Linus doveva
+essere:
+
+   - Generico: LSM non deve occuparsi della definizione di alcuna politica di
+   sicurezza sul sistema, esso deve soltanto fornire l'interfaccia alle
+   strutture interne del kernel. Questo requisito consente di cambiare il
+   modello di sicurezza adottato semplicemente caricando un nuovo modulo.
+
+   - Semplice: la complessita' del framework deve essere tale da non far
+   degradare le prestazioni del sistema operativo, inoltre il framework LSM deve
+   far si' che il codice dei moduli di sicurezza risulti il meno invasivo
+   possibile rispetto al kernel.
+        
+   - In grado di supportare lo standard POSIX.1e tramite un modulo opzionale.
+   POSIX.1e definisce un'interfaccia di sicurezza per la gestione di ACL, audit,
+   capabilities, MAC e meccanismi di information label. 
+
+LSM e' stato implementato come layer che si pone tra gli oggetti interni del
+kernel (task, inode, ecc.) e gli strati superiori che tentano di accedervi.
+L'accesso alle risorse viene mediato dal framework LSM tramite degli hook che
+attuano una politica decisionale per l'accesso alla risorsa richiesta.
+La natura degli hook e' in genere restrittiva poiche' vengono eseguiti solo se
+il kernel consente l'accesso ad una risorsa. In genere un hook puo' soltanto
+ridurre i privilegi di accesso alle risorse. Fa eccezione l'hook capable() che
+e' autoritativo, nel senso che puo' "scavalcare" le politiche di controllo degli
+accessi discrezionali. Per consentire una maggiore flessibilita' del framework
+LSM sono stati aggiunti dei security field in strutture dati critiche per il
+controllo degli accessi. Nell'ottica di pensiero dell'arcano UNIX, "do one thing
+and do it well", nel framework LSM e' stato implementato il supporto per lo 
+stacking dei moduli. Questa funzionalita' del framework consente di comporre
+delle policy di sicurezza caricando nel kernel piu' moduli LSM dipendenti tra
+loro: il modulo primario si interfaccia direttamente con il kernel mentre i
+moduli secondari si interfacciano solo ed esclusivamente con il primario che
+provvede ad una sorta di replicazione dell'interfaccia LSM verso i moduli 
+secondari. La politica decisionale di una serie di moduli in stacking e' dunque
+data dalla composizione delle varie "decisioni" prese da ogni modulo, sara'
+compito del modulo primario combinare le varie risposte per consentire o meno
+l'accesso ad una risorsa. 
+
+
+--[ 0x03 - Security Field
+
+Il framework LSM, come gia' detto, ha introdotto dei security field in alcune 
+strutture critiche del kernel, quel che non e' stato detto e' cosa sono i
+security field e dove sono situati precisamente all'interno delle strutture. Un
+security field non e' nient'altro che un puntatore di tipo void che consente ad
+un modulo LSM di associare delle informazioni aggiuntive, ritenute utili da
+parte di chi sviluppa i moduli, a strutture interne del kernel. Le principali
+strutture in cui sono stati introdotti i security field sono:
+
+   - La struttura task_struct, che di norma dovrebbe essere _PIUTTOSTO_
+   conosciuta, e' quella in cui sono contenute le informazioni relative ad un
+   processo e al suo stato
+
+        linux/sched.h:
+		struct task_struct {
+			...
+			void *security;
+			...
+		};
+
+   - La struttura linux_binprm e' quella che viene riempita dalla funzione
+   do_execve() (fs/exec.c) per individuare il modo di esecuzione di un binario.
+   Senza scendere nel dettaglio, si puo' dire che tale struttura viene passata
+   ai gestori di formato presenti sul sistema fino a che non viene accettata. Se
+   non e' un formato riconosciuto allora il sistema restituisce -NOEXEC. Nel
+   contesto del framework LSM il security field serve per gestire le
+   informazioni utili per la sicurezza durante la fase di caricamento del
+   programma
+
+        linux/binfmts.h:
+	      struct linux_binprm {
+                  ...
+                  void *security;
+                  ...
+		};
+
+   - La struttura super_block contiene le informazioni relative al superblock di
+   un filesystem. Questa struttura viene utilizzata quando si eseguono le
+   operazioni di mount e umount di un filesystem oppure quando si richiedono
+   delle informazioni riguardo un filesystem
+
+        linux/fs.h:
+            struct super_block {
+                  ...
+                  void *s_security;
+                  ...
+            };
+
+   - La struttura inode contiene la rappresentazione degli inode che sono
+   l'entita' base del filesystem. Un inode puo' rappresentare file, link, pipe,
+   socket e altre entita' legate al filesystem. Il security field associato a
+   questa struttura viene utilizzato per gestire il security labeling
+
+        linux/fs.h
+            struct inode {
+                  ...
+                  void *i_security;
+                  ...
+            };
+
+   - La struttura file contiene le informazioni relative ad oggetti del
+   filesystem aperti, anche in questo caso il security field viene utilizzato
+   per gestire il security labeling
+
+          linux/fs.h
+            struct file {
+                  ...
+                  void *f_security;
+                  ...
+            };
+
+   - La struttura msg_msg contiene le informazioni relative ad un singolo
+   messaggio utilizzato nelle operazioni di IPC
+
+          linux/msg.h
+              struct msg_msg {
+                    ...
+                    void *security;
+                    ...
+              };
+
+   - La struttura kern_ipc_perm contiene le informazioni relative ai privilegi
+   dei meccanismi di intercomunicazione tra processi come semafori, message
+   queue e segmenti di memoria condivisa.
+
+          linux/msg.h
+              struct kern_ipc_perm {
+                    ...
+                    void *security;
+                    ...
+              };
+
+Le strutture sopra elencate contengono security field definiti dal framework, e'
+compito del modulo LSM pero' gestire il locking, l'allocazione e deallocazione
+delle informazioni aggiuntive associate alla struttura, i dati del security
+field e gli oggetti esistenti prima del caricamento del modulo.
+Per gestire l'allocazione e la deallocazione dei security fields nelle strutture
+il framework mette a disposizione una serie di hook, uno di allocazione e uno di
+deallocazione per ogni struttura che li contiene: nomestruttura_alloc_security e
+nomestruttura_free_security.
+Il framework LSM ha introdotto security field anche in strutture dati usate per
+la gestione dei pacchetti e delle interfacce di rete; i security field
+introdotti in tali strutture sono gestiti in maniera analoga a quelli delle
+strutture mostrate in precedenza.
+
+
+--[ 0x04 - Security Hooks
+
+I security hook sono dei puntatori a funzione che servono sia per gestire i
+security field, come visto sopra, che per mediare l'accesso alle strutture
+interne del kernel. Tutti gli hook messi a disposizione dal framework LSM sono
+indicizzati dalla struttura security_ops. Nella struttura sono definiti i
+prototipi di tutti gli hook gestiti dal framework LSM:
+
+        linux/security.h
+            struct security_operations {
+	          int (*ptrace) (struct task_struct * parent, 
+                                 struct task_struct * child);
+                  int (*capget) (struct task_struct * target,
+                  ...
+            }; 
+
+La struttura security_operations definita dall'utente, come vedremo in seguito, 
+e' coinvolta direttamente nella fase di inizializzazione del framework LSM.
+Il framework LSM associa quindi di default ad ogni prototipo una funzione dummy
+che consente sempre l'accesso alla risorsa richiesta, ossia ritorna il valore 0:
+
+        security/dummy.c
+            ...
+
+            static int dummy_ptrace (struct task_struct *parent, 
+                                     struct task_struct *child)
+            {
+	            return 0;
+            }
+
+            ...
+
+Un modulo LSM quindi, per utilizzare uno dei security hook definiti, non deve
+far altro che registrare le proprie funzioni per gli hook che ha interesse a 
+gestire:
+
+            my_inode_setattr(struct dentry *dentry, struct iattr *iattr)
+            {
+			  ...
+		}
+
+		...
+
+            static struct security_operations my_security_ops = {
+                    ...
+            .inode_setattr = my_inode_setattr,
+                    ...
+            };
+
+Le funzioni del kernel in cui sono state introdotte le security operation,
+generalmente delegano al framework LSM le scelte decisionali definite dalle
+policy implementate dai moduli:
+
+	...
+            somekernelfunction(parameters)
+            {
+		        int retval;
+                    ...
+                    retval = security_operation(parameters);
+                    if (retval)
+                          goto bad;
+                          ...
+                    bad:
+                          ...
+                          return retval;
+                    ...
+            }
+      ...
+
+Ricapitolando, il framework LSM definisce una serie di hook indicizzati dalla
+struttura security_operations che, associati di default a delle funzioni dummy,
+restituiscono sempre il valore 0 se non gestite da un modulo LSM. Ogni hook e'
+situato in porzioni critiche del kernel e, in base alle politiche di sicurezza
+adottate, le funzioni del kernel accedono o meno alle risorse. Le categorie piu'
+importanti di security hook introdotte dal framework LSM sono:
+
+   - Task Hooks: forniscono un'interfaccia di controllo per le funzioni legate
+   alla gestione dei processi
+
+   - Program Loading Hooks: forniscono un'interfaccia di controllo sugli accessi
+   che consente di effettuare dei security check sui programmi prima ancora che
+   siano caricati
+
+   - IPC Hooks: permettono di gestire le politiche di controllo sugli accessi
+   per le funzioni di intercomunicazione tra processi
+
+   - Filesystem hooks: consentono di gestire in maniera piu' granulare i
+   permessi sugli oggetti del filesystem
+
+   - Network hooks: forniscono un'interfaccia di gestione sia per le interfacce
+   che per funzioni e oggetti legati al contesto di rete 
+
+
+--[ 0x05 - Interfaccia ed inizializzazione del framework LSM
+
+Per interfacciarsi con il framework LSM un modulo deve utilizzare security hook
+e security field. Per poter utilizzare queste strutture pero', un modulo deve
+essere trattato in maniera appropriata sia quando viene caricato che quando
+viene rimosso dal kernel. Un modulo LSM si registra al kernel per mezzo della
+funzione register_security()
+
+      security/security.c
+
+      int register_security (struct security_operations *ops)
+
+La prima operazione che compie la funzione di registrazione e' quella di
+controllare la struttura security_operations passata come argomento, per
+verificare la presenza o meno di funzioni definite da un modulo LSM
+
+      security/security.c
+
+      ...
+	if (verify (ops)) {
+		printk (KERN_INFO "%s could not verify "
+		      "security_operations structure.\n", __FUNCTION__);
+		return -EINVAL;
+	}
+      ...
+
+L'operazione di verifica viene fatto richiamando la funzione verify. La funzione
+verify controlla che la struttura passata come argomento esista
+
+      security/security.c
+
+      static inline int verify (struct security_operations *ops)
+      {
+	      if (!ops) {
+		      printk (KERN_INFO "Passed a NULL security_operations "
+			      "pointer, %s failed.\n", __FUNCTION__);
+		      return -EINVAL;
+	      }
+
+	      security_fixup_ops (ops);
+	      return 0;
+      }
+
+Se la struttura passata come argomento risulta valida allora il framework
+procede con la copia delle funzioni definite dummy sulla struttura 
+security_operations del modulo LSM per gli hook non gestiti
+
+      security/dummy.c
+
+      ...
+
+      void security_fixup_ops (struct security_operations *ops)
+      {
+	      set_to_dummy_if_null(ops, ptrace);
+	      set_to_dummy_if_null(ops, capget);
+            ...
+      }
+
+      ...
+
+Successivamente la funzione di inizializzazione controlla che non siano gia'
+registrati altri security modules altrimenti restituisce il codice d'errore
+-EINVAL
+
+      security/security.c
+
+      ...
+
+	if (security_ops != &dummy_security_ops) {
+	      printk (KERN_INFO "There is already a security "
+			"framework initialized, %s failed.\n", __FUNCTION__);
+		return -EINVAL;
+      }
+
+      ...
+
+Se sono stati superati i controlli il framework viene inizializzato con le
+funzioni ed i security field gestiti dal security module
+
+      security/security.c
+
+      ...
+            security_ops = ops;
+
+            return 0;
+      ...
+
+Se un modulo LSM non puo' registrarsi direttamente nel kernel perche' il
+framework e' gia' stato inizializzato da un altro modulo la funzione di 
+registrazione non puo' essere usata, si deve quindi usare la funzione che
+consente lo stacking. La registrazione sara' possibile solo se i moduli primari
+implementano le funzioni necessarie allo stacking come ad esempio il codice
+necessario a gestire gli handler dichiarati dai moduli in stacking e le relative
+funzioni di register e unregister. La funzione in questione e'
+la mod_reg_security
+
+      security/security.c
+
+      int mod_reg_security (const char *name, struct security_operations *ops)
+
+Il principio di funzionamento e' simile a quello della register_security(),
+vengono prima controllati i parametri e se i controlli non restituiscono errori
+viene richiamata la funzione register_security() definita nel modulo primario
+
+      security/security.c
+
+      ...
+
+      if (ops == security_ops) {
+            printk (KERN_INFO "%s security operations "
+                  "already registered.\n", __FUNCTION__);
+            return -EINVAL;
+      }
+
+	return security_ops->register_security (name, ops);
+
+      ...
+
+Un discorso analogo puo' essere fatto per le funzioni di rimozione dei moduli.
+A seconda che il modulo sia primario o meno sono utilizzate delle funzioni
+appropriate ossia la unregister_security() e la mod_unreg_security(). Nel primo
+caso la funzione controlla che la struttura caricata nel framework corrisponda
+effettivamente a quella passata in precedenza
+
+      security/security.c
+
+      ...
+
+      if (ops != security_ops) {
+            printk (KERN_INFO "%s: trying to unregister "
+                  "a security_opts structure that is not "
+                  "registered, failing.\n", __FUNCTION__);
+            return -EINVAL;
+      }
+
+      ...
+
+In caso la struttura sia la stessa vengono caricate nuovamente le funzioni dummy
+e il modulo ritorna il valore 0
+
+      security/security.c
+
+      ...
+
+	security_ops = &dummy_security_ops;
+
+	return 0;
+
+      ...
+
+Se il modulo invece e' in stacking viene prima controllato che la struttura che
+si sta cercando di rimuovere non sia quella primaria e in caso negativo viene
+richiamata la unregister_security() definita nel modulo primario
+
+      security/security.c
+
+	if (ops == security_ops) {
+		printk (KERN_INFO "%s invalid attempt to unregister "
+			" primary security ops.\n", __FUNCTION__);
+		return -EINVAL;
+	}
+
+	return security_ops->unregister_security (name, ops);
+
+Da quanto detto si evince che la possibilita' di stacking o meno di un modulo
+dipende _ESCLUSIVAMENTE_ dall'implementazione del modulo primario. 
+Il framwork LSM viene inizializzato al boot per mezzo della funzione
+security_scaffolding_startup()
+
+      security/security.c
+
+      ...      
+
+      int __init security_scaffolding_startup (void)
+
+      ...
+
+Questa funzione si occupa di inizializzare la struttura security_ops con
+le funzioni dummy, sempre dopo averne verificato la consistenza, e di richiamare
+le funzioni di inizializzazione per i moduli compilati staticamente nel kernel
+che fanno utilizzo del framework LSM.
+
+
+--[ 0x06 - Nobol
+
+Il modulo realizzato come esempio di utilizzo del framework LSM e' piuttosto
+banale e ha il compito di impedire che siano settati i permessi di scrittura e
+di esecuzione per qualsiasi utente sia sui file gia' presenti sul filesystem che
+per quelli che verranno creati.
+Il core del modulo e' composto da due funzioni: nobol_inode_create() e
+nobol_inode_setattr(). Le due funzioni non fanno altro che controllare i
+permessi del file su cui si sta agendo, se i permessi corrispondono a S_IWOTH
+oppure a S_IXOTH ritornano -1, tutto il resto viene fatto dal framework LSM con
+cui il modulo interagisce. Nel codice che segue, come e' facile notare, non c'e'
+nulla di nuovo rispetto a quanto detto precedentemente.
+
+<-| lsm/nobol.c |->
+/*
+ * Copyright (c) RageMan 2004.  
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * 3. All advertising materials mentioning features or use of this software
+ *    must display the following acknowledgement:
+ *    This product includes software developed by RageMan.
+ *
+ * 4. The name of the author may not be used to endorse or promote products
+ *    derived from this software without specific prior written permission.
+ * 
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE FOR
+ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ *
+ */
+
+/* Subliminal message: BSD, BSD, BSD, BSD :P */
+
+#ifdef CONFIG_MODVERSIONS
+#define MODVERSIONS
+#include <linux/modversions.h>
+#endif
+
+#include <linux/config.h>
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/version.h>
+#include <linux/init.h>
+
+#include <linux/security.h>
+
+#ifndef CONFIG_SECURITY
+#  error Linux Security Module not supported by kernel
+#endif
+
+#ifndef CONFIG_MODULES
+#  error LKM not supported by kernel
+#endif
+
+#define MY_NAME	THIS_MODULE->name
+#define VERSION   "0.1"
+
+MODULE_DESCRIPTION("Nobol, LSM module");
+MODULE_AUTHOR("RageMan");
+MODULE_LICENSE("Dual BSD/GPL");
+
+static int secondary;
+
+static int nobol_inode_create (struct inode *dir, struct dentry *dentry,
+                                                                     int mode) {
+
+      if ((mode & S_IWOTH) || (mode & S_IXOTH)) {
+	 printk(KERN_INFO "[SECURITY_VIOLATION] uid %d\n", current->uid);
+	 return -1;
+      }
+
+   return 0;
+}
+
+int nobol_inode_setattr	(struct dentry *dentry, struct iattr *attr) {
+   
+      umode_t mode = attr->ia_mode;
+
+      if ((mode & S_IWOTH) || (mode & S_IXOTH)) {
+         printk(KERN_INFO "[SECURITY_VIOLATION] uid %d\n", current->uid);
+         return -1;
+      }
+
+   return 0;
+}
+
+
+static struct security_operations nobol_sec_ops = {
+   .inode_create = nobol_inode_create,
+   .inode_setattr = nobol_inode_setattr,
+};
+
+
+static int __init nobol_init(void) {
+
+   if (register_security(&nobol_sec_ops)) {
+      printk(KERN_INFO "[EE] %s: unable to registering\n", MY_NAME);
+      if (mod_reg_security(MY_NAME, &nobol_sec_ops)) {
+	 printk(KERN_INFO "[EE] %s: unable to registering in stack\n", MY_NAME);
+	 return -EINVAL;
+      }
+      secondary = 1;
+   }
+
+   printk(KERN_INFO "[II] %s, version %s loaded.\n", MY_NAME, VERSION);
+
+   return 0;
+}
+
+
+static void __exit nobol_exit (void) {
+
+   if (secondary) {
+      if (mod_unreg_security(MY_NAME, &nobol_sec_ops)) 
+	 printk(KERN_INFO "[EE] %s: unable to unregistering in stack\n",
+	                                                               MY_NAME);
+   } else {
+      if (unregister_security(&nobol_sec_ops)) 
+	 printk(KERN_INFO "[EE] %s: unable to unregistering\n", MY_NAME);
+   }
+	 
+   printk (KERN_INFO "[II] %s, version %s unloaded.\n", MY_NAME, VERSION);
+
+}
+
+module_init(nobol_init);
+module_exit(nobol_exit);
+<-X->
+
+Ed ecco il Makefile
+
+<-| lsm/Makefile |->
+KSRC=/lib/modules/`uname -r`/build
+
+KERNEL_VERSION_H = /lib/modules/`uname -r`/build/include/linux/version.h
+
+obj-m=nobol.o
+
+build:
+	make -C $(KSRC) SUBDIRS=`pwd` modules
+
+clean:
+	rm -rf *.o *.mod.c *.ko .*.cmd .tmp_versions
+<-X->
+
+Vediamo nobol all'opera
+
+root@darkstar:~/nobol# ls
+Makefile  nobol.c
+root@darkstar:~/nobol# make
+make -C /lib/modules/`uname -r`/build SUBDIRS=`pwd` modules
+make[1]: Entering directory `/usr/src/linux-2.6.7'
+  CC [M]  /root/nobol/nobol.o
+  Building modules, stage 2.
+  MODPOST
+  CC      /root/nobol/nobol.mod.o
+  LD [M]  /root/nobol/nobol.ko
+make[1]: Leaving directory `/usr/src/linux-2.6.7'
+root@darkstar:~/nobol# insmod nobol.ko
+root@darkstar:~/nobol# lsmod
+Module                  Size  Used by
+nobol                   3076  0
+root@darkstar:~/nobol# 
+
+Bene, nobol si e' interfacciato con il framwork LSM... testiamone le
+funzionalita'
+
+root@darkstar:~/nobol# touch test
+root@darkstar:~/nobol# ls -l test
+-rw-r--r--  1 root root 0 2004-07-21 08:49 test
+root@darkstar:~/nobol# chmod 777 test
+chmod: changing permissions of `test': Operation not permitted
+root@darkstar:~/nobol# chmod 774 test
+root@darkstar:~/nobol# ls -l test
+-rwxrwxr--  1 root root 0 2004-07-21 08:49 test*
+root@darkstar:~/nobol# 
+
+
+--[ 0x07 - Considerazioni
+
+L'esempio di modulo LSM mostra come sia semplice interfacciarsi con il
+framework. A scanso di equivoci occorre ricordare pero' che il framework 
+fornisce solo l'interfaccia e che e' compito dello sviluppatore ottimizzare la
+complessita' degli algoritmi di controllo e di quant'altro si sia scelto di
+gestire, affinche' le prestazioni e la stabilita' del sistema non degradino. Con
+la speranza di essere stato chiaro e di non aver tralasciato niente di
+importante l'articolo si conclude, amen.
+
+
+--[ 0x08 - Varie ed eventuali
+
+Grazie a Mimmiro, Merenos, Fox, NicoP e Iena per aver fornito supporto
+logistico, leggasi casa-cibo-vvee, e per aver sopportato i miei deliri durante
+la stesura dell'articolo.
+
+Grazie a sp0nge, Xenon e NeURo per i consigli, a isazi per la revisione
+linguistica, e a smaster per la pazienza.
+
+Un saluto agli amici di #s0ftpj, #phrack.it e #olografix
+
+
+--[ 0x09 - Risorse in rete
+
+[1]     "The Holy Bible"
+
+[2]     "The Blues Brothers"
+        Dan Aykroyd and John Landis
+
+[3]     "Linux"
+        Linus Torvalds
+        [http://www.kernel.org]
+
+[4]     "Linux Security Modules: General Security Support for the Linux Kernel"
+        Chris Wright, Crispin Cowan, James Morris, Stephen Smalley and 
+        Greg Kroah-Hartman
+        [http://lsm.immunix.org/docs/lsm-usenix-2002/]
+        
+[5]     "Linux Security Module Framework"
+        Chris Wright, Crispin Cowan, James Morris, Stephen Smalley and
+        Greg Kroah-Hartman
+        [http://lsm.immunix.org/docs/lsm-ols-2002/]
+        
+[6]     "Using the Kernel Security Module Interface"
+        Greg Kroah-Hartman
+        [http://www.linuxjournal.com/article.php?sid=6279]
+
+[7]     "Nuso - No User System Obey"
+        sp0nge
+        [http://www.webbitcon.org/filemanager/download/1669/nuso-0.11.tar.gz]
+
+
+================================================================================
+------------------------------------[ EOF ]-------------------------------------
+================================================================================
+

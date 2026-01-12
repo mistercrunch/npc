@@ -1,0 +1,475 @@
+==============================================================================
+------------[ BFi numero 8, anno 3 - 30/04/2000 - file 19 di 28 ]-------------
+==============================================================================
+
+
+-[ PHREAKiNG ]----------------------------------------------------------------
+---[ CARD, CARDiNG? NO! PARTE II
+-----[ RigoR MorteM <rigormortem@spippolatori.com> http://www.spippolatori.com
+
+
+Siamo ancora alle prese con le smart card...
+Beh, c'e' una novita': un nuovo kit di sviluppo per smart card contactless!
+Date un po' un'occhiata a www.edsim2000.com , per 149,95 sterline, che sono
+circa 450.000 lire, hanno in vendita un sistema di sviluppo per smart card
+contactless veramente ben fatto. Il prezzo, pero', e' troppo alto per me...
+Va bene, andiamo avanti con il discorso che avevo lasciato in sospeso l'altra
+volta, adesso posso andare avanti tranquillo, sono le 6 del pomeriggio, non ho
+nulla da fare stasera, la ragazza non c'e', posso scrivere fino a quando ne ho
+voglia!
+Ah, cazzo!
+Sullo scorso articolo ho commesso un errore: ho detto che avrei parlato delle
+smart asincrone piuttosto che delle sincrone, ma mi sono incasinato con le A:
+parlo delle Sincrone, non delle Asincrone.
+Corretto questo piccolo errore, andiamo a vedere di preciso come funziona in
+byte il trasferimento di dati da card a lettore e viceversa, mi sa che di
+temporizzazioni in millisecondi ne avete le palle piene, cosi' adesso vi rompo
+le palle con i bit ed i byte :-]
+
+/\Il Protocollo
+
+  \Descrizione generale
+Allora, a questo punto avete capito cosa fanno e come fanno una card ed un
+lettore a comunicare secondo le temporizzazioni stabilite, adesso vediamo
+che pacchetti di dati si mandano. Una card che viene inserita in un lettore
+subisce sempre un RST (ReSeT), in modo da determinare che card sia, e risponde
+con un ATR (Answer To Reset), logicamente. Solo che l'ATR non ha una lunghezza
+predefinita o standard, infatti puo' essere compresa fra 4 bit (come le schede
+di memoria) ed i 32 bit. Tutto e' lasciato libero: ogni ditta puo' creare un
+ATR della lunghezza che vuole, ma entro il minimo di 4 ed il massimo di 32 bit.
+Questo da' gia' modo di determinare il produttore della card a seconda dell'ATR,
+no? Dato che vi ho detto che e' usato il protocollo seriale, penso non ci siano
+dubbi o domande, voglio solo ribadire che i due livelli possibili (0 oppure 1)
+sono denominati Z (mark) oppure A (space).
+
+  \ETU e caratteri
+Per quel che riguarda il baud rate, ovvero bit al secondo, in questo ambito
+viene rimpiazzato con la misurazione in ETU. L'ETU non e' altro che l'acronimo
+di Elementary Time Unit e non e' una misura fissa come puo' essere un secondo
+o un metro, ma e' una misura dinamica che si ottiene dividendo la frequenza
+del clock in MHz (CLK) per il numero 372. Infatti una smart quando fa un ATR
+deve emettere un bit ogni ETU. Supponendo che la nostra smart abbia un micro
+con clock semi standard (ovvero con clock di 3.5712 oppure 4.9195 MHz, che
+sono i piu' diffusi e meno costosi) avremo un bit ogni 0.0096 secondi oppure
+ogni 0.0132 secondi. Adesso che sappiamo che un bit dura un'ETU, un byte
+(detto carattere) durera' 1 bit di start (detto TS), 8 bit di dati ed 1 bit
+di parita', ovvero 10 ETU. Dopo l'invio e/o la ricezione di ogni carattere
+(byte) c'e' una pausa standard di 2 ETU per elaborare le informazioni.
+Durante questa pausa entrambi i dispositivi (card e lettore) sono in stato Z.
+Per vedere se un dispositivo (sia card che lettore, indistintamente) sta
+trasmettendo viene fatto il check della linea di I/O ogni 0.2 ETU ed appena
+una trasmissione inizia viene mandato un carattere che ne notifica l'avvio.
+Per convenzione il primo carattere inviato dalla card al lettore dopo l'ATR
+e' la base di ogni futura comunicazione, cioe' e' il tipo di 'convenzione' di
+invio dati; possono esserci due 'convenzioni', denominate convenzione diretta
+oppure indiretta. Quella diretta prevede che il bit di start sia 1 (stato Z),
+quindi il bit 0 assume lo stato A e bit meno significativo (LSB) per primo
+(3B in esadecimale). In quella inversa invece il bit di start e' 0 (stato Z),
+il bit 1 assume lo stato A ed il bit piu' significativo (MSB) per primo
+(3F in esadecimale).
+Capito questo rimane da comprendere il meccanismo che impedisce la perdita
+di dati durante la transazione. In sostanza e' semplicissimo: si basa sul bit
+di parita'! Infatti sia la card che il lettore prima di inviare un carattere
+controllano i bit in stato 1 e se sono pari il bit di parita' e' 0, se invece
+i bit a stato 1 sono dispari il bit di parita' saro' 0. Quindi se l'unita'
+ricevente si trova un carattere con gli 1 dispari ed il bit di parita' a 1 sa
+che la trasmissione e' sbagliata e quindi rifiuta senza problemi. E' banale,
+veloce ed efficace: cosa volete di piu'?
+Adesso addentriamoci nei bit della prima trasmissione, ci sono delle cosette
+interessanti...
+
+  \I bit di ATR
+I primi bit emessi dalla card servono al lettore per determinare una marea di
+cose, non solo il protocollo! Servono per stabilire:
+- valore di voltaggio in scrittura
+- valore di amperaggio in scrittura
+- velocita' di comunicazione
+- trasmissione forzata di un carattere per volta (character mode)
+- trasmissione forzata di piu' caratteri per volta (block mode)
+- ETU di pausa fra trasmissione maggiori di 2 (guard time), ma mai superiori
+  a 12 ETU, di default e' 0
+Schemino, che almeno ci si capisce meglio!
+Reset
+ |    _______________________________________             ___       _______
+ |   |   |   |   |   |   |   |   |   |   |   |           |   |     |   |   |
+ '-->| TS| T0|TA1|TB1|TC1|TD1|TA2|TB2|TC2|TD2| ......... | T1| ... | TK|TCK|
+     |___|___|___|___|___|___|___|___|___|___|           |___|     |__ |___|
+
+     TS  : bit iniziale
+     TO  : bit di definizione della convenzione (diretta/indiretta)
+     TAi : bit per l'interfaccia [determina voltaggio/amperaggio,codici FI,DI]
+     TBi : bit per l'interfaccia [determina velocita' futura di trasmissione
+           codici II,PI1]
+     TCi : bit per l'interfaccia [determina character/block mode,codice N]
+     TDi : bit per l'interfaccia [determina ETU di pausa,codici Yi+1, T]
+T1-> TK  : storico dei bit (massimo 15, una sorta di CRC)
+     TCK : bit di stop
+
+Lo storico dei bit manda info generiche quali il prduttore della card, il
+tipo di chip inserito, il tipo di ROM a bordo, lo stato della card
+(quest'ultimo se la card e' del tipo 'a scalare'). Il ritardo massimo
+ammissibile fra 2 bit (detto IWT, Initial Wait Time) in questa fase (e solo in
+questa) e' pari a 9600 ETU. Se il ritardo supera questa soglia il terminale
+terra' la card in sospeso fino al 40.000 ETU, dopodiche' resettera' la card e
+riprovera'. Direi che in pochi bit c'e' gia' un mondo!
+
+/\Il sistema operativo
+
+  \Risorse disponibili
+Beh, si e' detto che le smart card hanno a bordo un micro, giusto? Hanno anche
+a bordo una ROM ed una RAM quindi ci sono i presupposti per non stupirsi della
+presenza di un sistema operativo...
+Non c'e' logicamente nulla di assimilabile ad una shell oppure ad una GUI, ma
+l'ISO parla di file, file system e di directory, quindi siamo a casa!
+Ok, vediamo bene che risorse sono disponibili:
+32 Kbyte ROM (assimilabile al bios)
+1 Kbyte di RAM (assimilabile alla ram che avete sul vostro pc)
+8 Kbyte di EEPROM (assimilabile al vostro hard disk)
+Non molto, vero? Pero' funziona bene e l'enorme sviluppo che hanno le card
+testimonia che le poche risorse a disposizione sono sufficienti a fare gia'
+qualcosina...
+Oddio, tenete presente che queste sono le risorse disponibili in una card ad
+uso generale, in giro ci sono anche card con 256Kbyte di EEPROM oppure con
+128Kbyte di ROM, lo scopo di questo articolo non e' analizzare TUTTE le card,
+ma solo la loro struttura, quindi come esempio va piu' che bene!
+
+  \Filesystem
+Adesso tenete bene a mente le corrispondenze elencate qui di seguito perche'
+d'ora in poi usero' solo queste:
+MF : Master File = root
+DF : Dedicated File = directory
+EF : Elementary File = file
+Adesso i 4 comandamenti base per chi scrive sw per smart card:
+1- In una card ci puo' essere un solo MF, ma puo' contenere sia EF che DF.
+2- I DF possono essere nidificati (ma lo sono raramente).
+3- I DF nidificati devono avere nomi diversi fra di loro e mai uguali agli EF
+   in essi contenuti.
+4- Gli EF devono avere nomi diversi fra di loro se contenuti nello stesso DF.
+Per i nomi si segue la convenzione di usare 2 byte in esadecimale che si
+chiamano F_ID oppure FID che sta per File IDentifier. MF ha nome 3F00 per
+compatibilita' con vecchie schede e il nome FFFF e' riservato per applicazioni
+future ritenute utili secondo l'ISO.
+Per aiutare la classificazione dei DF ci sono gli A_ID oppure AID, acronimi di
+Application IDentifier, diciamo che sono una specie di descrizione dei DF.
+Possono essere di lunghezza compresa tra 5 e 16 byte. Gli AID non sono
+arbitrariamente attribuibili da chi programma la card, ma sono stabiliti anche
+loro dall'ISO... purtroppo pero' su questo tipo di informazioni non sono
+ancora riuscito a mettere le mani, appena lo faccio vi informo, mentre se ci
+riuscite voi contattatemi via e-mail! Dicevamo... gli AID o A_ID servono ad
+identificare il paese di provenienza della card, il numero di serie della
+stessa e la descrizione dei permessi dei DF. Bingo! Capite? Se un DF ha
+un'AID che permette solo la scrittura o non la lettura, siete capitati nel
+posto giusto, ovvero dove risiedono le informazioni che la EEPROM passa alla
+ROM per l'elaborazione dei dati. Nelle card predisposte per piu' utilizzi
+(carte che permettono di pagare, ottenere sconti e segnare premi fedelta',
+come in uso in molti supermercati in Inghilterra) ogni DF corrisponde ad una
+specifica applicazione ed il suo accesso e' limitato ad una sola funzione per
+volta.
+Passiamo oltre. Per quel che riguarda gli EF la loro gestione e' lasciata
+all'utente, tipo la creazione di una rubrica telefonica e similari.
+Piccolo particolare molto utile: tutti i settori della card, compreso l'MF
+possono essere settati in modalita' read-only e genericamente solo gli EF ed
+alcuni DF deputati alla gestione degli EF che crea l'utente non sono in
+read-only. I permessi di lettura/scrittura sono settati direttamente dal
+produttore in maniera irreversibile...
+
+  \Accesso a MF, DF ed EF
+Adesso che sapete cosa sono magari e' bene capire come vi si accede. Tutti i
+permessi di accesso/lettura/scrittura ad un DF oppure ad un EF sono chiamati
+FCI (File Control Information), ma bisogna prima capire il livello di
+sicurezza richiesto dall'applicazione prima di modificare i permessi con
+l'equivalente di chmod... Infatti se avete una card progettata per
+un'identificazione a bassa o nessuna sicurezza (ovvero dove non dovete
+pagare, ma solo presentare le vostre generalita', tipo una tessera-sconto) il
+lettore puo' accedere alla scheda senza identificarsi come accreditato, in
+quanto non e' richiesta l'identificazione. Invece per applicazioni a
+media-alta sicurezza (telefonini, paytv, carte di credito) il terminale deve
+sempre identificarsi. Per fare cio' viene usato un protocollo di
+identificazione chiamato challenge protocol. L'uso di questo protocollo puo'
+essere invocato sia dalla card che dal lettore in maniera simmetrica e si
+basa sulla reciproca identificazione. In pratica il richiedente del challenge
+genera una stringa di numeri (chiamata session key) e la memorizza nella RAM,
+poi invia all'altra parte. L'altra parte, quando riceve la stringa la elabora
+secondo il suo algoritmo interno e la rimanda indietro modificata. A questo
+punto il richiedente del challenge sottopone la stringa in arrivo al suo
+algoritmo interno e confronta il risultato dell'elaborazione con il numero
+che ha in RAM. Se i due numeri corrispondono, la trasmissione dei dati e'
+autorizzata, altrimenti viene disconnesso.
+Un rapido esempio fittizio: io sono la card e \sPIRIT\ e' il lettore. Se mi
+viene chiesto da \sPIRIT\ un challenge io chiedo... la lunghezza del suo cavo
+telefonico diviso l'altezza della sua prima ragazza. Se \sPIRIT\ e' davvero
+chi dice di essere mi dara' un numero X che corrisponde a quello che gia'
+conosco, se non e' lui mi dira' al massimo la lunghezza del cavo...
+Che cazzo di esempio, grazie a \sPIRIT\ che inconsapevolmente si trova tirato
+in mezzo...
+Beh, provate a pensare a \sPIRIT\ come al decoder della vostra tv via
+satellite e vedrete che la cosa assume un altro aspetto, no? La card sa come
+trattare i dati codificati, il decoder da solo no. Se voi analizzate i
+segnali in ingresso ed in uscita in teoria avete lo schema di funzionamento
+del micro, ma solo in teoria :-[
+Questo esempio va bene per la maggior parte delle card, tranne quelle di
+credito che sono in standard EMV (Europay-Mastercard-Visa) e quindi usano una
+metodologia di accesso ai dati leggermente diversa.
+Bene, adesso passiamo alle cose carine, ovvero a come provare a vedere come
+si puo' forzare una card...
+
+/\ Spippolare con le card...
+
+  \Premessa
+Tutti i metodi che trovate qui esposti sono stati provati o da me o da
+esperti di sicurezza delle ditte produttrici.
+Se poi voi trovate un altro modo, anche se non funziona, sarei interessato a
+venirne a conoscenza, tenetemi presente!
+
+  \Test di pre-commercializzazione
+Come ho gia' detto, alcuni (la maggior parte, a dire il vero) di DF e di EF
+sono read only, ma la loro funzionalita' (relativa all'accesso ai settori
+della card ed allo storage dei dati) e sopratutto l'OS delle card deve prima
+essere testato per non immettere nel mercato carte che non funzionano come
+richiesto. Per questo motivo in fabbrica le card sono ancora accessibili sia
+in lettura che in scrittura e solo dopo i test viene settata questa modalita'
+in maniera irreversibile. Infatti le card hanno al loro interno una sorta di
+fusibile che si chiama protection fuse il quale, una volta 'bruciato' non e'
+piu' possibile ripristinare. Le card che non hanno questo fusibile bruciato
+sono chiamate appunto test card e le hanno pochissimi tecnici che devono
+testare il funzionamento di decoder nelle fabbriche di produzione di questi
+ultimi.
+
+  \Ripristino del fusibile 
+Dato che l'area interessata alla bruciatura del fusibile e' relativamente
+grande, se qualcuno ha l'abilita' tecnica e le attrezzature necessarie
+potrebbe tentare una riconnessione, no? Forse tempo fa era possibile, ma
+adesso sono stati implementati fusibili multipli e multistrato, ovvero su 2 o
+piu' livelli del silicio del chip, quindi dimenticatelo...
+Se per caso riusciste nella non facile impresa, ve la dovrete anche vedere
+con i codici della EEPROM che creano un'ulteriore protezione software alla
+card...
+
+  \Sniffare l'assorbimento di corrente 
+Questo ve lo potete dimenticare da subito. Infatti il micro assorbe sempre lo
+stesso amperaggio e lo stesso voltaggio sia che processi dei dati, sia che non
+faccia nulla. Quindi dimenticatevi il tester in millivolts o in milliampere:
+tempo perso.
+
+  \Leggere la EEPROM
+Beh, in linea del tutto teorica se levate i contatti dorati, accedete al chip
+e levate la copertura dello stesso potete collegare la EEPROM ad un
+programmatore e copiarvene tutto il contenuto. Qui il metodo di riuscita e'
+sicuro al 99%. Peccato che sia stato previsto anche questo e di conseguenza le
+EEPROM hanno dei registri di accesso molto, ma MOLTO, confusi per cui dovete
+avere altrettanta pazienza. Inoltre questo metodo puo' diventare presto
+obsoleto dato che in un prossimo futuro le card verrano sempre piu' spesso
+prodotte con la tecnologia FeRAM che eliminera' la EEPROM. Le FeRAM
+(Ferroelectric RAM) sono RAM silicio-metalliche che non perdono dati se viene
+a mancare l'alimentazione e sono circa 3500 volte piu' veloci in
+lettura/scrittura, consumano e costano pure meno.
+
+  \Leggere il silicio
+E qui si fa sul serio. Procedete come per il punto sopra, ma non collegate
+nulla alla EEPROM. Piuttosto procuratevi un buon microscopio e guardate bene
+la ROM. Con un po' di culo potrete determinare lo stato logico (0 oppure 1)
+di tutta la ROM. Logico che avete il 50% di possibilita' di sbagliare :-]
+Purtroppo riuscirete a leggere solo il primo strato, perche' gli altri sono
+tutti sul fondo e a meno di non sezionare il chip non li leggerete. Tuttavia
+sezionando il chip si'!
+
+  \Sondare la RAM
+Dimenticatevi tutti i tool che usate abitualmente...
+Usate piuttosto delle sonde per cariche elettriche molto sensibili e mani
+ferme. Servendovi di questo metodo potete sapere che minimo potenziale c'e'
+in una determinata zona di silicio e da li' risalire ai livelli logici,
+quindi al programma.
+Se non fosse che sulla RAM da poco tempo e' depositato uno strato di
+metalizzazione che ha lo scopo di fermare e dissipare le differenze di
+potenziale, questo sarebbe un ottimo metodo :-[
+
+  \Rimozione chimico-chirurgica della metallizzazione
+Impossibile, senza mezzi termini. Oddio, se mi smentite, meglio, ma nel
+99.998% dei casi e' come ho detto. Anzi il coperchio metallizzato lo levate,
+ma i contatti che ci sono sulla parte che tocca il silicio che fine fanno?
+Si levano pure loro, quindi il lavoro e' inutile. Tenete presente che sono
+anche operativi da 1 anno circa i sensori della metallizzazione, ovvero se i
+sensori non trovano la metallizzazione il chip resta inibito.
+
+  \Underclocking
+Ok, tutti sappiamo cosa e' l'overclocking, vero? Bene, immaginate
+l'operazione inversa...
+Cosa ottenete? La possibilita' di seguire passo passo tutti i segnali
+all'interno dei circuiti :-]
+Siete un pochino distratti... Gli omini dell'ISO hanno pensato pure a quello
+e quindi se il clock scende sotto i 700Khz c'e' un RST e tutto il
+divertimento sfuma prima di iniziare. Stessa cosa vale per la sovra/sotto
+alimentazione...
+
+/\Postfazione ovvero chiacchere ed appunti in rilassatezza...
+
+Adesso che bene o male avete capito come sono e come funzionano le card
+ritengo carino dirvi un paio di cose che potrebbero interessarvi, diciamo che
+sono piccoli flash su cosine e progettini interessanti.
+Oltre alle card monoservizio esistono anche card multiservizi (ovvero piu'
+usi della card con piu' apparecchiature) che quindi incorporano al loro
+interno diverse tipologie e metodologie di connessione. Per esempio la Visa
+ha in progetto di produrre una card che permetta i pagamenti come avviene
+adesso ed inoltre contenga sia dati personali (patente, documenti in genere)
+sia dati medici (oltre al banale numero della mutua, al quale siamo oramai
+abituati, anche tutte le nostre cartelle mediche) tramite applicazioni basate
+su Java costruite da terze parti. Tutti i programmi Java scritti per
+funzionare con le card sono chiamati con poca fantasia 'cardlet' e tutte le
+card che si basano su Java usano delle runtime chiamate JCRE
+(Java Card Runtime Environment) che si occupano totalmente della gestione
+della carta. Le specifiche sono emanate dal JCF (Java Card Forum) e le card
+con Java a bordo sono reperibili sul sito della GemPlus (www.gemplus.com) e
+si chiamano GemXpresso e GemXplore 'Xpresso. Attualmente il progetto pilota
+per questo tipo di applicazioni e' quello dell'Universita' del Michigan dove
+60.000 persone (fra studenti, insegnanti e personale supplementare) e' in
+possesso di una card ibrida magnetica-chip che permette sia l'identificazione
+personale sia i prelievi bancari ed una serie di servizi supplementari tipo
+fotocopie gratuite, accesso alla biblioteca, iscrizione agli esami e molto
+altro ancora.
+C'e' da aggiungere che anche lo Zio Bill ci sta provando con le card ed ha
+sviluppato un suo OS chiamato SCW (Smart Card for Windows), ma non e' affatto
+usato, Java pare molto piu' comodo (e non va in crash ogni 5 minuti... Pensate
+un po' alla vostra carta con SCW a bordo, volete fare un prelievo per andare a
+mangiare fuori con una bella topona appena rimorchiata e va in crash il
+bancomat... Cristo, che terrore...). Se poi volete proprio usare SCW tenete
+presente che potete programmare le card con tutta la suite di Visual Studio
+usando l'apposito Smart Card for Windows Toolkit for Visual Basic 6.0.
+Esistono anche estensioni specifiche di XML per le smart card che si chiamano
+SmartX e servono per sviluppare applicazioni web-based con l'uso di smart
+card, ma non ho ancora avuto tempo di leggermi bene la meccanica di
+funzionamento.
+Esistono anche associazioni che riuniscono produttori di card o di
+applicazioni e sono tutte piu' o meno note. La meno conosciuta (ma che a mio
+avviso va seguita con molta cura) si chiama M.U.S.C.L.E. (ovvero
+Movement for the Use of Smart Card in a Linux Environment). Sul loro sito,
+locato a http://www.linuxnet.com/docs.html, potete trovare dei documenti
+molto interessanti come la documentazione sulle API considerate valide dal
+consorzio PC/SC (formato nel 1996 da Bull, Gemplus, Hewlett-Packard, IBM,
+Microsoft, Schlumberger, Siemens Nixdorf Information Systems,
+Sun Microsystems, Toshiba e Verifone per l'uso delle smart card come
+integrazione ai sistemi operativi) sia in ambito Linux sia le specifiche
+originali di Microsoft. Oltre a cio' troverete anche diversi lettori e
+scrittori di smart card e smart card vergini o con sistema crittografico gia'
+precaricato.
+Mah, che dire, la mia opinione e' che probabilmente il nostro futuro sara'
+una tastiera con lettore di una o due smart card integrato. Modelli simili
+gia' esistono (e mAyhEm che era con me allo SMAU ha visto come sono rimasto
+di sasso a vederle dal vivo) prodotti dalla Cherry Keyboards (www.cherry.de).
+Date un pochino un'occhiata al modello 6700 (reader singolo a standard ISO)
+oppure a tutta la famiglia G-81, sia le 7000 che le 8000. Beh, sono tastiere
+con 2 lettori di card ID-I oppure 4 in formato ID-000. Sono davvero una
+figata, si possono leggere davvero tutte le card (sincrone ed asincrone, a
+standard ISO e non, AFNOR... insomma: TUTTO), pure le card mediche tedesche
+(notoriamente difficili da maneggiare). Piccola nota carina: il loro catalogo
+completo e cartaceo e' disponibile gratuitamente su richiesta. Una valida faq
+sulle smart card in generale la trovate on line su
+http://www.ioc.ee/atsc/faq.html .
+
+/\ Ma allora cosa si puo' fare?
+Un sacco di cose... Davvero: un sacco.
+Adesso che sapete come funzionano dovete girare un po' in rete, creare dei
+programmatori, costruirli, provarli. Per gli smanettoni le card sono l'ultima
+frontiera del divertimento!
+I lettori che ci sono in commercio costano troppo, conviene costruirsene uno,
+qui di seguito vi incollo un po di siti che se ne occupano, a voi non resta
+che metterci il circuito stampato, il saldatore ed i componenti!
+Come bonus ci metto pure i link piu' utili che ho sfruttato sull'argomento,
+buona ricerca!
+
+- BO LAVARE'S SMARTCARD SECURITY PAGE
+  http://www.geocities.com/ResearchTriangle/Lab/1578/smart.htm
+- Card Europe Outputs & Articles - Standards 
+  http://www.cardeurope.demon.co.uk/stds.htm
+- CISA Security Products, Inc. 
+  http://www.repla.com/
+- Contactless Integrated Circuit(s) Cards 
+  http://www.geocities.com/SiliconValley/Garage/9241/wg8.html
+- CSI (Card Services International)
+  http://www.csi.ie/
+- Cypherpunks Tonga
+  http://www.cypherpunks.to/
+- Database card www.guarango.com 
+  http://www.guarango.com/database/index.htm 
+- Datagrams
+  http://www.datagrams.com/ 
+- Dumb Mouse 
+  http://cuba.xs4all.nl/hip/dumbmouse.html 
+- EPSILON ELECTRONICS 
+  http://www.eps.no/index.htm
+- ETSI - Standardizing Telecommunications Products and Services 
+  http://www.etsi.org/
+- FAQ for alt.technology.smartcards
+  http://www.ioc.ee/atsc/faq.html 
+- Goran Vlaski's Software Page 
+  http://vlaski.virtualave.net/ 
+- GSM World Home of the GSM Association 
+  http://www.gsmworld.com/ 
+- Home of Decrypt 
+  http://www.thoic.com/decrypt/ 
+- M.U.S.C.L.E. Linux Smartcard Documentation 
+  http://www.linuxnet.com/docs.html 
+- More smart secutiry links 
+  http://home.earthlink.net/~papousa/security.html 
+- PC Smart Cards - Home page 
+  http://www.cyberflex.austin.et.slb.com/cyberflex/pcsc/pcsc.html 
+- PC-SC Workgroup
+  http://www.smartcardsys.com/ 
+- Phonecard, hacking, telecard, cloning, phonecard cracking news, clubs,
+  programs and more 
+  http://members.tripod.com/telecardnews/index.html 
+- Ronny's Sim-Pic
+  http://simpic.tele-servizi.com/
+- Schema mk13here
+  http://www.mk.jnet.it/zips/schema.zip
+- SCHLUMBERGER - Smart Cards & Terminals
+  http://www.slb.com/smartcards/
+- SM Range
+  http://www.gis.co.uk/products/sm/index.htm
+- Smart Card Developer's Kit
+  http://www.scdk.com/
+- Smart Card Forum Home page 
+  http://www.smartcrd.com/
+- Smart Card Hacking Index
+  http://cuba.xs4all.nl/~tim/sc-hp/index.html
+- Smart Card Industry Association Website 
+  http://www.scia.org/
+- Smart Cards & Systems Weekly Volume 4 - Issue 18 
+  http://www.cardshow.com/scs/v4.i18/
+- Smartcard Developer Association
+  http://www.scard.org/ 
+- Techfreakz.org
+  http://www.techfreakz.org/main.htm
+- The Smartcard Gallery 
+  http://homepages.pathfinder.gr/hitec/sat/gallery.htm
+- The Telecard Crackers Club Recruitment Site 
+  http://telecracks.freeservers.com/entrypage.htm
+- BasicCard an inexpensive basic programmable smart card - program your own
+  smart card 
+  http://www.basiccard.com/
+- Leading Edge Technology 
+  http://let.cambs.net/
+- Plus Technologies Italia
+  http://www.plustechnologies.it/
+- Smart Cards vendita lettori e card (Crownhill)
+  http://www.crownhill.co.uk/itmidx6.htm
+
+Oltre a tutta questa roba potete dare anche un'okkiata a
+http://neworder.box.sk per altre interfaccine carine oppure a
+http://www.digitalsin.org dove vendono molte interfacce gia' fatte e a prezzi
+molto contenuti, contanto il lavoro richiesto per farle e le bestemmie che
+tirano quando non funzionano...
+Con questo mi pare di aver detto tutto, voglio solo ringraziare tutta la
+redazione di BFi che mi ha permesso di esprimermi in queste pallosissime
+forme senza mai inkazzarsi, salutare e ringraziare Buttha per la sua
+consulenza, dare un bacino a Mara che mi tiene i neuroni vivi ed un grosso
+saluto a tutti i fratellini SpiPPoLaTorI.
+Ok, ho finito davvero e per il momento mi ritiro in disparte; per chi ha
+necessita' di chiarimenti sono reperibile mandando una mail a
+rigormortem@spippolatori.com, ma non chiedetemi di farvi una card per vedere
+Stream...
+Salutoni.
+
+
+==============================================================================
+--------------------------------[ EOF 19/28 ]---------------------------------
+==============================================================================

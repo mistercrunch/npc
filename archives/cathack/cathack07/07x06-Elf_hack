@@ -1,0 +1,1033 @@
+.------------------.
+| CatHack #007 - 6 |
+| 07x03 - ELF-hack |
+| programació/crak |
+| --[ adjunts ]--  |
+| . vmCrack.c      |
+`------------------'
+
+
+ / ================= \
+ || ELF Hacking     ||
+ ||= = = = = = = = =||
+ ||    per azathoth ||
+ \ ================= /
+
+
+Aquest article va surgir espontaniament després de comprovar la quantitat de
+possibilitats que ofereix l'ELF per a modificar el comportament de programes
+de forma transparent. El tema del ELF sovint es relaciona amb la possibilitat
+de inserir programes autorreplicants dins d'alguna de les seccions que formen
+un executable. En el meu cas, quan vaig començar a investigar l'ELF els
+objectius eren ben diferents.
+
+ELF és el Executable and Linking Format, el format executable estàndar en la
+majoria de sistemes *nix. La part de 'linking' es la que ens interessarà més.
+Com sabreu el codi executable d'un procés no es troba en la seva totalitat dins
+del executable. Hi han llibreries dinàmiques que aporten també les seves
+funcions i dades al programa. Per a que aquest procés funcioni cal que en algún
+moment les crides que es realitzen des de l'executable a la llibreria dinàmica
+quedin conectades. Quan vaig començar amb aquest tema, la meva idea era que
+modificant lleugerament el executable es podria (i de fet es pot) conseguir que
+aquest carregués una altre llibreria que nosaltres mateixos podriem estar
+proporcionant i que es conectessin simbols no resolts amb simbols d'aquesta
+nova llibreria. Durant l'article em referiré a aquesta capacitat com a
+resolució arbitraria de simbols. Tot i que sona força be, després de rallar-me
+durant molt de temps vaig deixar-ho perque 1) el format ELF està molt
+convolucionat i 2) perque tenia examens finals. Va ser gracies a un comentari
+de l'acastan que em vaig tornar a mirar les fonts del linker de linux per a
+analitzar el bug del RESOLV_HOST_CONF i mentre feia aixó vaig trobar dos
+mecanismes per conseguir el meu objectiu original d'una manera molt més
+senzilla. Aquests dos mecanismes son els que aqui us presentaré.
+
+He escrit aquest article en diverses tirades i pot ser que hagi quedat una mica
+desestructurat :-) . Jo us recomano que us el llegiu fins al final tot i que
+sigui llarg doncs hi ha un munt d'aplicacions.
+
+La idea de posar el crack del vmware com a exemple d'aplicació me la va donar
+el pop.
+
+
+Index:
+  1. el runtime loader (ld-linux.so.2)
+  2. el mecanisme LD_LIBRARY_PATH
+  3. el mecanisme LD_PRELOAD
+  4. profiling i aplicacions al cracking
+  5. l'hora dels adeus
+
+
+Durant aquest article empraré dos programets (de fet un programa i una
+llibreria). Com que la llibreria és el que anirem construint no us la
+puc presentar ara, pero el programa el teniu aqui:
+
+
+/***********************************************************************/
+/* prog.c -- programa molt estupid */
+
+#include <stdio.h>
+#include <math.h>
+
+int main()
+{
+printf("%e\n", cos(-2.0));
+}
+
+/*************************************************************************/
+
+$ gcc prog.c -o prog -lm
+$ ./prog
+-4.161468e-01
+$
+
+1. El runtime loader
+
+Correr un programa com l'anterior succeeix tot plegat en un temps del tot
+despreciable. Pero en el fons cal realitzar un munt de tasques abans de que
+el programa es pugui executar. Analitzant el procediment a nivell de kernel
+es poden observar al voltant de 13 passos. Bàsicament son els relacionats
+amb la gestió de memoria i demés recursos. De fet en la majoria de casos el
+kernel carrega dos programes en comptes d'un cada cop que s'executa una
+aplicació: a més de l'executable caldrà que es carregui una aplicació coneguda
+com a loader i que s'encarrega bàsicament de dues tasques:
+
+1. Càrrega:    Es el procés de carregar a memoria les dependencies d'un
+               executable. Les dependències d'un programa no son mes que les
+               llibreries dinàmiques de les que depén.
+
+2. Relocation: Es el proces per mitja del qual les referencies globals es fan
+               absolutes. Aixó inclou la resolució de tots els simbols globals
+               (= funcions i variables) que contenen l'executable i les seves
+               dependències. La relocation de variables es completa sempre
+	       abans de transferir-se el control pero en el cas de funcions es
+               diferent.
+
+
+Pero que significa aixó? Provem de mirar-ho desensamblant el nostre programa
+exemple:
+
+$ objdump -d prog
+08048454 <main>:
+ 8048454:       dd 05 f0 84 04 08       fldl   0x80484f0
+ 804845a:       55                      push   %ebp
+ 804845b:       89 e5                   mov    %esp,%ebp
+ 804845d:       83 ec 08                sub    $0x8,%esp
+ 8048460:       83 c4 fc                add    $0xfffffffc,%esp
+ 8048463:       83 c4 f8                add    $0xfffffff8,%esp
+ 8048466:       83 ec 08                sub    $0x8,%esp
+ 8048469:       dd 1c 24                fstpl  (%esp,1)
+ 804846c:       e8 ab fe ff ff          call   804831c <_init+0x38>
+ 8048471:       83 ec 08                sub    $0x8,%esp
+ 8048474:       dd 1c 24                fstpl  (%esp,1)
+ 8048477:       68 e8 84 04 08          push   $0x80484e8
+ 804847c:       e8 db fe ff ff          call   804835c <_init+0x78>
+ 8048481:       89 ec                   mov    %ebp,%esp
+ 8048483:       5d                      pop    %ebp
+ 8048484:       c3                      ret
+$
+
+La seqüència sembla prou normal. Pero mirem amb una mica mes de detall les
+instruccions call. Si busquem la posició real cap a on apunten trobarem el
+següent
+
+Disassembly of section .plt:
+
+0804830c <.plt>:
+ 804830c:       ff 35 1c 95 04 08       pushl  0x804951c   # .got + 4
+ 8048312:       ff 25 20 95 04 08       jmp    *0x8049520  # .got + 8
+ 8048318:       00 00                   add    %al,(%eax)
+ 804831a:       00 00                   add    %al,(%eax)
+# el primer call ("cos") apunta aqui
+ 804831c:       ff 25 24 95 04 08       jmp    *0x8049524
+ 8048322:       68 00 00 00 00          push   $0x0
+ 8048327:       e9 e0 ff ff ff          jmp    804830c <_init+0x28>
+ 804832c:       ff 25 28 95 04 08       jmp    *0x8049528
+ 8048332:       68 08 00 00 00          push   $0x8
+ 8048337:       e9 d0 ff ff ff          jmp    804830c <_init+0x28>
+ 804833c:       ff 25 2c 95 04 08       jmp    *0x804952c
+ 8048342:       68 10 00 00 00          push   $0x10
+ 8048347:       e9 c0 ff ff ff          jmp    804830c <_init+0x28>
+ 804834c:       ff 25 30 95 04 08       jmp    *0x8049530
+ 8048352:       68 18 00 00 00          push   $0x18
+ 8048357:       e9 b0 ff ff ff          jmp    804830c <_init+0x28>
+# el segon call ("printf") apunta aqui
+ 804835c:       ff 25 34 95 04 08       jmp    *0x8049534
+ 8048362:       68 20 00 00 00          push   $0x20
+ 8048367:       e9 a0 ff ff ff          jmp    804830c <_init+0x28>
+
+
+Si us fixeu be en aquesta secció veureu que està construida de forma
+sistemàtica. Aquesta taula es coneix sota el nom de plt o Procedure Linkage
+Table (mes informació a http://www.linuxbase.org/spec/refspecs/elf.pdf) i és la
+clau per a que el procés de linkatge en temps d'execució funcioni. El
+funcionament d'aquesta taula es una mica complicat i provar d'esbrinar-ho pel
+propi compte pot no donar gaire resultats. Per explicar com funciona donaré
+l'exemple del que passa quan es crida per primera vegada a la funció cos().
+S'observa que en primer lloc es salta a la posició que esta continguda en la
+direcció 0x8049524. Si fem un readelf -S observem el següent
+
+$ readelf -S prog
+
+Section Headers:
+  [Nr] Name            Type            Addr     Off    Size   ES Flg Lk Inf Al
+  ...
+  [18] .dtors          PROGBITS        08049510 000510 000008 00  WA   0   0 4
+  [19] .got            PROGBITS        08049518 000518 000024 04  WA   0   0 4
+  [20] .dynamic        DYNAMIC         0804953c 00053c 0000a8 08  WA   5   0 4
+  [21] .bss            NOBITS          080495e4 0005e4 000018 00  WA   0   0 4
+  ...
+$
+
+De la taula de seccions observem rapidament que la posicio 0x8049524 es troba
+en una seccio anomenada .got (global offset table). Aquesta seccio te atributs
+de presencia en memoria (A) i escriptura (W). El valor inicial d'aquesta
+posicio fa que el programa salti a la següent instrucció de la PLT (0x8048322).
+En aquest punt el programa realitza primer un push amb el valor del offset dins
+de la relocation table (.rel.got, mireu abaix) i a continuació realitza un salt
+al principi de la plt.
+
+Es important que no us fieu dels valors continguts en la GOT que podrieu
+estar observant en aquest moment. Cal recordar que el que s'observa amb
+un desensamblador es el codi del programa, pero sense que s'hagi dut a terme
+el procés de relocation. Hi ha tota una secció, la .rel.got, destinada a la
+relocation de la GOT. Per tant, si veieu que els valors no us quadren no
+us alarmeu, és normal.
+
+Un cop el programa ha realitzat el salt cap al principi de la taula PLT
+s'observa un atribut especial que ja he deixat mig indicat en el disassembly
+de la PLT i es que les dues primeres entrades contenen referencies a la
+segona i tercera entrada de la GOT. El primer que fa el programa es realitzar
+un push de la direcció GOT+4 i a continuació salta a la posició a on apunta
+GOT+8. La clau del misteri esta en aquest valor. La posició que contindrà en
+temps d'execució (si ho mireu ara veureu un NULL) ens portarà a la secció
+executable del runtime loader, que en aquest moment ja te tota la informacio
+que li cal per a conectar la referencia no resolta "cos" amb la referencia
+absoluta que es troba dins de la llibreria matemàtica. Un cop el loader ha
+obtingut la direcció absoluta de la rutina el procés es completa simplement
+carregant el valor obtingut en la posició 0x8049524 de la GOT. D'aquesta manera,
+si es tornes a cridar la funcio cos, l'instruccio jmp *0x8049524 ens portaria
+directament a la rutina cos en comptes de caure a traves del push i cridar al
+linker. Observeu que nomes la plt dels executables conte referencies absolutes.
+El format de la plt en el cas de llibreries compartides es lleugerament
+diferent, pero en el fons el procediment es el mateix.
+
+Anem a recordar breument per als lectors confosus, la raó per la qual es
+produeix aquest procés. Les funcions cos i printf no es troben en l'executable
+local, sino que es troben en dos llibreries de sistema com son la libc
+(llibreria de C) i la libm (llibreria matemàtica). Les funcions tambe es
+podrien haber extret dels arxius libc.a i libm.a, pero aixó es una pràctica que
+no es sol aplicar ja que el tamany dels binaris pot augmentar de forma
+desproporcionada. Donat que les funcions no es troben en el binari cal un
+mecanisme que carregui les llibreries dinàmiques i permeti resoldre les
+referencies no resoltes "cos" i "printf". D'aquest procés s'en encarrega el
+runtime loader. La resolució de simbols es pot produir en dos modes: resolució
+inmediata o resolució progressiva (lazy resolution). Resolució inmediata
+significa que TOTS els simbols s'han de resoldre abans d'entrar en el main().
+En canvi la resolució progressiva permet que la resolució es realitzi en el
+moment de referenciar-se el simbol per primer cop. En el cas de resolució
+inmediata la .plt no s'empra per res, pero com hem vist es vital per a la
+resolució progressiva.
+
+La resolució progressiva es el mecanisme de resolució per defecte. Podem forçar
+resolució inmediata passant al loader la variable d'entorn LD_BIND_NOW. La
+diferencia entre els dos métodes esta en el rendiment. Si tenim una aplicació
+molt gran amb molts simbols sense resoldre pot ser que especificar LD_BIND_NOW
+provoqui que l'aplicacio trigui molt de temps en llençar-se. De totes maneres,
+les proves que he realitzat m'indiquen que avui en dia aquesta diferencia és
+pràcticament inapreciable. Recordeu sempre que el loader es la primera part del
+programa que reb el control. Per mes informació mireu les especificacions del
+ELF o el codi del runtime loader que ven en les fonts de la glibc.
+
+Després d'aquesta introducció es hora de que veiem com podem manipular el
+comportament del loader. La manera habitual de configurar el loader es per
+mitja de variables d'entorn. En les següents dos seccions analitzarem les
+variables LD_LIBRARY_PATH i LD_PRELOAD que ens acostaran a la resolució
+arbitraria de simbols. En aquesta secció em dedicaré a questions mes
+informatives i analitzaré la variable LD_DEBUG que es de molta utilitat
+per entendre les tasques que realitza el loader. Hi han moltes mes variables
+pero, o be no son interessants, o no les he fet servir mai i no puc
+comentar-les. Si us avorriu massa podeu passar directament a l'apartat 2.
+
+
+1.1 La variable LD_DEBUG
+
+La tasca bàsica d'aquesta variable es que el loader entri en mode debug i
+ens dongui informació afegida. Amb LD_DEBUG=help podem veure una llista de
+les opcions disponibles.
+
+$ LD_DEBUG=help ./prog
+Valid options for the LD_DEBUG environment variable are:
+
+  bindings   display information about symbol binding
+  files      display processing of files and libraries
+  help       display this help message and exit
+  libs       display library search paths
+  reloc      display relocation processing
+  statistics display relocation statistics
+  symbols    display symbol table processing
+  versions   display version dependencies
+
+To direct the debugging output into a file instead of standard output
+a filename can be specified using the LD_DEBUG_OUTPUT environment variable.
+$
+
+Observeu que el programa no s'ha executat. El loader termina l'execució
+després d'imprimir el missatge de help per el terminal. Si algú no es creia
+lo del runtime loader els seus dubtes ara s'haurien d'haver esfumat.
+
+Els missatges del loader s'imprimeixen per stderr. Aneu amb compte ja que
+alguns d'aquests modes generen una quantitat d'informacio aberrant. Per
+exemple executant el nostre programet amb LD_DEBUG=symbols obtenim un log
+de 1500 entrades. Proveu de fer-ho amb una aplicació *gran*. El log que
+he obtingut amb el netscape es de 52956 entrades i el que he obtingut amb
+el konqueror del kde201 es de 863518 entrades! Nomes el fitxer de log m'ocupa
+76MB! I es un ascii :-). "bindings" tambe genera un munt d'informació, pero
+no tanta. Els demés son bastant mes normals. Ara comentaré quina informació
+ens proporciona cada mode:
+
+
+* bindings:
+
+Amb "bindings" el loader informa del fitxer en el que troba una referencia
+no resolta i del fitxer cap al que lliga la referencia. Per exemple:
+
+01138:  binding file ./prog to /lib/libm.so.6: normal symbol `cos' [GLIBC_2.0]
+
+aquesta linia indica que la referencia no resolta a `cos' amb versió GLIBC_2.0
+en el fitxer ./prog (l'executable) s'ha conectat al fitxer /lib/libm.so.6. Si
+recordeu l'exemple d'abans, penseu que aquest missatge s'escriu en el moment en
+el que des de la PLT transferim el control al loader per a que resolgui el
+simbol cos. Si observeu detalladament el log veureu que hi ha un munt de
+referencies no resoltes que es resolen a partir del mateix fitxer. Aixó es deu
+a que tots els simbols que no son 'static' son automaticament globals i per
+tant s'han de resoldre a traves de la plt.
+
+
+* files:
+
+El mode 'files' indica al loader que imprimeixi informació sobre els fitxers
+(dll's) que va afegint a la imatge del proces. A mes el loader donarà
+info sobre les diverses funcions de inicialització (.init) i finalització
+(.fini) a més de la transferencia de control al programa:
+
+01158:  file=libm.so.6;  needed by ./prog
+01158:  file=libm.so.6;  generating link map
+01158:    dynamic: 0x4004581c  base: 0x40028000   size: 0x0001d8e8
+01158:      entry: 0x4002c990  phdr: 0x40028034   phnum:         5
+
+Aqui s'indica que la llibreria matematica es una dependencia de prog (feu
+ldd ./prog) i a continuació com aquesta llibreria es afegida a la imagte
+del proces.
+
+
+* libs:
+
+En aquest mode el loader informa de els passos que segueix per a trobar les
+llibreries. Com veurem, amb la variable LD_LIBRARY_PATH podrem modificar
+aquest comportament.
+
+01161:  find library=libm.so.6; searching
+01161:   search path=/home/izzu/.kde/lib/i686/mmx:/home/izzu/.kde/lib/i686:
+/home/izzu/.kde/lib/mmx:/home/izzu/.kde/lib:/usr/local/kde2/lib/i686/mmx:
+/usr/local/kde2/lib/i686:/usr/local/kde2/lib/mmx:/usr/local/kde2/lib
+          (LD_LIBRARY_PATH)
+01161:    trying file=/home/izzu/.kde/lib/i686/mmx/libm.so.6
+01161:    trying file=/home/izzu/.kde/lib/i686/libm.so.6
+01161:    trying file=/home/izzu/.kde/lib/mmx/libm.so.6
+01161:    trying file=/home/izzu/.kde/lib/libm.so.6
+01161:    trying file=/usr/local/kde2/lib/i686/mmx/libm.so.6
+01161:    trying file=/usr/local/kde2/lib/i686/libm.so.6
+01161:    trying file=/usr/local/kde2/lib/mmx/libm.so.6
+01161:    trying file=/usr/local/kde2/lib/libm.so.6
+01161:   search cache=/etc/ld.so.cache
+01161:    trying file=/lib/libm.so.6
+
+Observeu com els primers directoris on es busca son els que especifica la
+variable LD_LIBRARY_PATH, que en el meu cas conte els directoris que
+assigna la versió 2 del KDE. Seguidament es busca en la cache del loader i
+finalment en els directoris estàndar. Hi ha encara un altre mecanisme per a
+influenciar la busqueda de llibreries. Es tracta d'incluir un camp RPATH en
+l'executable. Aixó es fa en el moment de construir-se l'executable:
+
+gcc prog.c -o prog -lm -Os -Wl,-rpath,/otherdir
+
+Llavors:
+
+01179:  find library=libm.so.6; searching
+01179:   search path=/otherdir/i686/mmx:/otherdir/i686:/otherdir/mmx:/otherdir
+          (RPATH from file ./prog)
+01179:    trying file=/otherdir/i686/mmx/libm.so.6
+01179:    trying file=/otherdir/i686/libm.so.6
+01179:    trying file=/otherdir/mmx/libm.so.6
+01179:    trying file=/otherdir/libm.so.6
+01179:   search path=/home/izzu/.kde/lib/i686/mmx:/home/izzu/.kde/lib/i686:
+/home/izzu/.kde/lib/mmx:/home/izzu/.kde/lib:/usr/local/kde2/lib/i686/mmx:
+/usr/local/kde2/lib/i686:/usr/local/kde2/lib/mmx:/usr/local/kde2/lib
+          (LD_LIBRARY_PATH)
+(etc.)
+
+Els directoris especificats per LD_LIBRARY_PATH es poden inhibir eliminant la
+variable de l'entorn o be executant el programa des de el loader de forma
+manual per exemple fent
+
+LD_DEBUG=libs /lib/ld-linux.so.2 --library-path : ./prog
+
+Així,
+
+01196:  find library=libm.so.6; searching
+01196:   search path=i686/mmx:i686:mmx:
+         (LD_LIBRARY_PATH)
+01196:    trying file=i686/mmx/libm.so.6
+01196:    trying file=i686/libm.so.6
+01196:    trying file=mmx/libm.so.6
+01196:    trying file=libm.so.6
+01196:   search cache=//etc/ld.so.cache
+01196:    trying file=//lib/libm.so.6
+
+Observeu que amb aquesta tècnica no podem eliminar LD_LIBRARY_PATH completament,
+pero el que si que podem fer es passar una cadena de directoris que no
+existeixen. Cridant el loader també podem eliminar la cerca d'els directoris de
+RPATH. Si voleu mes informació sobre com correr el loader manualment proveu
+d'executar-lo sense arguments.
+
+
+* reloc:
+
+reloc nomes informa dels fiters sobre els quals s'aplica la relocation i del
+tipus de relocation que s'empra (progressiva o inmediata). No te mes secrets.
+
+
+* statistics:
+
+indica al loader que imprimeixi informació sobre la quantitat de cpu gastada
+durant les diferents etapes. Ex:
+
+01227:
+01227:  runtime linker statistics:
+01227:    total startup time in dynamic loader: 998192 clock cycles
+01227:              time needed for relocation: 683757 clock cycles (68.4%)
+01227:                   number of relocations: 367
+01227:             time needed to load objects: 230586 clock cycles (23.1%)
+
+
+* symbols:
+
+Aquest es potser el mode que mes ens interessa. Llàstima que tambe sigui el
+que escriu més quantitat d'informació a la sortida. En aquest mode s'indica
+cada referencia que s'esta resolent i l'ordre de llibreries on es busquen les
+definicions. Observeu que no necessariament l'ultima llibreria on es realitza
+el lookup ha de ser la que defineix el simbol. Mireu aquests dos exemples:
+
+01256:  symbol=printf;  lookup in file=./prog
+01256:  symbol=printf;  lookup in file=/lib/libm.so.6
+01256:  symbol=printf;  lookup in file=/lib/libc.so.6
+
+Aquests tres linies indiquen com s'ha resolt la referencia a la funció printf.
+El primer lloc on es busca es sempre el propi executable. A continuació es
+busca la llista de llibreries que formen les dependencies del executable i
+de cada una de les llibreries. De tot plegat surt un arbre de llibreries que
+es cerca d'abaix a adalt. Com veurem mes endevant la llista de llibreries a on
+cercar definicions de simbols es pot modificar lleugerament amb la variable
+LD_PRELOAD.
+
+L'exemple que he triat es molt maco. Molts cops ens trobarem amb un altre tipus
+de resolució. Per exemple mireu la resolució de la funcio cos:
+
+01256:  symbol=cos;  lookup in file=./prog
+01256:  symbol=cos;  lookup in file=/lib/libm.so.6
+01256:  symbol=cos;  lookup in file=/lib/libc.so.6
+01256:  symbol=cos;  lookup in file=/lib/ld-linux.so.2
+
+La funció cos sabem que esta en la llibreria libm, pero el loader després de
+passar per aquesta llibreria no resol el simbol i continua cercant fins que
+arriba a /lib/ld-linux.so.2, l'última de les llibreries a on buscar. Aquest
+efecte es deu a que hi han dos tipus de simbols públics: els globals i els
+debils (weak). Un simbol global indica que te precedencia sobre tots els demes
+simbols debils amb el mateix nom. Noteu que no hi poden haver dos simbols
+globals amb el mateix nom ja que aixó crearia un conflicte. D'altre banda un
+simbol debil només te precedencia si no hi ha cap simbol de tipus global. Els
+dos casos que acabem de veure s'expliquen dient que la definicio de printf es
+global i la de cos és débil. Per tant, tornant al primer exemple, donat que
+el loader troba una definició global de printf s'atura a l'instant i continua
+amb el següent simbol. En el segon cas el loader troba una definició debil de
+cos en la libm. Com que la precedencia nomes està assegurada si no hi ha cap
+definicio global de "cos" es necessari que el loader busqui en la taula de
+simbols de les demés llibreries que estan incloses en la taula de dependencies.
+
+Si voleu coneixer els atributs d'un simbol mireu la taula de symbols fent
+readelf -s objecte. Penseu que la taula de simbols conte totes les referencies,
+tant les definides com les indefinides. Per tant, si veieu
+
+$ readelf -s prog
+
+Symbol table '.dynsym' contains 8 entries:
+   Num:    Value  Size Type    Bind   Vis      Ndx Name
+     0: 00000000     0 NOTYPE  LOCAL  DEFAULT  UND
+     1: 0804831c    38 FUNC    GLOBAL DEFAULT  UND cos@GLIBC_2.0 (2)
+     2: 0804832c    71 FUNC    WEAK   DEFAULT  UND __register_frame_info@GLIBC_
+   ...
+
+no podeu arriber a la conclusio de que cos és un simbol global. Dins de
+l'executable prog el simbol cos no esta definit (aixó s'indica amb UND). L'únic
+que vol dir aixó. és que es busca una definicio global de cos. Si no es troba
+cap definició global de cos, automàticament s'escull la definició débil. Mirem
+ara que hi ha en la llibreria matemàtica:
+
+$ readelf -s /lib/libm.so.6
+
+Symbol table '.dynsym' contains 388 entries:
+    Num:    Value  Size Type    Bind   Vis      Ndx Name
+   ...
+    203: 00009490    38 FUNC    WEAK   DEFAULT   12 cos@@GLIBC_2.0
+   ...
+
+El fet de que Ndx contingui un número (12) en comptes de UND es senyal de que
+el fitxer libm.so.6 defineix el simbol cos i no només el referencia com en el
+cas anterior.
+
+
+* versions:
+
+Amb aquesta variable s'indica al loader que dongui informació sobre les
+versions dels simbols que requereix cada llibreria i les comprovacions que es
+realitzen.
+
+***
+
+Fins ara hem vist com obtenir informació específica del loader per a comprovar
+el procés de resolució de simbols. Normamlment només emprarem aquestes
+tècniques per simple curiositat o quan sospitem que alguna cosa falla, ja que
+normalment les coses funcionen correctament. Si escrivim un printf ningú es
+preocupa de que no hi hagi un printf en una altre llibreria amb mes
+precedencia. De fet aixó no sol passar mai i no passarà mentre no acabeu de
+llegir aquest article :-). Ara que hem arribat fins aquí crec que ens trobem en
+disposició de realitzar el primer intent d'obtenir els poders de la resolució
+arbitraria de simbols.
+
+
+2. El mecanisme LD_LIBRARY_PATH
+
+Aquest es el primer dels dos mecanismes que analitzarem. Com podreu veure
+tots dos mecanismes tenen certes limitacions de les que ja us alerto ara:
+
+1) Aquestes tècniques només funcionaran si la nostre aplicació esta linkada de
+   forma dinàmica i porta referencies no resoltes. En l'actualitat pràcticament
+   totes les aplicacions porten aquest tipus de linkatge, doncs estalvia espai
+   de disc i de memoria. Aixo es deu a que el segment de texte de les
+   llibreries dinàmiques es comparteix entre aplicacions diferents. En canvi,
+   en el cas d'aplicacions linkades de forma estàtica (amb el flag -static) el
+   segment de texte només es comparteix entre diferents instancies de la
+   _mateixa_ aplicació.
+
+2) Les dues variables que analitzem estan considerades com a perilloses.
+   Aixó significa que, a part de que jo no he descobert aquests mètodes, la
+   gent ja s'ha pres la molestia de protegir aquells casos a on aquests
+   mecanismes representen una amenaça de seguretat. En concret amb aplicacions
+   suid no podrem emprar aquest mecanisme. No es dificil deduir per que. El
+   poder de la resolució arbitraria de simbols equival al poder de execució
+   arbitraria de codi i per tant es podriem adquirir un rootshell senzillament
+   fent exec("/bin/sh") des de una aplicació suid.
+
+Amb aquests avisos previs ja podem embarcar-nos directament en el primer
+dels mecanismes.
+
+La variable d'entorn LD_LIBRARY_PATH te diverses utilitats. El linker (ld)
+per exemple l'empra com a llista adicional de directoris en els que buscar
+llibreries en el moment de linkar una aplicació. El cas del loader és
+semblant. Tal com hem vist en la secció anterior el loader empra aquesta
+variable per a buscar llibreries en directoris diferents als inclosos a
+/etc/ld.so.conf. Aquesta variable és de gran utilitat sobretot si volem
+executar una aplicació com a usuari en un sistema al que li falta alguna
+llibreria. Si root es nega a instalar-la sempre la podrem carregar d'aquesta
+manera.
+
+De cara a la resolució arbitraria de simbols el mecanisme a emprar es força
+intuitiu. Simplement cal amb posar una llibreria amb el mateix nom que una
+de les dependencies en un directori inclós a la variable LD_LIBRARY_PATH i el
+loader la carregarà com si es tractes de l'autèntica llibreria. Per exemple,
+agafem el nostre programa prog.c i provem d'incloure una llibreria libm propia
+que realitzi alguna altre cosa. El codi de la llibreria 'falsa' és molt senzill
+en aquest cas:
+
+
+/***********************************************************************/
+/* libm.c -- llibreria propia per a resoldre cos() */
+
+double cos(double val)
+{
+  printf("Cridant a cos(%e)\n", val);
+  return 3.1415; /* retornem PI sempre */
+}
+
+/***********************************************************************/
+
+$ gcc libm.c -o libm.so.6 -shared
+$ LD_DEBUG=libs LD_LIBRARY_PATH=`pwd` ./prog 2> log
+./prog: /home/izzu/elf/libm.so.6: no version information available
+(required by ./prog)
+Cridant a cos(-2.000000e+00)
+3.141500e+00
+$ cat log
+00867:  find library=libm.so.6; searching
+00867:   search path=/home/izzu/elf/i686/mmx:/home/izzu/elf/i686:
+/home/izzu/elf/mmx:/home/izzu/elf              (LD_LIBRARY_PATH)
+00867:    trying file=/home/izzu/elf/i686/mmx/libm.so.6
+00867:    trying file=/home/izzu/elf/i686/libm.so.6
+00867:    trying file=/home/izzu/elf/mmx/libm.so.6
+00867:    trying file=/home/izzu/elf/libm.so.6
+...
+$
+
+Tot indica que el truco ha funcionat, pero ara tenim un problema de versions.
+Les versions s'empren en les llibreries per a evitar que un programa antic o
+massa nou empri una versió d'una funció per a la que no està preparat. Si
+l'interfice de la funció de llibreria hagués canviat podria resultar en un
+comportament erroni per part del programa. En el nostre cas l'aplicació
+s'executa donat que el nostre simbol "cos" al no tenir versió associada es
+genera com a simbol "per defecte". De totes maneres anem a resoldre aixó per a
+que quedi mes maco. De posar versions als simbols s'en encarrega el linker
+(l'informacio completa es troba a info Ld). El primer que hem de mirar es la
+versió que te el simbol real cos a la /lib/libm.so.6. Abans hem vist que es
+GLIBC_2.0. Posar versions es fa amb un script senzill com aquest.
+
+/***********************************************************************/
+/* script per a posar versio a cos */
+
+GLIBC_2.0{
+        cos;
+	};
+
+/***********************************************************************/
+
+
+Si el fitxer amb el script es diu 'versio_cos' compilem la llibreria amb
+
+$ gcc libm.c -shared -o libm.so.6 -Wl,--version-script,versio_cos
+$ LD_LIBRARY_PATH=`pwd` ./prog
+Cridant a cos(-2.000000e+00)
+3.141500e+00
+$
+
+Magnific, ara ja funciona perfectament. Empentats per aquest exit anem a
+provar de fer el mateix amb la libc.
+
+
+/***********************************************************************/
+/* libc.c -- llibreria propia per a resoldre printf() */
+
+int printf(char *fmt, ...)
+{
+  /* no fagis res */
+  return 1;
+}
+
+/***********************************************************************/
+
+Afegim el fitxer de versions i compilem alegrement
+
+$ gcc libc.c -shared -o libc.so.6 -Wl,--version-script,vers
+$ LD_LIBRARY_PATH=`pwd` ./prog
+./prog: error while loading shared libraries:
+/home/izzu/elf/libc.so.6: symbol __register_frame_info, version GLIBC_2.0 not
+defined in file libc.so.6 with link time reference
+$
+
+oops! :-(
+
+Per lo vist hi ha un simbol no resolt. En aquest punt podriem intentar definir
+aquest simbol mirant en les fonts de la glibc per veure que fa aquesta funció.
+No ho veurem aqui, pero us dic que només per començar haurem de definir al
+voltant de 10 simbols mes fins que l'aplicació comenci. A mes, si per
+anar mes rapids definim els simbols com a funcions que retornen sense fer res,
+passarà el que menys volem:
+
+$ LD_LIBRARY_PATH=`pwd` ./prog
+Segmentation fault (core dumped)
+$
+
+Ens hem trobat amb un greu problema. Pero de totes maneres aixó ja ho haviem
+de sospitar. Reemplaçar una llibreria només funcionarà si reemplacem tots els
+simbols referenciats per l'executable. El cas de la libc es especialment
+problematic, ja que aquesta llibreria exporta a les aplicacions funcions
+d'inicialització que nosaltres no declarem en cap moment en el codi. Certament,
+si reemplacem tots els simbols de la libc podrem resoldre arbitrariament els
+simbols, pero ens tindrem que enfrontar amb un repte força complicat: Totes les
+rutines que emprem hauran de ser en principi autocontingudes, es a dir, no
+podrem emprar cap dels simbols de la libc. Que aixequi la ma qui algun cop hagi
+escrit un programa en C que no cridi a una sola funció de la libc! Dificil, eh?
+Després de tot la libc es tan important que el compilador la inclou per defecte
+en la llista de llibreries. Una solució correcte seria agafar els codi de la
+glibc, modificar aquells simbols que ens interessin i recompilar la llibreria.
+Aixó certament funcionarà, pero personalment aquesta solucio no m'agrada ja que
+el manteniment serà molt mes complicat.
+
+La conclusió es que aquest mètode es funcional en tots els casos, pero deixa
+molt per dessitjar si no disposem de temps. En el cas de la libc fins i tot
+resulta mes rapid modificar les fonts i recompilar. En definitiva, cal
+alguna cosa mes. I aqui és on entra en joc la variable LD_PRELOAD;
+
+
+3. La variable LD_PRELOAD
+
+Primer de tot indicaré que es el que fa aquesta variable. Un asseguro que un
+cop hagueu llegit l'explicació se us iluminarà el cap (i després em voldreu
+matar per el rollo que us he fotut fins ara).
+
+La variable LD_PRELOAD solicita al loader que carregui una llibreria
+arbitraria. Esta be, pero a on de l'arbre de dependencies s'inserta aquesta
+llibreria? Doncs just entre l'executable i les dependencies! Es a dir,
+LD_PRELOAD ens permet afegir (no reemplaçar) una llibreria compartida
+qualssevol de tal manera que tindrà precedencia sobre totes les llibreries que
+formen l'arbre de dependencies.
+
+Per exemplificar-ho agafarem la primera versio de la libm.c tal com la havia
+posat al principi, sense versions.
+
+$ gcc libm.c -o myMathLib.so -shared
+$ LD_DEBUG=symbols LD_PRELOAD=`pwd`/myMathLib.so ./prog 2> log
+Cridant a cos(-2.000000e+00)
+3.141500e+00
+$ cat log
+...
+00897:  transferring control: ./prog
+00897:
+00897:  symbol=cos;  lookup in file=./prog
+00897:  symbol=cos;  lookup in file=/home/izzu/elf/myMathLib.so
+00897:  symbol=printf;  lookup in file=./prog
+00897:  symbol=printf;  lookup in file=/home/izzu/elf/myMathLib.so
+00897:  symbol=printf;  lookup in file=/lib/libm.so.6
+00897:  symbol=printf;  lookup in file=/lib/libc.so.6
+...
+$
+
+Magnific, a la primera i sense problemes de versions! Mireu el fitxer de log.
+En la resolució de tots els simbols es busca primer en l'executable i després
+en la llibreria que nosaltres li hem proporcionat. I allà és on es conecta el
+simbol. Fixeu-vos de pas que el simbol *cos* es conecta a la primera. Aixó es
+deu a que la nostre definició de cos sí que es global a diferencia del que
+passa en la libm.
+
+Doncs be, aixó no només funciona, sinó que no te mes efectes secondaris apart
+dels que es deriven directament del fet d'executar un codi diferent al original.
+Així que aquest cop no us vindré amb problemes. El mecanisme es útil,
+completament net i a mes és rapid d'implementar.
+
+Observeu que a diferencia del que passava en el cas anterior, ara no ens cal
+proporcionar tots els simbols. LD_PRELOAD afegeix una llibreria, pero com
+s'aprecia en el fitxer de log, totes les demes llibreries també son carregades.
+Per tant LD_PRELOAD es pot emprar com a filtre. Si un simbol es troba en la
+llibreria es realitza la resolució, si no, es continua buscant. Per tant també
+podrem cridar funcions de la libc des d'una rutina que reemplaça una altre
+funcio de la libc. Nomes i ha una cosa a considerar: els alias. El compilador
+gcc te una extensió per a generar alias, es a dir, simbols amb noms diferents
+pero que apunten a la mateixa definició. Per exemple si imprimim la taula de
+simbols de la libc (que per sort nomes te unes 6000 entrades :-) i ens fixem en
+un simbol tipic com "write" trobarem que hi ha dos simbols "__write" i
+"__libc_write" que en realitat apunten al mateix lloc. Per tant, si el nostre
+propòsit es capturar totes les crides a write() que fa una aplicació haurem de
+definir tots els alias de write() per anar segurs de que l'aplicació no estigui
+anant per un altre camí. Aixó es faria així
+
+/***********************************************************************/
+/* libwrite.c -- llibreria propia per a fer writes */
+
+int write(int fd, cosnt void *ptr, size_t nbytes)
+{
+  ...
+  __asm__("int 0x80");
+  ...
+}
+
+/* definim els alias */
+
+int __write      (int, void *, size_t)   __attribute__   ((alias("write")));
+int __libc_write (int, void *, size_t)   __attribute__   ((alias("write")));
+
+/***********************************************************************/
+
+Quan definiu un simbol públic recordeu que podeu emetre el simbol com a
+'global' o 'debil'. Per defecte un simbol que no porti calificador "static"
+serà global. Si voleu que sigui debil haureu de adjuntar l'atribut weak en el
+prototipus de la funció (no funcionarà si ho feu en la definició). Per exemple,
+per a fer que __write sigui debil fariem:
+
+int __write (int, const void *, size_t) __attribute__ ((weak, alias("write")));
+
+De totes maneres per als nostres objectius aixó no sona gaire interessant,
+doncs si definim el simbol com a debil es probable que el nostre simbol no
+sigui seleccionat. De totes maneres, segons l'aplicació i l'objectiu pot
+ser útil.
+
+Finalment, els simbols de tipus "static" son de tipus 'local'. Com el seu nom
+indica, aquests simbols no es poden veure des de les demés dependencies.
+
+
+4. Profiling i aplicacions al cracking
+
+Be, un cop arribat aqui s'ens haurien de començar a ocorrer multitut de
+funcionalitats, doncs hauria de quedar clar que la resolució arbitaria de
+simbols comporta l'execució arbitraria de codi per part d'una aplicació
+sense que aquesta s'en dongui compte! Sense cap mena de dubtes seria molt
+interessant poder alterar només lleugerament el comportament d'una funció
+d'una forma senzilla i ràpida. Imagineu per exemple que el nostre objectiu
+és realitzar un anàlisi estadístic de les crides que realitza un procés a
+una certa funció x, amb els paràmetres i els moments d'execució. Una opció
+seria utilitzar un profiler classic que s'adjuntes al programa i realitzes
+aquest anàlisi. Pero és força probable que per a la nostre tasca en concret
+aquest mecanisme no sigui el mes adequat. En aquest cas ens agradaria adjuntar
+una llibreria que definis el simbol x i dins del codi d'aquest simbol escrivís
+informació sobre la crida en un fitxer per tot seguit cridar a l'autèntica
+funcio x(). D'aquesta manera l'aplicació no es veuria afectada. Malauradament
+amb els coneixement que tenim fins ara aixó no resultaria, ja que cridar a x()
+dintre de x() provocarà l'execució d'un bucle infinit. En aquesta secció
+presentaré un mecanisme senzill que ens permetrà fer aixó. Originalment no
+tenia cap intenció d'escriure aquest apartat, pero donat que es el que tothom
+acaba per voler fer ensenyaré un mecanisme sistemàtic que he inventat :-) per a
+realitzar aquesta tasca.
+
+Per a carregar simbols reals emprarem les llibreries que donen acces a dynamic
+loading a nivell d'aplicació. La idea es carregar la llibreria i resoldre els
+simbols reals manualment. Per a accedir a l'interficie haurem d'incloure el
+header <dlfcn.h> i linkar amb -ldl.
+
+L'interficie de programació es extremadament senzilla. Informació completa en
+trobareu a les pagines man (per exemple, man dlopen). En total son 4 funcions:
+
+* dlopen()   carrega una llibreria dinàmica i retorna una referencia
+* dlsym()    resol un simbol de la llibreria i el retorna
+* dlclose()  tanca una llibreria dinàmica oberta
+* dlerror()  retorna una cadena d'error relativa a l'última crida
+
+[En la primera versió d'aquest article en arribar aquest punt feia un senzill
+exemple de profiling amb una funció de la libc. Posteriorment el pop em va
+sugerir que escrivis alguna cosa sobre el crack del vmware. Donat que aquest
+crack esta relacionat amb aquest tema he decidit posar-ho aqui. Així serà mes
+interessant]
+
+----
+
+Notes sobre el crack de vmware:
+
+Abans de continuar amb les qüestions de programació us explicaré en que
+consisteix el crack. Si us baixeu una demo del vmware obtindreu una versió del
+programa protegida sota una llicencia temporal. Aquesta llicencia s'esgota
+després d'uns 45 dies si no recordo malament. Per a poder emprar el
+programa amb una llicencia caducada hom coneix la técnica de canviar la
+data del ordinador per a poder executar el programa. Pero aquesta técnica te
+alguns problemes. Canviar la data de l'ordinador implica que sobtadament totes
+les aplicacions vegin una nova data. Per a moltes aplicacions aixó significarà
+un gran salt en el temps de forma inexplicable i possiblement deixin de
+funcionar. Per tant caldria reiniciar l'ordinador per a assegurar-se de que les
+coses siguin mes o menys estables. Pero encara així cal recordar que en
+màquines multiusuari no podem simplement apagar i encendre el computador. En
+aquests casos haurem de recorrer a un mecanisme mes suau com el que ara us
+presentaré.
+
+La idea de canviar l'hora de l'ordinador es cutre i te problemes, pero encara
+així es la base del que fa el crack. La idea es que si conseguim que només
+l'aplicació en qüestió vegi el canvi de data llavors no hi haura cap problema.
+En l'apartat anterior hem investigat tècniques que permeten la resolució
+arbitraria de simbols d'excutables. Per tant sembla intuitiu que podrem burlar
+la llicencia si conseguim que les rutines que donen acces a la data actual es
+resolguin cap a simbols nostres que donguin la data actual mes un offset
+temporal que ens situi dins d'una data vàlida per a l'execució del programa.
+Observeu que aquest crack es en realitat generic. Pràcticament totes les
+aplicacions que es basen en llicencies temporals cauran davant d'aquest petit
+truc. Proveu-ho vosaltres mateixos, pero abans llegiu-vos la secció 5 d'aquest
+article.
+
+L'estandar posix defineix dues crides que donen access al temps actual: time()
+i gettimeofday(). Per tant haurem d'actuar sobre aquestes dues crides per a fer
+efectiu el crack. Som-hi doncs, tornem a les questions de programació.
+
+----
+
+Fixeu-vos que dlopen() retorna una referencia necessaria per a poder cridar
+dlsym(). Si definim molts simbols ens agradaria tenir la referencia sempre
+disponible sense la necessitat de testejar la referencia cada cop per veure
+si ja s'ha obert la llibreria. Per a fer aixó convé declarar una funció de
+inicialització. Hi ha dues maneres de fer-ho. La primera es declarar una funció
+i donar-li l'atribut "constructor" així:
+
+int init_function(...) __attribute__ ((constructor));
+
+Aquest atribut provoca que gcc situi la definició del simbol dins de la secció
+init de la llibreria, de manera que en carregar-se, el codi s'executarà abans
+de que l'aplicació entri dins de main().
+
+L'alternativa és definir una funció global amb el nom _init. El loader
+s'encarrega de cridar a tots els simbols _init que proporcionen les llibreries
+que carrega abans de passar el control al programa. En l'exemple utilitzarem
+aquest mecanisme:
+
+
+/*****************************************************************************/
+
+void *libc;
+static int timeoffset;
+
+void _init() __attribute__ ((section(".init")));
+void _init()
+{
+   libc = dlopen("/lib/libc.so.6", RTLD_LAZY);
+   timeoffset = getoffset();
+}
+
+/*****************************************************************************/
+
+La seccio .init correspon al codi d'inicialització. Per defecte _init es posa
+a .init. Jo només ho poso per a resaltar que es tracta d'una funció
+d'inicialització.
+
+Com veieu aquest també es el punt òptim per a inicialitzar el offset temporal
+que afegirem. En les fonts del crack trobareu com s'inicialitza realment la
+variable que conte l'offset temporal.
+
+Observeu d'altre banda que la llibreria la obrim amb un path absolut. D'aquesta
+manera podrem controlar quin es exactament el objecte que estem obrint. Si no
+ho fem dlopen() buscarà la llibreria en els directoris estandar +
+LD_LIBRARY_PATH. Un cop tenim una referència vàlida a libc (real) volem un
+mecanisme genéric per a resoldre funcions públiques. El mecanisme que empro jo
+l'exemplificaré amb la funció gettimeofday:
+
+/****************************** gettimeofday() *******************************/
+
+static int __init_gettimeofday(struct timeval *, struct timezone *);
+static int (*__libc_gettimeofday) (struct timeval *, struct timezone *) =
+             __init_gettimeofday;
+
+
+static int __init_gettimeofday(struct timeval *tv, struct timezone *tz)
+{
+  __libc_gettimeofday = (int (*)(struct timeval *, struct timezone *))
+                                 dlsym(libc, "gettimeofday");
+  return __libc_gettimeofday(tv, tz);
+}
+
+
+int gettimeofday(struct timeval *tv, struct timezone *tz)
+{
+  int ret = __libc_gettimeofday(tv, tz);
+  tv->tv_sec += time_offset;
+  return ret;
+}
+
+int __gettimeofday  (struct timeval *, struct timezone *)
+                    __attribute__ ((alias("gettimeofday")));
+
+/*****************************************************************************/
+
+
+El mecanisme no és el més senzill, pero és generic i no cal realitzar proves
+per a determinar si la referencia esta inicilitzada o no. De fet es pot fer
+encara mes senzill. Quan parlava abans de LD_PRELOAD deia que totes les
+dependencies es continuen carregant com si res. Per tant en el nostre cas ha
+de semblar curious que calgui obrir una referencia a la libc si aquesta ja
+està en memoria. Donat que aixó succeeix força sovint els desenvolupadors de la
+libdl van afegir una constant RTLD_NEXT que indica que s'ha de buscar el simbol
+en llibreries que estan situades a continuació de la nostre en l'arbre de
+dependències. Si emprem aquest mecanisme desapareix la necessitat d'obrir la
+referencia a la libc en la funció _init. Tot lo demés quedaria igual excepte
+les crides a dlsym() que es veurien reemplaçades per
+
+  dlsym(RTLD_NEXT, symbol_name);
+
+Per a poder emprar RTLD_NEXT (almenys amb glibc-2.2) cal que la constant
+__USE_GNU estigui definida en el moment d'incloure <dlfcn.h> .
+
+Després d'aquest rollo provem de compilar-ho:
+
+$ gcc vmCrack.c -o vmCrack.so -shared -ldl
+/tmp/ccU4kKse.o: In function `_init':
+/tmp/ccU4kKse.o(.text+0x0): multiple definition of `_init'
+/lib/crti.o(.init+0x0): first defined here
+collect2: ld returned 1 exit status
+$
+
+vaja, sembla que no li ha agradat lo del _init. Com ja he dit, en gcc el
+mecanisme habitual per a fer posar funcions d'inicialització es emprar
+l'atribut "constructor". gcc per defecte empra el fitxer d'inicilitzacio
+/lib/crti.o que porta una versió de _init per defecte. El problema el resoldrem
+especificant a gcc que no empri els fitxers d'inicialització.
+
+$ gcc vmCrack.c -o vmCrack.so -shared -ldl -nostartfiles
+$ LD_PRELOAD=`pwd`/vmCrack.so vmware
+usant vmCrack.so -- by azathoth <izzu@linuxupc.upc.es>
+aquest software nomes es per a us educatiu!!!
+consulta la teva llicencia per a qüestions legal
+(c) 2001 catHack
+...
+$
+
+Les instruccions d'ús estan dins el fitxer font vmCrack.c
+md5sum: bda6b15cb2e2c2876bd2d4411ce731b5  vmCrack.c
+
+5. L'hora dels adeus
+
+Doncs aixó es tot. Espero que us animeu a hackejar en aquest tema ja que hi ha
+molta cosa a aprendre i a fer.
+
+Com sempre, la millor documentació la trobareu en les fonts. Tant el loader com
+libdl son part de la distribució de glibc. També es recomanable donar un cop
+d'ull a les especificacions del format ELF. Els pdfs del linker de Solaris
+també son interessants, ja que s'explica amb detall l'interficie de programació
+de la libdl. Després de tot, aquesta interficie es una invenció de la gent de
+Sun. No hi ha gaire cosa mes. Les tècniques que us he presentat és coneixen des
+de fa molt de temps. Suposo que per a un usuari mitjà tot aquest rollo de tenir
+que especificar LD_PRELOAD li deu ser massa complicat. Si no es així no
+m'explico per que ningú protegeix els seus programes davant d'aquesta
+possibilitat, i encara mes, per que hi han tans pocs cracks amb aquest format
+que circulen per la xarxa.
+
+No parlaré d'aixó ara, pero si que indicaré com algú podria intentar d'evitar
+que es pogues aplicar aquesta tècnica sobre un programa.
+
+Mecanisme #1
+Compilant les aplicacions amb -static. Si es fa així tots els simbols ja estan
+resolts abans d'executar-se l'executable i no podrem fer-hi res.
+
+Mecanisme #2
+Negar-se a executar si hi ha una variable global LD_PRELOAD. Aixó seria molt
+absurd, ja que sempre es pot fer unsetenv("LD_PRELOAD"); des de _init
+
+Mecanisme #3
+No emprar funcions publiques en les seccions crítiques
+
+Mecanisme #4
+Fer que l'aplicació sigui suid (aixó no és serios)
+
+Si us hi fixeu be, arribareu a la conclusió que cap d'aquests mecanismes es
+realment útil. Tots comporten mes problemes que ventatges. En el cas de -static
+el programa creix de forma aberrant en tamany i els usuaris no estaran gaire
+contents d'aixó. I en el cas #3 el fet de tenir que emprar rutines privades
+augmenta bastant el treball del programador i tambe augmenta el tamany del
+programa. Per tant podem estar segurs de que podrem emprar aquesta durant molt
+de temps.
+
+Pero tal com ho estic dient sembla com si nomes es pogués emprar LD_PRELOAD
+com a atac. Aixó no és cert. Anem a veure per a que més podria emprar:
+
+1) Per a carregar una subllibreria amb funcions actualitzades, que corregeixen,
+per exemple, un bug.
+
+2) Per a carregar una subllibreria amb funcions preparades per a fer
+debugging sense necessitat de recompilar el programa. Per exemple si el
+nostre programa peta en una funcio x() i no sabem que passa podriem carregar
+una llibreria que definis una version per a debugging de la funcio x(). Un
+exemple d'aixó és la llibreria Efence.
+
+3) Per a fer anàlisi estadístic de de funcions. En aquest cas el que fariem és
+obrir un fitxer en _init() i escriure informació relativa a les crides que
+interceptem cada cop que es produeixen.
+
+4) Per a modificar el funcionament d'un programa si hem estat capaços d'aillar
+un problema
+
+Si hi penseu una mica segur que trobareu moltes mes aplicacions.
+
+Recordeu finalment que es possible que algú no estigui gaire content si
+modifiquem el funcionament d'un programa sense avisar o consultar-ho abans.
+Teoricament la llicencia d'usuari del programa es qui te l'ultima paraula.
+
+Doncs aixó, ens llegim...
+
+unsetenv("azathoth");

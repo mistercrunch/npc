@@ -1,0 +1,204 @@
+
+
+SET <set-fw@bigfoot.com>	
+November 1999		http://www.imedia.es/set/us/eng-1199.txt
+
+
+---[ CONTENTS ]--- 
+
+- 01 -	 Introduction
+- 02 -	 Problems found
+- 03 -	 Q&A
+- 04 -	 Conclusions
+
+
+
+
+- 01 ----------------------   Introduction   ------------------------
+
+Several members of SET have discovered key flaws in the security of 
+ciudad.com.ar, the incorrect configuration of EdgeMail system, used to
+offer mail services trough web, appears to be the cause. 
+Ciudad.com.ar is an Argentinian portal offering free webmail accounts as
+well as chat and ICQ-style messaging, over 150.000 accounts could have been
+compromised.
+
+
+
+
+- 02 ----------------------   Problems found   ----------------------
+
+After finding the host responsible for running the service and storing the
+data we learn that anyone could:
+
+#1   Read any mail
+#2   Hijack accounts
+#3   Access the password file
+#4   Get POP accounts settings
+#5   Determine active users
+
+
+
+[#1]  Read any mail
+
+By going to a concrete URL it's possible to read any mail stored in the 
+server without performing any kind of authentication. We'll learn by example:
+
+  http://vulnerablesitein.ciudad.com.ar/edgemail/folders/
+
+Will list directory entries for characters [0-9,a-z], every user's mail is
+placed in the directory which matches their first username's character
+So imagine we'd like to see the mail from user "nosuchuser", we'll go to:
+
+  http://vulnerablesitein.ciudad.com.ar/edgemail/folders/n/
+
+And scroll down until we find entries like:
+
+ ./n/nosuchuser.InBox  4k
+ ./n/nosuchuser.Sent   3k
+
+Clicking on the link will bring us the usual unix-style plain text file with
+all the mail for that folder.
+
+
+
+[#2]  Hijack accounts
+
+While the first problem 'only' let the attacker to read the mail we found that
+it's possible to "take over" any existing account, ciudad.com.ar has a 3-step
+process to create a new account, the first step checks for the username desired
+and returns an error if already exists, the bug lies in the fact that the 
+actual Perl script called to create the account DOES NOT check if that username
+exist, remember step 1 should have take care of it, so if we go to an URL like:
+
+
+  http://vulnerablesitein.ciudad.com.ar/cgi-bin/creawebmail.pl?user=testuser&
+         pass=anypassword&srvid=1
+  [Line wrapped for clarity]
+
+We'll have created a new account bypassing the checks (and the personal info
+screens :-) )
+
+We can hijack the webmail of nosuchuser@ciudad.com.ar by giving her username
+in the user field, note that all folders are _deleted_ when you proceed this
+way.
+
+ 
+
+[#3]  Access the password file
+
+Over 150.000 passwords were left open for anyone to see, the problem is bigger
+if you consider that:
+
+- Most of these passwords are also used in services like ciudad.com.ar's chat 
+or instant messaging.
+- Prima, the owner or ciudad.com.ar, is a national ISP in Argentina, many users
+will no doubt have the same password for dial-up, POP and web-mail accounts,
+FTP access and so on...
+
+Once determined that the EdgeMail installation was exploitable it is s simple
+as:
+
+  http://vulnerablesitein.ciudad.com.ar/edgemail/auth/users
+
+This could have permited potential intruders obtaining free, unlimited access 
+to unsuspecting users accounts, deleting individual pieces of e-mail, forging
+messages..etc.
+
+
+
+[#4]  Get POP accounts settings
+
+It's nice to check the POP account from the browser, and it's nice to integrate
+mail from different accounts into one centralized place, but it isn't nice if 
+you are exposed to have all you accounts compromised at once. As many systems
+do EdgeMail allows to check remote accounts and offers the chance of saving
+the settings for future sessions, these settings include POP server, POP 
+username and POP password. EdgeMail saves this info in a database file under
+the /data subdirectory, let's go to:
+
+  http://vulnerablesitein.ciudad.com.ar/edgemail/data/pops
+
+It's a safe bet to assume that many of these passwords are the same passwords 
+used for dial-up access and FTP access opening up new accounts in many 
+differents ISPs.
+
+
+
+[#5]  Determine active users
+
+Ever wonder if nosuchuser@ciudad.com.ar is online now?. What IP is her using?.
+But you know she didn't wanna tell you so...what can we do?. I think you'd 
+like the EdgeMail active users feature :-). Just type in your browser:
+
+  http://vulnerablesitein.ciudad.com.ar/edgemail/active/
+
+It will show up a listing of all the users currently logged with their IP.
+An _example_:
+
+
+     adxxx@200.41.229.xxx:+  15-Jan-99 22:32     0K  
+     adrxx@200.43.37.xxx:00+ 15-Jan-99 22:14     0K  
+     adrixx_xxxxx@200.16.1+  15-Jan-99 21:45     0K  
+     adrixxxxxx@200.42.16.+  15-Jan-99 22:31     0K  
+     adrixxxxxxx@24.232.9.+  15-Jan-99 22:11     0K  
+     adriaxxxxxxx@168.96.1+  15-Jan-99 22:55     0K  
+     ......................  ...............     .. 
+     ......................  ...............     .. 
+
+
+
+
+- 03 -----------------   Q&A: Questions and Answers. ----------------
+
+
+0x01?  I'm a user from ciudad.com.ar, what should I do?
+
+Change your password INMEDIATELY, change all the passwords that could have
+been compromised, don't forget to check you're not using the same password to
+access other services.
+Don't worry about your mail, I know it sounds strange, but the admin of ciudad
+has already been informed and he would have corrected all the issues by the
+time you read this.
+
+0x02? I'm using EdgeMail in my site, am I at risk?
+
+Sorry we can't tell you, our best bet is that this a specific problem of
+ciudad.com.ar configuration and not related to EdgeMail. Try the examples 
+URLs given above, if they work in your site then you are at risk too!
+
+0x03?  I'm using (you name it) web mail account, is it secure?.
+
+No system is secure, bugs come and go, you SHOULDN'T use webmail systems to
+store or send sensitive information such as financial records, VISA numbers,
+passwords..etc. Sadly most people don't know, don't care and one day they
+might find out they have learned the hard way.
+We repeat, DON'T USE webmail systems (HotMail, YahooMail..etc) to store
+anything you don't like anyone to see. 
+You also should start considering *encrypting* your messages.
+
+
+
+
+- 04 --------------------   Conclusions   ---------------------------
+
+
+Keep calm, if you have an account in ciudad.com.ar you should know that 
+it's probably safer than ever :->. Pay attention to the advices given
+above, use encryption (don't store the keys in the server!!), try to keep
+up to date with security news and relax...la vita e bella.
+
+
+Links:
+
+http://www.ciudad.com.ar                 -- Ciudad main site
+http://www.set-ezine.org   		 -- SET
+http://www.edgemail.com		         -- Edgemail
+http://packetstorm.securify.com/mag/set  -- Copies of SET Ezine (spanish only!) 
+
+Spanish (espanol) version                 http://www.imedia.es/set/web/set-1199.txt 
+
+
+Feel free to copy and distribute.
+
+SET (c) 1999 .

@@ -1,0 +1,445 @@
+
+		          Shared Secrets System
+
+Despues de largo tiempo y gracias al esfuerzo del line por hacer que mueva el
+orto salio de hacer un articulo sobre criptologia y basandome en un extranio
+suenio que tuve, decidi encaminarme en un proyecto bastante guey:
+En pocas palabras, se trata de un sistema para dividir una cierta informacion
+dada en dos partes, a lo que comunmente se le llama "Secretos Compartidos".
+Para hacer esto hay varios sistemas, pero para lograr una seguridad cosidera-
+ble se deben tomar cierots recaudos a la hora de implementarlo. En resumen, para
+la receta de este Shared Secret System(que bien que suena no?) vamos a necesi-
+tar:
+
+        - 1 Mensaje a Compartir
+        - 2 Personas que necesiten compartir el mensaje
+        - 1 Secuencia Pseudo-Aleatoria
+        Para esta secuencia necesitaremos:
+                - 1 Data Encryption Standard(DES)[FIPS 186]
+                - 1 ANSI X9.17(Generador de numeros pseudo-aleatorios)
+                - 1 Semilla aleatoria
+                Y para esta semilla necesitaremos:
+                      - Multiples entradas de datos lo mas aleatorias posibles
+	              - 1 Hash tipo MD5 o SHA-1(Recomendado SHA-1 por la mayor
+	                logitud del hash generado)
+                      - 1 Metodo de Von Neumann
+
+
+Bueno, basicamente es eso lo que voy a hablarles, tratando de dar algunos
+conceptos matematicos cuando sea necesario, pero sin dar mucha lata, pues este
+articulo no esta orientado a hacer un analisis de cada elemento, sino mas bien
+de demostrar una forma concreta de unirlos para crear un sistema de excelente
+calidad. Aunque posiblemente en el futuro arme otro articulo hablando sobre
+algun algoritmo en particular, como ser IDEA, DES, RSA, ElGamal, o alguno de
+los postulantes para el AES(Advanced Encryption Standard, el elegido seria el
+sistema "oficial" del gobierno yankie para todas sus comunicaciones y por
+supuesto el que van a empezar a usar por todos lados. Destinado a reemplazar
+al ya obsoleto DES).
+
+
+
+Primera F(r)ase: "Como mierda comparto un mensaje?...."
+
+
+El sistema que les voy a mostrar lo elegi por la simplicidad de su aplicacion
+y por garantizar la privacidad total de los datos si se emplea de forma
+correcta o como tambien se dice: cumple las reglas de "Secreto Perfecto".
+
+El concepto de "Secreto Perfecto" fue concebido por Shannon, quien postulo
+que si cifrabamos un mensaje con una clave tanto o mas larga que el propio
+mensaje y esta era utilizada tan solo una vez, la distribucion de probabilidad
+entre el mensaje y el criptograma no cambiaria aun teniendo todos los pares
+de mensaje/criptograma posibles. Por lo que ni siquiera con una maquina con
+capacidad de procesamiento infinito podriamos romperlo.
+
+La idea en si es tomar el mensaje y efectuar una operacion byte a byte rever-
+sible con una cadena aleatoria como contraparte. Por ej:
+
+                                 I
+Mensaje:          TEST           N        KBXL          KBXL
+                 + (Modulo 26)   V      - (Modulo 26) - (Modulo 26)
+Cadena Aleatoria: QWER           E        QWER          UGDW
+                 ------          R       ------        ------
+                  KBXL           S        TEST          PUTO
+                                 O
+
+
+Como veran, se utilizo la suma en modulo 26 para efectuar la transformacion,
+donde "TEST" es el mensaje y "QWER" es una cadena aleatoria. En la practica
+un integrante tomaria "QWER" y el otro "KBXL" y cuando decidieran unir el
+mensaje de vuelta, simplemente se haria una resta modulo 26 entre las dos
+partes y daria como resultado el mensaje original("TEST").
+Como demostracion de lo que hablabamos sobre "Secreto Perfecto", a la derecha
+se muestra como la posibilidad de fuerza bruta esta descartada, pues seria
+imposible determinar cual es el mensaje correcto teniendo una sola parte(el
+ejemplo da como parte comprometida a "KBXL", pero obviamente es aplicable para
+la otra tambien).
+Para no tener que utilizar aritmetica modular, se puede hacer un XOR byte a
+byte entre las dos partes(util en lenguajes de programacion que no traigan
+funciones modulares incluidas, assembler en mi caso ;-).
+
+
+Segunda F(r)ase: "Como obtengo una cadena aleatoria?...."
+
+Paso I:
+
+
+Para este sistema vamos a necesitar cadenas bastante largas(del tamanio del men-
+saje) y con una velocidad aceptable, por lo que es imposible utilizar cadenas 
+aleatorias "fuertes", por lo que solo creamos una semilla altamente azarosa 
+para comenzar la cadena y luego un sistema que se retro-alimente y vaya gene-
+rando valores pseudoaleatorios. Este algoritmo debe pasar las pruebas de esta-
+distica, asi tambien como debe ser imposible en base a un pedazo del flujo
+aleatorio, conseguir los elementos posteriores a este.
+
+Nuevamente hay multiples formas de hacer esto y aqui, como en muchos cripto-
+sistemas mas, la rutina de generacion de numeros pseudoaleatorios es de
+extrema importancia. Entonces, opte por lo sano y me incline hacia un
+generador ANSI X9.17, que establece las pautas para un generados de numeros
+pseudoaleatorios como describo a continuacion:
+
+Nota: que lo use aqui no significa que sea el mejor, sino que ha sido sometido
+a pruebas estadisticas(por mas informacion buscar sobre U.M.Maurer) y sus
+resultados han sido satisfactorios. Tambien se podrian usar sistemas basados
+en la intractabilidad de problemas matematicon como la factorizacion del pro-
+ducto de dos numeros primos grandes o el problema de logaritmo discreto(bases
+de la criptografia publica, como RSA o ElGamal). Ejemplos de este tipo de
+generadores de numeros pseudoaleatorios son el sistema Blum Blum Shub, o el
+Micali-Schnorr. En mi caso no los he usado por ser computacionalmente mas
+costosos y porque la explicacion del concepto de estos problemas matematicos
+seria necesario tratarlos en un articulo aparte.
+
+Descripcion del X9.17:
+Se toma una semilla inicial de 64bits(S0), una clave k aleatoria reservada
+para la generacion de cada secuencia y t, que es el tiempo en el que cada
+valor es generado(intentando tener la mayor resolucion posible hasta los
+64bits). La clave k deberia ser mantenida en secreto para lograr la maxima
+seguridad posible.
+
+
+Algoritmo:
+
+        Gn   = DES(k, DES(k, t) XOR Sn)
+        Sn+1 = DES(k, DES(k, t) XOR Gn)
+
+
+Pequenia explicacion:
+
+Bueno, aqui se toma la clave aleatoria para la secuencia (k) y se aplica DES
+con t (tiempo en que se genera el valor), luego se hace un XOR(or-exclusivo)
+con el valor de S indice n(S0 en el primer caso, o sea la semilla inicial) y
+a todo esto se le aplica DES nuevamente usando el valor k como contrapartida
+para el cifrado.
+
+En la segunda parte, se utiliza un sistema similar para generar la proxima
+semilla a utilizar, tomando como datos k, t y el valor generado en la
+operacion anterior.
+
+
+Es bastante obvio el asunto, pero cabe recalcar que una de las caracteristicas
+de un generador pseudoaleatorio criptograficamente valido es que en base a un
+valor conocido, sea imposible conocer los posteriores a este. Tomando el
+algoritmo X9.17 vemos que teniendo un valor Gn de una secuencia, aun nos falta
+conocer los valores k y t, de alli la importancia en la definicion del valor
+t y en la proteccion de la clave de secuencia k.
+
+
+
+Paso II:
+
+
+Una vez que conocemos el funcionamiento del X9.17, para llevarlo a la practica
+es necesario conseguir una semilla que sea "impredecible e irreproducible".
+Para esto recolectaremos valores obtenidos del hardware lo menos deterministas
+posible y luego haremos una mezcla entre estas para conseguir la mayor aleato-
+riedad posible a traves de las "funciones de mezcla fuertes". Luego de esto
+eliminaremos el sesgo de la mezcla y listo el pollo.
+
+
+Para recolectar valores hay varios elementos por donde empezar, por ej el mic
+de una placa de sonido sin conectar deberia detectar las fluctuaciones
+termicas en los circuitos produciendo un tipo particular de "ruido" que es
+irreproducible a futuro, pero hay que tener en cuenta que estos valores estan
+altamente sesgados por lo que seria conveniente comprimir o resumir la
+informacion obtenida con el fin de lograr una mayor redundancia antes de
+mezclarla. Una entrada de video tambien seria una excelente fuente de
+aleatoriedad. 
+Se puede utilizar tambien el sistema que usaba el PGP antiguamente(2.6), que
+era el de detectar el tiempo que habia entre que pulsabas diferentes teclas o
+tambien tambien el timer interno de la computadora o las lecturas y escrituras
+que se van haciendo en el disco o en memoria y bueno, asi un millon de opcio-
+nes que tienen. Aunque lo mejor seria tener uno de esos pequenios dispositivos
+creados con el fin de generar valores aleatorios a traves de las variaciones
+termicas de un diodo por ejemplo.
+
+Cuando ya tenemos una cantidad razonable de bits aleatorios, pasamos a mez-
+clarlos a traves de una funcion resumen(hash) como MD5 o SHA-1. Esto significa
+que la salida de esta mezcla es una funcion no lineal compleja en donde cada
+bit se ve modificado por los demas.
+
+Luego de esto pasamos a eliminar el sesgo del valor obtenido y para esto me
+parecio apropiado utilizar el metodo de Von Neumann, pues es el mas simple
+de explicar y tambien de llevar a la practica.
+
+
+Metodo de Von Neumann:
+
+Antes de analizar el metodo en si, vamos a hablar sobre que es el sesgo y
+porque debemos quitarlo.
+
+Que cierta informacion este "sesgada" significa que en la cadena hay mas ceros
+que unos o viceversa y esto no es deseable ya que para conseguir una semilla
+lo mas aleatoria posible es necesario que tengan igual probabilidad tanto el 0
+como el 1.
+
+
+Este metodo consiste en ir examinando la secuencia de a 2 bits, eliminando los
+pares 00 y 11 e interpretando el 01 como 0 y el 10 como 1. Por lo que presenta
+la misma probabilidad tanto para 0 como para 1.
+Para comprobar la eficacia de este sistema basta con calcular que la
+probabilidad para 01 es igual que la de 10:
+P(01)=P(10)=(0.5+d)(0.5-d), siendo d el sesgo de la distribucion inicial.
+El problema de este sistema es que no sabemos con anterioridad cuantos bits
+vamos a necesitar para obtener la cadena no sesgada.
+
+
+Apendice I: DES
+
+En este pequenio apendice les voy a indicar como funciona DES para que puedan
+codear su propia implementacion, aca no se hablara sobre las caracteristicas o
+criptoanalisis del mismo pero se dara una pequenia resenia historica al rees-
+pecto.
+
+Introduccion:
+
+DES(Data Encryption Standard) es un algoritmo creado originalmente por IBM,
+para ser usado para todo el cifrado de informacion no clasificada.
+
+Originalmente se llamo Lucifer(asi le puso IBM) y trabajaba con bloques de 128
+bits y una clave de igual longiud, pero la NBS(ahora NIST) metio manos en el
+asunto y rebajo el algoritmo a bloques de 64bits y una clave de esta misma
+longitud, pero donde 8 bits de estos son de paridad(o sea que en realidad la
+clave es de 56 bits).
+
+Un dato sobre DES es que no tiene estructura de grupo, por lo que aplicar dos 
+cifrados encadenados con claves diferentes equivale a haber empleado una clave 
+de longitud doble(esto es basicamente el 3DES).
+
+Esquema General:
+Glosario:
+S-Cajas = Cajas de sustitucion, donde se utiliza una tabla con los valores por
+los que se debe sustituir cada bit. Ingresan n bits y salen m bits, la notacion
+se hace: S-Caja de n*m bits. (8 S-Cajas de 6*4 en el caso de DES)
+Red de Feistel: Significa que se divide el bloque en 2 mitades(L y R por 
+defecto) y se define un sistema iterativo donde la salida de cada ronda 
+se usa como entrada de la siguiente, como se muestra a continuacion: 
+[Siempre y cuando i sea menor que el numero de rondas(n)]
+L(i) = R(i-1)
+R(i) = L(i-1) Xor f(R(i-1), K(i))
+[Para la ronda final, o sea, i=n]
+L(n) = L(n-1) Xor f(R(n-1), K(n))
+R(n) = R(n-1)
+donde: L(x) es el bloque izquierdo(los bits de mas peso) y R(x) el derecho. 
+f(x) es la funcion del algoritmo en si y K(x) es la subclave generada para
+esa ronda en particular.
+Las redes de Feistel tienen la caracteristica de ser reversibles independiente-
+mente de la funcion f, por lo que para decifrar solo necesitamos aplicar las
+subclaves en orden inverso.
+PD: Aunque al principio parezca complicado es una huevada y aparte es muy
+facil de codear.     
+PD2: Intente hacer un grafiquito de esto pero soy tan malo en ascii art que 
+renuncie a la idea porque no se entendia una mierda.
+     
+La "cosa" paso por paso:
+1. Calcular las subclaves de la siguiente forma:
+
+- Realizar una eleccion permutada, donde se reduce de 64 a 56 bits la clave:
+ -------------------------
+ |57|49|41|33|25|17|09|01| Ej: el bit 1(el mas significativo pasa a ser el 57,
+ |58|50|42|34|26|18|10|02| el 2 a 49, etc...
+ |59|51|43|35|27|19|11|03| Nota: si se fijan, aparte de la permutacion, los
+ |60|52|44|36|63|55|47|39| bits que no estan son: 8,16,24,32,40,48,56,64. Por
+ |31|23|15|07|62|54|46|38| lo que de paso saca el bit de paridad que pone en
+ |30|22|14|06|61|53|45|37| el bit menos significativo de cada byte antes de 
+ |29|21|13|05|28|20|12|04| cifrar nada. 
+ -------------------------
+ Nota2: Si no quieren poner una gran tabla en sus programas pueden ver que hay 
+ relaciones en la forma en como estan organizadas las columnas, pero explicar 
+ eso seria muy extenso para este articulo.
+
+- Dividir la clave en 2 bloques de 28 bits cada uno. C(0) con los bits de mas
+  peso y D(0) con los demas.
+
+- Calcular las 16 subclaves de la siguiente forma(donde i es la ronda):
+  Rotar a la izquierda C(i) y D(i) 2 bits, o un bit si es la ronda 1,2,9 o 16.
+  ej: ROL(C(i),2) ROL(D(i),2)
+      if i=1,2,9,16 ROR(C(i),1) ROR(D(i),1)
+  (esta es una posible forma que se me ocurre de codearlo de indole meramente
+  ilustrativo)
+
+- Por cada subclave, concateno C(i) con D(i) y permuto con la siguiente tabla:
+  -------------------------
+  |14|17|11|24|01|05|03|28|
+  |15|06|21|10|23|19|12|04| Nota: se toman 56 bits y salen 48, siendo estos las
+  |26|08|16|07|27|20|13|02| 16 subclaves utilizadas en cada ronda.
+  |41|52|31|37|47|55|30|40|
+  |51|45|33|48|44|49|39|56|
+  |34|53|46|42|50|36|29|32|
+  -------------------------
+
+2. Para cifrar se necesitan bloques de 64 bits, en caso de tener menor cantidad
+   debera rellenarse con 0. Ahora vamos a trabajar todo sobre el texto plano a
+   cifrar.
+
+- Realizar una permutacion inicial como se describe a continuacion:
+  -------------------------
+  |58|50|42|34|26|18|10|02| Nota: Para ahorrase una tabla como esta, pueden
+  |60|52|44|36|28|20|12|04| ver que de derecha a izquierda y de arriba a abajo
+  |62|54|46|38|30|22|14|06| en las primeras 4 columnas son los pares y en las
+  |64|56|48|40|32|24|16|08| 4 de abajo son los impares.
+  |57|49|41|33|25|17|09|01|
+  |59|51|43|35|27|19|11|03|
+  |61|53|45|37|29|21|13|05|
+  |63|55|47|39|31|23|15|07|
+  -------------------------
+
+[Aqui comienza la Red de Feistel de 16 rondas]
+- Dividir el resultado en 2 partes de 32 bits donde L(0) son los de mayor peso 
+y R(0) el resto.
+
+[Aqui comienza la funcion f]
+- Expandir R(i) de 32 a 48 bits. Utilizando la siguiente tabla:
+  -------------------------
+  |32|01|02|03|04|05|04|05| Nota: aca tambien hay una relacion en las columnas,
+  |06|07|08|09|08|09|10|11| como se ve, cada 4 bits se repiten los 2 ultimos.
+  |12|13|12|13|14|15|16|17| Siendo los 2 primeros de toda la cadena, repeticion
+  |16|17|18|19|20|21|20|21| de los 2 ultimos de la misma.
+  |22|23|24|25|24|25|26|27|
+  |28|29|28|29|30|31|32|01|
+  -------------------------
+
+- Aplicar Xor entre la subclave de esta ronda y la R(i) expandida (siendo i
+  siempre la ronda).
+
+- Dividir el resultado en 8 bloques de 6 bits cada uno(para aplicar las S-Cajas)
+  Siendo: B(1) del 1-6, B(2) del 7-12, etc...
+
+- En DES hay 8 S-Cajas (1 para cada bloque de entrada) de 6*4. Para ubicar
+  que valor le corresponde de salida a cada S-Caja, se toma el bit 1 y 6 de
+  la entrada para ubicar la fila(0 para la primera y 3 para la ultima) y con
+  los bit de 2 a 5 se forma un numero de 4 bits que ubica la columna(0 para la
+  primera y 15 para la ultima).
+  
+  S-Caja 1:
+  -------------------------------------------------
+  |14|04|13|01|02|15|11|08|03|10|06|12|05|09|00|07|
+  |00|15|07|04|14|02|13|01|10|06|12|11|09|05|03|08|
+  |04|01|14|08|13|06|02|11|15|12|09|07|03|10|05|00|
+  |15|12|08|02|04|09|01|07|05|11|03|14|10|00|06|13|
+  -------------------------------------------------
+  S-Caja 2:
+  -------------------------------------------------
+  |15|01|08|14|06|11|03|04|09|07|02|13|12|00|05|10|
+  |03|13|04|07|15|02|08|14|12|00|01|10|06|09|11|05|
+  |00|14|07|11|10|04|13|01|05|08|12|06|09|03|02|15|
+  |13|08|10|01|03|15|04|02|11|06|07|12|00|05|14|09|
+  -------------------------------------------------
+  S-Caja 3:
+  -------------------------------------------------
+  |10|00|09|14|06|03|15|05|01|13|12|07|11|04|02|08|
+  |13|07|00|09|03|04|06|10|02|08|05|14|12|11|15|01|
+  |13|06|04|09|08|15|03|00|11|01|02|12|05|10|14|07|
+  |01|10|13|00|06|09|08|07|04|15|14|03|11|05|02|12|
+  -------------------------------------------------
+  S-Caja 4:
+  -------------------------------------------------
+  |07|13|14|03|00|06|09|10|01|02|08|05|11|12|04|15|
+  |13|08|11|05|06|15|00|03|04|07|02|12|01|10|14|09|
+  |10|06|09|00|12|11|07|13|15|01|03|14|05|02|08|04|
+  |03|15|00|06|10|01|13|08|09|04|05|11|12|07|02|14|
+  -------------------------------------------------
+  S-Caja 5:
+  -------------------------------------------------
+  |02|12|04|01|07|10|11|06|08|05|03|15|13|00|14|09|
+  |14|11|02|12|04|07|13|01|05|00|15|10|03|09|08|06|
+  |04|02|01|11|10|13|07|08|15|09|12|05|06|03|00|14|
+  |11|08|12|07|01|14|02|13|06|15|00|09|10|04|05|03|
+  -------------------------------------------------
+  S-Caja 6:
+  -------------------------------------------------
+  |12|01|10|15|09|02|06|08|00|13|03|04|14|07|05|11|
+  |10|15|04|02|07|12|09|05|06|01|13|14|00|11|03|08|
+  |09|14|15|05|02|08|12|03|07|00|04|10|01|13|11|06|
+  |04|03|02|12|09|05|15|10|11|14|01|07|06|00|08|13|
+  -------------------------------------------------
+  S-Caja 7:
+  -------------------------------------------------
+  |04|11|02|14|15|00|08|13|03|12|09|07|05|10|06|01|
+  |13|00|11|07|04|09|01|10|14|03|05|12|02|15|08|06|
+  |01|04|11|13|12|03|07|14|10|15|06|08|00|05|09|02|
+  |06|11|13|08|01|04|10|07|09|05|00|15|14|02|03|12|
+  -------------------------------------------------
+  S-Caja 8:
+  -------------------------------------------------
+  |13|02|08|04|06|15|11|01|10|09|03|14|05|00|12|07|
+  |01|15|13|08|10|03|07|04|12|05|06|11|00|14|09|02|
+  |07|11|04|01|09|12|14|02|00|06|10|13|15|03|05|08|
+  |02|01|14|07|04|10|08|13|15|12|09|00|03|05|06|11|
+  -------------------------------------------------
+Ej: el valor 42(101010) de la S-Caja 3(fila 3 columna 5) seria 15.
+
+- Concatenar las 8 salidas de 4 bits cada una y hacer la siguiente permutacion:
+  -------------------------
+  |16|07|20|21|29|12|28|17|
+  |01|15|23|26|05|18|31|10|
+  |02|08|24|14|32|27|03|09|
+  |19|13|30|06|22|11|04|25|
+  -------------------------
+[Fin de la funcion f]
+
+- Sumo 1 a i(pues paso de ronda) y armo la proxima siguiendo el sistema de redes
+  de Feistel:
+  R(i)=L(i-1) Xor f(R(i-1), K(i-1))
+  L(i)=R(i-1)
+  Nota: Se ve como se intercambian L con R.
+
+-Repetir 16 veces.
+[Fin de la Red de Feistel]
+
+- Concatenar R(16) con L(16) [Esta vez va R antes de L) y realizar la permuta-
+  cion final(que en realidad es la permutacion inicial pero invertida):
+  -------------------------
+  |40|08|48|16|56|24|64|32|
+  |39|07|47|15|55|23|63|31|
+  |38|06|46|14|54|22|62|30|
+  |37|05|45|13|53|21|61|29|
+  |36|04|44|12|52|20|60|28|
+  |35|03|43|11|51|19|59|27|
+  |34|02|42|10|50|18|58|26|
+  |33|01|41|09|49|17|57|25|
+  -------------------------
+
+- Listo el pollo!!!
+
+
+Para descifrar solo se tienen que aplicar las subclaves en orden invertido(16,
+15,14,....).
+
+
+Conclusion:
+
+Ok, se ha visto rapidamente y con una orientacion bastante practica los aspec-
+tos necesarios para compartir informacion de forma segura, siguiendo las
+especificaciones tecnicas de los standard actuales y combinando los metodos
+mas efectivos que encontre, en una relacion simplicidad/efectividad que
+mantenga un nivel de seguridad NSA Compatible ;-).
+
+
+Bueno, espero que este articulo les ayude a crear su propias herramientas para
+compartir sus preciosas bases de datos robadas y espero sean muy felices
+haciendose los espias por ahi....y...bueno, toda esa basura no?
+
+
+No LiMiTS <DtMF>
++++ath0
+NO CARRIER

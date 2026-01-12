@@ -1,0 +1,91 @@
+pooooopooooooooooppoooooopoopooooooooooooppooooooooopooooooopoooooooppoooooopoop
+p           Discordant Opposition Journal - Issue 9 - December 2000            o
+p                               File 13 of 15                                  o
+poooooooopoooooooooooopoooopooooooopoooooopooooooooooooopooooooppooooooopoooooop
+
+Avoiding the Largest CGI Hole
+by cronus [cronus@iol.ie]
+
+
+\00intro
+
+   I realise this isn't going to be the most stimulating of articles
+   but I saw this problem repeated so many times that I had to come
+   up with a solution for my day to day work. My solution is faster,
+   more reliable, more portable and solves this glaring security hole.
+
+\00problem
+
+   So many freeware CGI scripts use sendmail to send email and all of
+   them use the same flawed idea. Here is example code;
+
+  open (MAIL, "|$mailprog $email");
+  print MAIL "Subject: This is a mail...\n";
+  print MAIL "Here is the text...\n";
+  print MAIL ".\n";
+  close (MAIL);
+
+   This is the simplest and (admittedly) most logical way to send
+   email from a CGI script. But if the user passed the text;
+
+  'cronus@iol.ie < /etc/passwd'
+
+   Then the CGI script would mail the passwd file to me. Now before
+   everyone jumps up and down accusing me of stealing other people's
+   ideas - I know this is not new, but I also know this problem is
+   still raising its head over and over.
+
+\00solution
+
+   The tradition solution is to use regular expressions to remove or
+   escape meta characters like the arrow command (<) but its hard to
+   remove every command that will have an effect and there exists no
+   standard perl code to handle dodgy user input.
+
+   The SMTP protocol doesn't interept any metacharacters and so is
+   safer than using a system command or a program to interpret the
+   email. So lets use the SMTP protocol in raw form...
+
+\00code
+
+  use IO::Socket;
+  sub send_mail {
+	($to, $from, $subject, $body) = @_;
+	con();
+	print S "HELO iol.ie\n";
+	print S "MAIL FROM: <$from>\n";
+	print S "RCPT TO: <$to>\n";
+	print S "DATA\n";
+	print S "From: $from\n";
+	print S "To: $to\n";
+	print S "Subject: $subject\n";
+	print S "$body\n";
+	print S ".\n";
+	print S "QUIT\n";
+	close S;
+  }
+  sub con {
+    $them = 'mail.iol.ie';
+    $port = '25';
+    chop($hostname = `hostname`);
+    ($name, $aliases, $proto) = getprotobyname('tcp');
+    ($name, $aliases, $port) = getservbyname($port,'tcp') 
+    unless $port =~ /^\d+$/;
+    ($name,$aliases,$type,$len,$thisaddr) = gethostbyname($hostname);
+    ($name, $aliases,$type,$len,$thataddr) = gethostbyname($them);
+    die $! unless (socket(S,AF_INET, SOCK_STREAM, $proto));
+    $sockaddr = 'S n a4 x8';
+    $this = pack($sockaddr, AF_INET, 0, $thisaddr);
+    $that = pack($sockaddr, AF_INET, $port, $thataddr);
+    die $! unless (bind(S, $this));
+    die $! unless (connect(S, $that));
+    select(S);
+    $| = 1;
+    select(STDOUT);
+  }
+
+\00conclusion
+
+   Not only have I showed you some excellent code, but I've also 
+   solved a problem thats cursed CGI programmers for centuries.
+   Another good day at the office...

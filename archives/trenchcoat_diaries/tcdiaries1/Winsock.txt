@@ -1,0 +1,886 @@
+Hacking Cool Article
+
+   By Vil Roach/Trenchcoat Legion - We'Re Taking Over This Town
+
+
+Bienvenidos al primer articulo que de un modo o otro se debe relacionar con el hacking , si 
+esperan que este articulo sea otro de tantos articulos para pricipiantes , en el que se explica
+qu son los passwd , que es el ftp , que es tcp/ip (superficialmente) y luego se enseñan bugs anti
+quisimos pues estaran defraudados , porque en primer lugar creo que ese tipo de articulos son 
+inutiles y segundo porque ya hay demasiados por ahi ; este articulo tampoco tratara sobre una for
+ma de ataque a servidores web o lo que sea , o sobre un nuevo bug de seguridad , porque lamentablemen-
+te , respecto al hacking he experimentado muy poco , y lo que se lo he aprendido gracias a articu
+los de algunas e-zines hispano-hablantes , y lo ultimo que quiero es reinventar la rueda, asi que
+al final me decidi a hacer este articulo sobre programacion de sockets para windows , algo que
+no he visto tratado en español en ninguna e-zine ,  y como el buen hacker va en busca del cono-
+cimiento tambien aprenderemos algo sobre programacion bajo windows en Ensamblador , para 
+finalmente programar nuestro propio : Port-Scanner ( Si sabe que es un port scanner le recomiendo
+que lea una de las miles guias de inicicion al hacking que hay por ahi , si ya lo hizo y aun asi
+no sabe que es un port-scanner le sugiero que le pida a santa claus un cerebro)
+
++++++++++++++++++++++++++++
++Que diablos es un socket ?+
++++++++++++++++++++++++++++
+
+La interfaz de programacion (Api) con socket remonta sus origenes al sistema operativo BSD un
+sistema operativo tipo Unix , muy famososo por alla en los ochenta , esta api esta enfocada en
+facilitar el intercambio de datos entre procesos conectados a una red , sin importar el protocolo
+sobre los que estan corriendo estos , de esta forma podemos usar los mismos metodos sobre una red
+de protocolo tcp/ip , o sobre programas ejecutados en un mismo equipo ; de esta forma los sockets 
+se convirtieron en un estandard para la programcion de palicaciones de internet , asi que no es 
+de extrañar que cualquier programa que nos encontremos relacionado con el hacking , sea un 
+exploit , un ataque DOS , o un simple port scanner este programado usando los sockets . El 'Pro-
+blema ' con estos programas es que la mayoria se programaron para unix , siendo esto un 
+inconveniente para los que no tenemos a disposicion un equipo con Unix ; pero no todo esta perdi-
+do , ya que Microsoft realizo una conversion del api de sockets para su sistema operativo , llama
+da Winsocks y compuesta por varias librerias , basicamente esta cuenta con las mismas funciones 
+que los sockets tradicionales de Unix , pero se le han agregado algunas cuantas , para facilitar
+la programacion de sockets bajo el ambiente "Multitarea" de windows .
+
+Pero para que me sirve Winsock ?
+
+A un hacker que tenga que trabajar bajo windows le sirve para muchisimo , por ejemplo para progra
+mar sus propias utilidades , para estar en capacidades de convertir programas hechos para unix
+y distribuirlo para la comunidad windows , y por ultimo les parece poco poder unir al poder de 
+la programacion para internet , con una interfaz visualmente agradable y facil de usar .
+
+Asi que para aprender a manejar winsock completamente lo primero que haremso sera cono cer todas las 
+funciones de los sockets tradicionales y las de winsock , cuando las conozcamos realizaremos un 
+simple pero util port-scanner , en el segundo articulo convertiremos pequeñas utilidades de unix
+a winsocket (si tienen algunba sugerencia mandenla a mi e-mail) , y en el tercer articulo realizaremos
+un programa cliente/servidor , que cumpla principalmete las funciones de Bouncer (Si algun lector
+de este maravilloso e-zine tienes un cerebro y conocimientos sobre hacking , nos gustaria tenerlo en 
+nuestro staff de escritores ).
+
+++++++++++++++++++++++++
++Winsock Y sus funciones+
+++++++++++++++++++++++++
+
+A continuacion incluire una lista de las funciones que usaremos para programar winsock : 
+
+-WSACleanup
+-WSAStartUp
+-Socket
+-htons
+-GetHostbyName
+-Connect
+-CloseSocket
+-Send
+-Recv
+
+Llegados a este punto es fundamental saber que existen dos formas de programar en winsockets , 
+principalmte debido a un problema que surge gracias a la forma que windows maneja el multitarea
+este problema consiste en que las funciones de winsock que requieren una respuesta por parte de
+otro equipo , son bloqueantes , es decir que hasta que el equipo no responda y la aplicaion gene-
+re un mensaje , la ventana principal no recibira ningun otro mensaje, imposibilitando de esta ma-
+nera que la aplicacion haga otro trabajo o genere un mensaje de error , analizado el problema nos
+encontramos con dos opciones : la primera consiste en usar una serie de funciones creadas por 
+windows que remplazan a las antiguas funciones , por ejemplo GetHostByName se convierte en 
+WSAAsyncGetHostByName() , las cuales no son funcione bloqueantes y nos permiten trabajar de forma
+asincrona , el inconveniente de esta forma es que se aleja mas de la forma comun de trabajar con
+los sockets de windows , dificultando de esta forma la conversion de utilidades , y dificultando
+la reutilizacion del codigo ; la otra forma consiste en usar las funciones bloqueantes tradicio-
+nales, dentro de un Thread de windows ( Un Thread es como un proceso que se ejecuta aparte de la
+aplicacion principal ), y luego desde el programa principal simplemente esperamos un tiempo a que
+el thread responda , y si no lo hace lo cerramos desde el proceso principal , si lo anterior no
+quedo claro , no se preocupen ya que se tratara en una seccion posterior mas a fondo , por ultimo
+aclara que los programas de ejemplo se escribiran en ensamblador para windows , principalmete
+porque no logro hacer trabajar mi compilador de recursos en mi compilador en C++ , de todas 
+formas , tratare de escribirlo lo mas claro posible , comentando cada paso del programa , y 
+tambien mostrare la sintaxis de las funciones en C.
+
+
++++++++++++++
++Paso A Paso+
++++++++++++++
+
+
+Winsock :
+---------
+
+Muy Bien , ahora vamos a ver paso a paso como hacer un programa con winsock , supongamos que que-
+remos realizar un programa que nos muestre simplemente si el puerto 139 la maquina 123.5.6.35 se 
+encuentra activo , solo veremos las funciones relativas a winsock , las funciones de interfaz de
+usuario y demas las veremos mas adelante .
+
+Lo primero que necesitaremos sera inicializar winsock y ver si la version disponible es compati-
+ble con nuestro programa , la funcion necesaria para esto es WsaCleanup y se utiliza de esta 
+forma :
+
+WSAStartup(int Version,WSADATA wsadata);
+
+Los parametro son la version deseada en este caso VERSION1_1 (101h) , y una estructura WSADATA , 
+en la cual se nos devolveran los parametros de inicializacion , por ejemplo la version que pedi-
+mos o la mas cercana a ella se guardara en wsadata.mVersion , asi que la inicializacion quedaria
+de esta forma :
+
+En C++ :
+
+WSAStartup(VERSION1_1,wsadata);
+if (!(wsa_data.mVersion = VERSION1_1 = ))  exit_app() ;
+
+En Asm :
+;Recuerde el usuario que los parametros en ASM se pasan en orden contrario y con la orden push
+
+push offset wsadata
+push VERSION1_1 
+call WSAStartup
+
+mov ax,VERSION1_1
+cmp ax,word ptr [wsadata.mVersion]
+jne exit_app
+
+Si tenemos la version que queremos y no ha habido ningun otro error procedemos a abrir un socket 
+el cual necesitaremos para realizar la conexion . El socket se crea con la funcion socket y cuyos
+parametros son :
+
+En C++ :
+
+socket(int familia,in tipo,int protocolo);
+
+El parametro familia hace referencia al la familia del socket que qeramos crear , existen varios 
+tipos de familia pero los principales son : AF_UNIX sirve para trabajar con sockets a nivel local
+, AF_INET sockets para internet ,AF_ISO protocolos ISO ,AF_NS redes Xerox , etc ; como es ovbio
+en nuestro caso debemos poner AF_INET ; el protocolo tipo se refiere al tipo de conexion que que-
+remos crear , SOCK_STREAM conexion en la cual el intercambio de datos es constante y debe ser se-
+cuencial como el IRC , SOCK_DGRAM  conexion en modo no conectado , es decir los paquetes se 
+envian cada indeterminado tiempo y no es secuencial , tipo ICQ ; y finalmente con protocolo defi-
+nimos con que protocolo nos conectaremos , es decir telnet , http , etc , por ahora lo dejaremos 
+en cero porque no necesitamos esecificarlo . Visto esto procedemos al codigo :
+
+C:
+
+if (!(sck_hdl=socket(AF_INET,SOCK_STREAM,0))  exit_App() ;
+
+la funcion devuelve el handle o manejador del socket que creamos , como lo necesitaremos mas 
+tarde lo guardamos en sck_hdl , si algun error ocurre  la funcion nos devueve -1 (falso) y la
+funcion exit_app sera ejecutada .
+
+Asm:
+
+push 0
+push SOCK_STREAM
+push AF_INET
+call socket
+cmp eax,-1
+je exit_app
+mov dword ptr [sck_hdl],eax
+
+Igual que el anterior , lo unico es recordar que je significa Jump if Equivalent , de esta forma
+si eax (que es donde la funcion devuelve el resultado) es igual a -1 , el programa saltara a la 
+etiqueta exit_app.
+
+Con el socket creado , ahora lo que debemos hacer es conectarlo a algun lugar , y eso lo hacemos 
+con la funcion connect , cuyos parametros son :
+
+connect(sockmd,struct sockaddr_in ,sizeofsockaddr);
+
+sockmd es el manejador del socket el cual obtuvimos con la funcion socket , sockaddr es una 
+estructura que contiene la direccion del equipo al cual queremos conectarnos , esta esructura tie
+ne la siguiente forma :
+
+struct sockaddr_in pepe
+int sin_family
+int sin_port
+sin_addr sin_addr
+int sin_zero[8]
+
+la cual debemos llenar de la siguiente forma :
+
+pepe.sin_family = AF_INET
+
+para asignar el puerto primero debemos convertirlo con la funcion htons :
+
+pepe.sin_port = htons(139);
+
+luego debemos llenar el campo s_addr de la estructura sin_addr , pero primero debemos pasar el
+ip por la funcion inet_addr , quedando de esta forma
+
+pepe.sin_addr.s_addr = inet_addr("123.5.6.35");
+
+y finalmete debemos llenar con ceros el campo sin_zero , con la funcion bzero :
+
+bzero(&(pepe.sin_zero), 8);
+
+quedando definitivcamente de esta forma :
+
+struct sockaddr_in pepe;
+
+pepe.sin_family = AF_INET
+pepe.sin_port = htons(139);
+pepe.sin_addr.s_addr = inet_addr("123.5.6.35");
+bzero(&(pepe.sin_zero), 8);
+if (!(connect(sck_hdl,*pepe,sizeof(pepe)))) exit_app();
+
+En Asm Se veria asi :
+
+	SOCKADDR        struct
+	sin_family	dw	0		
+	sin_port	dw	0		
+	sin_addr        dd      0       	
+	sin_zero	db	8 dup(0)	
+	SOCKADDR        ends
+
+(La estructura la debemos declarar , o incluir un winsock.inc)
+
+
+mov ax,AF_INET
+mov word ptr [pepe.sin_family],ax
+;ponemos AF_INET en sin_family
+
+push puerto
+call htons
+mov     word ptr [pepe.sin_port],ax
+;ponemos el puerto usando htons
+
+push offset servidor
+call inet_addr
+mov  dword ptr [sockaddr.sin_addr],eax
+
+push SizeOfSOCKADDR
+push offset pepe
+push dword ptr [sck_hdl]
+call connect
+cmp ax,-1
+je exit_app
+
+Listo!, hacemos lo mismo que en C , simplemete rellenamos la estructura y se la pasamos a connect
+por cierto si la dirreccion esta en formato tipo "www.pepe.com" debemos usar la opcion  GetHostBy
+Name , y sumarle 10h a eax para obtener el ip y usarlo directamente .
+
+Ahora que tenemos un descriptor de socket y lo tenemos conectado a un host  , solo falt hacer
+lo mas importante , escribir y leer en el socket , veremos como a continuacion :
+(Yo me voy a dormir , tal vez mañana continue con este interesante tutorial , Hasta Mañana!)
+(Listo que rapido que se fueron estas 12 horas , continuemos con el texto)
+
+Enviar Datos .
+
+La funcion que usaremos para enviar datos es send , y sus parametros son :
+
+send (int sck_hdl ,void *msg,int len, int flags)
+
+la explicacion de cada parametro es sencilla , primero ve el handle del socket , luego un puntero
+al buffer del mensaje que queremos mandar , len es el numero de caracteres del mensaje y 
+finalmente las flags que podemos ponerle al mensaje (alguien dijo OOB) .
+
+La llamada a estas funciones es tambien muy sencilla :
+
+C:
+
+char *mensj = "Fuck This World";
+
+send(skc_hdl,mensj,sizeof(mensj),0);
+
+Asm :
+
+mensaje db "Fuck This World",0
+
+push 0
+push 18
+push offset mensaje
+push sck_hdl
+call send
+
+Recibir datos 
+
+LA funcion que usaremos para recibir datos es recv , cuyos parametro son los mismos que send :
+
+C : 
+char *mensj[100];
+
+send(skc_hdl,mensj,sizeof(mensj),0);
+
+printf("%s" , mensj);
+
+los parametros son los mismos y con este codigo , lo que hariamos seria recibir un mensaje maximo
+de 100 caracteres y luego los imprimiriamos en pantalla .
+
+Asm 
+
+push 0
+push 100
+push offset mensaje
+push dword [ptr sck_hdl]
+call recv
+
+push 0
+push offset titulo
+push offset mensaje
+push 0
+call MessageBoxA
+
+Con este codigo hariamos lo mismo solo que en vez de imprimir el texto en pantalla saldria el men
+saje en un mensaje de windows .
+
+Asi que simplemete , para hacer el programa , creariamos un socket y tratariamos de conectarlo 
+con el purto 139 , si hay algun error , suponemos que el puerto esta cerradoo protegido , y sim-
+plemente le avisariamos al usuario , y para terminar el programa solo nos faltaria cerra el 
+socket que creamos , con la funcion :
+
+C:
+
+close(sck_hdl);
+
+Asm 
+push dword [ptr sck_hdl]
+
+cuando el socket este cerrado , lo unico que nos quedaria por hacer seria terminar con winsock, 
+lo cual se hace simplemente llamando a la funcion :
+
+C:
+
+WSACleanup();
+
+Asm 
+
+call wsacleanup
+
+Solo nos queda recordar que cuando llamamos a la funcion WSAStartup , asi no obtengamos la 
+version que queremos usar , debemos llamar a WSACleanup .
+
+Ahora veremos como resover el problema de las funciones bloqueantes :
+
+.---------------------.
+|Windows y Sus Threads  |
+'---------------------'
+
+
+Una thread es una especie de rutina a la cual windows le otorga su propio tiempo en procesador 
+pudiendose ejecutar paralelamente con otras threads y sincronisandose con ellos , como alguna 
+mente perspicaz lo habra descubierto ya , cuando windows ejecuta un programa lo que hace es crear
+una thread para el , pudiendo este crear otras threads . Entonces lo que haremos nosotro cuando 
+el usuario presione el boton scan!! , es crear una thread , y conectarse desde alli , si no pasa 
+nada , el usuario podra esperar el tiempo que quiera entonces , le dara cancel y la thread se 
+terminara .
+
+Como creo una thread :
+---------------------
+
+Un thread se crea con la funcion CreateThread , cuyo prototipo es :
+
+HANDLE CreateThread(
+
+    LPSECURITY_ATTRIBUTES lpThreadAttributes,	// pointer to thread security attributes  
+    DWORD dwStackSize,	// initial thread stack size, in bytes 
+    LPTHREAD_START_ROUTINE lpStartAddress,	// pointer to thread function 
+    LPVOID lpParameter,	// argument for new thread 
+    DWORD dwCreationFlags,	// creation flags 
+    LPDWORD lpThreadId 	// pointer to returned thread identifier 
+   );	
+ (Del Archivo Win32.Hlp)
+
+EL primer argumento es una estructura que contendra los atributos de seguridad de la thread ,este
+argumentos simplemente lo pondremos a 0 , el siguiente argumento determina el tamaño inicial de 
+la pila para la thread , si le pasamos NULL el tamaño sera el de el Thread padre , el siguiente 
+argumento es muy importante , ya que es un puntero a la funcion que se ejcutara dentro de la 
+thread , luego viene un parametro que le podemos pasar a la funcion que especificamos en el para-
+metro anterior , con el siguiente parametro podemos determinar diferentes flags para la creacion
+de la thread , y finalmente un puntero al lugar donde se guardara  el identificador de la thread
+creada , El valor de retorno de la funcion es el handle de la thread . ( Si alguien desea mas 
+informacion sobre esta o cualquier funcion del API de windows , simplemente consulte el archivo
+Win32.Hlp)
+
+Este ejemplo (Tomado Del Archivo Win32.Hlp)nos muestra la ejecucion de una thread en C :
+DWORD WINAPI ThreadFunc( LPVOID lpParam )  
+{ 
+    char szMsg[80];
+
+    wsprintf( szMsg, "ThreadFunc: Parameter = %d\n", *lpParam ); 
+    MessageBox( NULL, szMsg, "Thread created.", MB_OK );
+
+    return 0; 
+} 
+ 
+VOID main( VOID ) 
+{ 
+    DWORD dwThreadId, dwThrdParam = 1; 
+    HANDLE hThread; 
+    hThread = CreateThread( 
+        NULL,                        // no security attributes 
+        0,                           // use default stack size  
+        ThreadFunc,                  // thread function 
+
+        &dwThrdParam,                // argument to thread function 
+        0,                           // use default creation flags 
+        &dwThreadId);                // returns the thread identifier 
+ 
+   // Check the return value for success. 
+ 
+   if (hThread == NULL) 
+      ErrorExit( "CreateThread failed." ); 
+
+   CloseHandle( hThread );
+} 
+
+La creacion de una thread en Asm quedaria asi :
+
+push offset thr_id
+push 0
+push offset port
+push offset ThreadProc
+push 0
+push 0
+call CreateThread
+mov dword ptr [thr_hdl],eax
+ret
+
+ThreadProc proc wparam:DWORD
+roach:
+push 0
+  push offset titabout
+  push offset about
+  push 0
+  call MessageBoxA
+jmp roach
+ret 
+
+El ejemplo anterior crea una thread que consiste en una funcion que muestra una y otra vez una 
+MessageBox , pudiendose ejecutar el programa principal paralelamente .
+
+Como destruyo una thread :
+
+Existen varias funciones que nos permitenm destruir una thread , la primera es TerminateThread 
+cuyos paramtros son : BOOL TerminateThread(HANDLE hThread,	// handle o manejador del thread 
+                                           DWORD dwExitCode 	//codigo de salida de la thread
+                                          );
+Esta es una funcion bastante sencilla y nos permite destruir una thread desde otra thread ,pero
+si lo que queremos es finalizar una thread desde ella misma la funcion indicada es :
+VOID ExitThread(DWORD dwExitCode //codigo de salida de la thread);
+Esta funcion no toma un handle porque lo que hace es destruir la thread desde la cual se ejecuto.
+
+Existen otro par de interesantes funciones que nos permiten suspender y reanudar la ejecucion de
+una thread , estas son SuspendThread y ResumeThread , la forma de llamarlas es :
+
+DWORD SuspendThread(HANDLE hThread // handle de la thread);
+
+DWORD ResumeThread(HANDLE hThread // handle de la thread);
+
+la manera de usarlas es bastante sencillas simplemete se llama a SuspendThread para suspender la 
+ejecucion de una thread , y ResumeThread para reanudar la ejecucion de esta (?)
+
+Que mas puedo hacer con Threads ?
+
+En realidad esto solo es la punta del iceberg , las threads son muy versatiles y podemos realizar
+todo tipo de funciones con ellas , por ejemplo podemos sincronizarlas , hacer que compartan infor
+macion entre ellas , definir nuestro tipo de threads usando Fiberts , y muchisimo mas , de hecho
+las threads son una de las tecnicas mas utiles en la creacion de virus para Win32 , y usadas en
+Ring0 son casi indetectables por los AntiVirus , pero esto lo trato con mas detalles en mi guia 
+de virus en Win32's Asm , si alguine continua interesado en el tema le recominedo que imprima y 
+lea la seccion sobre Procesess And Threads del archivo Win32.Hlp , e incluso si la gente esta 
+interesada podria hacer otro articulo mas avanzado sobre el tema , Aunque creo que el proximo 
+articulo sera un estudio acerca del CryptoApi de Windows (Tal vez para realizar virus que roben
+claeves ? Crackeadores de Pass para Win32?) , asi que si alguien esta interesado en ayudar , 
+binvenido Sea!.
+
+
+---------------
+ ||Despedida||
+---------------
+
+Hasta aqui llego el primer articulo sobe hacking de Trenchcoat Diaries , De nuevo extiendo la
+invitacion para las personas que se sientan capacitadas para ESCRIBIR! articulos de hacking en
+la revista se comuniquen con nosotros por favor , Hasta luego y si tinen preguntas o comentarios
+ya saben mi E-mail.
+
+
+
+-------------------
+ -----------------
+  ---------------
+  ||El Programa||
+  ---------------
+ -----------------
+-------------------
+
+A Continuacion esta el codigo fuente en Asm (sintaxis de Tasm) para realizar un pequeño y lame 
+port-scanner , tratare de comentar todas las lineas para que quede lo mas claro posible , y para
+que se nesecite muy poco conocimiento en Asm para seguir la fuente , las funciones mas 
+importantes son las que detallamos anteriormente (asi que si no lo han hecho les recomiendo leer
+el articulo ) si tinen dudas o comentarios ya saben .
+
+
+<-----------------Mak.Bat----------------->
+
+brc32 -r port.rc
+tasm32 /mx /m3 /z /q port
+tlink32 -x /Tpe /aa /c port,port,,import32.lib,,port
+
+<------------------port.rc---------------->
+
+#define IDD_DIALOG1                     101
+#define IDI_ICON1                       103
+#define IDC_EDIT1                       1000
+#define IDC_STATIC2                      1001
+#define IDC_RADIO2                      1002
+#define IDC_EDIT2                       1003
+#define IDC_BUTTON1                     1004
+#define IDC_BUTTON2                     1005
+#define IDC_BUTTON3                     1006
+#define IDC_BUTTON4                     1007
+#define IDC_STATIC                      -1
+
+IDD_DIALOG1 DIALOG DISCARDABLE  0, 0, 142, 89
+STYLE DS_MODALFRAME | WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU
+CAPTION "Vil Roach-Lame WinAsm Port Scanner"
+FONT 9, "Comic Sans MS"
+BEGIN
+    LTEXT           "IP To Scan :",IDC_STATIC,9,9,46,11
+    EDITTEXT        IDC_EDIT1,59,10,61,11,ES_AUTOHSCROLL
+    LTEXT           "Viva La Cucaracha!!",IDC_STATIC2,12,33,84,13
+    LTEXT           "Scan This Port :",IDC_STATIC,12,50,63,15
+    EDITTEXT        IDC_EDIT2,80,52,20,8,ES_AUTOHSCROLL
+    PUSHBUTTON      "Scan !!",IDC_BUTTON1,4,72,30,13
+    PUSHBUTTON      "Cancel",IDC_BUTTON2,40,72,30,13
+    PUSHBUTTON      "About",IDC_BUTTON3,76,72,30,13
+    PUSHBUTTON      "Exit",IDC_BUTTON4,108,72,30,13
+END
+
+
+
+
+
+IDI_ICON1               ICON    DISCARDABLE     "THOMAS.ICO"
+
+<----------------------------------->
+
+
+
+<-----------Port.Def--------------->
+
+NAME         PORT
+
+DESCRIPTION 'Vil-Roach Lame Port-Scanner'
+
+CODE         PRELOAD MOVEABLE DISCARDABLE
+DATA         LOADONCALL MOVEABLE MULTIPLE
+
+EXETYPE      WINDOWS
+
+HEAPSIZE     1024
+STACKSIZE    8192
+
+<---------------------------------->
+
+
+<--------------------------Port.Asm----------------------------->
+
+;*Si se tienen muchos problemas leyendo esta fuente se recomienda el tutorial sobre asm en Win32
+;*by Kacimiro
+
+;Vil Roach Lame Port-Scanner
+.386
+.Model Flat ,StdCall
+locals
+jumps                                ;Ajustes para el compilador y su forma de compilar 
+
+include c:\tasm\include\windows.inc
+include c:\tasm\include\wsocks.inc   ;Include Files
+
+extrn MessageBoxA:PROC
+extrn ExitProcess:PROC
+extrn DialogBoxParamA:PROC
+extrn GetModuleHandleA:PROC
+extrn EndDialog:PROC
+extrn CreateThread:PROC
+extrn SuspendThread:PROC
+extrn TerminateThread:PROC
+extrn lstrcpy:PROC
+extrn GetDlgItemTextA:PROC
+extrn GetDlgItemInt:PROC
+extrn connect:PROC
+extrn htons:PROC
+extrn Inet_addr:PROC
+extrn SetFocus:PROC 
+extrn closesocket:PROC                 ;Las funciones que vayamos a usar las debemos declarar aqui
+
+
+.const
+IDD_DIALOG1         EQU 101 ;
+IDI_ICON1           EQU 103
+IDC_EDIT1           EQU 1000 ;ip
+IDC_STATIC2         EQU 1001
+IDC_EDIT2           EQU 1003 ;port
+IDC_BUTTON1         EQU 1004 ;scan!!
+IDC_BUTTON2         EQU 1005 ;cancel
+IDC_BUTTON3         EQU 1006 ;about
+IDC_BUTTON4         EQU 1007 ;exit
+IDC_STATIC          EQU -1              ;Constantes Utiles
+     
+
+.data
+isscan       db 0
+errorid      dw -1
+result       dd  ?
+hinstance    dd ?
+handle       dd ?
+hdlg         dd ?
+titulo       db "Vil Roach -Infesting The World ",0
+nomore       db "Only One Scan At Time !!",0
+activo       db "El Puerto Esta Activo !!",0
+inactivo     db "El Puerto No Esta Activo , Sorry ! ",0
+scan         db "Scaneando El Puerto",0
+cancel       db "Scanning Cancelado",0
+titabout     db "Win32-Asm Port-Scanner",0
+error        db "Ha ocurrido un error , Quiting ...",0
+about        db "A Tiny Port-Scanner , Part Of TrenchCoat Diaries #1",10,13
+             db "Help : Simply fill the boxes and wait as long as you want",10,13
+             db "If nothing happens simply click on cancel and try other port!",10,13
+             db 10,13
+             db 10,13
+             db 10,13
+             db "                                         Viva La Cucaracha!",0
+IP           db 16 dup (0)
+defaultip    db "127.0.0.1",0
+mensaje      db "Trenchcoat Legion Rulez!",0
+fallo        db 0             
+str_WSAdata  wsadata   ? 
+victim       SOCKADDR  ?
+port         dd ?
+sck_hdl      dd ?
+thr_id       dw ?
+thr_hdl      dd ?
+dlg_hdl      dd ?                           ;Todas Las Variables Que vamos a usar 
+.code                       
+
+papa:
+
+
+call GetModuleHandleA
+mov [hinstance],eax       ;guardamos la instancia actual de windows
+
+push offset str_wsadata
+push VERSION1_1 
+call WSAStartup     ;Inicializamos Winsock
+
+mov ax,VERSION1_1
+cmp ax,word ptr [str_wsadata.mVersion]  ;comprobamos que sea la version correcta de la libreria
+jne error_rtn
+mov eax,666
+mov port,eax     ;ponemos el puerto por defecto
+
+
+
+push offset defaultip
+push offset ip
+call lstrcpy     ;inicilizamos ip con el ip de nuestro equipo
+
+
+
+
+seguir:
+push 0              ;Null
+push offset DlgProc ;Procedimiento (callback) del dialogo (concepto basico de la Prog. En Windows
+push 0              ;
+push IDD_DIALOG1    ;Identificador del dialogo , tal como esta en el archivo .rc
+push [hinstance]    ;Iniciar el dialogo
+call DialogBoxParamA
+
+
+jmp salir
+
+;///////////////
+;//Dialog Proc//
+;///////////////
+DlgProc proc hwnd:DWORD, wmsg:DWORD, wparam:DWORD, lparam:DWORD
+
+cmp wmsg,WM_CLOSE      ;manejamos el mensaje WM_CLOSE
+je salir
+cmp wmsg,WM_COMMAND    ;manejamos el mensaje WM_COMMAND
+je command
+ret      
+
+;//////////////////////
+;//Rutina de command //
+;//////////////////////
+command :
+
+cmp wparam,IDC_BUTTON4  
+je salir                ;pulsaron el boton "exit"
+cmp wparam,IDC_BUTTON3
+je about_rtn            ;pulsaron el boton "About"  
+cmp wparam,IDC_BUTTON2
+je cancel_rtn           ;pulsaron el boton "cancel"
+cmp wparam,IDC_BUTTON1
+je scan_rtn             ;pulsaron el boton "scan!" 
+ret
+
+;////////////////////
+;//Rutina de scan  //
+;////////////////////
+
+scan_rtn:
+cmp isscan,1
+je nomore_rtn          ;miramos si se esta llevando un scan en este momento 
+connect_rtn:  
+  push 16             ;maximo tamaño del ip
+  push offset IP      ;variable donde se guardara el ip
+  push IDC_EDIT1      ;identificador del cuadro del ip
+  push [hwnd]         ;manejador del dialogo
+  call GetDlgItemTextA   ;si no es asi leemos la direccion Ip
+  push FALSE          ;Signed or unsigned
+  push 0              ;no nos interesa
+  push IDC_EDIT2      ;identificador de la caja del puerto 
+  push [hwnd]         ;menejador de el dialogo
+  call GetDlgItemInt      ;luego leemos el puerto
+  mov dword ptr [port],eax ;Guardamos el puerto 
+
+push offset thr_id      ;identificador del thread
+push 0                  ;NULL
+push offset port        ;parametro que se le pasara a la thread
+push offset ThreadProc  ;funcion que ejecutara la thread 
+push 0                  ;NULL
+push 0                  ;NULL
+call CreateThread       ;Creamos la thread
+
+mov dword ptr [thr_hdl],eax ;guardamos el handle de la thread
+mov dword ptr [isscan],1    ;Esta escanendo (isscan = True)
+ret 
+nomore_rtn :               ;solo un sacan a la vez!
+  push 0                   ;NULL
+  push offset titabout     ;titulo del message box
+  push offset nomore       ;texto del message box 
+  push 0                   ;NULL  
+  call MessageBoxA         ;messgae box
+  ret                       
+;////////////////////
+;//Rutina de cancel //
+;////////////////////
+inactivo_rtn:
+  push 0
+  push offset titabout
+  push offset inactivo
+  push 0
+  call MessageBoxA         ;message box que dice que el puerto no responde
+cancel_rtn:
+push [sck_hdl]             ;manejador del socket
+call  closesocket          ;cerramos el socket 
+mov dword ptr [isscan],0   ;ya no esta escaneando (isscan = FALSE)
+push 0                     ;NULL
+push thr_hdl               ;manejador del thread
+call TerminateThread       ;Terminamos la thread 
+ret 
+
+;////////////////////
+;//Rutina de about //
+;////////////////////
+about_rtn:
+push 0
+  push offset titabout
+  push offset about
+  push 0
+  call MessageBoxA         ;Message box con el about
+ret 
+
+;////////////////////
+;//Rutina de salida//
+;////////////////////
+error_rtn:
+  push 0
+  push offset titabout
+  push offset error
+  push 0
+  call MessageBoxA
+  jmp salir                 ;anunciamos que hubo algun error y nos largamos de aqui
+;////////////////////
+;//Rutina de salida//
+;////////////////////
+salir :
+call WSACleanup             ;terminamos de trabajar con el winsock
+push 0                      ;NULL
+push hdlg                   ;manejador del dialogo
+call EndDialog              ;cerramos la ventana
+push 0
+call ExitProcess            ;terminamos este proceso
+;Fin
+
+DlgProc endp
+
+;////////////////////
+;//Rutina de thread//
+;////////////////////
+
+ThreadProc proc wparam:DWORD    ;procedimiento que se ejecuta en la nueva thread 
+roach:
+push 0                          ;NULL
+push SOCK_STREAM                ;tipo de flujo
+push AF_INET                    ;familia
+call socket                     ;creamos un lindo socket
+cmp eax,-1
+je error_rtn                    ;si hay un error nos abrimos pa la puta mierda
+mov sck_hdl,eax                 ;guardamos el manejador del socket
+
+mov ax,AF_INET                  ;rellenamos la estructura sock_addr
+mov victim.sin_family,ax        ;familia = AF_INET
+push port                       ;convertimo el puerto con la funcion
+call htons                      ;htons 
+mov  victim.sin_port,ax
+push offset ip
+call inet_addr          ;convertimos el ip con la funcion inet_addr y la metemos en la estructura
+mov  victim.sin_addr,eax
+push 16                  ;tamaño de sock_addr
+push offset victim       ;puntero a la estructura sock_addr
+push [sck_hdl]           ;manejador del socket
+call connect            
+cmp     ax,-1
+je      inactivo_rtn     ;si no se conecta esta inactivo o pasa algo 
+push 0                   ;miramos si si nos deja mandarle un mensaje 
+push 28                  ;largo del mensaje
+push offset mensaje      ;mensaje
+push [sck_hdl]           ;manejador del socket
+call send                ; lo enviamos
+cmp     ax,-1
+je      inactivo_rtn     ; si hay error este puerto no sirvio!
+
+  push 0
+  push offset titabout
+  push offset activo
+  push 0
+  call MessageBoxA       ; el puerto esta vivito y culeando !
+jmp cancel_rtn           ; cerramos el socket y terminamos la thread 
+ThreadProc endp          ;fin del proc de la thread
+
+end papa                 ;fin del codigo
+
+;Fin de este wonderfull programa , como ven es un poco sencillo y tal vez tenga algunos bugs
+;ya que esta es una version , y ademas no ha tenido mucho tiempo de testearla , si alguien 
+:descubre algun problema seria muy bueno que me lo comunicara , o incluso que hiciera el mismo
+el arreglo y me lo mandara para que saliera en la proxima version (con su nombre en los creditos
+,claro) ,  y tal vez la unica ventaja de este programa es su tamaño , pero sirve como una base pa
+ra hacer algo mucho mejor , agregandole ciertas caracteristicas , por ejemplo un barrido de todos
+los puertos , la salida a fichero de lso resultados , e incluso la posibilidad de usar la funcion
+RegisterService , que serviria para que el programa fuera totalmente transparente al usuario , de
+esta forma podriamos dejarlo corriendo en un cafe internet y volver al otro dia por los 
+resultados , cool ? no . Es mas me gusta tanto la idea que si alguien escribe dando ideas o 
+ofreciendo ayuda podriamos desarrollar todas estas caracteristicas y hacer un pequeño pero ahora
+si verdaderamente util Port-Scanner.
+
+Special Thanx to kacimiro and thomas , BumbleBee for his article on 29A #4 and all the people who
+read this excellent e-zine.
+
+
+
+                         Vil Roach / Trenchcoat Legion - Port-Scannig all the phucking world !!
+
+;*Si se tienen muchos problemas leyendo esta fuente se recomienda el tutorial sobre asm en Win32
+;*by Kacimiro
+
+
+
+
+<--------------------------------------------------------------->
+
+
+
+Fin de este maravilloso articulo , y ya saben si quiere que continue con esta serie con el 
+program o con lo que sea simplemente escriban .
+ Bye!
+
+
+
+
+
+
+
+
+
+*27 de Agosto de 2000 01:26:54 AM*  Finished Another excellent Vil Roach Producction

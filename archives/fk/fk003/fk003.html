@@ -1,0 +1,478 @@
+<HTML>
+<body bgcolor="#000000" text="#FFFFFF">
+<H3>-=-=-<< F0rbidden Knowledge - Volume Two, Issue Three</H3><BR>
+<BR>
+Contents of this Issue...<BR>
+<BR>
+-/- Introduction by the Editorial Comittee<BR>
+<BR>
+-/- An Automated Response System under Unix using TCP Wrappers by Vortexia<BR>
+-/- A Hint for Social Engineering through IRC by Wyzewun<BR>
+-/- Cracking the EAN Barcode System Part One by Moe1<BR>
+-/- More Beigeboxing Methods by Wyzewun<BR>
+-/- Old Car Alarms and Jaguar Lock Mechanisms by Hitsquad<BR>
+-/- Lock Mechanisms on BMW's by Wyzewun<BR>
+<BR>
+-/- News in brief by The Editors<BR>
+-/- Thanks and Greets<BR>
+-/- Lamer of the month section! By Editors vote!<BR>
+<BR>
+<BR>
+-=-=-<< Introduction to F0rbidden Knowledge, Volume 2, Issue 3 by The Editors<BR>
+<BR>
+Well, it's time for a new season of F0rbidden Knowledge. The SoS have split<BR>
+and we are giving full priority to the production of the Zine. It was simply<BR>
+too hard to continue working on other projects with the responsibility of<BR>
+finding out stuff and writing articles about it. <BR>
+<BR>
+We have dumped all prior associations, and are all working exclusively on<BR>
+F0rbidden Knowledge from now on. The FK team are...<BR>
+<BR>
+<p>----/ Chief Editor ..................... Wyzewun (wyze1@syrex.co.za)
+<br>
+<br>---/ Co-Editors ...................... Vortexia (vortexia@one.se)
+<br>--/ .................................. Marc Satur9 (satur9@usa.net)
+<br>
+<br>--/ The Crew ....................... Moe1 (moe1@mailbox.co.za)
+<br>-/ ................................. Sniper (sniper@h4x0rz.za.org)
+<br>-/ .................................. Gevil (gevil@hotmail.com)</p>
+<BR>
+You may contact any of us through e-mail, otherwise you will find at least one<BR>
+of us on #zahack on EFNet. We hope you enjoy the Zine, it is nothing like the<BR>
+last two issues, so please mail us and tell us what you think.<BR>
+<BR>
+Please also keep in mind that because of us having to restart production of<BR>
+the zine completely half way through the month, and the fact that many people<BR>
+decided not to contribute their articles at the last minute, we did not have<BR>
+as much as we would've liked to have in this issue. However, I feel that the<BR>
+quality of the articles in this issue surpasses any in previous editions of FK<BR>
+and that we are definately heading for a good patch.<BR>
+<BR>
+I have also dumped the stupid ASCII art stuff, and given the zine an<BR>
+all-around new look, which is simpler and easier to read. Please mail me<BR>
+telling me what you think of the new F0rbidden Knowledge<BR>
+<BR>
+<BR>
+Cheers,<BR>
+Wyzewun (wyze1@syrex.co.za)  <BR>
+<BR>
+<BR>
+-=-=-<< An automated response system under Unix using TCP Wrappers by Vortexia<BR>
+<BR>
+Ok... here we go :) How to make a system respond to connection attempts you<BR>
+well.... dont like so much *grin* Well... there are a coupla ways, I only <BR>
+gonna cover the most simple one (with TCP Wrappers, which is a standard<BR>
+program on linux systems and can be installed under a bsd system from<BR>
+/usr/ports/security/tcp_wrapper)<BR>
+<BR>
+Ok... first a brief explanation on how a tcp wrapper works....<BR>
+<BR>
+Someone connects to your box... your box spawns tcpd (the tcp wrapper daemon),<BR>
+which then checks the connecting person's ip against your allow and deny<BR>
+lists, IF it likes that persons ip then it starts the program they are<BR>
+connecting to (the daemon the connecting client wants), and quits itself...<BR>
+if it doesnt, it either just drops the connection clients connection, or it<BR>
+runs a script before dumping the connecting clients connection :)<BR>
+<BR>
+Ok... so now to the actual, how the hell to implement this section...<BR>
+<BR>
+First of all if ya wanna tcp wrapper something you gotta put it in inetd.conf<BR>
+2 sample entries from a bsd system:<BR>
+<BR>
+This is without TCP Wrappers:<BR>
+telnet stream tcp nowait root /usr/libexec/telnetd /usr/libexec/telnetd<BR>
+<BR>
+This is with TCP Wrappers:<BR>
+telnet stream tcp nowait root /usr/local/libexec/tcpd /usr/libexec/telnetd<BR>
+<BR>
+Ok... this is pretty damn self explanatory... standard inetd.conf entry is<BR>
+first, I wont explain all the options they arent important at this stage,<BR>
+except you will notice that I inserted tcpd in the second entry, following<BR>
+that example will allow you to wrapper most things..... (backup original<BR>
+/etc/inetd.conf before you modify it incase you stuff up).<BR>
+<BR>
+Ok... then you find out where hosts.allow and hosts.deny are on your system<BR>
+(if its linux its probably in /etc, if its FreeBSD probably /usr/local/etc).<BR>
+<BR>
+Then you add some options to them... Ok, we wanna deny all by default...<BR>
+we would put the following in hosts.deny for each daemon.<BR>
+<BR>
+telnetd: ALL<BR>
+popper: ALL<BR>
+<BR>
+etc etc, the first entry has to be the NAME of the actual file you are<BR>
+denying, I.E if telnetd in inetd.conf is /usr/sbin/in.telnetd then put there<BR>
+in.telnetd, if its /usr/libexec/telnetd put telnetd etc etc etc.<BR>
+<BR>
+Then we wanna allow something in for telnetd, so in hosts.allow we put<BR>
+something like:<BR>
+<BR>
+telnetd: 34.23.42.38 235.34.129.38<BR>
+<BR>
+This will allow those 2 ips in for telnetd, alternatively you can put<BR>
+wildcards in there.<BR>
+<BR>
+Ok, now you got basic wrappers working allowing and disallowing connections,<BR>
+now you wanna do auto response, so first of all, I must say this, now is a<BR>
+good time to learn how to read man pages :P<BR>
+<BR>
+man 5 hosts_access will show you the man page, section 5 for hosts_access,<BR>
+man 5 hosts_options can also help with what follows.<BR>
+<BR>
+Ok... lets change our hosts.deny file slightly... we want auto response on<BR>
+pop3 that uses a daemon with filename popper... so we put in something like<BR>
+this....<BR>
+<BR>
+popper: ALL: spawn (/root/security/wrapper.script %h %s %c %h)<BR>
+<BR>
+This says, before dropping the denied connection, run the script<BR>
+/root/security/wrapper.script with the parameters %h %s %c %h.<BR>
+<BR>
+Note, you can tell it to run ANYTHING here with ANY parameters (please dont<BR>
+abuse *grin*, will explain HOW to abuse later)<BR>
+<BR>
+Ok... the parameters... first lets cover what they do, there are further<BR>
+options than the ones covered by basic auto response only needs the ones I<BR>
+have specified, I will cover one other one later as well.<BR>
+<BR>
+%h is the hostname, or ip if it cant find the hostname<BR>
+%s is the daemon they tried to connect to, and the server address, or as much<BR>
+   info is available to TCPD<BR>
+%c is client information (the perosn who is connecting) user@host, if identd<BR>
+   is running, or just the hostname again.<BR>
+<BR>
+A further useful one I found is %a which doesnt return host, it just returns<BR>
+an ip address.<BR>
+<BR>
+Ok... how to then write the script that it passes all this 2....<BR>
+Lets look at a basic bash script...<BR>
+<BR>
+Ok, we want this to portscan the host, finger the host, then email the<BR>
+results to someone so they will be aware that someone is trying to connect...<BR>
+<BR>
+(remeber anything other than the first line of whats below that starts with a<BR>
+ # is a comment)<BR>
+<BR>
+#!/bin/bash<BR>
+nmap -o $1.$2.strobe.scan $1<BR>
+<BR>
+# nmap is our portscanner, $1 refers to %h (the first parameter), $2 is<BR>
+# %s.  What this says is run a portscanner against $1 (the connecting<BR>
+# host) and output it to a file with name containing the connecting client<BR>
+# and the daemon they tried to connect 2.<BR>
+<BR>
+finger \w@$1 >$1.$2.finger.results<BR>
+<BR>
+# This says run finger against the host and output to a file<BR>
+<BR>
+echo "Strobe results for $1" >$1.$2.mail.output<BR>
+cat $1.$2.strobe.scan >>$1.$2.mail.output<BR>
+echo "Finger results for $1" >>$1.$2.mail.output<BR>
+cat $1.$2.finger.results >>$1.$2.mail.output<BR>
+cat $1.$2.mail.output |mail -s "Security Violation Report" |mail root<BR>
+<BR>
+(script ends here)<BR>
+<BR>
+Ok... the last 5 lines are pretty simple really, the first line says make a<BR>
+file called $1.$2.mail.output ($1 and $2 being the information specified<BR>
+by %h and %s). The Second line says append the file $1.$2.strobe.scan to the<BR>
+mail file. The Third line says append a line that says: "Finger Results for<BR>
+$1" The forth line says append the finger resulsts to the mail file the fifth<BR>
+line says email the entire file to the local root account.<BR>
+<BR>
+Simple huh? :) <BR>
+<BR>
+Ok... now to auto respond *evil grin*, Say you felt REALLY nasty and wanted to<BR>
+smurf or nestea everyone connecting to your box... just replace the nmap line<BR>
+or one of the other lines with your favorite attack proggy :)<BR>
+<BR>
+For example:<BR>
+<BR>
+smurf $1 bcast.file -S 128 -n 2000<BR>
+<BR>
+will happily smurf $1 with 2000 128k packets (dont try this on a modem link or<BR>
+anything with less bandwidth than dual channel ISDN, its just an example<BR>
+*grin*).<BR>
+<BR>
+Anyway :) thats how you do it <BR>
+<BR>
+If this article is confusing or you want more info on how to do even more fun<BR>
+things with tcpd or want explanations, I hang on #zahack on efnet and Im<BR>
+always willing to help anyone out with what I know<BR>
+<BR>
+Cheers<BR>
+Vortexia (vortexia@one.se)<BR>
+<BR>
+<BR>
+-=-=-<< Fooling people on IRC into running Programs by Wyzewun<BR>
+<BR>
+Getting a relatively smart person to run a program they recieved off IRC is<BR>
+actually a lot easier than one would normally think it is. I've found that the<BR>
+method that works best is to find some form of Lame DoS attack that they are<BR>
+vunerable to. (For Windows, I recommend trying Jolt or Click because half of<BR>
+the idiots on this planet are vunerable to those)<BR>
+<BR>
+After kicking the target off IRC a couple of times, msg him and tell him that<BR>
+you know what is happening to him. Make up some bullshit name for an exploit<BR>
+and tell him that he is vunerable to it, and he must go and download the patch<BR>
+from Microsoft's site.<BR>
+<BR>
+At this stage, tell him that you've just realised that you have the patch for<BR>
+it, and that if he wants he can have it from you, but make sure that you offer<BR>
+to let him search Micro$oft's site so that he doesn't think something funny<BR>
+is going on. After he can't find it and asks you to DCC him the patch, just<BR>
+send over Netbus, Back Orifice, Your new Virus, Whatever.<BR>
+<BR>
+Easy as that. If you have a site you may want to put up the executable there<BR>
+to make him less suspicious. It's really all up to you, this article gives you<BR>
+a means to an end that is completely up to you.<BR>
+<BR>
+<BR>
+-=-=-<< Cracking the EAN Barcode System by Moe1<BR>
+<BR>
+The EAN or European Article Number System Barcode has 13 values, making it<BR>
+easy to spot.  Value 1 is situated outside the "left hand side" border.<BR>
+Together with the second digit, it tells us the origin of the product. Values<BR>
+from 3-12 give's us the article code. And value 13 is a checksum which checks<BR>
+the validity of all the other numbers.<BR>
+<BR>
+The checksum is calculated as follows:<BR>
+<BR>
+1. Add all the odd position numbers except the last digit (1+3+5+7+9+11) <BR>
+<BR>
+2. Add all the even position numbers (2+4+6+8+10) and multiply the answer<BR>
+   by 3. (Note that we are leaving out the last digit, which is our checksum)<BR>
+<BR>
+3. Add the answer in 1 with the answer in 2.<BR>
+<BR>
+4. We divide the sum of 1 and 2 by the number 10 and if the remainder is not<BR>
+   zero, then we substract the remainder from 10 and this should give us our<BR>
+   last positioned number.<BR>
+<BR>
+Once the checksum is done, we know that the barcode is valid.<BR>
+<BR>
+Now on to the lines (yeah doze pesky lines above the values)<BR>
+<BR>
+Note: 7 lines make's up 1 value.<BR>
+<BR>
+There are 3 graphic codes that are used and we have 2 groups of values as<BR>
+explained above. From those 3 graphic codes, 2 codes (A,B) are used in the<BR>
+first group of values and code (C) is used in the second group of values.<BR>
+Below shows us the different graphic code that makes up the different numbers<BR>
+of the values. Take notice of the different lines.<BR>
+<BR>
+BLACK LINE REPRESENTED BY 1<BR>
+WHITE SPACE REPRESENTED BY 0<BR>
+<BR>
+  CODE A              CODE B           CODE C<BR>
+if code A were: | if code B were: | if code C were:<BR>
+0 ----> 0001101 | 0 ----> 0100111 | 0 ----> 1110010<BR>
+1 ----> 0011001 | 1 ----> 0110011 | 1 ----> 1100110<BR>
+2 ----> 0010011 | 2 ----> 0011011 | 2 ----> 1101100<BR>
+3 ----> 0111101 | 3 ----> 0100001 | 3 ----> 1000010<BR>
+4 ----> 0100011 | 4 ----> 0011101 | 4 ----> 1011100<BR>
+5 ----> 0110001 | 5 ----> 0111001 | 5 ----> 1001110<BR>
+6 ----> 0101111 | 6 ----> 0000101 | 6 ----> 1010000<BR>
+7 ----> 0111011 | 7 ----> 0010001 | 7 ----> 1000100<BR>
+8 ----> 0110111 | 8 ----> 0001001 | 8 ----> 1001000<BR>
+9 ----> 0001011 | 9 ----> 0010111 | 9 ----> 1110100<BR>
+<BR>
+NOTE: only in group 1 are CODE A & B used, in group 2 it's all CODE C. So look<BR>
+at group 1 and identify which CODE forms the number.<BR>
+<BR>
+EXAMPLE:<BR>
+I buy a Sunday Times Newspaper, and I look at the bottom of the front page and<BR>
+see a nice little barcode. Due to my curiosity I wanna know how that shit<BR>
+works so I decide I wanna try and crack that scheme those newspaper boys use.<BR>
+First I look at the numbers and find that there are 13 numbers<BR>
+(9 770039 533008) immediately I know that they are using the EAN system.<BR>
+Since I know how to crack this system, its no problem. I first do a checksum <BR>
+to see if any screws up occur...<BR>
+<BR>
+9+7+0+9+3+0 = 28<BR>
+(7+0+3+5+3+0) x 3 = 54<BR>
+28+54 = 82<BR>
+82 divided by 10 = 8 remainder 2<BR>
+10 - 2 = 8 = CHECKSUM (value 12 or 13th position no. in barcode)<BR>
+<BR>
+Ok Checksum done.<BR>
+<BR>
+Now we see what makes up 770039 and we find that its the code pattern: ABBABA<BR>
+<BR>
+And our code pattern for 533008 is: CCCCCC (check and see the lines would be<BR>
+exactly the same as the lines in CODE C) Right so we know:<BR>
+<BR>
+BARCODE: 9 770039 533008<BR>
+<BR>
+977 tells us its a book or some sort of reading material<BR>
+770039 is ABBABA and 533008 is CCCCCC<BR>
+and our checksum is 8<BR>
+<BR>
+I took the Sunday Times Newspaper for an example because it seems it's the<BR>
+easiest to do. If you still dont understand how barcodes can be of any<BR>
+assistance to you then "ERM" think harder.  < Wyze1: Amonst a couple of other<BR>
+things - Think IDs ><BR>
+<BR>
+Bye!<BR>
+Moe1 (moe1@mailbox.co.za)<BR>
+<BR>
+<Wyzewun's Mutterings: Part Two of this series will be featured in FK. Perhaps<BR>
+ in Issue Four, perhaps later. Depends on how lazy Moe1 is, how the readers<BR>
+ respond to this article, and how many spelling mistakes and grammatical<BR>
+ screw-ups Wyzewun can try to edit out of the article before he faints :P><BR>
+<BR>
+<BR>
+-=-=-<< More Beigeboxing Methods by Wyzewun<BR>
+<BR>
+In Issue Two, I covered use of the Blue and Green Telkom boxes to box. This<BR>
+Issue, I'll be looking at some alternative methods...<BR>
+<BR>
+Method Number One<BR>
+~~~~~~~~~~~~~~~~~<BR>
+Go to an abandoned building that used to be an office (South Africans - Watch<BR>
+out for squatters *grin*) and it is extremely likely that it will have working<BR>
+phone lines running into it. Of course, it is also very likely that there will<BR>
+be no form of phone jack to be found - Are we using a phone jack? No. We're<BR>
+using Crocodile Clips. Problem Solved. :)<BR>
+<BR>
+Method Number Two<BR>
+~~~~~~~~~~~~~~~~~<BR>
+Try using the phone of some-one who has recently moved out of a house, or use<BR>
+your neigbours' phone when they are on holiday. Simply find the cord that runs<BR>
+from their phone out of their house, cut it open, and connect up your box. If<BR>
+the tenants have moved out and have had their phone disconnected, phone up<BR>
+Telkom and tell them that the disconnection of the phone was a mistake and<BR>
+ask them to reconnect it. :) This way, you can keep a phone working for up to<BR>
+three months before Telkom finally cut it off.<BR>
+<BR>
+Method Number Three<BR>
+~~~~~~~~~~~~~~~~~~~<BR>
+Find the point where a cable goes from the overhead poles into the ground.<BR>
+It is sometimes covered with a concrete or asbestos cover, so you may have to<BR>
+get past that. Assuming you somehow have done so, open up the cable, and you<BR>
+should find twisted pairs of wires like this...<BR>
+                     <BR>
+              pair   #%# <--scotch lock<BR>
+  2 pairs      |    //<BR>
+      |    /><><><></               <BR>
+///><><><></<BR>
+//\<><><><>\<BR>
+      |    \><><><><\<BR>
+   twisted-         \\<BR>
+   together          #%#<BR>
+                           << ASCII Art Stolen from Kokey >><BR>
+<BR>
+The wires are colour coded to indicate negative and positive wires. When in<BR>
+doubt of how to connect your box, consult Kokey's handy Table-O-Colours...<BR>
+<BR>
+   Base colours    Negative legs        <BR>
+   ------------    -------------<BR>
+   blue            white<BR>
+   orange          red<BR>
+   green           black<BR>
+<BR>
+Or alternatively, if you can get down far enough to see where the wires<BR>
+un-ravel to, you can just do that. ;-)<BR>
+<BR>
+Well, that's all the ways I'm going to cover on beigeboxing in SA for this<BR>
+issue, yes, there are more, but I'm going to have to research them in a bit<BR>
+more detail, so yes, FK4 will have more beigeboxing stuff! Just remember to<BR>
+tell me when you get sick of this... :)<BR>
+<BR>
+<BR>
+-=-=-<< Affirmative Car Shopping by Hitsquad<BR>
+<BR>
+Since Wyzewun explained how to borrow a bus in the previous months, I thought<BR>
+we should move up a level and explain how to, um borrow a car for a short<BR>
+time before he gets picked up by the police.<BR>
+<BR>
+Anyway, with many older car alarms, when the car is bumped, the alarm sounds<BR>
+and the lights flash. Like most electrical systems, there is a fuse in case<BR>
+there is a power fails in some way and this fuse will break the circuit,<BR>
+thereby killing the alarm.<BR>
+<BR>
+Now this is all good and fine if nobody can reach the fuse, but if you can<BR>
+reach the fuse, then there's trouble. With the older car systems, the fuse is<BR>
+behind the left front light that flashes, so simply break the light and the<BR>
+fuse behind it and that is the end of one alarm system. Simple huh?<BR>
+<BR>
+So now if there is an old car down the road from you, with an alarm that keeps<BR>
+waking you up at night, you know how to switch it off. ;-)<BR>
+<BR>
+This method however does not disable the engine/battery cut offs so it might<BR>
+be harder to steal the car. (This method was tried on an old Porsche and it<BR>
+worked, unfortunetly, the money I won on the bet was less than the light I had<BR>
+to replace and I did have the owners permission :-< )<BR>
+<BR>
+Also, according to Jaguar magazine, there are over 500 000 jaguars in South<BR>
+Africa. Now if you <cough> lock your keys in the car <cough>, there is a<BR>
+fairly simple and not so destructive way to get your keys and you don't need a<BR>
+brick. The lock mechanism has been placed behind the rear-view mirror. Simply<BR>
+remove the mirror and there is the lock mechanism which you can then open your<BR>
+car. Easy as that.<BR>
+<BR>
+Hitsquad<BR>
+<BR>
+Things To Ponder - #06<BR>
+Should you trust a stockbroker who is married to a travel agent?<BR>
+<BR>
+<BR>
+-=-=-<< More affirmative car shopping by Wyzewun<BR>
+<BR>
+Allright, if we're going to go into the whole car theft thing this issue then<BR>
+thats fine with me - I also have a new trick or two to share... The Lock<BR>
+Mechanism on a BMW with Central Locking is in fact located in the boot of the<BR>
+car. So, to get yourself a new BMW, you will need a tennis ball and a brick.<BR>
+No, I am NOT going to write an article on Tennis Ball Theft! Shut up and Stop<BR>
+Laughing at me!@#! :P<BR>
+<BR>
+Cut the Tennis Ball in half, place it over the lock on the boot and hit it<BR>
+with the brick as hard as you can. All the doors should open.<BR>
+<BR>
+Note that this can also be done with a nail instead of a tennis ball, which is<BR>
+more effective, but also requires practice and will fuck up the lock if you<BR>
+don't do it right.<BR>
+<BR>
+<BR>
+-=-=-<< News in Brief by The Editors<BR>
+<BR>
+-/- Konr@d magazine (Berlin, Germany) set to publish article on Johannesburg<BR>
+    Computer Culture in their March Issue. The article includes the results<BR>
+    of interviews with Wyzewun as well as mentions of many other prominent<BR>
+    South African hackers and what they do.<BR>
+<BR>
+-/- Wyzewun has insisted that he is going to drink Tequila until his liver<BR>
+    explodes unless some-one designs a nice ASCII Art Logo for FK. Then again,<BR>
+    he may enjoy that... Damn...<BR>
+<BR>
+<BR>
+-=-=-<< Thanks and Greets<BR>
+<BR>
+Group Greets:<BR>
+Cult of the Dead Cow, Hacker News Network, L0pht, Legions of Underground,<BR>
+Phrozen Crew, r00t, Technotronic, The Hackers Choice<BR>
+<BR>
+Personal Greets:<BR>
+Aleph1, Cache, Caliburn, Crazyg*y, Cyber Demon, Cyclotron, fern, FireIce,<BR>
+Grey Wolf, kokey, Mnemonic, Mudge, optiklenz, opium, Pavlov,<BR>
+Radix, route, Sector12, Sledge, Spy, The Keyboard Caper<BR>
+<BR>
+***********************<BR>
+Lamer of the Month:<BR>
+***********************<BR><BR>
+
+NICK: HOTMETAL!<BR>
+REASON: Has a habit of posting bullshit on mailing lists and making himself<BR>
+        look like a fool<BR>
+REAL NAME: Cami (Camihose?)<BR>
+<BR>
+***********************<BR><BR><BR>
+-=-=-<< When and Where to get the Next Issue<BR>
+<BR>
+Issue Number: Four<BR>
+Release Date: 5th March 1999<BR>
+Distrib Site: www.posthuman.za.net
+
+<BR>
+Notes: FK4 will be even better than this issue, I promise :)<BR>
+</HTML>

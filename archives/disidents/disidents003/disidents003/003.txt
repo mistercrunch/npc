@@ -1,0 +1,441 @@
+
+
+
+                        -+-| DisidentS Hack Journal #3 |-+-
+
+
+
+
+
+
+
+  ________________________________________________________________________
+ |                                                                        |
+ |  -+- Titulo_____: Antiarmadillo [003.txt]                              |
+ |  -+- Autor______: remains                                              |
+ |  -+- E-Mail_____: <offremains@hotmail.com>                             |
+ |  -+- Team_______: Disidents España 2002 -  Los fuera de la ley         |
+ |  -+- Tema_______: Desarmando Armadillo                                 |
+ |  -+- KB_________: 22.8                                                 |
+ |________________________________________________________________________|
+
+
+
+
+
+            ( I don't want your money, money, I want your love )
+
+
+
+
+.==========================================================================.
+|===========~ INDICE ~======================================================
+|===========================================================================
+|=~ 1.0 Introduccion                                                       |
+|=~ 2.0 Como funciona Armadillo ?                                          |
+|=~ 3.0 Eliminar la proteccion                                             |
+|=~ 4.0 Armadillo 2.25a                                                    |
+|=~ 5.0 Inmoralidad ?                                                      |
+|=~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~=.
+======================================================~ INDICE ~============
+============================================================================
+
+
+
+
+.==========================================================================.
+|===========~ 1.0 Introduccion ~============================================
+|===========================================================================
+
+Antes de empezar,  decir que cuando hable de poner un bpx me refiero a poner
+un breakpoint en el soft-ice.  Esto lo comento sobre todo para los que estan
+empezando por si no se aclaran.Dicho esto,decir que cualquiera de las herra-
+mientas  que vamos a utilizar,  aqui podeis encontrarlas  en las  siguientes
+paginas:
+
+http://protools.cjb.net
+http://picasso.poupe.net/index.php?page=tools&tool=ds&ank_id=3
+
+La primera pagina es muy conocida.  La segunda creo que no tanto.No se entien-
+de ni papa, no se en que idioma esta,  solo se entiende lo justo para saber de
+que herramientas habla.Si no la conociais,os recomiendo que le hecheis un vis-
+tazo.
+Las herramientas que vamos a utilizar son: (w32dasm, editor hexadecimal, soft-
+ice, ice dump y el snippet creator).
+
+El programa que vamos a crackear es el document 1.02 y lo podeis bajar aqui:
+
+http://www.siliconrealms.com/armadillo.htm
+
+Si lo quereis comprar, son 45 dolares...
+
+
+
+.==========================================================================.
+|===========~ 2.0 Como funciona Armadillo ? ~===============================
+|===========================================================================
+
+
+Explicar todo lo realizado con este archivo resultaria un poco largo y puede
+que aburrido,asi que creo que sera mejor explicar directamente lo descubier-
+to sin explicar paso a paso como llegar a cada punto.  Aun asi creo que vais
+a llegar a entender bastante bien lo que hace este sistema (asi lo espero al
+menos :)
+
+Antes de empezar ejecutar el ice-dump,  ya que el programa tiene trucos anti
+debug.
+
+Bien, lo primero que tenemos,  es que cada vez que ejecutamos el archivo nos
+crea un fichero con extension  tmp en el directorio TEMP de Window$.  Cuando
+entramos a tracear con el soft ice, nos encontraremos dentro de este fichero
+, ya que dentro de el es donde se encuentra la proteccion   ( ya veremos mas
+adelante que esto no es asi del todo ;). El caso es que,como cada vez que se
+ejecuta,crea este fichero de nuevo,y cada vez con un nombre distinto, no po-
+demos coger y cambiar simplemente lo que nos interese en este archivo porque
+cada vez lo sobreescribira.  Si cogeis este fichero con el w32dasm  y le he-
+chais un vistazo vereis que tiene el formato de un exe normal.
+Ahora bien, como crea el fichero este cada vez ?    Para ello utiliza la api
+"GetTempFileNameA".Poner un bpx en esta api para comprobarlo. Si quisieramos
+podriamos cambiar esta funcion, cambiandole uno de los parametros de 00 a 01
+(me refiero a los push de antes de la llamada)  y siempre crearia el fichero
+con el mismo nombre aunque con esto no arreglariamos nada.Sin embargo resul-
+ta mas comodo para mantener los bpx que pongamos con el soft-ice,  ya que si
+no tendriamos que volver a ponerlos cada vez que ejecutemos el programa. Po-
+deis comprobar el valor que retorna despues de esta llamada en eax y despues
+mirar el nombre del fichero tmp. Vereis que crea el nombre con ese mismo va-
+lor ;).
+
+Bien, ya sabemos como crea el nombre. Pero ahora, tendra que crear el fiche-
+ro no ? Quiero decir,  que aparte de buscarle un nombre, tendra que crearlo,
+no ? Pues bien, vamos a seguirle la pista al  codigo despues de la llamada a
+GetTempFileNameA. Vamos pulsando f10 hasta llegar a un ret ( no tendreis que
+esperar mucho ). Nada mas volver del ret vemos que empieza a empujar valores
+a la pila y seguido vemos la llamada a CreateFileA.
+Comprueba los parametros que le pasa a la api con la referencia de las apis,
+a mano.    El ultimo push (push eax) es el nombre del fichero que va a crear
+(armx.tmp, donde x es el mismo valor que retorno en eax en GetTempFileNameA)
+Pasar el CreateFile con f10 y mirar  el valor que retorna en eax  (? eax)  y
+acordaros de el :).Ya ha creado el fichero tmp que tendra la proteccion, pe-
+ro todavia no lo ha escrito con los datos que forman el fichero en si,  para
+lo cual debera utilizar la funcion "WriteFile".Ponemos un Bpx en WriteFile y
+el soft ice nos salta de la misma. Para ver los parametros que pasa a Write-
+File poner un bpx en  "407fc8"  en el primer push antes de la llamada, justo
+despues de un jmp. Volvemos a ejecutar el progra pulsamos  f5 hasta que pare
+en este ultimo breakpoint. Veamos los parametros. Fijemonos en los dos ulti-
+mos push que hace. El ultimo es el handle del fichero que va a escribir ( el
+que retorno de createfilea en eax, recuerda ). El anteultimo es un push  edx.
+Ese es el puntero a los datos que va a escribir al fichero. Escribir d edx y
+vereis:
+
+" Mz....This program cannot... " ¡Parece la cabecera de un ejecutable!  Esta
+escribiendo el tmp con la proteccion ahora.Como vereis hace dos pasadas para
+escribir el file.
+Si lo volcais ahora con el ice dump vereis como el fichero efectivamente aun
+no esta entero. En la segunda pasada podeis terminar el volcado ( solo si os
+pica la curiosidad :D).  Pero bien,  y sigamos haciendo ingenieria inversa y
+zen cracking... para escribir los datos en el fichero, estos datos deben es-
+tar en alguna parte  para que pueda  leerlos y escribirlos al fichero.  Pues
+venga,salimos del programa de nuevo y bpx en CreateFileA y otro en ReadFile.
+Ejecutamos el programa y nos para en CreateFileA. Vamos a poner un bpx en el
+primer push antes de la llamada en  "406189",  para comprobar los parametros
+que le pasa.  Quitamos el breakpoint en  CreateFileA para que no nos moleste
+mas y pulsamos "f5". Ahora parara en ReadFile.
+Ponemos tambien un bpx al principio de los push, en "4071d9".  Con estos dos
+ultimos breakpoints activos ejecutamos el programa.  Nos para en el primero,
+antes de CreateFileA .  El ultimo push señala al nombre del fichero que esta
+leyendo.  Comprobar de que fichero se trata con el comando "d" del soft-ice.
+Se trata de nuestro querido document.exe.  Es el dedo acusatorio, ;).  Pasar
+con "f10" la llamada a CreateFileA y comprobar el handle que retorna.  Ahora
+pulsamos "f5" y nos vuelve a saltar en el segundo bpx,  el de antes de Read-
+File. El ultimo parametro es el handle del fichero que va a leer (el que nos
+devolvio de CreateFileA) y el push anterior,  la direccion del buffer que va
+a recibir los datos. Mirar esta direccion. ¿No os suena de algo?  Es la mis-
+ma que utilizaba en WriteFile. Ahora ya sabemos como crea el arm.tmp y esta-
+mos listos para atacar.
+
+Resumiendo: El arm.tmp se encuentra enterito dentro del document.exe.El pro-
+grama lee los datos que forman el arm.tmp y los guarda en un buffer. Despues
+utiliza los datos en ese buffer para crear el arm.tmp.Asi que nada mas facil
+que realizar los cambios que creamos oportunos en el arm.tmp que se  encuen-
+tra dentro del document.exe para que los escriba,   asi cada vez que crea el
+arm.tmp.
+Vamos a  ver a ahora donde  se encuentra nuestro querido arm.tmp  dentro del
+document.exe. Busca la cadena ascii "this program cannot..." que es como em-
+pieza nuestro armx.tmp. Primero aparecemos en el principio del programa como
+es logico. Buscamos otra vez y como podreis comprobar en el offset 17004 es-
+ta el arm.tmp enterito con su cabecera MZ y todas sus monerias :).  Esta vez
+hemos tenido suerte, por que no esta comprimido ni encriptado.Mas tarde tam-
+bien veremos que hacer en caso de que este comprimido y encriptado el fiche-
+ro.
+
+Asi pues,cuando descubramos que tenemos que cambiar con el soft-ice o con el
+w32dasm  solo tendremos que  buscar las direcciones de las instrucciones que
+queremos cambiar dentro del arm.tmp y calcular la direccion en la que se en-
+cuentran estos datos dentro del document.exe.
+
+
+
+
+
+
+.==========================================================================.
+|===========~ 3.0 Eliminar la proteccion ~==================================
+|===========================================================================
+
+
+Ahora que ya sabemos como funciona el sistema de proteccion,  solo nos queda
+eliminar las protecciones de la forma tradicional. Cada uno lo puede hacer a
+su gusto, yo os expongo como lo he hecho yo,aunque os invito a que lo hagais
+de una forma mas elegante ;).  No voy a explicar como  encontrar paso a paso
+las instrucciones que debemos cambiar, por razones de tiempo entre otras co-
+sas. Para los que querais buscarlas por vuestra cuenta, deciros solo que ha-
+ce una comprobacion de crc. Aqui van los cambios a realizar dentro del docu-
+ment.exe:
+
+NagScreen --> (offset) 21626 --> invertir salto
+Limite de tiempo --> (offset) 20f6b --> invertir salto
+Por si atrasas el reloj --> offset (1d689) --> invertir salto
+crc --> (offset) 7fbe --> nop-ear jmp
+
+Si realizamos estos cambios ya tenemos el programa crackeado. Pero no te va-
+yas aun, querido lector, que aun nos queda trabajo por hacer.... ;)
+
+
+
+
+
+.==========================================================================.
+|===========~ 4.0 Armadillo 2.25a ~=========================================
+|===========================================================================
+
+Bien, ahora ya sabemos como desarmar armadillo en parte.Pero ahora nos queda
+desarmarlo de verdad.  El metodo que estoy exponiendo es  aplicable hasta la
+version 2.25a,aunque a salido hace poco la beta 2.50-3. Entre estas dos ver-
+siones apenas ahi un mes de diferencia. Ahora vamos al grano. Para poder se-
+guir el ejemplo,  necesitais bajaros esta version del armadillo (2.25a).  Lo
+podeis hacer en:
+
+http://www.siliconrealms.com/armadillo.htm
+
+Es posible que en esta pagina ahora solo podais encontrar la version 2.50 asi que os
+pongo tambien esta otra en la que lo encontrareis seguro:
+
+http://www.geocities.com/offremains/index.html
+
+Una vez tenemos el armadillo, hacemos una copia del notepad para poder mani-
+pularla a gusto. Vamos a protejerlo con el armadillo.
+
+Abrimos el armadillo y escojemos modo profesional en la primera ventana.Aho-
+ra, "file -->new project"  y donde pone browse elejimos la copia del notepad
+que acabamos de hacer. Darle el nombre que querais al proyecto.Pulsamos don-
+de pone "projection/compresion options" y tanto en "project options", "Soft-
+Ice detection" y "compresion options" elejimos la primera opcion.  Le damos
+a "ok" y ahora, en la parte de abajo pulsamos donde dice "new". En "certifi-
+cate name" le damos un nombre cualquiera, seleccionamos la casilla "default"
+y a la derecha "reminder message". Nos saldra otra ventana. Donde dice "de-
+lay before user..." escribimos "1"  ( para no tener que esperar mucho hasta
+que se habilite el boton "ok". Ahora le damos a "ok"  (valga la redundancia)
+tres veces seguidas. Ya estamos listos para protejerlo.  Pulsamos en el menu
+-->  protection  --> protect file. Ya tenemos nuestro notepad a salvo de los
+crackers ;). Podeis probarlo si quereis.
+
+Ahora vamos  a abrir el notepad que acabamos de proteger con un editor hexa-
+decimal. Le damos a buscar la cadena ascii "this program....", pero esta vez
+solo encontramos la del principio del fichero. Parece que el señor armadillo
+, le ha hecho una pifia a nuestro notepad (mas que nuestro, de micro$oft :).
+Pero, como vamos a ver a continuacion, para desprotejer nuevamente este pro-
+grama,  y sabiendo lo que sabemos de antemano,  no nos preocupa mucho lo que
+le haya hecho. Ahora vamos a ver por que.
+
+Nuevamente, el proceso que lleva a cabo armadillo con el fichero, es el mis-
+mo que antes: GetTempFileNameA--> CreateFileA....  Pos bien, ¿recordais los
+famosos push de antes de la llamada a WriteFile ? Diras: no hombre, no, los
+señores de armadillo no pueden ser tan descuidados...   Poner un breakpoint
+al inicio de la pasada de parametros a "CreateFile" y  ¿ en el famoso "push
+edx" de antes que tenemos ? Nuestro querido arm.tmp dispuesto a ser escrito
+en su sito, ;). Ahora bien. Como esta vez el fichero esta empacado, encrip-
+tado y sabe dios que mas, :),  no podemos hacer los cambios directamente en
+el notepad.exe. ¿Entonces como leches hacemos los cambios oportunos? (  Por
+cierto, y aunque no te lo creas, siguen siendo los mismos de antes,  puedes
+comprobar como el "arm.tmp"  que crea es identico al del primer apartado de
+este articulo ).
+
+All right,   ahora es cuando a llega la hora del snnipet creator.  Como com-
+prendereis,  el explicar la utilizacion del snnipet creator (al igual que el
+del resto de herramientas utilizadas en este ensayo) queda fuera del alcance
+del  articulo. Sin embargo,  como voy  a explicarlo paso a paso,  espero que
+incluso los que no sabeis utilizar esta herramienta aun,podais llevar a cabo
+la practica.
+
+Sabemos que en la direccion "407fd2" empuja,  "push",  la direccion donde se
+encuentra el arm.tmp en memoria. ¿No os suena esta direccion (407fd2) ? Bien
+, hacer "? edx" en el sof-ice: ¿no os vuelve a sonar lo que veis? Sabemos el
+offset de las instrucciones que tenemos que cambiar dentro del arm.tmp. Aho-
+ra,para calcular la direccion virtual en las que se encuentran esas direcci-
+ones antes de ser escritas al propio "arm.tmp",  solo tenemos que sumarle al
+valor que empuja a la pila en la direccion  "407fd2"  (? edx)  el offset co-
+rrespondiente dentro del arm.tmp. ¿Facil verdad? Partiendo de que el arm.tmp
+en memoria comienza en "664240" (comprobar que sea lo mismo para vosotros, a
+mi siempre me coincide) hacemos lo siguiente,  para calcular la direccion de
+memoria en la que se encuentran las instrucciones que queremos cambiar antes
+de ser escritas al arm.tmp:
+
+ Nag-screen --> a622 + 664240 = 66e862
+
+ Proteccion de tiempo -->9f67 + 664240 = 66e1a7
+
+ Por si atrasas el reloj --> 6685 + 664240 = 66a8c5
+
+ 7fbe --> Esta instruccion si que la cambiamos a pelo  con el editor hexade-
+          cimal. Esta parte no cambia.
+
+
+Tengo que decir, que con los distintos programas que he probado,  y con dis-
+tintos niveles de compresion y demas,estas direcciones me han coincidido.To-
+do un lujo ;)
+Abrimos el Snnipet Creator y abrimos un nuevo proyecto. Elegimos notepad en
+"browse", le damos un nombre al proyecto y despues "create". Vamos antes que
+nada a buscar un espacio disponible para injertar nuestro codigo, dentro del
+notepad.  Buscamos con el editor hexadecimal y  encontramos suficiente sitio
+en el offset 11220. Podemos comprobar con el snnipet creator mismo (view -->
+section info), que este offset se encuentra dentro de la seccion "rdata".Va-
+mos a calcular ahora la direccion virtual del injerto:
+
+(imagebase + virtual offset seccion) + (desplazamiento recorte - raw offset seccion)
+
+(400000 + 10000) + (11220 - 10000) = 411220
+
+Vamos a buscar ahora un sitio dentro del "document.exe" desde el que llame a
+nuestro injerto. Yo lo voy a hacer justo antes de que llama a writefile. Co-
+mo ya he cambiado ya la instruccion del crc, em la direccion "407fbe"  tengo
+un "nop"  y es donde le voy a decir a snnipet creator que introduzca la lla-
+mada al recorte. Tambien le vamos a decir que devuelva el control al progra-
+ma en "407fc4" .  Esto lo hacemos de la siguiente manera dentro del  snnipet
+creator:
+
+ Action --> project options.
+ Snippet VA: 411220.
+ Patch into existing section
+ Redirect control from code section --> virtual addres: 407fbe
+ Return control to program --> virtual addres: 407fc4
+
+Seleccionar tambien "restore overwriten instructions", ya que la segunda vez
+que hace la pasada por este codigo, queremos que se ejecute el programa nor-
+malmente.
+
+El codigo que he utilizado yo para parchear las intrucciones en memoria,  es
+el siguiente (he utilizado el masm):
+
+----------------------------------------------------------------------------
+include \masm32\include\windows.inc
+include \masm32\include\kernel32.inc
+includelib \masm32\lib\kernel32.lib
+
+jmp init
+
+cod1 db 75h      ; 75 en hexadecimal (jne)
+cod2 db 85h      ;  85 en hexadecimal (jne)
+
+
+init:
+
+
+mov esi, offset cod1        ; operando origen
+mov edi, 0066e862h      ; operando destino (dir de la instruccion a cambiar)
+movsb                              ; y cambiamos la instruccion
+mov esi, offset cod1
+mov edi, 0066a8c5h
+movsb
+mov esi, offset cod2
+mov edi, 0066e1a8h ;fijate que la direccion termina en a8 y no en a7 por que
+movsb              ;la instruccion es 0F 85
+----------------------------------------------------------------------------
+
+Ahora le damos a assemble y si todo va bien ya estamos listos para introducir
+el ingerto. Action --> patch target file. Cerramos el snnipet creator y vamos
+al directorio donde se encuentra nuestro archi-protejido notepad. Creemos que
+esta todo hecho pero aun falta una cosa: Las palabras magicas. "abra cadabra.
+..... pata de cabra....... " Ejecutamos el fichero y el notepad vuelve a fun-
+cionar perfectamente. (Los que hayan hecho alguna pifia con el  snnipet crea-
+tor se estaran cagando es mis muelas por que se habran cargado el fichero xD)
+
+Pos nada que ahora ya os podeis cargar todos los programas protejidos con ar-
+madillo, hasta la version 2.25a en menos de 5 minutos.
+
+Veis que nos sale una ventanita al principio,  pero es para recordarno que el
+producto lo protejimos con armadillo y  que si no registramos armadillo,  nos
+tenemos  que tragar la mierda de ventanita.  Logicamente en programas  comer-
+ciales no os vais a encontrar esa ventanita por que  ellos habran  registrado
+armadillo. Ya si que seria cohonudo encontrar  un programa comercial que uti-
+lice el armadillo sin registrar, en cuyo caso los podeis denunciar, xDD.  Di-
+cho esto, paso a la chapa final.
+
+
+
+
+
+.==========================================================================.
+|===========~ 5.0 Inmoralidad ? ~===========================================
+|===========================================================================
+
+
+Lo que viene a continuacion, lo he sacado de la pagina de armadillo. Os pas-
+teo aqui lo que me ha parecido mas interesante, ( si quereis podeis hecharle
+un vistazo en la misma pagina de armadillo ):
+
+"Program crackers?
+
+These are the people  (usually technically skilled, if morally questionable)
+who get shareware and demo programs and  "crack"  their protections, usually
+by altering the programs, or taking them apart to see how they work and then
+creating bogus registration keys. To date, very few people have even noticed
+them  --  mostly the individual software authors and small companies who are
+being ripped off by them,   and few of those have the resources necessary to
+adequately protect their work.  Well-known or not, this is the weak point in
+the software-piracy chain -- if the program cracker can't bypass a program's
+protections,   the pirate can't distribute it.  And with the easing of legal
+restrictions on powerful encryption,   and the higher awareness of technical
+issues, programs can now be protected   from all but the most  persistent of
+program crackers."
+
+La primera pregunta que me viene a la cabeza al leer esto es:¿quien es real-
+mente el moralmente cuestionable? Unos tipos que menosprecian a los crackers
+mientras que por otra parte estan ganando dinero gracias a su existencia.
+Unos tipos cuyo trabajo  se basa simple y llanamente en  el hecho de  querer
+ganar dinero, aun a costa de vender medias verdades a sus clientes.  Pero es
+mejor no hacer caso siquiera de lo que dicen.¿Sabeis por que? Porque se tra-
+ta de puro marqueting.  Solamente quieren vender una idea a sus clientes,  a
+esos clientes que por otra parte, al igual que ellos,  lo que estan buscando
+es ganar dinero.¿No resulta comico? Un tipo en busca de dinero, que engaña a
+otro que no busca mas que lo mismo.
+
+Pero no es solo esto. Todavia resulta mas patetico cuando resulta que ademas
+de armadillo, ahi otras compañias que se encargan de lo mismo, de la  prote-
+ccion de software.   Pero,  pese a lo que les cuenten estas compañias  a sus
+clientes, como lo unico que buscan es ganar dinero,  estas empresas compiten
+entre ellas.Y mientras,los crackers,  que no trabajan por dinero,  comparten
+sus conocimientos y se ayudan mutuamente.   Siempre ahi excepciones,  aunque
+esas excepciones,  segun mi concepto de cracker, no entran dentro de la pro-
+pia definicion de cracker ( vuelvo a repetir:   del concepto que yo tengo de
+cracker).  Para mi un  verdadero cracker tiene unos ideales,  aparte  de los
+conocimientos que tenga. Que mejor ejemplo que +ORC.
+Y como el mismo decia:"solo una mente no comercial puede llevarte al conoci-
+miento  que desesperadamente necesitas si quieres crackear elegantemente las
+monstruosidades que otro programo".  En mi opinion esta frase tiene una tre-
+menda  relacion con el entendimiento del funcionamiento de nuestra sociedad,
+por que es en este entendimiento donde se basa, en mi opinion, la moralidad
+de los crackers,desde el mismo momento en que esta sociedad esta construida
+sobre la inmoralidad y la ignominia.
+
+Y bueno, con esta ultima chapilla me despido ya. Me he puesto un poco serio,
+pero es que me da la sensacion de que el termino cracker esta desvirtualiza-
+do. O tal vez sea yo el que esta desvirtualizado, xD.Tambien comentaros que
+estoy haciendo un  programilla para tratar de crackear rapidamente tanto el
+armadillo 2.25 como la version 2.50. Espero que este listo pronto...
+
+Benga, espero que hayas disfrutado de esta humilde aportacion.  ¡Hasta otra!
+
+Sugerencias y criticas a : remains@iespana.com
+
+
+                       .-eof.-

